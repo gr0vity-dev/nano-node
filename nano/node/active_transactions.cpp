@@ -801,6 +801,7 @@ nano::election_insertion_result nano::active_transactions::insert_impl (nano::un
 			{
 				result.inserted = true;
 				auto hash (block_a->hash ());
+				node.observers.active_started.notify(hash);
 				auto epoch (block_a->sideband ().details.epoch);
 				nano::uint128_t previous_balance (previous_balance_a.value_or (0));
 				debug_assert (!(previous_balance_a.value_or (0) > 0 && block_a->previous ().is_zero ()));
@@ -823,7 +824,7 @@ nano::election_insertion_result nano::active_transactions::insert_impl (nano::un
 				auto const cache = find_inactive_votes_cache_impl (hash);
 				lock_a.unlock ();
 				result.election->insert_inactive_votes_cache (cache);
-				node.stats.inc (nano::stat::type::election, nano::stat::detail::election_start);
+				node.stats.inc (nano::stat::type::election, nano::stat::detail::election_start);				
 				vacancy_update ();
 			}
 		}
