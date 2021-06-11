@@ -184,6 +184,12 @@ namespace websocket
 			return include_election_info_with_votes;
 		}
 
+		/** Returns whether or not to include sideband info */
+		bool get_include_sideband_info() const
+		{
+			return include_sideband_info;
+		}
+
 		static constexpr const uint8_t type_active_quorum = 1;
 		static constexpr const uint8_t type_active_confirmation_height = 2;
 		static constexpr const uint8_t type_inactive = 4;
@@ -197,6 +203,7 @@ namespace websocket
 		boost::optional<nano::logger_mt &> logger;
 		bool include_election_info{ false };
 		bool include_election_info_with_votes{ false };
+		bool include_sideband_info{ false };
 		bool include_block{ true };
 		bool has_account_filtering_options{ false };
 		bool all_local_accounts{ false };

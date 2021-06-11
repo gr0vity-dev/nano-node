@@ -383,6 +383,78 @@ TEST (websocket, confirmation_options_votes)
 	}
 }
 
+TEST (websocket, confirmation_options_sideband)
+{
+	nano::system system;
+	nano::node_config config(nano::get_available_port(), system.logging);
+	config.websocket_config.enabled = true;
+	config.websocket_config.port = nano::get_available_port();
+	auto node1(system.add_node(config));
+
+	std::atomic<bool> ack_ready{ false };
+	auto task1 = ([&ack_ready, config, &node1]() {
+		fake_websocket_client client(config.websocket_config.port);
+		client.send_message(R"json({"action": "subscribe", "topic": "confirmation", "ack": "true", "options": {"confirmation_type": "active_quorum", "include_block": "false", "include_sideband_info": "true"}})json");
+		client.await_ack();
+		ack_ready = true;
+		EXPECT_EQ(1, node1->websocket_server->subscriber_count(nano::websocket::topic::confirmation));
+		return client.get_response();
+		});
+	auto future1 = std::async(std::launch::async, task1);
+
+	ASSERT_TIMELY(10s, ack_ready);
+
+	// Confirm a state block for an in-wallet account
+	system.wallet(0)->insert_adhoc(nano::dev_genesis_key.prv);
+	nano::keypair key;
+	auto balance = nano::genesis_amount;
+	auto send_amount = node1->config.online_weight_minimum.number() + 1;
+	nano::block_hash previous(node1->latest(nano::dev_genesis_key.pub));
+	{
+		nano::state_block_builder builder;
+		balance -= send_amount;
+		auto send = builder
+			.account(nano::dev_genesis_key.pub)
+			.previous(previous)
+			.representative(nano::dev_genesis_key.pub)
+			.balance(balance)
+			.link(key.pub)
+			.sign(nano::dev_genesis_key.prv, nano::dev_genesis_key.pub)
+			.work(*system.work.generate(previous))
+			.build_shared();
+
+		node1->process_active(send);
+		previous = send->hash();
+	}
+
+	ASSERT_TIMELY(5s, future1.wait_for(0s) == std::future_status::ready);
+
+	auto response1 = future1.get();
+	ASSERT_TRUE(response1);
+	boost::property_tree::ptree event;
+	std::stringstream stream;
+	stream << response1.get();
+	boost::property_tree::read_json(stream, event);
+	ASSERT_EQ(event.get<std::string>("topic"), "confirmation");
+	try
+	{
+		boost::property_tree::ptree sideband_info = event.get_child("message.sideband");
+		auto local_timestamp(sideband_info.get<std::string>("local_timestamp"));
+		auto height(sideband_info.get<std::string>("height"));
+		// Duration and request count may be zero on devnet, so we only check that they're present
+		ASSERT_EQ(1, sideband_info.count("local_timestamp"));
+		ASSERT_EQ(1, sideband_info.count("height"));
+		// Make sure height and local_timestamp are non-zero.
+		ASSERT_NE("0", height);
+		ASSERT_NE("0", local_timestamp);
+		
+	}
+	catch (std::runtime_error const& ex)
+	{
+		FAIL() << ex.what();
+	}
+}
+
 // Tests updating options of block confirmations
 TEST (websocket, confirmation_options_update)
 {
