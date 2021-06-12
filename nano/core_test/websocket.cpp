@@ -441,7 +441,6 @@ TEST (websocket, confirmation_options_sideband)
 		boost::property_tree::ptree sideband_info = event.get_child("message.sideband_info");
 		auto local_timestamp(sideband_info.get<std::string>("local_timestamp"));
 		auto height(sideband_info.get<std::string>("height"));
-		// Duration and request count may be zero on devnet, so we only check that they're present
 		ASSERT_EQ(1, sideband_info.count("local_timestamp"));
 		ASSERT_EQ(1, sideband_info.count("height"));
 		// Make sure height and local_timestamp are non-zero.
@@ -1012,4 +1011,20 @@ TEST (websocket, new_unconfirmed_block)
 	auto message_contents = event.get_child ("message");
 	ASSERT_EQ ("state", message_contents.get<std::string> ("type"));
 	ASSERT_EQ ("send", message_contents.get<std::string> ("subtype"));
+	try
+	{
+		boost::property_tree::ptree sideband_info = event.get_child("message.sideband_info");
+		auto local_timestamp(sideband_info.get<std::string>("local_timestamp"));
+		auto height(sideband_info.get<std::string>("height"));
+		ASSERT_EQ(1, sideband_info.count("local_timestamp"));
+		ASSERT_EQ(1, sideband_info.count("height"));
+		// Make sure height and local_timestamp are non-zero.
+		ASSERT_NE("0", height);
+		ASSERT_NE("0", local_timestamp);
+
+	}
+	catch (std::runtime_error const& ex)
+	{
+		FAIL() << ex.what();
+	}
 }
