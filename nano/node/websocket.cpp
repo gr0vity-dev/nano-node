@@ -770,13 +770,12 @@ nano::websocket::message nano::websocket::message_builder::block_confirmed (std:
 		message_node_l.add_child ("block", block_node_l);
 	}
 
-	if (options_a.get_include_sideband_info())
+	if (options_a.get_include_sideband_info ())
 	{
 		boost::property_tree::ptree sideband_node_l;
-		sideband_node_l.add("local_timestamp", block_a->sideband().timestamp);
-		sideband_node_l.add("height", std::to_string(block_a->sideband().height));
-
-		message_node_l.add_child("sideband", sideband_node_l);
+		sideband_node_l.add("local_timestamp", std::to_string(block_a->sideband ().timestamp));
+		sideband_node_l.add("height", std::to_string(block_a->sideband ().height));
+		message_node_l.add_child("sideband_info", sideband_node_l);
 	}
 
 	message_l.contents.add_child ("message", message_node_l);
@@ -929,7 +928,7 @@ nano::websocket::message nano::websocket::message_builder::new_block_arrived (na
 	boost::property_tree::ptree sideband_node_l;
 	sideband_node_l.add("local_timestamp", block_a.sideband().timestamp);
 	sideband_node_l.add("height", std::to_string(block_a.sideband().height));
-	block_l.add_child("sideband", sideband_node_l);	
+	block_l.add_child("sideband_info", sideband_node_l);	
 	message_l.contents.add_child ("message", block_l);
 	return message_l;
 }

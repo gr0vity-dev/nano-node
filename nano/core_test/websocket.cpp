@@ -438,7 +438,7 @@ TEST (websocket, confirmation_options_sideband)
 	ASSERT_EQ(event.get<std::string>("topic"), "confirmation");
 	try
 	{
-		boost::property_tree::ptree sideband_info = event.get_child("message.sideband");
+		boost::property_tree::ptree sideband_info = event.get_child("message.sideband_info");
 		auto local_timestamp(sideband_info.get<std::string>("local_timestamp"));
 		auto height(sideband_info.get<std::string>("height"));
 		// Duration and request count may be zero on devnet, so we only check that they're present
