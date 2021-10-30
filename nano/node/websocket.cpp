@@ -897,6 +897,7 @@ nano::websocket::message nano::websocket::message_builder::new_block_arrived (na
 	block_a.serialize_json (block_l);
 	auto subtype (nano::state_subtype (block_a.sideband ().details));
 	block_l.put ("subtype", subtype);
+	block_l.put ("hash", block_a.hash ().to_string ());
 
 	message_l.contents.add_child ("message", block_l);
 	return message_l;
