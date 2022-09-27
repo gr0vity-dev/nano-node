@@ -29,6 +29,7 @@ execute_process(
   OUTPUT_STRIP_TRAILING_WHITESPACE)
 
 option(CI_BUILD false)
+option(CI_VERSION_PRE_RELEASE false)
 
 set(COVERAGE
     OFF
@@ -46,14 +47,18 @@ if(MSVC)
   add_definitions(/MP)
 endif()
 
-set(CPACK_PACKAGE_VERSION_MAJOR "23")
+set(CPACK_PACKAGE_VERSION_MAJOR "24")
 set(CPACK_PACKAGE_VERSION_MINOR "0")
 set(CPACK_PACKAGE_VERSION_PATCH "0")
-set(CPACK_PACKAGE_VERSION_PRE_RELEASE "99")
+if(CI_BUILD AND CI_VERSION_PRE_RELEASE)
+  set(CPACK_PACKAGE_VERSION_PRE_RELEASE "${CI_VERSION_PRE_RELEASE}")
+else()
+  set(CPACK_PACKAGE_VERSION_PRE_RELEASE "99")
+endif()
 set(CPACK_PACKAGE_VENDOR "Nano Currency")
 
 if(CI_BUILD)
-  set(TAG_VERSION_STRING "$ENV{TRAVIS_TAG}")
+  set(TAG_VERSION_STRING "$ENV{CI_TAG}")
 else()
   set(TAG_VERSION_STRING
       "V${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}")
@@ -253,6 +258,7 @@ else()
       add_compile_options(-fsanitize=address,undefined)
     endif()
     add_definitions(-DED25519_NO_INLINE_ASM)
+    add_definitions(-DROCKSDB_UBSAN_RUN)
   elseif(${USING_TSAN})
     add_compile_options(-fsanitize=thread)
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -614,13 +620,29 @@ if(NANO_TEST OR RAIBLOCKS_TEST)
     COMMAND echo "BATCH BUILDING TESTS"
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     DEPENDS core_test load_test rpc_test nano_node nano_rpc)
-
   add_custom_target(
     run_tests
     COMMAND ${PROJECT_SOURCE_DIR}/ci/test.sh ${CMAKE_BINARY_DIR}
     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
     DEPENDS build_tests)
 endif()
+
+if(NANO_TEST OR RAIBLOCKS_TEST)
+  if(NANO_GUI OR RAIBLOCKS_GUI)
+    add_custom_target(
+      quick_tests
+      COMMAND echo "BATCH QUICK TESTS"
+      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+      DEPENDS core_test rpc_test qt_test)
+  else()
+    add_custom_target(
+      quick_tests
+      COMMAND echo "BATCH QUICK TESTS -- qt_test is disabled"
+      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+      DEPENDS core_test rpc_test)
+  endif()
+endif()
+
 if(NANO_GUI OR RAIBLOCKS_GUI)
   install(FILES ${PROJECT_BINARY_DIR}/config-node.toml.sample DESTINATION .)
   install(FILES ${PROJECT_BINARY_DIR}/config-rpc.toml.sample DESTINATION .)
@@ -812,7 +834,8 @@ if(NANO_GUI OR RAIBLOCKS_GUI)
     install(FILES ${Qt5WindowsPlugin} DESTINATION platforms)
   else()
     set(CPACK_GENERATOR "TBZ2;DEB")
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS qt5-default)
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS
+        "qt5-default | qtbase5-dev, qtchooser, qt5-qmake, qtbase5-dev-tools")
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "russel@nano.org")
     install(TARGETS nano_wallet RUNTIME DESTINATION ./bin)
     if(NANO_SHARED_BOOST)

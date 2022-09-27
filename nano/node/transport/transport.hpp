@@ -14,9 +14,9 @@ class bandwidth_limiter final
 {
 public:
 	// initialize with limit 0 = unbounded
-	bandwidth_limiter (double const, std::size_t const);
+	bandwidth_limiter (double, std::size_t);
 	bool should_drop (std::size_t const &);
-	void reset (double const, std::size_t const);
+	void reset (double, std::size_t);
 
 private:
 	nano::rate::token_bucket bucket;
@@ -24,12 +24,15 @@ private:
 
 namespace transport
 {
-	class message;
 	nano::endpoint map_endpoint_to_v6 (nano::endpoint const &);
 	nano::endpoint map_tcp_to_endpoint (nano::tcp_endpoint const &);
 	nano::tcp_endpoint map_endpoint_to_tcp (nano::endpoint const &);
 	boost::asio::ip::address map_address_to_subnetwork (boost::asio::ip::address const &);
 	boost::asio::ip::address ipv4_address_or_ipv6_subnet (boost::asio::ip::address const &);
+	boost::asio::ip::address_v6 mapped_from_v4_bytes (unsigned long);
+	boost::asio::ip::address_v6 mapped_from_v4_or_v6 (boost::asio::ip::address const &);
+	bool is_ipv4_or_v4_mapped_address (boost::asio::ip::address const &);
+
 	// Unassigned, reserved, self
 	bool reserved_address (nano::endpoint const &, bool = false);
 	static std::chrono::seconds constexpr syn_cookie_cutoff = std::chrono::seconds (5);
@@ -38,21 +41,28 @@ namespace transport
 		undefined = 0,
 		udp = 1,
 		tcp = 2,
-		loopback = 3
+		loopback = 3,
+		fake = 4
 	};
 	class channel
 	{
 	public:
-		channel (nano::node &);
+		explicit channel (nano::node &);
 		virtual ~channel () = default;
 		virtual std::size_t hash_code () const = 0;
 		virtual bool operator== (nano::transport::channel const &) const = 0;
 		void send (nano::message & message_a, std::function<void (boost::system::error_code const &, std::size_t)> const & callback_a = nullptr, nano::buffer_drop_policy policy_a = nano::buffer_drop_policy::limiter);
+		// TODO: investigate clang-tidy warning about default parameters on virtual/override functions
+		//
 		virtual void send_buffer (nano::shared_const_buffer const &, std::function<void (boost::system::error_code const &, std::size_t)> const & = nullptr, nano::buffer_drop_policy = nano::buffer_drop_policy::limiter) = 0;
 		virtual std::string to_string () const = 0;
 		virtual nano::endpoint get_endpoint () const = 0;
 		virtual nano::tcp_endpoint get_tcp_endpoint () const = 0;
 		virtual nano::transport::transport_type get_type () const = 0;
+		virtual bool max ()
+		{
+			return false;
+		}
 
 		std::chrono::steady_clock::time_point get_last_bootstrap_attempt () const
 		{
@@ -125,6 +135,9 @@ namespace transport
 			network_version = network_version_a;
 		}
 
+		nano::endpoint get_peering_endpoint () const;
+		void set_peering_endpoint (nano::endpoint endpoint);
+
 		mutable nano::mutex channel_mutex;
 
 	private:
@@ -133,41 +146,10 @@ namespace transport
 		std::chrono::steady_clock::time_point last_packet_sent{ std::chrono::steady_clock::now () };
 		boost::optional<nano::account> node_id{ boost::none };
 		std::atomic<uint8_t> network_version{ 0 };
+		std::optional<nano::endpoint> peering_endpoint{};
 
 	protected:
 		nano::node & node;
-	};
-
-	class channel_loopback final : public nano::transport::channel
-	{
-	public:
-		channel_loopback (nano::node &);
-		std::size_t hash_code () const override;
-		bool operator== (nano::transport::channel const &) const override;
-		void send_buffer (nano::shared_const_buffer const &, std::function<void (boost::system::error_code const &, std::size_t)> const & = nullptr, nano::buffer_drop_policy = nano::buffer_drop_policy::limiter) override;
-		std::string to_string () const override;
-		bool operator== (nano::transport::channel_loopback const & other_a) const
-		{
-			return endpoint == other_a.get_endpoint ();
-		}
-
-		nano::endpoint get_endpoint () const override
-		{
-			return endpoint;
-		}
-
-		nano::tcp_endpoint get_tcp_endpoint () const override
-		{
-			return nano::transport::map_endpoint_to_tcp (endpoint);
-		}
-
-		nano::transport::transport_type get_type () const override
-		{
-			return nano::transport::transport_type::loopback;
-		}
-
-	private:
-		nano::endpoint const endpoint;
 	};
 } // namespace transport
 } // namespace nano

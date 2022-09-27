@@ -23,6 +23,11 @@ public:
 	nano::uint128_t balance{ 0 };
 	unsigned retry_limit{ 0 };
 };
+
+/**
+ * Lazy bootstrap session. Started with a block hash, this will "trace down" the blocks obtained to find a connection to the ledger.
+ * This attempts to quickly bootstrap a section of the ledger given a hash that's known to be confirmed.
+ */
 class bootstrap_attempt_lazy final : public bootstrap_attempt
 {
 public:
@@ -30,13 +35,13 @@ public:
 	~bootstrap_attempt_lazy ();
 	bool process_block (std::shared_ptr<nano::block> const &, nano::account const &, uint64_t, nano::bulk_pull::count_t, bool, unsigned) override;
 	void run () override;
-	bool lazy_start (nano::hash_or_account const &, bool confirmed = true) override;
+	bool lazy_start (nano::hash_or_account const &, bool confirmed = true);
 	void lazy_add (nano::hash_or_account const &, unsigned);
-	void lazy_add (nano::pull_info const &) override;
-	void lazy_requeue (nano::block_hash const &, nano::block_hash const &, bool) override;
+	void lazy_add (nano::pull_info const &);
+	void lazy_requeue (nano::block_hash const &, nano::block_hash const &);
 	bool lazy_finished ();
-	bool lazy_has_expired () const override;
-	uint32_t lazy_batch_size () override;
+	bool lazy_has_expired () const;
+	uint32_t lazy_batch_size ();
 	void lazy_pull_flush (nano::unique_lock<nano::mutex> & lock_a);
 	bool process_block_lazy (std::shared_ptr<nano::block> const &, nano::account const &, uint64_t, nano::bulk_pull::count_t, unsigned);
 	void lazy_block_state (std::shared_ptr<nano::block> const &, unsigned);
@@ -45,7 +50,7 @@ public:
 	void lazy_blocks_insert (nano::block_hash const &);
 	void lazy_blocks_erase (nano::block_hash const &);
 	bool lazy_blocks_processed (nano::block_hash const &);
-	bool lazy_processed_or_exists (nano::block_hash const &) override;
+	bool lazy_processed_or_exists (nano::block_hash const &);
 	unsigned lazy_retry_limit_confirmed ();
 	void get_information (boost::property_tree::ptree &) override;
 	std::unordered_set<std::size_t> lazy_blocks;
@@ -60,17 +65,21 @@ public:
 	/** The maximum number of records to be read in while iterating over long lazy containers */
 	static uint64_t constexpr batch_read_size = 256;
 };
+
+/**
+ * Wallet bootstrap session. This session will trace down accounts within local wallets to try and bootstrap those blocks first.
+ */
 class bootstrap_attempt_wallet final : public bootstrap_attempt
 {
 public:
 	explicit bootstrap_attempt_wallet (std::shared_ptr<nano::node> const & node_a, uint64_t incremental_id_a, std::string id_a = "");
 	~bootstrap_attempt_wallet ();
 	void request_pending (nano::unique_lock<nano::mutex> &);
-	void requeue_pending (nano::account const &) override;
+	void requeue_pending (nano::account const &);
 	void run () override;
-	void wallet_start (std::deque<nano::account> &) override;
+	void wallet_start (std::deque<nano::account> &);
 	bool wallet_finished ();
-	std::size_t wallet_size () override;
+	std::size_t wallet_size ();
 	void get_information (boost::property_tree::ptree &) override;
 	std::deque<nano::account> wallet_accounts;
 };

@@ -15,17 +15,17 @@ namespace
 char const * preconfigured_peers_key = "preconfigured_peers";
 char const * signature_checker_threads_key = "signature_checker_threads";
 char const * pow_sleep_interval_key = "pow_sleep_interval";
-char const * default_beta_peer_network = "peering-beta.nano.org";
-char const * default_live_peer_network = "peering.nano.org";
-std::string const default_test_peer_network = nano::get_env_or_default ("NANO_TEST_PEER_NETWORK", "peering-test.nano.org");
+std::string const default_live_peer_network = nano::get_env_or_default ("NANO_DEFAULT_PEER", "peering.nano.org");
+std::string const default_beta_peer_network = nano::get_env_or_default ("NANO_DEFAULT_PEER", "peering-beta.nano.org");
+std::string const default_test_peer_network = nano::get_env_or_default ("NANO_DEFAULT_PEER", "peering-test.nano.org");
 }
 
 nano::node_config::node_config (nano::network_params & network_params) :
-	node_config (0, nano::logging (), network_params)
+	node_config (std::nullopt, nano::logging (), network_params)
 {
 }
 
-nano::node_config::node_config (uint16_t peering_port_a, nano::logging const & logging_a, nano::network_params & network_params) :
+nano::node_config::node_config (const std::optional<uint16_t> & peering_port_a, nano::logging const & logging_a, nano::network_params & network_params) :
 	network_params{ network_params },
 	peering_port{ peering_port_a },
 	logging{ logging_a },
@@ -33,12 +33,17 @@ nano::node_config::node_config (uint16_t peering_port_a, nano::logging const & l
 	ipc_config{ network_params.network },
 	external_address{ boost::asio::ip::address_v6{}.to_string () }
 {
-	// The default constructor passes 0 to indicate we should use the default port,
-	// which is determined at node startup based on active network.
 	if (peering_port == 0)
 	{
-		peering_port = network_params.network.default_node_port;
+		// comment for posterity:
+		// - we used to consider ports being 0 a sentinel that meant to use a default port for that specific purpose
+		// - the actual default value was determined based on the active network (e.g. dev network peering port = 44000)
+		// - now, the 0 value means something different instead: user wants to let the OS pick a random port
+		// - for the specific case of the peering port, after it gets picked, it can be retrieved by client code via
+		//   node.network.endpoint ().port ()
+		// - the config value does not get back-propagated because it represents the choice of the user, and that was 0
 	}
+
 	switch (network_params.network.network ())
 	{
 		case nano::networks::nano_dev_network:
@@ -47,14 +52,14 @@ nano::node_config::node_config (uint16_t peering_port_a, nano::logging const & l
 			break;
 		case nano::networks::nano_beta_network:
 		{
-			preconfigured_peers.push_back (default_beta_peer_network);
+			preconfigured_peers.emplace_back (default_beta_peer_network);
 			nano::account offline_representative;
 			release_assert (!offline_representative.decode_account ("nano_1defau1t9off1ine9rep99999999999999999999999999999999wgmuzxxy"));
 			preconfigured_representatives.emplace_back (offline_representative);
 			break;
 		}
 		case nano::networks::nano_live_network:
-			preconfigured_peers.push_back (default_live_peer_network);
+			preconfigured_peers.emplace_back (default_live_peer_network);
 			preconfigured_representatives.emplace_back ("A30E0A32ED41C8607AA9212843392E853FCBCB4E7CB194E35C94F07F91DE59EF");
 			preconfigured_representatives.emplace_back ("67556D31DDFC2A440BF6147501449B4CB9572278D034EE686A6BEE29851681DF");
 			preconfigured_representatives.emplace_back ("5C2FBB148E006A8E8BA7A75DD86C9FE00C83F5FFDBFD76EAA09531071436B6AF");
@@ -76,7 +81,11 @@ nano::node_config::node_config (uint16_t peering_port_a, nano::logging const & l
 
 nano::error nano::node_config::serialize_toml (nano::tomlconfig & toml) const
 {
-	toml.put ("peering_port", peering_port, "Node peering port.\ntype:uint16");
+	if (peering_port.has_value ())
+	{
+		toml.put ("peering_port", *peering_port, "Node peering port.\ntype:uint16");
+	}
+
 	toml.put ("bootstrap_fraction_numerator", bootstrap_fraction_numerator, "Change bootstrap threshold (online stake / 256 * bootstrap_fraction_numerator).\ntype:uint32");
 	toml.put ("receive_minimum", receive_minimum.to_string_dec (), "Minimum receive amount. Only affects node wallets. A large amount is recommended to avoid automatic work generation for tiny transactions.\ntype:string,amount,raw");
 	toml.put ("online_weight_minimum", online_weight_minimum.to_string_dec (), "When calculating online weight, the node is forced to assume at least this much voting weight is online, thus setting a floor for voting weight to confirm transactions at online_weight_minimum * \"quorum delta\".\ntype:string,amount,raw");
@@ -90,6 +99,7 @@ nano::error nano::node_config::serialize_toml (nano::tomlconfig & toml) const
 	toml.put ("bootstrap_connections", bootstrap_connections, "Number of outbound bootstrap connections. Must be a power of 2. Defaults to 4.\nWarning: a larger amount of connections may use substantially more system memory.\ntype:uint64");
 	toml.put ("bootstrap_connections_max", bootstrap_connections_max, "Maximum number of inbound bootstrap connections. Defaults to 64.\nWarning: a larger amount of connections may use additional system memory.\ntype:uint64");
 	toml.put ("bootstrap_initiator_threads", bootstrap_initiator_threads, "Number of threads dedicated to concurrent bootstrap attempts. Defaults to 1.\nWarning: a larger amount of attempts may use additional system memory and disk IO.\ntype:uint64");
+	toml.put ("bootstrap_serving_threads", bootstrap_serving_threads, "Number of threads dedicated to serving bootstrap data to other peers. Defaults to half the number of CPU threads, and at least 2.\ntype:uint64");
 	toml.put ("bootstrap_frontier_request_count", bootstrap_frontier_request_count, "Number frontiers per bootstrap frontier request. Defaults to 1048576.\ntype:uint32,[1024..4294967295]");
 	toml.put ("block_processor_batch_max_time", block_processor_batch_max_time.count (), "The maximum time the block processor can continuously process blocks for.\ntype:milliseconds");
 	toml.put ("allow_local_peers", allow_local_peers, "Enable or disable local host peering.\ntype:bool");
@@ -112,7 +122,6 @@ nano::error nano::node_config::serialize_toml (nano::tomlconfig & toml) const
 	toml.put ("max_work_generate_multiplier", max_work_generate_multiplier, "Maximum allowed difficulty multiplier for work generation.\ntype:double,[1..]");
 	toml.put ("frontiers_confirmation", serialize_frontiers_confirmation (frontiers_confirmation), "Mode controlling frontier confirmation rate.\ntype:string,{auto,always,disabled}");
 	toml.put ("max_queued_requests", max_queued_requests, "Limit for number of queued confirmation requests for one channel, after which new requests are dropped until the queue drops below this value.\ntype:uint32");
-	toml.put ("confirm_req_batches_max", confirm_req_batches_max, "Limit for the number of confirmation requests for one channel per request attempt\ntype:uint32");
 	toml.put ("rep_crawler_weight_minimum", rep_crawler_weight_minimum.to_string_dec (), "Rep crawler minimum weight, if this is less than minimum principal weight then this is taken as the minimum weight a rep must have to be tracked. If you want to track all reps set this to 0. If you do not want this to influence anything then set it to max value. This is only useful for debugging or for people who really know what they are doing.\ntype:string,amount,raw");
 
 	auto work_peers_l (toml.create_array ("work_peers", "A list of \"address:port\" entries to identify work peers."));
@@ -311,7 +320,13 @@ nano::error nano::node_config::deserialize_toml (nano::tomlconfig & toml)
 		toml.get ("tcp_io_timeout", tcp_io_timeout_l);
 		tcp_io_timeout = std::chrono::seconds (tcp_io_timeout_l);
 
-		toml.get<uint16_t> ("peering_port", peering_port);
+		if (toml.has_key ("peering_port"))
+		{
+			std::uint16_t peering_port_l{};
+			toml.get_required<uint16_t> ("peering_port", peering_port_l);
+			peering_port = peering_port_l;
+		}
+
 		toml.get<unsigned> ("bootstrap_fraction_numerator", bootstrap_fraction_numerator);
 		toml.get<unsigned> ("election_hint_weight_percent", election_hint_weight_percent);
 		toml.get<unsigned> ("password_fanout", password_fanout);
@@ -321,6 +336,7 @@ nano::error nano::node_config::deserialize_toml (nano::tomlconfig & toml)
 		toml.get<unsigned> ("bootstrap_connections", bootstrap_connections);
 		toml.get<unsigned> ("bootstrap_connections_max", bootstrap_connections_max);
 		toml.get<unsigned> ("bootstrap_initiator_threads", bootstrap_initiator_threads);
+		toml.get<unsigned> ("bootstrap_serving_threads", bootstrap_serving_threads);
 		toml.get<uint32_t> ("bootstrap_frontier_request_count", bootstrap_frontier_request_count);
 		toml.get<bool> ("enable_voting", enable_voting);
 		toml.get<bool> ("allow_local_peers", allow_local_peers);
@@ -355,7 +371,6 @@ nano::error nano::node_config::deserialize_toml (nano::tomlconfig & toml)
 		toml.get<double> ("max_work_generate_multiplier", max_work_generate_multiplier);
 
 		toml.get<uint32_t> ("max_queued_requests", max_queued_requests);
-		toml.get<uint32_t> ("confirm_req_batches_max", confirm_req_batches_max);
 
 		auto rep_crawler_weight_minimum_l (rep_crawler_weight_minimum.to_string_dec ());
 		if (toml.has_key ("rep_crawler_weight_minimum"))
@@ -430,10 +445,6 @@ nano::error nano::node_config::deserialize_toml (nano::tomlconfig & toml)
 		{
 			toml.get_error ().set ("max_pruning_age must be greater than or equal to 5 minutes");
 		}
-		if (confirm_req_batches_max < 1 || confirm_req_batches_max > 100)
-		{
-			toml.get_error ().set ("confirm_req_batches_max must be between 1 and 100");
-		}
 		if (bootstrap_frontier_request_count < 1024)
 		{
 			toml.get_error ().set ("bootstrap_frontier_request_count must be greater than or equal to 1024");
@@ -445,289 +456,6 @@ nano::error nano::node_config::deserialize_toml (nano::tomlconfig & toml)
 	}
 
 	return toml.get_error ();
-}
-
-nano::error nano::node_config::serialize_json (nano::jsonconfig & json) const
-{
-	json.put ("version", json_version ());
-	json.put ("peering_port", peering_port);
-	json.put ("bootstrap_fraction_numerator", bootstrap_fraction_numerator);
-	json.put ("receive_minimum", receive_minimum.to_string_dec ());
-
-	nano::jsonconfig logging_l;
-	logging.serialize_json (logging_l);
-	json.put_child ("logging", logging_l);
-
-	nano::jsonconfig work_peers_l;
-	for (auto i (work_peers.begin ()), n (work_peers.end ()); i != n; ++i)
-	{
-		work_peers_l.push (boost::str (boost::format ("%1%:%2%") % i->first % i->second));
-	}
-	json.put_child ("work_peers", work_peers_l);
-	nano::jsonconfig preconfigured_peers_l;
-	for (auto i (preconfigured_peers.begin ()), n (preconfigured_peers.end ()); i != n; ++i)
-	{
-		preconfigured_peers_l.push (*i);
-	}
-	json.put_child (preconfigured_peers_key, preconfigured_peers_l);
-
-	nano::jsonconfig preconfigured_representatives_l;
-	for (auto i (preconfigured_representatives.begin ()), n (preconfigured_representatives.end ()); i != n; ++i)
-	{
-		preconfigured_representatives_l.push (i->to_account ());
-	}
-	json.put_child ("preconfigured_representatives", preconfigured_representatives_l);
-
-	json.put ("online_weight_minimum", online_weight_minimum.to_string_dec ());
-	json.put ("password_fanout", password_fanout);
-	json.put ("io_threads", io_threads);
-	json.put ("network_threads", network_threads);
-	json.put ("work_threads", work_threads);
-	json.put (signature_checker_threads_key, signature_checker_threads);
-	json.put ("enable_voting", enable_voting);
-	json.put ("bootstrap_connections", bootstrap_connections);
-	json.put ("bootstrap_connections_max", bootstrap_connections_max);
-	json.put ("callback_address", callback_address);
-	json.put ("callback_port", callback_port);
-	json.put ("callback_target", callback_target);
-	json.put ("block_processor_batch_max_time", block_processor_batch_max_time.count ());
-	json.put ("allow_local_peers", allow_local_peers);
-	json.put ("vote_minimum", vote_minimum.to_string_dec ());
-	json.put ("vote_generator_delay", vote_generator_delay.count ());
-	json.put ("vote_generator_threshold", vote_generator_threshold);
-	json.put ("unchecked_cutoff_time", unchecked_cutoff_time.count ());
-	json.put ("tcp_io_timeout", tcp_io_timeout.count ());
-	json.put ("pow_sleep_interval", pow_sleep_interval.count ());
-	json.put ("external_address", external_address);
-	json.put ("external_port", external_port);
-	json.put ("tcp_incoming_connections_max", tcp_incoming_connections_max);
-	json.put ("use_memory_pools", use_memory_pools);
-	json.put ("rep_crawler_weight_minimum", online_weight_minimum.to_string_dec ());
-	nano::jsonconfig websocket_l;
-	websocket_config.serialize_json (websocket_l);
-	json.put_child ("websocket", websocket_l);
-	nano::jsonconfig ipc_l;
-	ipc_config.serialize_json (ipc_l);
-	json.put_child ("ipc", ipc_l);
-	nano::jsonconfig diagnostics_l;
-	diagnostics_config.serialize_json (diagnostics_l);
-	json.put_child ("diagnostics", diagnostics_l);
-	json.put ("confirmation_history_size", confirmation_history_size);
-	json.put ("active_elections_size", active_elections_size);
-	json.put ("bandwidth_limit", bandwidth_limit);
-	json.put ("backup_before_upgrade", backup_before_upgrade);
-	json.put ("work_watcher_period", 5);
-
-	return json.get_error ();
-}
-
-bool nano::node_config::upgrade_json (unsigned version_a, nano::jsonconfig & json)
-{
-	json.put ("version", json_version ());
-	switch (version_a)
-	{
-		case 1:
-		case 2:
-		case 3:
-		case 4:
-		case 5:
-		case 6:
-		case 7:
-		case 8:
-		case 9:
-		case 10:
-		case 11:
-		case 12:
-		case 13:
-		case 14:
-		case 15:
-		case 16:
-			throw std::runtime_error ("node_config version unsupported for upgrade. Upgrade to a v19, v20 or v21 node first, or delete the config and ledger files");
-		case 17:
-		{
-			json.put ("active_elections_size", 10000); // Update value
-			json.put ("vote_generator_delay", 100); // Update value
-			json.put ("backup_before_upgrade", backup_before_upgrade);
-			json.put ("work_watcher_period", 5);
-		}
-		case 18:
-			break;
-		default:
-			throw std::runtime_error ("Unknown node_config version");
-	}
-	return version_a < json_version ();
-}
-
-nano::error nano::node_config::deserialize_json (bool & upgraded_a, nano::jsonconfig & json)
-{
-	try
-	{
-		auto version_l (json.get<unsigned> ("version"));
-		upgraded_a |= upgrade_json (version_l, json);
-
-		auto logging_l (json.get_required_child ("logging"));
-		logging.deserialize_json (upgraded_a, logging_l);
-
-		work_peers.clear ();
-		auto work_peers_l (json.get_required_child ("work_peers"));
-		work_peers_l.array_entries<std::string> ([this] (std::string entry) {
-			auto port_position (entry.rfind (':'));
-			bool result = port_position == -1;
-			if (!result)
-			{
-				auto port_str (entry.substr (port_position + 1));
-				uint16_t port;
-				result |= parse_port (port_str, port);
-				if (!result)
-				{
-					auto address (entry.substr (0, port_position));
-					this->work_peers.emplace_back (address, port);
-				}
-			}
-		});
-
-		auto preconfigured_peers_l (json.get_required_child (preconfigured_peers_key));
-		preconfigured_peers.clear ();
-		preconfigured_peers_l.array_entries<std::string> ([this] (std::string entry) {
-			preconfigured_peers.push_back (entry);
-		});
-
-		auto preconfigured_representatives_l (json.get_required_child ("preconfigured_representatives"));
-		preconfigured_representatives.clear ();
-		preconfigured_representatives_l.array_entries<std::string> ([this, &json] (std::string entry) {
-			nano::account representative{};
-			if (representative.decode_account (entry))
-			{
-				json.get_error ().set ("Invalid representative account: " + entry);
-			}
-			preconfigured_representatives.push_back (representative);
-		});
-
-		if (preconfigured_representatives.empty ())
-		{
-			json.get_error ().set ("At least one representative account must be set");
-		}
-		auto stat_config_l (json.get_optional_child ("statistics"));
-		if (stat_config_l)
-		{
-			stat_config.deserialize_json (stat_config_l.get ());
-		}
-
-		auto receive_minimum_l (json.get<std::string> ("receive_minimum"));
-		if (receive_minimum.decode_dec (receive_minimum_l))
-		{
-			json.get_error ().set ("receive_minimum contains an invalid decimal amount");
-		}
-
-		auto online_weight_minimum_l (json.get<std::string> ("online_weight_minimum"));
-		if (online_weight_minimum.decode_dec (online_weight_minimum_l))
-		{
-			json.get_error ().set ("online_weight_minimum contains an invalid decimal amount");
-		}
-
-		auto rep_crawler_weight_minimum_l (json.get<std::string> ("rep_crawler_weight_minimum"));
-		if (rep_crawler_weight_minimum.decode_dec (rep_crawler_weight_minimum_l))
-		{
-			json.get_error ().set ("rep_crawler_weight_minimum contains an invalid decimal amount");
-		}
-
-		auto vote_minimum_l (json.get<std::string> ("vote_minimum"));
-		if (vote_minimum.decode_dec (vote_minimum_l))
-		{
-			json.get_error ().set ("vote_minimum contains an invalid decimal amount");
-		}
-
-		auto delay_l = vote_generator_delay.count ();
-		json.get ("vote_generator_delay", delay_l);
-		vote_generator_delay = std::chrono::milliseconds (delay_l);
-
-		json.get<unsigned> ("vote_generator_threshold", vote_generator_threshold);
-
-		auto block_processor_batch_max_time_l (json.get<unsigned long> ("block_processor_batch_max_time"));
-		block_processor_batch_max_time = std::chrono::milliseconds (block_processor_batch_max_time_l);
-		auto unchecked_cutoff_time_l = static_cast<unsigned long> (unchecked_cutoff_time.count ());
-		json.get ("unchecked_cutoff_time", unchecked_cutoff_time_l);
-		unchecked_cutoff_time = std::chrono::seconds (unchecked_cutoff_time_l);
-
-		auto tcp_io_timeout_l = static_cast<unsigned long> (tcp_io_timeout.count ());
-		json.get ("tcp_io_timeout", tcp_io_timeout_l);
-		tcp_io_timeout = std::chrono::seconds (tcp_io_timeout_l);
-
-		auto ipc_config_l (json.get_optional_child ("ipc"));
-		if (ipc_config_l)
-		{
-			ipc_config.deserialize_json (upgraded_a, ipc_config_l.get ());
-		}
-		auto websocket_config_l (json.get_optional_child ("websocket"));
-		if (websocket_config_l)
-		{
-			websocket_config.deserialize_json (websocket_config_l.get ());
-		}
-		auto diagnostics_config_l (json.get_optional_child ("diagnostics"));
-		if (diagnostics_config_l)
-		{
-			diagnostics_config.deserialize_json (diagnostics_config_l.get ());
-		}
-		json.get<uint16_t> ("peering_port", peering_port);
-		json.get<unsigned> ("bootstrap_fraction_numerator", bootstrap_fraction_numerator);
-		json.get<unsigned> ("password_fanout", password_fanout);
-		json.get<unsigned> ("io_threads", io_threads);
-		json.get<unsigned> ("work_threads", work_threads);
-		json.get<unsigned> ("network_threads", network_threads);
-		json.get<unsigned> ("bootstrap_connections", bootstrap_connections);
-		json.get<unsigned> ("bootstrap_connections_max", bootstrap_connections_max);
-		json.get<std::string> ("callback_address", callback_address);
-		json.get<uint16_t> ("callback_port", callback_port);
-		json.get<std::string> ("callback_target", callback_target);
-		json.get<bool> ("enable_voting", enable_voting);
-		json.get<bool> ("allow_local_peers", allow_local_peers);
-		json.get<unsigned> (signature_checker_threads_key, signature_checker_threads);
-		boost::asio::ip::address_v6 external_address_l;
-		json.get<boost::asio::ip::address_v6> ("external_address", external_address_l);
-		external_address = external_address_l.to_string ();
-		json.get<uint16_t> ("external_port", external_port);
-		json.get<unsigned> ("tcp_incoming_connections_max", tcp_incoming_connections_max);
-
-		auto pow_sleep_interval_l (pow_sleep_interval.count ());
-		json.get (pow_sleep_interval_key, pow_sleep_interval_l);
-		pow_sleep_interval = std::chrono::nanoseconds (pow_sleep_interval_l);
-		json.get<bool> ("use_memory_pools", use_memory_pools);
-		json.get<std::size_t> ("confirmation_history_size", confirmation_history_size);
-		json.get<std::size_t> ("active_elections_size", active_elections_size);
-		json.get<std::size_t> ("bandwidth_limit", bandwidth_limit);
-		json.get<bool> ("backup_before_upgrade", backup_before_upgrade);
-
-		auto conf_height_processor_batch_min_time_l (conf_height_processor_batch_min_time.count ());
-		json.get ("conf_height_processor_batch_min_time", conf_height_processor_batch_min_time_l);
-		conf_height_processor_batch_min_time = std::chrono::milliseconds (conf_height_processor_batch_min_time_l);
-
-		// Validate ranges
-		if (password_fanout < 16 || password_fanout > 1024 * 1024)
-		{
-			json.get_error ().set ("password_fanout must be a number between 16 and 1048576");
-		}
-		if (io_threads == 0)
-		{
-			json.get_error ().set ("io_threads must be non-zero");
-		}
-		if (active_elections_size <= 250 && !network_params.network.is_dev_network ())
-		{
-			json.get_error ().set ("active_elections_size must be greater than 250");
-		}
-		if (bandwidth_limit > std::numeric_limits<std::size_t>::max ())
-		{
-			json.get_error ().set ("bandwidth_limit unbounded = 0, default = 10485760, max = 18446744073709551615");
-		}
-		if (vote_generator_threshold < 1 || vote_generator_threshold > 11)
-		{
-			json.get_error ().set ("vote_generator_threshold must be a number between 1 and 11");
-		}
-	}
-	catch (std::runtime_error const & ex)
-	{
-		json.get_error ().set (ex.what ());
-	}
-	return json.get_error ();
 }
 
 std::string nano::node_config::serialize_frontiers_confirmation (nano::frontiers_confirmation_mode mode_a) const

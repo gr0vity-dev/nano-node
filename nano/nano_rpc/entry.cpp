@@ -2,6 +2,7 @@
 #include <nano/lib/errors.hpp>
 #include <nano/lib/signal_manager.hpp>
 #include <nano/lib/threading.hpp>
+#include <nano/lib/tlsconfig.hpp>
 #include <nano/lib/utility.hpp>
 #include <nano/node/cli.hpp>
 #include <nano/node/ipc/ipc_server.hpp>
@@ -46,6 +47,20 @@ void run (boost::filesystem::path const & data_path, std::vector<std::string> co
 	if (!error)
 	{
 		logging_init (data_path);
+		nano::logger_mt logger;
+
+		auto tls_config (std::make_shared<nano::tls_config> ());
+		error = nano::read_tls_config_toml (data_path, *tls_config, logger);
+		if (error)
+		{
+			std::cerr << error.get_message () << std::endl;
+			std::exit (1);
+		}
+		else
+		{
+			rpc_config.tls_config = tls_config;
+		}
+
 		boost::asio::io_context io_ctx;
 		nano::signal_manager sigman;
 		try
@@ -141,7 +156,11 @@ int main (int argc, char * const * argv)
 	}
 	else
 	{
-		std::cout << description << std::endl;
+		// Issue #3748
+		// Regardless how the options were added, output the options in alphabetical order so they are easy to find.
+		boost::program_options::options_description sorted_description ("Command line options");
+		nano::sort_options_description (description, sorted_description);
+		std::cout << sorted_description << std::endl;
 	}
 
 	return 1;

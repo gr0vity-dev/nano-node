@@ -700,7 +700,7 @@ bool nano::wallet::enter_password (nano::transaction const & transaction_a, std:
 	{
 		auto this_l (shared_from_this ());
 		wallets.node.background ([this_l] () {
-			this_l->search_pending (this_l->wallets.tx_begin_read ());
+			this_l->search_receivable (this_l->wallets.tx_begin_read ());
 		});
 		wallets.node.logger.try_log ("Wallet unlocked");
 	}
@@ -1164,7 +1164,7 @@ void nano::wallet::work_ensure (nano::account const & account_a, nano::root cons
 	});
 }
 
-bool nano::wallet::search_pending (nano::transaction const & wallet_transaction_a)
+bool nano::wallet::search_receivable (nano::transaction const & wallet_transaction_a)
 {
 	auto result (!store.valid_password (wallet_transaction_a));
 	if (!result)
@@ -1339,11 +1339,7 @@ nano::wallets::wallets (bool error_a, nano::node & node_a) :
 	kdf{ node_a.config.network_params.kdf_work },
 	node (node_a),
 	env (boost::polymorphic_downcast<nano::mdb_wallets_store *> (node_a.wallets_store_impl.get ())->environment),
-	stopped (false),
-	thread ([this] () {
-		nano::thread_role::set (nano::thread_role::name::wallet_actions);
-		do_wallet_actions ();
-	})
+	stopped (false)
 {
 	nano::unique_lock<nano::mutex> lock (mutex);
 	if (!error_a)
@@ -1352,7 +1348,7 @@ nano::wallets::wallets (bool error_a, nano::node & node_a) :
 		auto status (mdb_dbi_open (env.tx (transaction), nullptr, MDB_CREATE, &handle));
 		split_if_needed (transaction, node.store);
 		status |= mdb_dbi_open (env.tx (transaction), "send_action_ids", MDB_CREATE, &send_action_ids);
-		debug_assert (status == 0);
+		release_assert (status == 0);
 		std::string beginning (nano::uint256_union (0).to_string ());
 		std::string end ((nano::uint256_union (nano::uint256_t (0) - nano::uint256_t (1))).to_string ());
 		nano::store_iterator<std::array<char, 64>, nano::no_value> i (std::make_unique<nano::mdb_iterator<std::array<char, 64>, nano::no_value>> (transaction, handle, nano::mdb_val (beginning.size (), const_cast<char *> (beginning.c_str ()))));
@@ -1362,8 +1358,8 @@ nano::wallets::wallets (bool error_a, nano::node & node_a) :
 			nano::wallet_id id;
 			std::string text (i->first.data (), i->first.size ());
 			auto error (id.decode_hex (text));
-			debug_assert (!error);
-			debug_assert (items.find (id) == items.end ());
+			release_assert (!error);
+			release_assert (items.find (id) == items.end ());
 			auto wallet (std::make_shared<nano::wallet> (error, transaction, *this, text));
 			if (!error)
 			{
@@ -1394,7 +1390,7 @@ nano::wallets::wallets (bool error_a, nano::node & node_a) :
 		char const * store_path;
 		mdb_env_get_path (env, &store_path);
 		boost::filesystem::path const path (store_path);
-		nano::mdb_store::create_backup_file (env, path, node_a.logger);
+		nano::lmdb::store::create_backup_file (env, path, node_a.logger);
 	}
 	for (auto & item : items)
 	{
@@ -1442,17 +1438,17 @@ std::shared_ptr<nano::wallet> nano::wallets::create (nano::wallet_id const & id_
 	return result;
 }
 
-bool nano::wallets::search_pending (nano::wallet_id const & wallet_a)
+bool nano::wallets::search_receivable (nano::wallet_id const & wallet_a)
 {
 	auto result (false);
 	if (auto wallet = open (wallet_a); wallet != nullptr)
 	{
-		result = wallet->search_pending (tx_begin_read ());
+		result = wallet->search_receivable (tx_begin_read ());
 	}
 	return result;
 }
 
-void nano::wallets::search_pending_all ()
+void nano::wallets::search_receivable_all ()
 {
 	nano::unique_lock<nano::mutex> lk (mutex);
 	auto wallets_l = get_wallets ();
@@ -1460,7 +1456,7 @@ void nano::wallets::search_pending_all ()
 	lk.unlock ();
 	for (auto const & [id, wallet] : wallets_l)
 	{
-		wallet->search_pending (wallet_transaction);
+		wallet->search_receivable (wallet_transaction);
 	}
 }
 
@@ -1606,6 +1602,14 @@ void nano::wallets::stop ()
 	}
 }
 
+void nano::wallets::start ()
+{
+	thread = std::thread{ [this] () {
+		nano::thread_role::set (nano::thread_role::name::wallet_actions);
+		do_wallet_actions ();
+	} };
+}
+
 nano::write_transaction nano::wallets::tx_begin_write ()
 {
 	return env.tx_begin_write ();
@@ -1688,7 +1692,8 @@ void nano::wallets::ongoing_compute_reps ()
 {
 	compute_reps ();
 	auto & node_l (node);
-	auto compute_delay (network_params.network.is_dev_network () ? std::chrono::milliseconds (10) : std::chrono::milliseconds (15 * 60 * 1000)); // Representation drifts quickly on the test network but very slowly on the live network
+	// Representation drifts quickly on the test network but very slowly on the live network
+	auto compute_delay = network_params.network.is_dev_network () ? std::chrono::milliseconds (10) : (network_params.network.is_test_network () ? std::chrono::milliseconds (nano::test_scan_wallet_reps_delay ()) : std::chrono::minutes (15));
 	node.workers.add_timed_task (std::chrono::steady_clock::now () + compute_delay, [&node_l] () {
 		node_l.wallets.ongoing_compute_reps ();
 	});
@@ -1696,7 +1701,7 @@ void nano::wallets::ongoing_compute_reps ()
 
 void nano::wallets::split_if_needed (nano::transaction & transaction_destination, nano::store & store_a)
 {
-	auto store_l (dynamic_cast<nano::mdb_store *> (&store_a));
+	auto store_l = dynamic_cast<nano::lmdb::store *> (&store_a);
 	if (store_l != nullptr)
 	{
 		if (items.empty ())

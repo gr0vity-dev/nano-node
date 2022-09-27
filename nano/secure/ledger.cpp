@@ -839,7 +839,7 @@ nano::uint128_t nano::ledger::account_balance (nano::transaction const & transac
 	return result;
 }
 
-nano::uint128_t nano::ledger::account_pending (nano::transaction const & transaction_a, nano::account const & account_a, bool only_confirmed_a)
+nano::uint128_t nano::ledger::account_receivable (nano::transaction const & transaction_a, nano::account const & account_a, bool only_confirmed_a)
 {
 	nano::uint128_t result (0);
 	nano::account end (account_a.number () + 1);
@@ -901,6 +901,11 @@ bool nano::ledger::block_or_pruned_exists (nano::transaction const & transaction
 	return store.block.exists (transaction_a, hash_a);
 }
 
+bool nano::ledger::root_exists (nano::transaction const & transaction_a, nano::root const & root_a)
+{
+	return store.block.exists (transaction_a, root_a.as_block_hash ()) || store.account.exists (transaction_a, root_a.as_account ());
+}
+
 std::string nano::ledger::block_text (char const * hash_a)
 {
 	return block_text (nano::block_hash (hash_a));
@@ -918,14 +923,19 @@ std::string nano::ledger::block_text (nano::block_hash const & hash_a)
 	return result;
 }
 
-bool nano::ledger::is_send (nano::transaction const & transaction_a, nano::state_block const & block_a) const
+bool nano::ledger::is_send (nano::transaction const & transaction_a, nano::block const & block_a) const
 {
+	if (block_a.type () != nano::block_type::state)
+	{
+		return block_a.type () == nano::block_type::send;
+	}
+	nano::block_hash previous = block_a.previous ();
 	/*
 	 * if block_a does not have a sideband, then is_send()
 	 * requires that the previous block exists in the database.
 	 * This is because it must retrieve the balance of the previous block.
 	 */
-	debug_assert (block_a.has_sideband () || block_a.hashables.previous.is_zero () || store.block.exists (transaction_a, block_a.hashables.previous));
+	debug_assert (block_a.has_sideband () || previous.is_zero () || store.block.exists (transaction_a, previous));
 
 	bool result (false);
 	if (block_a.has_sideband ())
@@ -934,10 +944,9 @@ bool nano::ledger::is_send (nano::transaction const & transaction_a, nano::state
 	}
 	else
 	{
-		nano::block_hash previous (block_a.hashables.previous);
 		if (!previous.is_zero ())
 		{
-			if (block_a.hashables.balance < balance (transaction_a, previous))
+			if (block_a.balance () < balance (transaction_a, previous))
 			{
 				result = true;
 			}
@@ -1237,6 +1246,54 @@ std::array<nano::block_hash, 2> nano::ledger::dependent_blocks (nano::transactio
 	return visitor.result;
 }
 
+/** Given the block hash of a send block, find the associated receive block that receives that send.
+ *  The send block hash is not checked in any way, it is assumed to be correct.
+ * @return Return the receive block on success and null on failure
+ */
+std::shared_ptr<nano::block> nano::ledger::find_receive_block_by_send_hash (nano::transaction const & transaction, nano::account const & destination, nano::block_hash const & send_block_hash)
+{
+	std::shared_ptr<nano::block> result;
+	debug_assert (send_block_hash != 0);
+
+	// get the cemented frontier
+	nano::confirmation_height_info info;
+	if (store.confirmation_height.get (transaction, destination, info))
+	{
+		return nullptr;
+	}
+	auto possible_receive_block = store.block.get (transaction, info.frontier);
+
+	// walk down the chain until the source field of a receive block matches the send block hash
+	while (possible_receive_block != nullptr)
+	{
+		// if source is non-zero then it is a legacy receive or open block
+		nano::block_hash source = possible_receive_block->source ();
+
+		// if source is zero then it could be a state block, which needs a different kind of access
+		auto state_block = dynamic_cast<nano::state_block const *> (possible_receive_block.get ());
+		if (state_block != nullptr)
+		{
+			// we read the block from the database, so we expect it to have sideband
+			debug_assert (state_block->has_sideband ());
+			if (state_block->sideband ().details.is_receive)
+			{
+				source = state_block->hashables.link.as_block_hash ();
+			}
+		}
+
+		if (send_block_hash == source)
+		{
+			// we have a match
+			result = possible_receive_block;
+			break;
+		}
+
+		possible_receive_block = store.block.get (transaction, possible_receive_block->previous ());
+	}
+
+	return result;
+}
+
 nano::account const & nano::ledger::epoch_signer (nano::link const & link_a) const
 {
 	return constants.epochs.signer (constants.epochs.epoch (link_a));
@@ -1438,15 +1495,6 @@ bool nano::ledger::migrate_lmdb_to_rocksdb (boost::filesystem::path const & data
 			}
 		});
 
-		store.unchecked.for_each_par (
-		[&rocksdb_store] (nano::read_transaction const & /*unused*/, auto i, auto n) {
-			for (; i != n; ++i)
-			{
-				auto rocksdb_transaction (rocksdb_store->tx_begin_write ({}, { nano::tables::unchecked }));
-				rocksdb_store->unchecked.put (rocksdb_transaction, i->first, i->second);
-			}
-		});
-
 		store.pending.for_each_par (
 		[&rocksdb_store] (nano::read_transaction const & /*unused*/, auto i, auto n) {
 			for (; i != n; ++i)
@@ -1517,7 +1565,6 @@ bool nano::ledger::migrate_lmdb_to_rocksdb (boost::filesystem::path const & data
 		}
 
 		// Compare counts
-		error |= store.unchecked.count (lmdb_transaction) != rocksdb_store->unchecked.count (rocksdb_transaction);
 		error |= store.peer.count (lmdb_transaction) != rocksdb_store->peer.count (rocksdb_transaction);
 		error |= store.pruned.count (lmdb_transaction) != rocksdb_store->pruned.count (rocksdb_transaction);
 		error |= store.final_vote.count (lmdb_transaction) != rocksdb_store->final_vote.count (rocksdb_transaction);
@@ -1544,6 +1591,11 @@ bool nano::ledger::migrate_lmdb_to_rocksdb (boost::filesystem::path const & data
 		error = true;
 	}
 	return error;
+}
+
+bool nano::ledger::bootstrap_weight_reached () const
+{
+	return cache.block_count >= bootstrap_weight_max_blocks;
 }
 
 nano::uncemented_info::uncemented_info (nano::block_hash const & cemented_frontier, nano::block_hash const & frontier, nano::account const & account) :
