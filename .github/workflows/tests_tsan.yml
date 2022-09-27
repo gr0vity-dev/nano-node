@@ -24,9 +24,7 @@ jobs:
       RELEASE: ${{ matrix.RELEASE }}
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     steps:
-      - uses: actions/checkout@5a4ac9002d0be2fb38bd78e4b4dbde5606d7042f
-        with:
-          submodules: "recursive"
+      - uses: snickerbockers/submodules-init@v4
       - name: Fetch Deps
         run: ci/actions/linux/install_deps.sh
       - name: Build Tests
