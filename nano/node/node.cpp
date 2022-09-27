@@ -311,7 +311,7 @@ nano::node::node (boost::asio::io_context & io_ctx_a, boost::filesystem::path co
 						}
 					}
 
-					this->websocket_server->broadcast_confirmation (block_a, *this, account_a, amount_a, subtype, status_a, votes_a);
+					this->websocket_server->broadcast_confirmation (block_a, account_a, amount_a, subtype, status_a, votes_a);
 				}
 			});
 

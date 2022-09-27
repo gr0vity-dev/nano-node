@@ -20,7 +20,6 @@
 
 namespace nano
 {
-class node;
 class wallets;
 class logger_mt;
 class vote;
@@ -301,7 +300,7 @@ namespace websocket
 		void stop ();
 
 		/** Broadcast block confirmation. The content of the message depends on subscription options (such as "include_block") */
-		void broadcast_confirmation (std::shared_ptr<nano::block> const & block_a, nano::node & node_a, nano::account const & account_a, nano::amount const & amount_a, std::string const & subtype, nano::election_status const & election_status_a, std::vector<nano::vote_with_weight_info> const & election_votes_a);
+		void broadcast_confirmation (std::shared_ptr<nano::block> const & block_a, nano::account const & account_a, nano::amount const & amount_a, std::string const & subtype, nano::election_status const & election_status_a, std::vector<nano::vote_with_weight_info> const & election_votes_a);
 
 		/** Broadcast \p message to all session subscribing to the message topic. */
 		void broadcast (nano::websocket::message message_a);
@@ -346,7 +345,6 @@ namespace websocket
 
 		std::shared_ptr<nano::tls_config> tls_config;
 		nano::logger_mt & logger;
-		nano::node & node;
 		nano::wallets & wallets;
 		boost::asio::ip::tcp::acceptor acceptor;
 		socket_type socket;

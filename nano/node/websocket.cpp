@@ -6,7 +6,6 @@
 #include <nano/node/transport/transport.hpp>
 #include <nano/node/wallet.hpp>
 #include <nano/node/websocket.hpp>
-#include <nano/node/node.hpp>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/property_tree/json_parser.hpp>
@@ -562,7 +561,6 @@ void nano::websocket::listener::stop ()
 nano::websocket::listener::listener (std::shared_ptr<nano::tls_config> const & tls_config_a, nano::logger_mt & logger_a, nano::wallets & wallets_a, boost::asio::io_context & io_ctx_a, boost::asio::ip::tcp::endpoint endpoint_a) :
 	tls_config (tls_config_a),
 	logger (logger_a),
-	node (node_a),
 	wallets (wallets_a),
 	acceptor (io_ctx_a),
 	socket (io_ctx_a)
@@ -636,7 +634,7 @@ void nano::websocket::listener::on_accept (boost::system::error_code ec)
 	}
 }
 
-void nano::websocket::listener::broadcast_confirmation (std::shared_ptr<nano::block> const & block_a, nano::node & node_a, nano::account const & account_a, nano::amount const & amount_a, std::string const & subtype, nano::election_status const & election_status_a, std::vector<nano::vote_with_weight_info> const & election_votes_a)
+void nano::websocket::listener::broadcast_confirmation (std::shared_ptr<nano::block> const & block_a, nano::account const & account_a, nano::amount const & amount_a, std::string const & subtype, nano::election_status const & election_status_a, std::vector<nano::vote_with_weight_info> const & election_votes_a)
 {
 	nano::websocket::message_builder builder;
 
@@ -661,11 +659,11 @@ void nano::websocket::listener::broadcast_confirmation (std::shared_ptr<nano::bl
 
 				if (include_block && !msg_with_block)
 				{
-					msg_with_block = builder.block_confirmed (block_a, node_a, account_a, amount_a, subtype, include_block, election_status_a, election_votes_a, *conf_options);
+					msg_with_block = builder.block_confirmed (block_a, account_a, amount_a, subtype, include_block, election_status_a, election_votes_a, *conf_options);
 				}
 				else if (!include_block && !msg_without_block)
 				{
-					msg_without_block = builder.block_confirmed (block_a, node_a, account_a, amount_a, subtype, include_block, election_status_a, election_votes_a, *conf_options);
+					msg_without_block = builder.block_confirmed (block_a, account_a, amount_a, subtype, include_block, election_status_a, election_votes_a, *conf_options);
 				}
 
 				session_ptr->write (include_block ? msg_with_block.get () : msg_without_block.get ());
@@ -723,7 +721,7 @@ nano::websocket::message nano::websocket::message_builder::stopped_election (nan
 	return message_l;
 }
 
-nano::websocket::message nano::websocket::message_builder::block_confirmed (std::shared_ptr<nano::block> const & block_a, nano::node & node_a, nano::account const & account_a, nano::amount const & amount_a, std::string subtype, bool include_block_a, nano::election_status const & election_status_a, std::vector<nano::vote_with_weight_info> const & election_votes_a, nano::websocket::confirmation_options const & options_a)
+nano::websocket::message nano::websocket::message_builder::block_confirmed (std::shared_ptr<nano::block> const & block_a, nano::account const & account_a, nano::amount const & amount_a, std::string subtype, bool include_block_a, nano::election_status const & election_status_a, std::vector<nano::vote_with_weight_info> const & election_votes_a, nano::websocket::confirmation_options const & options_a)
 {
 	nano::websocket::message message_l (nano::websocket::topic::confirmation);
 	set_common_fields (message_l);
@@ -785,18 +783,6 @@ nano::websocket::message nano::websocket::message_builder::block_confirmed (std:
 		if (!subtype.empty ())
 		{
 			block_node_l.add ("subtype", subtype);
-
-			// source_account lookup
-			if (subtype.compare("receive") == 0 || subtype.compare("open") == 0)
-			{
-				auto transaction (node_a.store.tx_begin_read ());
-				auto source_account (node_a.ledger.account (transaction, block_a->link ().as_block_hash ()));
-				block_node_l.add ("source_account", source_account.to_account ());
-			}
-			else 
-			{
-				block_node_l.add ("source_account", "0");
-			}
 		}
 		message_node_l.add_child ("block", block_node_l);
 	}
@@ -956,7 +942,6 @@ nano::websocket::message nano::websocket::message_builder::new_block_arrived (na
 	block_a.serialize_json (block_l);
 	auto subtype (nano::state_subtype (block_a.sideband ().details));
 	block_l.put ("subtype", subtype);
-	block_l.put ("hash", block_a.hash ().to_string ());
 
 	message_l.contents.add_child ("message", block_l);
 	return message_l;
