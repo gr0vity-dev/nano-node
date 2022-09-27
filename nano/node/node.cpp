@@ -204,11 +204,7 @@ nano::node::node (boost::asio::io_context & io_ctx_a, boost::filesystem::path co
 		if (config.websocket_config.enabled)
 		{
 			auto endpoint_l (nano::tcp_endpoint (boost::asio::ip::make_address_v6 (config.websocket_config.address), config.websocket_config.port));
-<<<<<<< HEAD
-			websocket_server = std::make_shared<nano::websocket::listener> (logger, *this, wallets, io_ctx, endpoint_l);
-=======
 			websocket_server = std::make_shared<nano::websocket::listener> (config.websocket_config.tls_config, logger, wallets, io_ctx, endpoint_l);
->>>>>>> dbbab9174315848652199069ed9f0a02964394f3
 			this->websocket_server->run ();
 		}
 

@@ -559,12 +559,8 @@ void nano::websocket::listener::stop ()
 	sessions.clear ();
 }
 
-<<<<<<< HEAD
-nano::websocket::listener::listener (nano::logger_mt & logger_a, nano::node & node_a, nano::wallets & wallets_a, boost::asio::io_context & io_ctx_a, boost::asio::ip::tcp::endpoint endpoint_a) :
-=======
 nano::websocket::listener::listener (std::shared_ptr<nano::tls_config> const & tls_config_a, nano::logger_mt & logger_a, nano::wallets & wallets_a, boost::asio::io_context & io_ctx_a, boost::asio::ip::tcp::endpoint endpoint_a) :
 	tls_config (tls_config_a),
->>>>>>> dbbab9174315848652199069ed9f0a02964394f3
 	logger (logger_a),
 	node (node_a),
 	wallets (wallets_a),
