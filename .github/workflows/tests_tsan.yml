@@ -5,7 +5,6 @@ on: [push, pull_request]
 env:
   RELEASE: 0
   artifact: 0
-  TSAN: 1
 
 jobs:  
   linux_test:
@@ -31,7 +30,7 @@ jobs:
       - name: Fetch Deps
         run: ci/actions/linux/install_deps.sh
       - name: Build Tests
-        run: docker run -e TEST_USE_ROCKSDB  -e RELEASE -v ${PWD}:/workspace nanocurrency/nano-env:${{ matrix.COMPILER }} /bin/bash -c "cd /workspace && TSAN=${{ TSAN }} ./ci/build-ci.sh /usr/lib/x86_64-linux-gnu/cmake/Qt5"
+        run: docker run -e TEST_USE_ROCKSDB  -e RELEASE -v ${PWD}:/workspace nanocurrency/nano-env:${{ matrix.COMPILER }} /bin/bash -c "cd /workspace && TSAN=1 ./ci/build-ci.sh /usr/lib/x86_64-linux-gnu/cmake/Qt5"
       - name: Run Tests lmdb
         if: ${{ matrix.TEST_USE_ROCKSDB == 0 }}
         run: docker run  -e RELEASE -v ${PWD}:/workspace nanocurrency/nano-env:${{ matrix.COMPILER }} /bin/bash -c "cd /workspace/build && TSAN_OPTIONS=suppressions="./ci/suppressions/tsan_suppressions":log_exe_name=1:log_path="./tsan_report" ./core_test"
