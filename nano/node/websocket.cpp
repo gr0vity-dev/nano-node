@@ -1,6 +1,7 @@
 #include <nano/boost/asio/bind_executor.hpp>
 #include <nano/boost/asio/dispatch.hpp>
 #include <nano/boost/asio/strand.hpp>
+#include <nano/lib/tlsconfig.hpp>
 #include <nano/lib/work.hpp>
 #include <nano/node/transport/transport.hpp>
 #include <nano/node/wallet.hpp>
@@ -26,6 +27,7 @@ nano::websocket::confirmation_options::confirmation_options (boost::property_tre
 	include_block = options_a.get<bool> ("include_block", true);
 	include_election_info = options_a.get<bool> ("include_election_info", false);
 	include_election_info_with_votes = options_a.get<bool> ("include_election_info_with_votes", false);
+	include_sideband_info = options_a.get<bool> ("include_sideband_info", false);
 
 	confirmation_types = 0;
 	auto type_l (options_a.get<std::string> ("confirmation_type", "all"));
@@ -233,10 +235,19 @@ bool nano::websocket::vote_options::should_filter (nano::websocket::message cons
 	return should_filter_l;
 }
 
-nano::websocket::session::session (nano::websocket::listener & listener_a, socket_type socket_a) :
-	ws_listener (listener_a), ws (std::move (socket_a)), strand (ws.get_executor ())
+#ifdef NANO_SECURE_RPC
+
+nano::websocket::session::session (nano::websocket::listener & listener_a, socket_type socket_a, boost::asio::ssl::context & ctx_a) :
+	ws_listener (listener_a), ws (std::move (socket_a), ctx_a)
 {
-	ws.text (true);
+	ws_listener.get_logger ().try_log ("Websocket: secure session started");
+}
+
+#endif
+
+nano::websocket::session::session (nano::websocket::listener & listener_a, socket_type socket_a) :
+	ws_listener (listener_a), ws (std::move (socket_a))
+{
 	ws_listener.get_logger ().try_log ("Websocket: session started");
 }
 
@@ -254,7 +265,7 @@ nano::websocket::session::~session ()
 void nano::websocket::session::handshake ()
 {
 	auto this_l (shared_from_this ());
-	ws.async_accept ([this_l] (boost::system::error_code const & ec) {
+	ws.handshake ([this_l] (boost::system::error_code const & ec) {
 		if (!ec)
 		{
 			// Start reading incoming messages
@@ -272,7 +283,7 @@ void nano::websocket::session::close ()
 	ws_listener.get_logger ().try_log ("Websocket: session closing");
 
 	auto this_l (shared_from_this ());
-	boost::asio::dispatch (strand,
+	boost::asio::dispatch (ws.get_strand (),
 	[this_l] () {
 		boost::beast::websocket::close_reason reason;
 		reason.code = boost::beast::websocket::close_code::normal;
@@ -290,7 +301,7 @@ void nano::websocket::session::write (nano::websocket::message message_a)
 	{
 		lk.unlock ();
 		auto this_l (shared_from_this ());
-		boost::asio::post (strand,
+		boost::asio::post (ws.get_strand (),
 		[message_a, this_l] () {
 			bool write_in_progress = !this_l->send_queue.empty ();
 			this_l->send_queue.emplace_back (message_a);
@@ -308,7 +319,6 @@ void nano::websocket::session::write_queued_messages ()
 	auto this_l (shared_from_this ());
 
 	ws.async_write (nano::shared_const_buffer (msg),
-	boost::asio::bind_executor (strand,
 	[this_l] (boost::system::error_code ec, std::size_t bytes_transferred) {
 		this_l->send_queue.pop_front ();
 		if (!ec)
@@ -318,16 +328,15 @@ void nano::websocket::session::write_queued_messages ()
 				this_l->write_queued_messages ();
 			}
 		}
-	}));
+	});
 }
 
 void nano::websocket::session::read ()
 {
 	auto this_l (shared_from_this ());
 
-	boost::asio::post (strand, [this_l] () {
+	boost::asio::post (ws.get_strand (), [this_l] () {
 		this_l->ws.async_read (this_l->read_buffer,
-		boost::asio::bind_executor (this_l->strand,
 		[this_l] (boost::system::error_code ec, std::size_t bytes_transferred) {
 			if (!ec)
 			{
@@ -354,7 +363,7 @@ void nano::websocket::session::read ()
 			{
 				this_l->ws_listener.get_logger ().try_log ("Websocket: read failed: ", ec.message ());
 			}
-		}));
+		});
 	});
 }
 
@@ -366,6 +375,10 @@ nano::websocket::topic to_topic (std::string const & topic_a)
 	if (topic_a == "confirmation")
 	{
 		topic = nano::websocket::topic::confirmation;
+	}
+	else if (topic_a == "started_election")
+	{
+		topic = nano::websocket::topic::started_election;
 	}
 	else if (topic_a == "stopped_election")
 	{
@@ -405,6 +418,10 @@ std::string from_topic (nano::websocket::topic topic_a)
 	if (topic_a == nano::websocket::topic::confirmation)
 	{
 		topic = "confirmation";
+	}
+	else if (topic_a == nano::websocket::topic::started_election)
+	{
+		topic = "started_election";
 	}
 	else if (topic_a == nano::websocket::topic::stopped_election)
 	{
@@ -542,7 +559,12 @@ void nano::websocket::listener::stop ()
 	sessions.clear ();
 }
 
+<<<<<<< HEAD
 nano::websocket::listener::listener (nano::logger_mt & logger_a, nano::node & node_a, nano::wallets & wallets_a, boost::asio::io_context & io_ctx_a, boost::asio::ip::tcp::endpoint endpoint_a) :
+=======
+nano::websocket::listener::listener (std::shared_ptr<nano::tls_config> const & tls_config_a, nano::logger_mt & logger_a, nano::wallets & wallets_a, boost::asio::io_context & io_ctx_a, boost::asio::ip::tcp::endpoint endpoint_a) :
+	tls_config (tls_config_a),
+>>>>>>> dbbab9174315848652199069ed9f0a02964394f3
 	logger (logger_a),
 	node (node_a),
 	wallets (wallets_a),
@@ -592,7 +614,18 @@ void nano::websocket::listener::on_accept (boost::system::error_code ec)
 	else
 	{
 		// Create the session and initiate websocket handshake
-		auto session (std::make_shared<nano::websocket::session> (*this, std::move (socket)));
+		std::shared_ptr<nano::websocket::session> session;
+		if (tls_config && tls_config->enable_wss)
+		{
+#ifdef NANO_SECURE_RPC
+			session = std::make_shared<nano::websocket::session> (*this, std::move (socket), tls_config->ssl_context);
+#endif
+		}
+		else
+		{
+			session = std::make_shared<nano::websocket::session> (*this, std::move (socket));
+		}
+
 		sessions_mutex.lock ();
 		sessions.push_back (session);
 		// Clean up expired sessions
@@ -638,10 +671,6 @@ void nano::websocket::listener::broadcast_confirmation (std::shared_ptr<nano::bl
 				{
 					msg_without_block = builder.block_confirmed (block_a, node_a, account_a, amount_a, subtype, include_block, election_status_a, election_votes_a, *conf_options);
 				}
-				else
-				{
-					debug_assert (false);
-				}
 
 				session_ptr->write (include_block ? msg_with_block.get () : msg_without_block.get ());
 			}
@@ -672,6 +701,18 @@ void nano::websocket::listener::decrease_subscriber_count (nano::websocket::topi
 	auto & count (topic_subscriber_count[static_cast<std::size_t> (topic_a)]);
 	release_assert (count > 0);
 	count -= 1;
+}
+
+nano::websocket::message nano::websocket::message_builder::started_election (nano::block_hash const & hash_a)
+{
+	nano::websocket::message message_l (nano::websocket::topic::started_election);
+	set_common_fields (message_l);
+
+	boost::property_tree::ptree message_node_l;
+	message_node_l.add ("hash", hash_a.to_string ());
+	message_l.contents.add_child ("message", message_node_l);
+
+	return message_l;
 }
 
 nano::websocket::message nano::websocket::message_builder::stopped_election (nano::block_hash const & hash_a)
@@ -762,6 +803,14 @@ nano::websocket::message nano::websocket::message_builder::block_confirmed (std:
 			}
 		}
 		message_node_l.add_child ("block", block_node_l);
+	}
+
+	if (options_a.get_include_sideband_info ())
+	{
+		boost::property_tree::ptree sideband_node_l;
+		sideband_node_l.add ("height", std::to_string (block_a->sideband ().height));
+		sideband_node_l.add ("local_timestamp", std::to_string (block_a->sideband ().timestamp));
+		message_node_l.add_child ("sideband", sideband_node_l);
 	}
 
 	message_l.contents.add_child ("message", message_node_l);

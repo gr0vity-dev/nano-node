@@ -52,6 +52,7 @@ add_library(
   memory.cpp
   numbers.hpp
   numbers.cpp
+  observer_set.hpp
   optional_ptr.hpp
   rate_limiting.hpp
   rate_limiting.cpp
@@ -71,6 +72,8 @@ add_library(
   threading.cpp
   timer.hpp
   timer.cpp
+  tlsconfig.hpp
+  tlsconfig.cpp
   tomlconfig.hpp
   tomlconfig.cpp
   utility.hpp
@@ -85,10 +88,12 @@ target_link_libraries(
   ed25519
   crypto_lib
   blake2
+  secure
   ipc_flatbuffers_lib
   ${CRYPTOPP_LIBRARY}
   ${CMAKE_DL_LIBS}
-  Boost::boost)
+  Boost::boost
+  Boost::program_options)
 
 if(NANO_STACKTRACE_BACKTRACE)
   target_link_libraries(nano_lib backtrace)

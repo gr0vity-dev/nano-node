@@ -1,5 +1,6 @@
 #include <nano/boost/asio/bind_executor.hpp>
 #include <nano/lib/rpc_handler_interface.hpp>
+#include <nano/lib/tlsconfig.hpp>
 #include <nano/rpc/rpc.hpp>
 #include <nano/rpc/rpc_connection.hpp>
 
@@ -11,8 +12,8 @@
 #include <nano/rpc/rpc_secure.hpp>
 #endif
 
-nano::rpc::rpc (boost::asio::io_context & io_ctx_a, nano::rpc_config const & config_a, nano::rpc_handler_interface & rpc_handler_interface_a) :
-	config (config_a),
+nano::rpc::rpc (boost::asio::io_context & io_ctx_a, nano::rpc_config config_a, nano::rpc_handler_interface & rpc_handler_interface_a) :
+	config (std::move (config_a)),
 	acceptor (io_ctx_a),
 	logger (std::chrono::milliseconds (0)),
 	io_ctx (io_ctx_a),
@@ -82,12 +83,10 @@ std::unique_ptr<nano::rpc> nano::get_rpc (boost::asio::io_context & io_ctx_a, na
 {
 	std::unique_ptr<rpc> impl;
 
-	if (config_a.secure.enable)
+	if (config_a.tls_config && config_a.tls_config->enable_https)
 	{
 #ifdef NANO_SECURE_RPC
 		impl = std::make_unique<rpc_secure> (io_ctx_a, config_a, rpc_handler_interface_a);
-#else
-		std::cerr << "RPC configured for TLS, but the node is not compiled with TLS support" << std::endl;
 #endif
 	}
 	else

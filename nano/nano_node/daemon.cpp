@@ -1,6 +1,7 @@
 #include <nano/boost/process/child.hpp>
 #include <nano/lib/signal_manager.hpp>
 #include <nano/lib/threading.hpp>
+#include <nano/lib/tlsconfig.hpp>
 #include <nano/lib/utility.hpp>
 #include <nano/nano_node/daemon.hpp>
 #include <nano/node/cli.hpp>
@@ -90,6 +91,19 @@ void nano_daemon::daemon::run (boost::filesystem::path const & data_path, nano::
 	{
 		config.node.logging.init (data_path);
 		nano::logger_mt logger{ config.node.logging.min_time_between_log_output };
+
+		auto tls_config (std::make_shared<nano::tls_config> ());
+		error = nano::read_tls_config_toml (data_path, *tls_config, logger);
+		if (error)
+		{
+			std::cerr << error.get_message () << std::endl;
+			std::exit (1);
+		}
+		else
+		{
+			config.node.websocket_config.tls_config = tls_config;
+		}
+
 		boost::asio::io_context io_ctx;
 		auto opencl (nano::opencl_work::create (config.opencl_enable, config.opencl, logger, config.node.network_params.work));
 		nano::work_pool opencl_work (config.node.network_params.network, config.node.work_threads, config.node.pow_sleep_interval, opencl ? [&opencl] (nano::work_version const version_a, nano::root const & root_a, uint64_t difficulty_a, std::atomic<int> & ticket_a) {
@@ -103,6 +117,9 @@ void nano_daemon::daemon::run (boost::filesystem::path const & data_path, nano::
 			std::cout << initialization_text << std::endl;
 			logger.always_log (initialization_text);
 
+			// Print info about number of logical cores detected, those are used to decide how many IO, worker and signature checker threads to spawn
+			logger.always_log (boost::format ("Hardware concurrency: %1% ( configured: %2% )") % std::thread::hardware_concurrency () % nano::hardware_concurrency ());
+
 			nano::set_file_descriptor_limit (OPEN_FILE_DESCRIPTORS_LIMIT);
 			auto const file_descriptor_limit = nano::get_file_descriptor_limit ();
 			if (file_descriptor_limit < OPEN_FILE_DESCRIPTORS_LIMIT)
@@ -114,14 +131,26 @@ void nano_daemon::daemon::run (boost::filesystem::path const & data_path, nano::
 				logger.always_log (boost::format ("Open file descriptors limit is %1%") % file_descriptor_limit);
 			}
 
+			// for the daemon start up, if the user hasn't specified a port in
+			// the config, we must use the default peering port for the network
+			//
+			if (!config.node.peering_port.has_value ())
+			{
+				config.node.peering_port = network_params.network.default_node_port;
+			}
+
 			auto node (std::make_shared<nano::node> (io_ctx, data_path, config.node, opencl_work, flags));
 			if (!node->init_error ())
 			{
 				auto network_label = node->network_params.network.get_current_network_as_string ();
+				std::time_t dateTime = std::time (nullptr);
+
 				std::cout << "Network: " << network_label << ", version: " << NANO_VERSION_STRING << "\n"
 						  << "Path: " << node->application_path.string () << "\n"
 						  << "Build Info: " << BUILD_INFO << "\n"
-						  << "Database backend: " << node->store.vendor_get () << std::endl;
+						  << "Database backend: " << node->store.vendor_get () << "\n"
+						  << "Start time: " << std::put_time (std::gmtime (&dateTime), "%c UTC") << std::endl;
+
 				auto voting (node->wallets.reps ().voting);
 				if (voting > 1)
 				{
@@ -157,6 +186,8 @@ void nano_daemon::daemon::run (boost::filesystem::path const & data_path, nano::
 							std::cout << error.get_message () << std::endl;
 							std::exit (1);
 						}
+
+						rpc_config.tls_config = tls_config;
 						rpc_handler = std::make_unique<nano::inprocess_rpc_handler> (*node, ipc_server, config.rpc, [&ipc_server, &workers = node->workers, &io_ctx] () {
 							ipc_server.stop ();
 							workers.add_timed_task (std::chrono::steady_clock::now () + std::chrono::seconds (3), [&io_ctx] () {

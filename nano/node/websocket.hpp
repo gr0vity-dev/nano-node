@@ -1,13 +1,11 @@
 #pragma once
 
-#include <nano/boost/asio/strand.hpp>
-#include <nano/boost/beast/core.hpp>
-#include <nano/boost/beast/websocket.hpp>
 #include <nano/lib/blocks.hpp>
 #include <nano/lib/numbers.hpp>
 #include <nano/lib/work.hpp>
 #include <nano/node/common.hpp>
 #include <nano/node/election.hpp>
+#include <nano/node/websocket_stream.hpp>
 #include <nano/secure/common.hpp>
 
 #include <boost/property_tree/json_parser.hpp>
@@ -20,15 +18,6 @@
 #include <unordered_set>
 #include <vector>
 
-/* Boost v1.70 introduced breaking changes; the conditional compilation allows 1.6x to be supported as well. */
-#if BOOST_VERSION < 107000
-using socket_type = boost::asio::ip::tcp::socket;
-#define beast_buffers boost::beast::buffers
-#else
-using socket_type = boost::asio::basic_stream_socket<boost::asio::ip::tcp, boost::asio::io_context::executor_type>;
-#define beast_buffers boost::beast::make_printable
-#endif
-
 namespace nano
 {
 class node;
@@ -37,6 +26,7 @@ class logger_mt;
 class vote;
 class election_status;
 class telemetry_data;
+class tls_config;
 enum class election_status_type : uint8_t;
 namespace websocket
 {
@@ -52,6 +42,8 @@ namespace websocket
 		ack,
 		/** A confirmation message */
 		confirmation,
+		/** Started election message*/
+		started_election,
 		/** Stopped election message (dropped elections due to bounding or block lost the elections) */
 		stopped_election,
 		/** A vote message **/
@@ -91,7 +83,8 @@ namespace websocket
 	class message_builder final
 	{
 	public:
-		message block_confirmed (std::shared_ptr<nano::block> const & block_a, nano::node &, nano::account const & account_a, nano::amount const & amount_a, std::string subtype, bool include_block, nano::election_status const & election_status_a, std::vector<nano::vote_with_weight_info> const & election_votes_a, nano::websocket::confirmation_options const & options_a);
+		message block_confirmed (std::shared_ptr<nano::block> const & block_a, nano::account const & account_a, nano::amount const & amount_a, std::string subtype, bool include_block, nano::election_status const & election_status_a, std::vector<nano::vote_with_weight_info> const & election_votes_a, nano::websocket::confirmation_options const & options_a);
+		message started_election (nano::block_hash const & hash_a);
 		message stopped_election (nano::block_hash const & hash_a);
 		message vote_received (std::shared_ptr<nano::vote> const & vote_a, nano::vote_code code_a);
 		message work_generation (nano::work_version const version_a, nano::block_hash const & root_a, uint64_t const work_a, uint64_t const difficulty_a, uint64_t const publish_threshold_a, std::chrono::milliseconds const & duration_a, std::string const & peer_a, std::vector<std::string> const & bad_peers_a, bool const completed_a = true, bool const cancelled_a = false);
@@ -185,6 +178,12 @@ namespace websocket
 			return include_election_info_with_votes;
 		}
 
+		/** Returns whether or not to include sideband info */
+		bool get_include_sideband_info () const
+		{
+			return include_sideband_info;
+		}
+
 		static constexpr uint8_t const type_active_quorum = 1;
 		static constexpr uint8_t const type_active_confirmation_height = 2;
 		static constexpr uint8_t const type_inactive = 4;
@@ -198,6 +197,7 @@ namespace websocket
 		boost::optional<nano::logger_mt &> logger;
 		bool include_election_info{ false };
 		bool include_election_info_with_votes{ false };
+		bool include_sideband_info{ false };
 		bool include_block{ true };
 		bool has_account_filtering_options{ false };
 		bool all_local_accounts{ false };
@@ -234,8 +234,13 @@ namespace websocket
 		friend class listener;
 
 	public:
+#ifdef NANO_SECURE_RPC
+		/** Constructor that takes ownership over \p socket_a and creates an SSL stream */
+		explicit session (nano::websocket::listener & listener_a, socket_type socket_a, boost::asio::ssl::context & ctx_a);
+#endif
 		/** Constructor that takes ownership over \p socket_a */
 		explicit session (nano::websocket::listener & listener_a, socket_type socket_a);
+
 		~session ();
 
 		/** Perform Websocket handshake and start reading messages */
@@ -253,12 +258,10 @@ namespace websocket
 	private:
 		/** The owning listener */
 		nano::websocket::listener & ws_listener;
-		/** Websocket */
-		boost::beast::websocket::stream<socket_type> ws;
+		/** Websocket stream, supporting both plain and tls connections */
+		nano::websocket::stream ws;
 		/** Buffer for received messages */
 		boost::beast::multi_buffer read_buffer;
-		/** All websocket operations that are thread unsafe must go through a strand. */
-		boost::asio::strand<boost::asio::io_context::executor_type> strand;
 		/** Outgoing messages. The send queue is protected by accessing it only through the strand */
 		std::deque<message> send_queue;
 
@@ -287,7 +290,7 @@ namespace websocket
 	class listener final : public std::enable_shared_from_this<listener>
 	{
 	public:
-		listener (nano::logger_mt & logger_a, nano::node & node_a, nano::wallets & wallets_a, boost::asio::io_context & io_ctx_a, boost::asio::ip::tcp::endpoint endpoint_a);
+		listener (std::shared_ptr<nano::tls_config> const & tls_config_a, nano::logger_mt & logger_a, nano::wallets & wallets_a, boost::asio::io_context & io_ctx_a, boost::asio::ip::tcp::endpoint endpoint_a);
 
 		/** Start accepting connections */
 		void run ();
@@ -306,6 +309,11 @@ namespace websocket
 		nano::logger_mt & get_logger () const
 		{
 			return logger;
+		}
+
+		std::uint16_t listening_port ()
+		{
+			return acceptor.local_endpoint ().port ();
 		}
 
 		nano::wallets & get_wallets () const
@@ -336,6 +344,7 @@ namespace websocket
 		/** Removes from subscription count of a specific topic*/
 		void decrease_subscriber_count (nano::websocket::topic const & topic_a);
 
+		std::shared_ptr<nano::tls_config> tls_config;
 		nano::logger_mt & logger;
 		nano::node & node;
 		nano::wallets & wallets;

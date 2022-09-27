@@ -150,7 +150,7 @@ public:
 	void work_update (nano::transaction const &, nano::account const &, nano::root const &, uint64_t);
 	// Schedule work generation after a few seconds
 	void work_ensure (nano::account const &, nano::root const &);
-	bool search_pending (nano::transaction const &);
+	bool search_receivable (nano::transaction const &);
 	void init_free_accounts (nano::transaction const &);
 	uint32_t deterministic_check (nano::transaction const & transaction_a, uint32_t index);
 	/** Changes the wallet seed and returns the first account */
@@ -198,14 +198,15 @@ public:
 	~wallets ();
 	std::shared_ptr<nano::wallet> open (nano::wallet_id const &);
 	std::shared_ptr<nano::wallet> create (nano::wallet_id const &);
-	bool search_pending (nano::wallet_id const &);
-	void search_pending_all ();
+	bool search_receivable (nano::wallet_id const &);
+	void search_receivable_all ();
 	void destroy (nano::wallet_id const &);
 	void reload ();
 	void do_wallet_actions ();
 	void queue_wallet_action (nano::uint128_t const &, std::shared_ptr<nano::wallet> const &, std::function<void (nano::wallet &)>);
 	void foreach_representative (std::function<void (nano::public_key const &, nano::raw_key const &)> const &);
 	bool exists (nano::transaction const &, nano::account const &);
+	void start ();
 	void stop ();
 	void clear_send_ids (nano::transaction const &);
 	nano::wallet_representatives reps () const;

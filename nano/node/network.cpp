@@ -15,14 +15,9 @@ nano::network::network (nano::node & node_a, uint16_t port_a) :
 	id (nano::network_constants::active_network),
 	syn_cookies (node_a.network_params.network.max_peers_per_ip),
 	inbound{ [this] (nano::message const & message, std::shared_ptr<nano::transport::channel> const & channel) {
-		if (message.header.network == id)
-		{
-			process_message (message, channel);
-		}
-		else
-		{
-			this->node.stats.inc (nano::stat::type::message, nano::stat::detail::invalid_network);
-		}
+		debug_assert (message.header.network == node.network_params.network.current_network);
+		debug_assert (message.header.version_using >= node.network_params.network.protocol_version_min);
+		process_message (message, channel);
 	} },
 	buffer_container (node_a.stats, nano::network::buffer_size, 4096), // 2Mb receive buffer
 	resolver (node_a.io_ctx),
@@ -35,6 +30,11 @@ nano::network::network (nano::node & node_a, uint16_t port_a) :
 	port (port_a),
 	disconnect_observer ([] () {})
 {
+	if (!node.flags.disable_udp)
+	{
+		port = udp_channels.get_local_endpoint ().port ();
+	}
+
 	boost::thread::attributes attrs;
 	nano::thread_attributes::set (attrs);
 	// UDP
@@ -418,12 +418,16 @@ public:
 		}
 		node.stats.inc (nano::stat::type::message, nano::stat::detail::keepalive, nano::stat::dir::in);
 		node.network.merge_peers (message_a.peers);
+
 		// Check for special node port data
 		auto peer0 (message_a.peers[0]);
 		if (peer0.address () == boost::asio::ip::address_v6{} && peer0.port () != 0)
 		{
 			nano::endpoint new_endpoint (channel->get_tcp_endpoint ().address (), peer0.port ());
 			node.network.merge_peer (new_endpoint);
+
+			// Remember this for future forwarding to other peers
+			channel->set_peering_endpoint (new_endpoint);
 		}
 	}
 	void publish (nano::publish const & message_a) override
@@ -474,29 +478,11 @@ public:
 	{
 		if (node.config.logging.network_message_logging ())
 		{
-			node.logger.try_log (boost::str (boost::format ("Received confirm_ack message from %1% for %2% timestamp %3%") % channel->to_string () % message_a.vote->hashes_string () % std::to_string (message_a.vote->timestamp)));
+			node.logger.try_log (boost::str (boost::format ("Received confirm_ack message from %1% for %2% timestamp %3%") % channel->to_string () % message_a.vote->hashes_string () % std::to_string (message_a.vote->timestamp ())));
 		}
 		node.stats.inc (nano::stat::type::message, nano::stat::detail::confirm_ack, nano::stat::dir::in);
 		if (!message_a.vote->account.is_zero ())
 		{
-			if (message_a.header.block_type () != nano::block_type::not_a_block)
-			{
-				for (auto & vote_block : message_a.vote->blocks)
-				{
-					if (!vote_block.which ())
-					{
-						auto const & block (boost::get<std::shared_ptr<nano::block>> (vote_block));
-						if (!node.block_processor.full ())
-						{
-							node.process_active (block);
-						}
-						else
-						{
-							node.stats.inc (nano::stat::type::drop, nano::stat::detail::confirm_ack, nano::stat::dir::in);
-						}
-					}
-				}
-			}
 			node.vote_processor.vote (message_a.vote, channel);
 		}
 	}
@@ -533,7 +519,7 @@ public:
 		nano::telemetry_ack telemetry_ack{ node.network_params.network };
 		if (!node.flags.disable_providing_telemetry_metrics)
 		{
-			auto telemetry_data = nano::local_telemetry_data (node.ledger, node.network, node.config.bandwidth_limit, node.network_params, node.startup_time, node.default_difficulty (nano::work_version::work_1), node.node_id);
+			auto telemetry_data = nano::local_telemetry_data (node.ledger, node.network, node.unchecked, node.config.bandwidth_limit, node.network_params, node.startup_time, node.default_difficulty (nano::work_version::work_1), node.node_id);
 			telemetry_ack = nano::telemetry_ack{ node.network_params.network, telemetry_data };
 		}
 		channel->send (telemetry_ack, nullptr, nano::buffer_drop_policy::no_socket_drop);
@@ -670,9 +656,9 @@ void nano::network::random_fill (std::array<nano::endpoint, 8> & target_a) const
 	auto j (target_a.begin ());
 	for (auto i (peers.begin ()), n (peers.end ()); i != n; ++i, ++j)
 	{
-		debug_assert ((*i)->get_endpoint ().address ().is_v6 ());
+		debug_assert ((*i)->get_peering_endpoint ().address ().is_v6 ());
 		debug_assert (j < target_a.end ());
-		*j = (*i)->get_endpoint ();
+		*j = (*i)->get_peering_endpoint ();
 	}
 }
 
@@ -1073,4 +1059,24 @@ std::unique_ptr<nano::container_info_component> nano::syn_cookies::collect_conta
 	composite->add_component (std::make_unique<container_info_leaf> (container_info{ "syn_cookies", syn_cookies_count, sizeof (decltype (cookies)::value_type) }));
 	composite->add_component (std::make_unique<container_info_leaf> (container_info{ "syn_cookies_per_ip", syn_cookies_per_ip_count, sizeof (decltype (cookies_per_ip)::value_type) }));
 	return composite;
+}
+
+std::string nano::network::to_string (nano::networks network)
+{
+	switch (network)
+	{
+		case nano::networks::invalid:
+			return "invalid";
+		case nano::networks::nano_beta_network:
+			return "beta";
+		case nano::networks::nano_dev_network:
+			return "dev";
+		case nano::networks::nano_live_network:
+			return "live";
+		case nano::networks::nano_test_network:
+			return "test";
+			// default case intentionally omitted to cause warnings for unhandled enums
+	}
+
+	return "n/a";
 }

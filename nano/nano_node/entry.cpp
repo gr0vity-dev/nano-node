@@ -7,6 +7,7 @@
 #include <nano/node/ipc/ipc_server.hpp>
 #include <nano/node/json_handler.hpp>
 #include <nano/node/node.hpp>
+#include <nano/node/transport/inproc.hpp>
 
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/filesystem/operations.hpp>
@@ -72,6 +73,7 @@ int main (int argc, char * const * argv)
 		("help", "Print out options")
 		("version", "Prints out version")
 		("config", boost::program_options::value<std::vector<nano::config_key_value_pair>>()->multitoken(), "Pass node configuration values. This takes precedence over any values in the configuration file. This option can be repeated multiple times.")
+		("rpcconfig", boost::program_options::value<std::vector<nano::config_key_value_pair>>()->multitoken(), "Pass rpc configuration values. This takes precedence over any values in the configuration file. This option can be repeated multiple times.")
 		("daemon", "Start node daemon")
 		("compare_rep_weights", "Display a summarized comparison between the hardcoded bootstrap weights and representative weights from the ledger. Full comparison is output to logs")
 		("debug_block_dump", "Display all the blocks in the ledger in text format")
@@ -437,14 +439,13 @@ int main (int argc, char * const * argv)
 			}
 
 			// Check all unchecked keys for matching frontier hashes. Indicates an issue with process_batch algorithm
-			for (auto i (node->store.unchecked.begin (transaction)), n (node->store.unchecked.end ()); i != n; ++i)
-			{
-				auto it = frontier_hashes.find (i->first.key ());
+			node->unchecked.for_each (transaction, [&frontier_hashes] (nano::unchecked_key const & key, nano::unchecked_info const & info) {
+				auto it = frontier_hashes.find (key.key ());
 				if (it != frontier_hashes.cend ())
 				{
 					std::cout << it->to_string () << "\n";
 				}
-			}
+			});
 		}
 		else if (vm.count ("debug_account_count"))
 		{
@@ -888,12 +889,20 @@ int main (int argc, char * const * argv)
 			while (true)
 			{
 				nano::keypair key;
+				nano::block_builder builder;
 				nano::block_hash latest (0);
 				auto begin1 (std::chrono::high_resolution_clock::now ());
 				for (uint64_t balance (0); balance < 1000; ++balance)
 				{
-					nano::send_block send (latest, key.pub, balance, key.prv, key.pub, 0);
-					latest = send.hash ();
+					auto send = builder
+								.send ()
+								.previous (latest)
+								.destination (key.pub)
+								.balance (balance)
+								.sign (key.prv, key.pub)
+								.work (0)
+								.build ();
+					latest = send->hash ();
 				}
 				auto end1 (std::chrono::high_resolution_clock::now ());
 				std::cerr << boost::str (boost::format ("%|1$ 12d|\n") % std::chrono::duration_cast<std::chrono::microseconds> (end1 - begin1).count ());
@@ -1003,7 +1012,7 @@ int main (int argc, char * const * argv)
 				if (timer_l.after_deadline (std::chrono::seconds (15)))
 				{
 					timer_l.restart ();
-					std::cout << boost::str (boost::format ("%1% (%2%) blocks processed (unchecked), %3% remaining") % node->ledger.cache.block_count % node->store.unchecked.count (node->store.tx_begin_read ()) % node->block_processor.size ()) << std::endl;
+					std::cout << boost::str (boost::format ("%1% (%2%) blocks processed (unchecked), %3% remaining") % node->ledger.cache.block_count % node->unchecked.count (node->store.tx_begin_read ()) % node->block_processor.size ()) << std::endl;
 				}
 			}
 
@@ -1088,7 +1097,7 @@ int main (int argc, char * const * argv)
 				uint64_t sequence (1);
 				for (auto & i : blocks)
 				{
-					auto vote (std::make_shared<nano::vote> (keys[j].pub, keys[j].prv, sequence, std::vector<nano::block_hash> (1, i->hash ())));
+					auto vote (std::make_shared<nano::vote> (keys[j].pub, keys[j].prv, sequence, 0, std::vector<nano::block_hash> (1, i->hash ())));
 					votes.push_back (vote);
 					sequence++;
 				}
@@ -1107,7 +1116,7 @@ int main (int argc, char * const * argv)
 			while (!votes.empty ())
 			{
 				auto vote (votes.front ());
-				auto channel (std::make_shared<nano::transport::channel_loopback> (*node));
+				auto channel (std::make_shared<nano::transport::inproc::channel> (*node, *node));
 				node->vote_processor.vote (vote, channel);
 				votes.pop_front ();
 			}
@@ -1823,7 +1832,7 @@ int main (int argc, char * const * argv)
 							{
 								std::cout << boost::str (boost::format ("%1% blocks retrieved") % count) << std::endl;
 							}
-							nano::unchecked_info unchecked_info (block, account, 0, nano::signature_verification::unknown);
+							nano::unchecked_info unchecked_info (block, account, nano::signature_verification::unknown);
 							node.node->block_processor.add (unchecked_info);
 							if (block->type () == nano::block_type::state && block->previous ().is_zero () && source_node->ledger.is_epoch_link (block->link ()))
 							{
@@ -1852,7 +1861,7 @@ int main (int argc, char * const * argv)
 				if (timer_l.after_deadline (std::chrono::seconds (60)))
 				{
 					timer_l.restart ();
-					std::cout << boost::str (boost::format ("%1% (%2%) blocks processed (unchecked)") % node.node->ledger.cache.block_count % node.node->store.unchecked.count (node.node->store.tx_begin_read ())) << std::endl;
+					std::cout << boost::str (boost::format ("%1% (%2%) blocks processed (unchecked)") % node.node->ledger.cache.block_count % node.node->unchecked.count (node.node->store.tx_begin_read ())) << std::endl;
 				}
 			}
 
@@ -2032,7 +2041,11 @@ int main (int argc, char * const * argv)
 		}
 		else
 		{
-			std::cout << description << std::endl;
+			// Issue #3748
+			// Regardless how the options were added, output the options in alphabetical order so they are easy to find.
+			boost::program_options::options_description sorted_description ("Command line options");
+			nano::sort_options_description (description, sorted_description);
+			std::cout << sorted_description << std::endl;
 			result = -1;
 		}
 	}

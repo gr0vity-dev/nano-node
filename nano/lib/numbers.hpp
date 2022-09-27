@@ -1,5 +1,6 @@
 #pragma once
 
+#include <boost/functional/hash.hpp>
 #include <boost/multiprecision/cpp_int.hpp>
 
 namespace nano
@@ -253,6 +254,7 @@ nano::public_key pub_key (nano::raw_key const &);
 
 /* Conversion methods */
 std::string to_string_hex (uint64_t const);
+std::string to_string_hex (uint16_t const);
 bool from_string_hex (std::string const &, uint64_t &);
 
 /**
@@ -292,6 +294,14 @@ struct hash<::nano::block_hash>
 	size_t operator() (::nano::block_hash const & data_a) const
 	{
 		return hash<::nano::uint256_union> () (data_a);
+	}
+};
+template <>
+struct hash<::nano::hash_or_account>
+{
+	size_t operator() (::nano::hash_or_account const & data_a) const
+	{
+		return hash<::nano::block_hash> () (data_a.as_block_hash ());
 	}
 };
 template <>
