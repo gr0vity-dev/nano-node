@@ -28,7 +28,7 @@ jobs:
         with:
           submodules: "recursive"
       - name: Checkout submodules
-          run: git submodule update --init --recursive     
+        run: git submodule update --init --recursive     
       - name: Fetch Deps
         run: ci/actions/linux/install_deps.sh
       - name: Build Tests
