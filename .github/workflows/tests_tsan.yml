@@ -25,10 +25,13 @@ jobs:
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     steps:
       - uses: actions/checkout@v2
-        with:
-          submodules: "recursive"
-      - name: Checkout submodules
-        run: git submodule update --init --recursive     
+        #with:
+        #  submodules: "recursive"
+      # Update references
+      - name: Git Sumbodule Update
+        run: |
+        git pull --recurse-submodules
+        git submodule update --remote --recursive
       - name: Fetch Deps
         run: ci/actions/linux/install_deps.sh
       - name: Build Tests
