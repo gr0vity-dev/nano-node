@@ -29,9 +29,7 @@ jobs:
         #  submodules: "recursive"
       # Update references
       - name: Git Sumbodule Update
-        run: |
-        git pull --recurse-submodules
-        git submodule update --remote --recursive
+        run: git pull --recurse-submodules && git submodule update --remote --recursive
       - name: Fetch Deps
         run: ci/actions/linux/install_deps.sh
       - name: Build Tests
