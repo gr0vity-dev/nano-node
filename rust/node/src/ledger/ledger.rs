@@ -1,7 +1,8 @@
 use rand::{thread_rng, Rng};
 use rsnano_core::{
-    Account, AccountInfo, Amount, Block, BlockEnum, BlockHash, BlockType, ConfirmationHeightInfo,
-    Epoch, Link, PendingInfo, PendingKey, QualifiedRoot, Root, SignatureVerification,
+    utils::seconds_since_epoch, Account, AccountInfo, Amount, Block, BlockEnum, BlockHash,
+    BlockType, ConfirmationHeightInfo, Epoch, Link, PendingInfo, PendingKey, QualifiedRoot, Root,
+    SignatureVerification,
 };
 
 use crate::{
@@ -24,6 +25,7 @@ use rsnano_store_traits::{
     LedgerCache, ReadTransaction, RepWeights, Store, Transaction, WriteTransaction,
 };
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct UncementedInfo {
     pub cemented_frontier: BlockHash,
     pub frontier: BlockHash,
@@ -62,7 +64,7 @@ pub struct Ledger {
     pub store: Arc<dyn Store>,
     pub cache: Arc<LedgerCache>,
     constants: LedgerConstants,
-    stats: Arc<Stat>,
+    pub stats: Arc<Stat>,
     pruning: AtomicBool,
     bootstrap_weight_max_blocks: AtomicU64,
     pub check_bootstrap_weights: AtomicBool,
@@ -101,6 +103,10 @@ impl Ledger {
     }
 
     fn initialize(&mut self, generate_cache: &GenerateCache) -> anyhow::Result<()> {
+        if self.store.account().begin(self.read_txn().txn()).is_end() {
+            self.add_genesis_block(self.rw_txn().as_mut());
+        }
+
         if generate_cache.reps || generate_cache.account_count || generate_cache.block_count {
             self.store.account().for_each_par(&|_txn, mut i, n| {
                 let mut block_count = 0;
@@ -155,6 +161,35 @@ impl Ledger {
             );
         }
         Ok(())
+    }
+
+    fn add_genesis_block(&self, txn: &mut dyn WriteTransaction) {
+        let genesis_block_enum = self.constants.genesis.read().unwrap();
+        let genesis_block = genesis_block_enum.as_block();
+        let genesis_hash = genesis_block.hash();
+        let genesis_account = genesis_block.account();
+        self.store.block().put(txn, &genesis_hash, genesis_block);
+        self.store.confirmation_height().put(
+            txn,
+            &genesis_account,
+            &ConfirmationHeightInfo::new(1, genesis_hash),
+        );
+        self.store.account().put(
+            txn,
+            &genesis_account,
+            &AccountInfo {
+                head: genesis_hash,
+                representative: genesis_account,
+                open_block: genesis_hash,
+                balance: u128::MAX.into(),
+                modified: seconds_since_epoch(),
+                block_count: 1,
+                epoch: Epoch::Epoch0,
+            },
+        );
+        self.store
+            .frontier()
+            .put(txn, &genesis_hash, &genesis_account);
     }
 
     pub fn pruning_enabled(&self) -> bool {

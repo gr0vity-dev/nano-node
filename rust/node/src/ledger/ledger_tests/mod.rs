@@ -7,8 +7,12 @@ use rsnano_core::{
     Account, Amount, Block, BlockBuilder, BlockEnum, BlockHash, KeyPair, QualifiedRoot, Root,
     GXRB_RATIO,
 };
+use rsnano_store_traits::LedgerCache;
 
-use crate::{DEV_CONSTANTS, DEV_GENESIS, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH};
+use crate::{
+    ledger::{ledger::UncementedInfo, GenerateCache, Ledger},
+    DEV_CONSTANTS, DEV_GENESIS, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH,
+};
 
 use super::DEV_GENESIS_KEY;
 
@@ -23,6 +27,7 @@ mod process_legacy_send;
 mod process_open;
 mod process_receive;
 mod process_send;
+mod pruning;
 mod rollback_legacy_change;
 mod rollback_legacy_open;
 mod rollback_legacy_receive;
@@ -820,4 +825,273 @@ mod could_fit {
 
         assert_eq!(ctx.ledger.could_fit(txn.txn(), &epoch), true);
     }
+}
+
+#[test]
+fn block_confirmed() {
+    let ctx = LedgerContext::empty();
+    let mut txn = ctx.ledger.rw_txn();
+    assert_eq!(
+        ctx.ledger.block_confirmed(txn.txn(), &DEV_GENESIS_HASH),
+        true
+    );
+
+    let destination = ctx.block_factory();
+    let mut send = ctx
+        .genesis_block_factory()
+        .send(txn.txn())
+        .link(destination.account())
+        .build();
+
+    // Must be safe against non-existing blocks
+    assert_eq!(ctx.ledger.block_confirmed(txn.txn(), &send.hash()), false);
+
+    ctx.ledger.process(txn.as_mut(), &mut send).unwrap();
+    assert_eq!(ctx.ledger.block_confirmed(txn.txn(), &send.hash()), false);
+
+    ctx.inc_confirmation_height(txn.as_mut(), &DEV_GENESIS_ACCOUNT);
+    assert_eq!(ctx.ledger.block_confirmed(txn.txn(), &send.hash()), true);
+}
+
+#[test]
+fn ledger_cache() {
+    let ctx = LedgerContext::empty();
+    let genesis = ctx.genesis_block_factory();
+    let total = 10u64;
+
+    struct ExpectedCache {
+        account_count: u64,
+        block_count: u64,
+        cemented_count: u64,
+        genesis_weight: Amount,
+        pruned_count: u64,
+    }
+
+    // Check existing ledger (incremental cache update) and reload on a new ledger
+    for i in 0..total {
+        let mut expected = ExpectedCache {
+            account_count: 1 + i,
+            block_count: 1 + 2 * (i + 1) - 2,
+            cemented_count: 1 + 2 * (i + 1) - 2,
+            genesis_weight: DEV_CONSTANTS.genesis_amount - Amount::new(i as u128),
+            pruned_count: i,
+        };
+
+        let check_impl = |cache: &LedgerCache, expected: &ExpectedCache| {
+            assert_eq!(
+                cache.account_count.load(Ordering::Relaxed),
+                expected.account_count
+            );
+            assert_eq!(
+                cache.block_count.load(Ordering::Relaxed),
+                expected.block_count
+            );
+            assert_eq!(
+                cache.cemented_count.load(Ordering::Relaxed),
+                expected.cemented_count
+            );
+            assert_eq!(
+                cache.rep_weights.representation_get(&DEV_GENESIS_ACCOUNT),
+                expected.genesis_weight
+            );
+            assert_eq!(
+                cache.pruned_count.load(Ordering::Relaxed),
+                expected.pruned_count
+            );
+        };
+
+        let cache_check = |cache: &LedgerCache, expected: &ExpectedCache| {
+            check_impl(cache, expected);
+
+            let new_ledger = Ledger::new(
+                ctx.ledger.store.clone(),
+                DEV_CONSTANTS.clone(),
+                ctx.ledger.stats.clone(),
+                &GenerateCache::new(),
+            )
+            .unwrap();
+            check_impl(&new_ledger.cache, expected);
+        };
+
+        let destination = ctx.block_factory();
+        let send = {
+            let mut txn = ctx.ledger.rw_txn();
+            let mut send = genesis.send(txn.txn()).link(destination.account()).build();
+            ctx.ledger.process(txn.as_mut(), &mut send).unwrap();
+            expected.block_count += 1;
+            expected.genesis_weight = send.balance();
+            send
+        };
+        cache_check(&ctx.ledger.cache, &expected);
+
+        let open = {
+            let mut txn = ctx.ledger.rw_txn();
+            let mut open = destination.open(txn.txn(), send.hash()).build();
+            ctx.ledger.process(txn.as_mut(), &mut open).unwrap();
+            expected.block_count += 1;
+            expected.account_count += 1;
+            open
+        };
+        cache_check(&ctx.ledger.cache, &expected);
+
+        {
+            let mut txn = ctx.ledger.rw_txn();
+            ctx.inc_confirmation_height(txn.as_mut(), &DEV_GENESIS_ACCOUNT);
+            ctx.ledger
+                .cache
+                .cemented_count
+                .fetch_add(1, Ordering::Relaxed);
+            expected.cemented_count += 1;
+        }
+        cache_check(&ctx.ledger.cache, &expected);
+
+        {
+            let mut txn = ctx.ledger.rw_txn();
+            ctx.inc_confirmation_height(txn.as_mut(), &destination.account());
+            ctx.ledger
+                .cache
+                .cemented_count
+                .fetch_add(1, Ordering::Relaxed);
+            expected.cemented_count += 1;
+        }
+        cache_check(&ctx.ledger.cache, &expected);
+
+        {
+            let mut txn = ctx.ledger.rw_txn();
+            ctx.ledger.store.pruned().put(txn.as_mut(), &open.hash());
+            ctx.ledger
+                .cache
+                .pruned_count
+                .fetch_add(1, Ordering::Relaxed);
+            expected.pruned_count += 1;
+        }
+        cache_check(&ctx.ledger.cache, &expected);
+    }
+}
+
+#[test]
+fn unconfirmed_frontiers() {
+    let ctx = LedgerContext::empty();
+    let mut txn = ctx.ledger.rw_txn();
+
+    assert!(ctx.ledger.unconfirmed_frontiers().is_empty());
+
+    let genesis = ctx.genesis_block_factory();
+    let destination = ctx.block_factory();
+    let latest = ctx.ledger.latest(txn.txn(), &genesis.account()).unwrap();
+
+    let mut send = genesis.send(txn.txn()).link(destination.account()).build();
+    ctx.ledger.process(txn.as_mut(), &mut send).unwrap();
+    txn.commit();
+
+    let unconfirmed_frontiers = ctx.ledger.unconfirmed_frontiers();
+    assert_eq!(unconfirmed_frontiers.len(), 1);
+    let (key, value) = unconfirmed_frontiers.iter().next().unwrap();
+    assert_eq!(*key, 1);
+    assert_eq!(
+        value.first().unwrap(),
+        &UncementedInfo {
+            cemented_frontier: latest,
+            frontier: send.hash(),
+            account: genesis.account()
+        }
+    )
+}
+
+#[test]
+fn is_send_genesis() {
+    let ctx = LedgerContext::empty();
+    let txn = ctx.ledger.read_txn();
+    assert_eq!(
+        ctx.ledger
+            .is_send(txn.txn(), DEV_GENESIS.read().unwrap().as_block()),
+        false
+    );
+}
+
+#[test]
+fn is_send_state() {
+    let ctx = LedgerContext::empty();
+    let mut txn = ctx.ledger.rw_txn();
+    let open = setup_open_block(&ctx, txn.as_mut());
+    assert_eq!(ctx.ledger.is_send(txn.txn(), &open.send_block), true);
+    assert_eq!(ctx.ledger.is_send(txn.txn(), &open.open_block), false);
+}
+
+#[test]
+fn is_send_legacy() {
+    let ctx = LedgerContext::empty();
+    let mut txn = ctx.ledger.rw_txn();
+    let open = setup_legacy_open_block(&ctx, txn.as_mut());
+    assert_eq!(ctx.ledger.is_send(txn.txn(), &open.send_block), true);
+    assert_eq!(ctx.ledger.is_send(txn.txn(), &open.open_block), false);
+}
+
+#[test]
+fn sideband_height() {
+    let ctx = LedgerContext::empty();
+    let mut txn = ctx.ledger.rw_txn();
+    let genesis = ctx.genesis_block_factory();
+    let dest1 = ctx.block_factory();
+    let dest2 = ctx.block_factory();
+    let dest3 = ctx.block_factory();
+
+    let mut send = genesis
+        .legacy_send(txn.txn())
+        .destination(genesis.account())
+        .build();
+    ctx.ledger.process(txn.as_mut(), &mut send).unwrap();
+
+    let mut receive = genesis.legacy_receive(txn.txn(), send.hash()).build();
+    ctx.ledger.process(txn.as_mut(), &mut receive).unwrap();
+
+    let mut change = genesis.legacy_change(txn.txn()).build();
+    ctx.ledger.process(txn.as_mut(), &mut change).unwrap();
+
+    let mut state_send1 = genesis.send(txn.txn()).link(dest1.account()).build();
+    ctx.ledger.process(txn.as_mut(), &mut state_send1).unwrap();
+
+    let mut state_send2 = genesis.send(txn.txn()).link(dest2.account()).build();
+    ctx.ledger.process(txn.as_mut(), &mut state_send2).unwrap();
+
+    let mut state_send3 = genesis.send(txn.txn()).link(dest3.account()).build();
+    ctx.ledger.process(txn.as_mut(), &mut state_send3).unwrap();
+
+    let mut state_open = dest1.open(txn.txn(), state_send1.hash()).build();
+    ctx.ledger.process(txn.as_mut(), &mut state_open).unwrap();
+
+    let mut epoch = dest1.epoch_v1(txn.txn()).build();
+    ctx.ledger.process(txn.as_mut(), &mut epoch).unwrap();
+
+    let mut epoch_open = dest2.epoch_v1_open().build();
+    ctx.ledger.process(txn.as_mut(), &mut epoch_open).unwrap();
+
+    let mut state_receive = dest2.receive(txn.txn(), state_send2.hash()).build();
+    ctx.ledger
+        .process(txn.as_mut(), &mut state_receive)
+        .unwrap();
+
+    let mut open = dest3.legacy_open(state_send3.hash()).build();
+    ctx.ledger.process(txn.as_mut(), &mut open).unwrap();
+
+    let assert_sideband_height = |hash: &BlockHash, expected_height: u64| {
+        let block = ctx.ledger.get_block(txn.txn(), hash).unwrap();
+        assert_eq!(block.as_block().sideband().unwrap().height, expected_height);
+    };
+
+    assert_sideband_height(&DEV_GENESIS_HASH, 1);
+    assert_sideband_height(&send.hash(), 2);
+    assert_sideband_height(&receive.hash(), 3);
+    assert_sideband_height(&change.hash(), 4);
+    assert_sideband_height(&state_send1.hash(), 5);
+    assert_sideband_height(&state_send2.hash(), 6);
+    assert_sideband_height(&state_send3.hash(), 7);
+
+    assert_sideband_height(&state_open.hash(), 1);
+    assert_sideband_height(&epoch.hash(), 2);
+
+    assert_sideband_height(&epoch_open.hash(), 1);
+    assert_sideband_height(&state_receive.hash(), 2);
+
+    assert_sideband_height(&open.hash(), 1);
 }
