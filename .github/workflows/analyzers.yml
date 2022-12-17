@@ -2,7 +2,7 @@ name: Static Analyzers
 
 on: [push, pull_request]
 
-jobs:
+jobs: 
   clang_format:
     runs-on: ubuntu-20.04
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
