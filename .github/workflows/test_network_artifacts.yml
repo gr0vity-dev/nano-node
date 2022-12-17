@@ -42,7 +42,7 @@ jobs:
           AWS_DEFAULT_REGION: us-east-2
 
   linux_job:
-    runs-on: ubuntu-20.04
+    runs-on: self-hosted
     timeout-minutes: 90
     steps:
       - name: tag
