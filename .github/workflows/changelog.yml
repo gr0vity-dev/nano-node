@@ -1,5 +1,5 @@
 name: Changelog
-on:
+# on:
   workflow_dispatch:
     inputs:
       repo:
