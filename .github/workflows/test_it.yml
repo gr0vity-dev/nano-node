@@ -1,0 +1,20 @@
+name: Testit
+on: push
+env:
+  artifact: 1
+
+jobs:
+  osx_job:   
+    runs-on: macOS-12
+    timeout-minutes: 90
+    strategy:
+      matrix:
+        network: ["TEST", "BETA", "LIVE"]
+    steps:
+      - name: Deploy Artifact
+        run: echo "|NETWORK:$NETWORK| |S3_BUCKET_NAME:$S3_BUCKET_NAME| |S3_BUILD_DIRECTORY:$S3_BUILD_DIRECTORY|"
+        env:
+          NETWORK: ${{ matrix.network }}
+          TAG: ${{ needs.prepare_build.outputs.CI_TAG }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          S3_BUILD_DIRECTORY: ${{ vars.S3_BUILD_DIRECTORY }}

@@ -1,6 +1,6 @@
 name: Coverage Reports
 
-on:
+# on:
   workflow_dispatch:
     inputs:
       label:
