@@ -167,7 +167,8 @@ jobs:
           NETWORK: ${{ matrix.network }}
           CI_TAG: ${{ needs.prepare_build.outputs.CI_TAG }}
           CI_VERSION_PRE_RELEASE: ${{ needs.prepare_build.outputs.CI_VERSION_PRE_RELEASE }}
-
+          DOCKER_USER: ${{ github.repository_owner }}
+          DOCKER_REGISTRY: ${{ vars.DOCKER_REGISTRY }}
       - name: Deploy Docker (ghcr.io)
         run: ci/actions/linux/ghcr-deploy.sh
         env:
