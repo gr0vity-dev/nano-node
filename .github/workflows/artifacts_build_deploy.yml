@@ -83,12 +83,11 @@ jobs:
           COMPILER: gcc
         run: ci/actions/linux/install_deps.sh
       - name: Build Artifact
-        run: |
-          docker run -v ${GITHUB_WORKSPACE}:/workspace \
-          nanocurrency/nano-env:gcc /bin/bash -c "cd /workspace && \
-          NETWORK=${{ matrix.network }} \
-          CI_TAG=${{ needs.prepare_build.outputs.CI_TAG }} \          
-          ci/build-deploy.sh /usr/lib/x86_64-linux-gnu/cmake/Qt5"
+        run: ci/build-deploy.sh /usr/lib/x86_64-linux-gnu/cmake/Qt5"
+        env:
+          NETWORK: ${{ matrix.network }} \
+          CI_TAG: ${{ needs.prepare_build.outputs.CI_TAG }} \    
+
       - name: Deploy Artifact
         run: ci/actions/deploy.sh
         env:
