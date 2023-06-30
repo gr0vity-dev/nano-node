@@ -11,6 +11,10 @@ jobs:
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
+      - name: Confifigure git user and email
+        run: |
+          git config --global user.name "${GITHUB_ACTOR}"
+          git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
 
       - name: Get default branch
         id: get-default-branch
@@ -26,8 +30,8 @@ jobs:
           current_version_minor=$(grep "CPACK_PACKAGE_VERSION_MINOR" CMakeLists.txt | grep -o "[0-9]\+")
           echo "Current major version: $current_version_major"
           echo "Current minor version: $current_version_minor"
-          echo "name=minor=${current_version_minor}" >> $GITHUB_OUTPUT
-          echo "name=major=${current_version_major}" >> $GITHUB_OUTPUT
+          echo "major=${current_version_major}" >> $GITHUB_OUTPUT
+          echo "minor=${current_version_minor}" >> $GITHUB_OUTPUT
 
       - name: Check for existence of release branch
         id: check-release-branch
@@ -38,7 +42,7 @@ jobs:
             exit 1
           else
             echo "Release branch does not exist. Continuing with preparation..."
-            echo "elease-branch-name=${release_branch_name}" >> $GITHUB_OUTPUT
+            echo "release-branch-name=${release_branch_name}" >> $GITHUB_OUTPUT
           fi
 
       - name: Increment Major version on default branch
