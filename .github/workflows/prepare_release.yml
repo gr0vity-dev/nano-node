@@ -41,7 +41,7 @@ jobs:
       - name: Get default branch
         id: get-default-branch
         run: |
-          DEFAULT_BRANCH=$(curl --silent --show-error --header "Authorization: token ${{ secrets.GITHUB_TOKEN }}""https://api.github.com/repos/${{ github.repository }}" | jq .default_branch --raw-output)
+          DEFAULT_BRANCH=$(curl --silent --show-error --header "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${{ github.repository }}" | jq .default_branch --raw-output)
           echo "Default branch is $DEFAULT_BRANCH"          
           echo "default-branch=${DEFAULT_BRANCH}" >> $GITHUB_OUTPUT      
 
@@ -54,6 +54,8 @@ jobs:
           git add CMakeLists.txt
           git commit -m "Update CPACK_PACKAGE_VERSION_MAJOR to $new_version_major"
           git push origin ${{ steps.get-default-branch.outputs.default-branch }}
+          # Reset CPACK_PACKAGE_VERSION_MAJOR to its original value for the release branch
+          git reset --hard HEAD~1 
 
       - name: Prepare release branch and set pre-release to 0
         run: |
