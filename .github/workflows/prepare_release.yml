@@ -30,7 +30,7 @@ jobs:
         id: check-release-branch
         run: |
           release_branch_name="releases/v${{ steps.fetch-versions.outputs.major }}"
-          if git show-ref --verify --quiet refs/heads/$release_branch_name; then
+          if git show-ref --verify --quiet refs/remotes/origin/$release_branch_name; then
             echo "Release branch $release_branch_name already exists. Aborting..."
             exit 1
           else
