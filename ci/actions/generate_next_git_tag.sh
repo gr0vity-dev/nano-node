@@ -229,7 +229,7 @@ if [[ $create == true ]]; then
     fi
 
     # Only reset local branch if a commit was made and it's not a "releases" branch.
-    if [[ "$commit_made" == "true" && ! $release_branch ]]; then
+    if [[ "$commit_made" == "true" && $is_release_branch == false ]]; then
         git reset --hard HEAD~1
         echo "The commit used for the tag does not exist on any branch."
     fi
