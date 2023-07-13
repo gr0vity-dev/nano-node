@@ -30,7 +30,7 @@ jobs:
       COMPILER: ${{ matrix.COMPILER }}
       TEST_USE_ROCKSDB: ${{ matrix.TEST_USE_ROCKSDB }}
       XSAN: ${{ endsWith(matrix.sanitizer, 'ASAN_INT') && 'ASAN' || matrix.SANITIZER }}
-      XSAN_SUPPRESSIONS: ${{ endsWith(matrix.SANITIZER, 'TSAN') && 'suppressions=../tsan_suppressions:' || '' }}
+      XSAN_SUPPRESSIONS: ${{ endsWith(matrix.SANITIZER, 'TSAN') && 'suppressions=../tsan_suppressions' || '' }}
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     steps:
       - name: Checkout
@@ -67,25 +67,24 @@ jobs:
         id: core_test
         continue-on-error: true
         run: |
-          export ${XSAN}_OPTIONS="${XSAN_SUPPRESSIONS}log_exe_name=1:log_path=sanitizer_report"
-          cd build
+          export ${XSAN}_OPTIONS="${XSAN_SUPPRESSIONS} log_exe_name=1 log_path=sanitizer_report"
           ./core_test
+        working-directory: build      
       
       - name: Run rpc_test
         id: rpc_test
         continue-on-error: true
         run: |
-          export ${XSAN}_OPTIONS="${XSAN_SUPPRESSIONS}log_exe_name=1:log_path=sanitizer_report"
-          cd build
+          export ${XSAN}_OPTIONS="${XSAN_SUPPRESSIONS} log_exe_name=1 log_path=sanitizer_report"
           ./rpc_test
-      
+        working-directory: build       
 
       - name: Test Reports
         id: show_report
         run: |
           (
             issue_reported=false
-            reports=$(ls build/sanitizer_report*)
+            reports=$(ls build/sanitizer_report* 2>/dev/null)
             if [[ -n "${reports}" ]]; then
               echo "Report Output:"
               for report in ${reports}; do
