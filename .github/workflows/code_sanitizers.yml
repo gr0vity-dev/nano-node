@@ -16,7 +16,7 @@ jobs:
         TEST_USE_ROCKSDB: [0, 1]
         COMPILER: [clang]
         SANITIZER: [ASAN, ASAN_INT, TSAN]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     outputs:
       issue_reported: ${{ steps.show_report.outputs.issue_reported }}
     env:
