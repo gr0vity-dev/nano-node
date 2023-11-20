@@ -32,14 +32,15 @@ public:
 	std::size_t size ();
 	bool full ();
 	bool half_full ();
-	void add (std::shared_ptr<nano::block> const &);
+	// void add (std::shared_ptr<nano::block> const &);
+	void add (std::shared_ptr<nano::block> const & block, const std::string & peer_id = "default_peer");
 	std::optional<nano::process_return> add_blocking (std::shared_ptr<nano::block> const & block);
 	void force (std::shared_ptr<nano::block> const &);
 	bool should_log ();
 	bool have_blocks_ready ();
+	bool have_blocks_ready_locked ();
 	bool have_blocks ();
 	void process_blocks ();
-
 	std::atomic<bool> flushing{ false };
 
 public: // Events
@@ -58,17 +59,20 @@ private:
 	nano::process_return process_one (store::write_transaction const &, std::shared_ptr<nano::block> block, bool const = false);
 	void queue_unchecked (store::write_transaction const &, nano::hash_or_account const &);
 	std::deque<processed_t> process_batch (nano::unique_lock<nano::mutex> &);
-	void add_impl (std::shared_ptr<nano::block> block);
+	// void add_impl (std::shared_ptr<nano::block> block);
+	void add_impl (std::shared_ptr<nano::block> block, const std::string & peer_id = "default_peer");
 	bool stopped{ false };
 	bool active{ false };
 	std::chrono::steady_clock::time_point next_log;
-	std::deque<std::shared_ptr<nano::block>> blocks;
+	// std::deque<std::shared_ptr<nano::block>> blocks;
+	std::atomic<int> blocks_size{ 0 };
 	std::deque<std::shared_ptr<nano::block>> forced;
 	nano::condition_variable condition;
 	nano::node & node;
 	nano::write_database_queue & write_database_queue;
 	nano::mutex mutex{ mutex_identifier (mutexes::block_processor) };
 	std::thread processing_thread;
+	std::unordered_map<std::string, std::deque<std::shared_ptr<nano::block>>> peer_queues;
 
 	friend std::unique_ptr<container_info_component> collect_container_info (block_processor & block_processor, std::string const & name);
 };

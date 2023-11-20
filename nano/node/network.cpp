@@ -400,7 +400,7 @@ public:
 
 		if (!node.block_processor.full ())
 		{
-			node.process_active (message_a.block);
+			node.process_active (message_a.block, channel->to_string ());
 		}
 		else
 		{

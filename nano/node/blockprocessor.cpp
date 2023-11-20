@@ -50,8 +50,8 @@ void nano::block_processor::flush ()
 
 std::size_t nano::block_processor::size ()
 {
-	nano::unique_lock<nano::mutex> lock{ mutex };
-	return blocks.size () + forced.size ();
+	// nano::unique_lock<nano::mutex> lock{ mutex };
+	return blocks_size;
 }
 
 bool nano::block_processor::full ()
@@ -64,7 +64,7 @@ bool nano::block_processor::half_full ()
 	return size () >= node.flags.block_processor_full_size / 2;
 }
 
-void nano::block_processor::add (std::shared_ptr<nano::block> const & block)
+void nano::block_processor::add (std::shared_ptr<nano::block> const & block, const std::string & peer_id)
 {
 	if (full ())
 	{
@@ -76,7 +76,7 @@ void nano::block_processor::add (std::shared_ptr<nano::block> const & block)
 		node.stats.inc (nano::stat::type::blockprocessor, nano::stat::detail::insufficient_work);
 		return;
 	}
-	add_impl (block);
+	add_impl (block, peer_id);
 	return;
 }
 
@@ -144,6 +144,7 @@ void nano::block_processor::force (std::shared_ptr<nano::block> const & block_a)
 	{
 		nano::lock_guard<nano::mutex> lock{ mutex };
 		forced.push_back (block_a);
+		blocks_size++;
 	}
 	condition.notify_all ();
 }
@@ -185,7 +186,8 @@ bool nano::block_processor::should_log ()
 bool nano::block_processor::have_blocks_ready ()
 {
 	debug_assert (!mutex.try_lock ());
-	return !blocks.empty () || !forced.empty ();
+	return blocks_size > 0;
+	// return !blocks.empty () || !forced.empty ();
 }
 
 bool nano::block_processor::have_blocks ()
@@ -194,11 +196,22 @@ bool nano::block_processor::have_blocks ()
 	return have_blocks_ready ();
 }
 
-void nano::block_processor::add_impl (std::shared_ptr<nano::block> block)
+void nano::block_processor::add_impl (std::shared_ptr<nano::block> block, const std::string & peer_id)
 {
 	{
 		nano::lock_guard<nano::mutex> guard{ mutex };
-		blocks.emplace_back (block);
+		// blocks.emplace_back (block);
+		auto & queue = peer_queues[peer_id];
+		if (queue.size () < 100)
+		{
+			queue.emplace_back (block);
+			blocks_size++;
+			std::cout << "block_processor add hash: " << block->hash ().to_string () << " from peer " << peer_id << " queue size: " << queue.size () << std::endl;
+		}
+		else
+		{
+			std::cout << "block_processor drop hash" << block->hash ().to_string () << " from peer: " << peer_id << std::endl;
+		}
 	}
 	condition.notify_all ();
 }
@@ -216,20 +229,38 @@ auto nano::block_processor::process_batch (nano::unique_lock<nano::mutex> & lock
 	auto deadline_reached = [&timer_l, deadline = node.config.block_processor_batch_max_time] { return timer_l.after_deadline (deadline); };
 	auto processor_batch_reached = [&number_of_blocks_processed, max = node.flags.block_processor_batch_size] { return number_of_blocks_processed >= max; };
 	auto store_batch_reached = [&number_of_blocks_processed, max = node.store.max_block_write_batch_num ()] { return number_of_blocks_processed >= max; };
+	auto it = peer_queues.begin ();
+
 	while (have_blocks_ready () && (!deadline_reached () || !processor_batch_reached ()) && !store_batch_reached ())
 	{
-		if ((blocks.size () + forced.size () > 64) && should_log ())
+		if ((blocks_size > 64) && should_log ())
 		{
-			node.logger.always_log (boost::str (boost::format ("%1% blocks (+ %2% forced) in processing queue") % blocks.size () % forced.size ()));
+			node.logger.always_log (boost::str (boost::format ("%1% blocks (+ %2% forced) in processing queue") % blocks_size % forced.size ()));
 		}
 		std::shared_ptr<nano::block> block;
 		nano::block_hash hash (0);
 		bool force (false);
 		if (forced.empty ())
 		{
-			block = blocks.front ();
-			blocks.pop_front ();
-			hash = block->hash ();
+			if (it == peer_queues.end ())
+			{
+				it = peer_queues.begin (); // Reset to begin if we've reached the end
+			}
+
+			if (!it->second.empty ())
+			{
+				block = it->second.front ();
+				it->second.pop_front ();
+				hash = block->hash ();
+				// blocks.pop_front ();
+				--blocks_size;
+			}
+			else
+			{
+				++it;
+				continue;
+			}
+			++it; // Move to the next queue
 		}
 		else
 		{
@@ -238,6 +269,7 @@ auto nano::block_processor::process_batch (nano::unique_lock<nano::mutex> & lock
 			hash = block->hash ();
 			force = true;
 			number_of_forced_processed++;
+			--blocks_size;
 		}
 		lock_a.unlock ();
 		if (force)
@@ -417,12 +449,12 @@ std::unique_ptr<nano::container_info_component> nano::collect_container_info (bl
 
 	{
 		nano::lock_guard<nano::mutex> guard{ block_processor.mutex };
-		blocks_count = block_processor.blocks.size ();
+		blocks_count = block_processor.blocks_size;
 		forced_count = block_processor.forced.size ();
 	}
 
 	auto composite = std::make_unique<container_info_composite> (name);
-	composite->add_component (std::make_unique<container_info_leaf> (container_info{ "blocks", blocks_count, sizeof (decltype (block_processor.blocks)::value_type) }));
+	// composite->add_component (std::make_unique<container_info_leaf> (container_info{ "blocks", blocks_count, sizeof (decltype (block_processor.blocks)::value_type) }));
 	composite->add_component (std::make_unique<container_info_leaf> (container_info{ "forced", forced_count, sizeof (decltype (block_processor.forced)::value_type) }));
 	return composite;
 }

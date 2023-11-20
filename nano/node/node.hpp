@@ -88,7 +88,7 @@ public:
 	void receive_confirmed (store::transaction const & block_transaction_a, nano::block_hash const & hash_a, nano::account const & destination_a);
 	void process_confirmed_data (store::transaction const &, std::shared_ptr<nano::block> const &, nano::block_hash const &, nano::account &, nano::uint128_t &, bool &, bool &, nano::account &);
 	void process_confirmed (nano::election_status const &, uint64_t = 0);
-	void process_active (std::shared_ptr<nano::block> const &);
+	void process_active (std::shared_ptr<nano::block> const &, const std::string & peer_id = "default_peer");
 	std::optional<nano::process_return> process_local (std::shared_ptr<nano::block> const &);
 	void process_local_async (std::shared_ptr<nano::block> const &);
 	void keepalive_preconfigured (std::vector<std::string> const &);
