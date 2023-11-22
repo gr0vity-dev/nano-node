@@ -199,18 +199,22 @@ bool nano::block_processor::have_blocks ()
 void nano::block_processor::add_impl (std::shared_ptr<nano::block> block, const std::string & peer_id)
 {
 	{
+		auto now = std::chrono::system_clock::now();
+		std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+
 		nano::lock_guard<nano::mutex> guard{ mutex };
 		// blocks.emplace_back (block);
 		auto & queue = peer_queues[peer_id];
-		if (queue.size () < 100)
+		if (queue.size () < 50000)
 		{
 			queue.emplace_back (block);
 			blocks_size++;
-			std::cout << "block_processor add hash: " << block->hash ().to_string () << " from peer " << peer_id << " queue size: " << queue.size () << std::endl;
+			std::cout << "[" << std::put_time(std::localtime(&now_c), "%Y-%m-%d %H:%M:%S") << "] block_processor add hash: " << block->hash().to_string() << " from peer " << peer_id << " queue size: " << queue.size() << std::endl;
+
 		}
 		else
 		{
-			std::cout << "block_processor drop hash" << block->hash ().to_string () << " from peer: " << peer_id << std::endl;
+			std::cout << "[" << std::put_time(std::localtime(&now_c), "%Y-%m-%d %H:%M:%S") << "] block_processor drop hash" << block->hash ().to_string () << " from peer: " << peer_id << std::endl;
 		}
 	}
 	condition.notify_all ();
@@ -254,6 +258,7 @@ auto nano::block_processor::process_batch (nano::unique_lock<nano::mutex> & lock
 				hash = block->hash ();
 				// blocks.pop_front ();
 				--blocks_size;
+				number_of_blocks_processed++;
 			}
 			else
 			{
@@ -270,13 +275,13 @@ auto nano::block_processor::process_batch (nano::unique_lock<nano::mutex> & lock
 			force = true;
 			number_of_forced_processed++;
 			--blocks_size;
+			number_of_blocks_processed++;
 		}
 		lock_a.unlock ();
 		if (force)
 		{
 			rollback_competitor (transaction, *block);
 		}
-		number_of_blocks_processed++;
 		auto result = process_one (transaction, block, force);
 		processed.emplace_back (result, block);
 		lock_a.lock ();
