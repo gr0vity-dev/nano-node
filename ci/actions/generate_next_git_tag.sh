@@ -24,7 +24,7 @@ tag_created="false"
 release_build=false
 branch_name=""
 
-while getopts ":o:c:rb:" opt; do
+while getopts ":b:o:rc" opt; do
   case ${opt} in
     o )
       output=$OPTARG
@@ -144,9 +144,9 @@ existing_tags=$(git tag --list "${base_version}*" | grep -E "${base_version}[0-9
 
 # Determine the initial tag number based on branch type and release build status
 if [[ $is_release_branch == true && $release_build == true ]]; then
-    next_number=0  # Start from 0 for release branches with release build
+    next_minor_number=0  # Start from 0 for minor_version in release builds
 else
-    next_number=1  # Start from 1 for other branches
+    next_suffix_number=1  # Start from 1 after suffix
 fi
 
 if [[ -z "$existing_tags" ]]; then
@@ -161,21 +161,23 @@ else
     else
         tag_created="true"
         if [[ $is_release_branch == true && $release_build == true ]]; then
-            # Increment the minor version for release branches when -r flag is set
-            next_number=$((current_version_minor + 1))
+            # Increment the minor version for release builds (-r flag is set)
+            next_minor_number=$((current_version_minor + 1))
         else
-            # Increment the suffix number for non-release branches
-            last_tag_number=$(echo "$last_tag" | awk -F"${tag_suffix}" '{print $2}')
-            next_number=$((last_tag_number + 1))
+            # Increment the suffix number for non-release builds
+            last_suffix_number=$(echo "$last_tag" | awk -F"${tag_suffix}" '{print $2}')
+            next_suffix_number=$((last_suffix_number + 1))
         fi
     fi
 fi
 
 # Generate the new tag
 if [[ $is_release_branch == true && $release_build == true ]]; then
-    new_tag="V${current_version_major}.${next_number}"
+    new_tag="V${current_version_major}.${next_minor_number}"
+    next_number=${next_minor_number}
 else
-    new_tag="${base_version}${next_number}"
+    new_tag="${base_version}${next_suffix_number}"
+    next_number=${next_suffix_number}
 fi
 
 update_output_file $new_tag $next_number $tag_created $tag_type
@@ -198,12 +200,12 @@ if [[ $create == true ]]; then
     commit_made=$(create_commit)
 
     git tag -fa "$new_tag" -m "This tag was created with generate_next_git_tag.sh"
-    git push origin "$new_tag" -f
+    #git push origin "$new_tag" -f
     echo "The tag $new_tag has been created and pushed."
 
     # If it's a release branch, also push the commit to the branch
     if [[ $is_release_branch == true ]]; then
-        git push origin "$branch_name" -f
+       #git push origin "$branch_name" -f
         echo "The commit has been pushed to the $branch_name branch."
     fi
 
