@@ -9,7 +9,7 @@
 
 # if -c flag is provided, version_pre_release in CMakeLists.txt is incremented and a new tag is created and pushed to origin
 # if -o is provided, "build_tag" , "version_pre_release" and "tag_created" are written to file
-# if -r flag is set (release_build=true), we ignore the {suffix} 
+# if -r flag is set (is_release_build=true), we ignore the {suffix} 
 #   --> if there is no new commit, the same tag is generated again (or V{MAJOR}.{MINOR} if no tag exists yet)
 #   --> if there is a new commit, we increment the {MINOR} version
 
@@ -21,7 +21,7 @@ set -x
 output=""
 create=false
 tag_created="false"
-release_build=false
+is_release_build=false
 branch_name=""
 
 while getopts ":b:o:rc" opt; do
@@ -33,7 +33,7 @@ while getopts ":b:o:rc" opt; do
       create=true
       ;;
     r )
-      release_build=true
+      is_release_build=true
       ;;
     b )
       branch_name=$OPTARG
@@ -125,12 +125,12 @@ fi
 current_version_major=$(grep "CPACK_PACKAGE_VERSION_MAJOR" CMakeLists.txt | grep -o "[0-9]\+")
 current_version_minor=$(grep "CPACK_PACKAGE_VERSION_MINOR" CMakeLists.txt | grep -o "[0-9]\+")
 
-
 # Check if it's a release branch
 is_release_branch=$(echo "$branch_name" | grep -q "releases/v$current_version_major" && echo true || echo false)
 
+
 # Determine the tag type and base version format
-if [[ $is_release_branch == true && $release_build == true ]]; then
+if [[ $is_release_branch == true && $is_release_build == true ]]; then
     tag_type="version_minor"
     base_version="V${current_version_major}.${current_version_minor}"
 else
@@ -143,7 +143,7 @@ fi
 existing_tags=$(git tag --list "${base_version}*" | grep -E "${base_version}[0-9]*$" || true)
 
 # Determine the initial tag number based on branch type and release build status
-if [[ $is_release_branch == true && $release_build == true ]]; then
+if [[ $is_release_branch == true && $is_release_build == true ]]; then
     next_minor_number=0  # Start from 0 for minor_version in release builds
 else
     next_suffix_number=1  # Start from 1 after suffix
@@ -160,7 +160,7 @@ else
         tag_created="false"
     else
         tag_created="true"
-        if [[ $is_release_branch == true && $release_build == true ]]; then
+        if [[ $is_release_branch == true && $is_release_build == true ]]; then
             # Increment the minor version for release builds (-r flag is set)
             next_minor_number=$((current_version_minor + 1))
         else
@@ -172,7 +172,7 @@ else
 fi
 
 # Generate the new tag
-if [[ $is_release_branch == true && $release_build == true ]]; then
+if [[ $is_release_branch == true && $is_release_build == true ]]; then
     new_tag="V${current_version_major}.${next_minor_number}"
     next_number=${next_minor_number}
 else
