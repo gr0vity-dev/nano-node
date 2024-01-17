@@ -205,7 +205,7 @@ if [[ $create == true ]]; then
 
     # If it's a release branch, also push the commit to the branch
     if [[ $is_release_branch == true ]]; then
-       #git push origin "$branch_name" -f
+        git push origin "$branch_name" -f
         echo "The commit has been pushed to the $branch_name branch."
     fi
 
