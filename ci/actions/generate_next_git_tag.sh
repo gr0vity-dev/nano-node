@@ -1,14 +1,18 @@
 #!/bin/bash
 
-# This script creates the next tag for the current branch by incrementing the version_pre_release by 1
+# This script derives the next tag from the current branch and the previously generated tags
 # A new tag is only created if a new commit has been detected compared to the previous tag.
-# The tag has the following format V${current_version_major}.${current_version_minor}${branch_name}
-# ${branch_name} is converted to "DB" if the script operates on develop branch. (e.g first tag for V26: V26.0DB1)
+# The tag has the following format V{MAJOR}.${MINOR}{suffix}{increment}
+# If it executes on a develop branch : {suffix} is set to DB  (e.g first tag for V26: V26.0DB1)
+# If it executes on a releases/x{Major} branch : {suffix} is set to RC (e.g first tag for V26: V26.0RC1)
+# If it executes on any other branch, the {suffix} is set to the branch_name
+
 # if -c flag is provided, version_pre_release in CMakeLists.txt is incremented and a new tag is created and pushed to origin
 # if -o is provided, "build_tag" , "version_pre_release" and "tag_created" are written to file
-# If it executes on a release-branch :
-#    --> if there  is no new commit, the same tag is generated again
-#    --> If there is a new commit compared to the previous tag, we would increment the minor version by 1 and build the new binaries & docker images
+# if -r flag is set (release_build=true), we ignore the {suffix} 
+#   --> if there is no new commit, the same tag is generated again (or V{MAJOR}.{MINOR} if no tag exists yet)
+#   --> if there is a new commit, we increment the {MINOR} version
+
 
 #!/bin/bash
 
@@ -17,14 +21,22 @@ set -x
 output=""
 create=false
 tag_created="false"
+release_build=false
+branch_name=""
 
-while getopts ":o:c" opt; do
+while getopts ":o:c:rb:" opt; do
   case ${opt} in
     o )
       output=$OPTARG
       ;;
     c )
       create=true
+      ;;
+    r )
+      release_build=true
+      ;;
+    b )
+      branch_name=$OPTARG
       ;;
     \? )
       echo "Invalid Option: -$OPTARG" 1>&2
@@ -41,39 +53,17 @@ shift $((OPTIND -1))
 
 get_tag_suffix() {
     local branch_name=$1
-    local version_major=$2
     local tag_suffix=${branch_name//[^a-zA-Z0-9]/_}
 
     if [[ "$branch_name" == "develop" ]]; then
         tag_suffix="DB"
+    elif [[ "$branch_name" =~ ^releases/v[0-9]+ ]]; then
+        tag_suffix="RC"
     fi
 
     echo $tag_suffix
 }
 
-get_next_tag_number() {
-    local last_tag_number=$1
-    local increment=$2
-    echo $((last_tag_number + increment))
-}
-
-get_next_minor_version() {
-    local current_minor=$1
-    local increment=$2
-    echo $((current_minor + increment))
-}
-
-get_new_release_tag() {
-    local version_major=$1
-    local next_minor=$2
-    echo "V${version_major}.${next_minor}"
-}
-
-get_new_other_tag() {
-    local base_version=$1
-    local next_tag_number=$2
-    echo "${base_version}${next_tag_number}"
-}
 
 update_output_file() {   
     local new_tag=$1
@@ -126,77 +116,66 @@ git fetch --tags -f
 # Fetch the last commit hash of the current branch
 current_commit_hash=$(git rev-parse HEAD)
 
-# Fetch branch name
-branch_name=$(git rev-parse --abbrev-ref HEAD)
-
-# Determine if it's a release branch or not
-is_release_branch=$(echo "$branch_name" | grep -q "releases/v$current_version_major" && echo true || echo false)
-
+# If no branch name is provided through the -b option, fetch the current branch name
+if [[ -z "$branch_name" ]]; then
+    branch_name=$(git rev-parse --abbrev-ref HEAD)
+fi
 
 # Fetch major and minor version numbers from CMakeLists.txt
 current_version_major=$(grep "CPACK_PACKAGE_VERSION_MAJOR" CMakeLists.txt | grep -o "[0-9]\+")
 current_version_minor=$(grep "CPACK_PACKAGE_VERSION_MINOR" CMakeLists.txt | grep -o "[0-9]\+")
 
-# Initialize tag suffix and next number and increment
-tag_suffix=""
-next_number=0
-increment=1
 
-if [[ $is_release_branch == true ]]; then     
+# Check if it's a release branch
+is_release_branch=$(echo "$branch_name" | grep -q "releases/v$current_version_major" && echo true || echo false)
 
-    tag_type="version_minor"    
-    # Find existing tags for the release branch
-    existing_release_tags=$(git tag --list "V${current_version_major}.*" | grep -E "V${current_version_major}\.[0-9]+$" || true)
-
-    # Check if any tag exists for the release branch
-    if [[ -z "$existing_release_tags" ]]; then
-        # No tag exists yet, use current minor version without incrementing
-        tag_created="true"
-        increment=0
-    else
-        # Some tags already exist
-        # Get the commit hash of the latest tag
-        last_tag=$(echo "$existing_release_tags" | sort -V | tail -n1)
-        last_tag_commit_hash=$(git rev-list -n 1 $last_tag)
-
-        if [[ "$current_commit_hash" == "$last_tag_commit_hash" ]]; then
-            # The commit hash of the HEAD is the same as the last tag, hence no new commits. No need to increment
-            tag_created="true"
-            increment=0
-        else
-            # There is a new commit, hence increment the minor version by 1
-            tag_created="true"
-            increment=1
-        fi        
-    fi    
-    next_number=$(get_next_minor_version $current_version_minor $increment)
-    new_tag=$(get_new_release_tag $current_version_major $next_number)
-
+# Determine the tag type and base version format
+if [[ $is_release_branch == true && $release_build == true ]]; then
+    tag_type="version_minor"
+    base_version="V${current_version_major}.${current_version_minor}"
 else
-    # Non-release branches handling
     tag_type="version_pre_release"
-    
-    tag_suffix=$(get_tag_suffix $branch_name $current_version_major)
+    tag_suffix=$(get_tag_suffix "$branch_name")
     base_version="V${current_version_major}.${current_version_minor}${tag_suffix}"
-    existing_tags=$(git tag --list "${base_version}*" | grep -E "${base_version}[0-9]+$" || true)
+fi
 
-    if [[ -n "$existing_tags" ]]; then
-        last_tag=$(echo "$existing_tags" | sort -V | tail -n1)
-        last_tag_number=$(echo "$last_tag" | awk -F"${tag_suffix}" '{print $2}')
-        last_tag_commit_hash=$(git rev-list -n 2 $last_tag | tail -n 1) #ignore the commit that updates the version_pre_release
-        
-        if [[ "$current_commit_hash" == "$last_tag_commit_hash" ]]; then
-            echo "No new commits since the last tag. No new tag will be created."
-            tag_created="false"
-        else
-            tag_created="true"
-            next_number=$(get_next_tag_number $last_tag_number $increment)
-        fi
+# Fetch existing tags based on the base version
+existing_tags=$(git tag --list "${base_version}*" | grep -E "${base_version}[0-9]*$" || true)
+
+# Determine the initial tag number based on branch type and release build status
+if [[ $is_release_branch == true && $release_build == true ]]; then
+    next_number=0  # Start from 0 for release branches with release build
+else
+    next_number=1  # Start from 1 for other branches
+fi
+
+if [[ -z "$existing_tags" ]]; then
+    tag_created="true"
+else
+    last_tag=$(echo "$existing_tags" | sort -V | tail -n1)
+    last_tag_commit_hash=$(git rev-list -n 1 "$last_tag")
+
+    if [[ "$current_commit_hash" == "$last_tag_commit_hash" ]]; then
+        echo "No new commits since the last tag. No new tag will be created."
+        tag_created="false"
     else
         tag_created="true"
-        next_number=1 #replace the default 99       
+        if [[ $is_release_branch == true && $release_build == true ]]; then
+            # Increment the minor version for release branches when -r flag is set
+            next_number=$((current_version_minor + 1))
+        else
+            # Increment the suffix number for non-release branches
+            last_tag_number=$(echo "$last_tag" | awk -F"${tag_suffix}" '{print $2}')
+            next_number=$((last_tag_number + 1))
+        fi
     fi
-    new_tag=$(get_new_other_tag $base_version $next_number)        
+fi
+
+# Generate the new tag
+if [[ $is_release_branch == true && $release_build == true ]]; then
+    new_tag="V${current_version_major}.${next_number}"
+else
+    new_tag="${base_version}${next_number}"
 fi
 
 update_output_file $new_tag $next_number $tag_created $tag_type
