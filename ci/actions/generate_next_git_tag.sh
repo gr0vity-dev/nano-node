@@ -155,8 +155,8 @@ else
     last_tag=$(echo "$existing_tags" | sort -V | tail -n1)
     last_tag_commit_hash=$(git rev-list -n 1 "$last_tag")
 
-    if [[ "$current_commit_hash" == "$last_tag_commit_hash" ]]; then
-        echo "No new commits since the last tag. No new tag will be created."
+    if [[ "$current_commit_hash" == "$last_tag_commit_hash" ]]; then 
+        # No new commits
         tag_created="false"
     else
         tag_created="true"
@@ -184,8 +184,9 @@ update_output_file $new_tag $next_number $tag_created $tag_type
 
 # Skip tag creation if no new commits
 if [[ "$tag_created" == "true" ]]; then
-    echo "$new_tag"
+    echo "Tag '$new_tag' ready to be created" 
 else
+    echo "No new commits since the last tag. No new tag will be created."
     exit 0
 fi
 
@@ -205,7 +206,7 @@ if [[ $create == true ]]; then
 
     # If it's a release branch, also push the commit to the branch
     if [[ $is_release_branch == true ]]; then
-        git push origin "$branch_name" -f
+        #git push origin "$branch_name" -f
         echo "The commit has been pushed to the $branch_name branch."
     fi
 
@@ -214,4 +215,6 @@ if [[ $create == true ]]; then
         git reset --hard HEAD~1
         echo "The commit used for the tag does not exist on any branch."
     fi
+else
+    echo "Tag was not created. Run the script with -c option to create the tag"
 fi
