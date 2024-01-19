@@ -8,6 +8,10 @@ on:
           description: 'Is this a release build?'
           required: false
           default: 'false'
+          type: choice
+          options:
+            - 'true'
+            - 'false'
 
 env:
   artifact: 1
