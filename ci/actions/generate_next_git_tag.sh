@@ -164,10 +164,10 @@ if [[ -z "$existing_tags" ]]; then
     should_create_tag="true"
 else
     last_tag=$(echo "$existing_tags" | sort -V | tail -n1)
-    last_tag_commit_hash=$(git rev-list -n 1 "$last_tag")
+    tags_containing_current_commit=$(git tag --contains "$current_commit_hash")
 
-    if [[ "$current_commit_hash" == "$last_tag_commit_hash" ]]; then
-        # No new commits
+    if echo "$tags_containing_current_commit" | grep -q "$last_tag"; then
+        # The current commit is included in the last tag
         should_create_tag="false"
     else
         should_create_tag="true"
