@@ -77,16 +77,25 @@ get_tag_suffix() {
     echo $new_tag_suffix
 }
 
-update_output_file() {
+update_output() {
+    #Responsible for either writing to file (-o flag) or to $GITHUB_ENV (when run from a workflow)
     local new_tag=$1
     local new_tag_number=$2
     local tag_created=$3
     local tag_type=$4
 
     if [[ -n "$output" ]]; then
-        echo "build_tag =$new_tag" >$output
-        echo "$tag_type =$new_tag_number" >>$output
-        echo "tag_created =$tag_created" >>$output
+        # Output to the specified file if -o is used
+        echo "build_tag=$new_tag" > "$output"
+        echo "${tag_type}=$new_tag_number" >> "$output"
+        echo "tag_created=$tag_created" >> "$output"
+    elif [[ $GITHUB_ACTIONS == 'true' ]]; then
+        # Set environment variables if -o is not used
+        echo "CI_TAG=${new_tag}" >> $GITHUB_ENV
+        echo "CI_TAG_NUMBER=${new_tag_number}" >> $GITHUB_ENV
+        echo "TAG_CREATED=${tag_created}" >> $GITHUB_ENV
+    else       
+        echo "Not running in a GitHub Actions environment. No action taken for CI_TAG and TAG_CREATED."
     fi
 }
 
@@ -183,7 +192,7 @@ else
     new_tag_number=${tag_next_suffix_number}
 fi
 
-update_output_file $new_tag $new_tag_number $should_create_tag $tag_type
+update_output $new_tag $new_tag_number $should_create_tag $tag_type
 
 # Skip tag creation if no new commits
 if [[ "$should_create_tag" == "true" ]]; then
