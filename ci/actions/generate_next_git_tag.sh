@@ -8,16 +8,15 @@
 
 # Tag Format:
 # General: V{MAJOR}.{MINOR}{tag_suffix}{increment}
-# For releases/ branch: V{MAJOR}.{MINOR}
+# For releases/v branch: V{MAJOR}.{MINOR}
 
 # Options:
-# -r : Indicates a release build. In this case, {tag_suffix} is ignored.
+# -r (overwrites $IS_RELEASE_BUILD) : Indicates a release build. In this case, {tag_suffix} is ignored.
 #   New commit: Increments the {MINOR} version.
-#   No new commit: Generates the same tag again or V{MAJOR}.{MINOR} if no tag exists.
-# -s {tag_suffix} : Use a custom {tag_suffix} instead of the default derived from the branch name.
-#   DB for develop branch (e.g., V26.0DB1)
-#   RC for releases/x{Major} branch (e.g. V26.0RC1)
-#   {branch_name} for other branches (e.g. V26.0prs_refactor_tag_generation1)
+# -s {tag_suffix} : overwrites tag_suffix derived from the branch name. Derived tag_suffixes are :
+#   DB for develop branch (e.g. V26.0DB1)
+#   RC for releases/v branch (e.g. V26.0RC1)
+#   {branch_name} for other branches (e.g. V26.0current_git_branch1)
 # -c : Create and push the tag to origin.
 # -o {output} : Write results to the specified output file.
 
