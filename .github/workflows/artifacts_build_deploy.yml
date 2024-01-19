@@ -11,7 +11,6 @@ on:
 
 env:
   artifact: 1
-  IS_RELEASE_BUILD: ${{ github.event.inputs.is_release_build || 'false' }}
 
 jobs:
   prepare_build:
@@ -27,17 +26,14 @@ jobs:
         id: tag_set
         run: |
           output_var_file="variable_list.txt"
-          release_flag=""
-          if [ "${{ env.IS_RELEASE_BUILD }}" = "true" ]; then
-            release_flag="-r"
-          fi
-          ci/actions/generate_next_git_tag.sh -c ${release_flag} -o "${output_var_file}"
+          ci/actions/generate_next_git_tag.sh -c -o "${output_var_file}"
           CI_TAG=$(grep 'build_tag' ${output_var_file} | cut -d= -f2)
           echo "CI_TAG=${CI_TAG}" >> $GITHUB_OUTPUT
           TAG_CREATED=$(grep 'tag_created' ${output_var_file} | cut -d= -f2)
           echo "TAG_CREATED=${TAG_CREATED}" >> $GITHUB_OUTPUT
         env:
           GITHUB_ACTOR: ${{ github.actor }}
+          IS_RELEASE_BUILD: ${{ github.event.inputs.is_release_build || 'false' }}
 
 
   osx_job:

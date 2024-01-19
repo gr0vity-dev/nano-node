@@ -26,7 +26,7 @@ set -x
 output=""
 push_tag=false
 tag_created="false"
-is_release_build=false
+is_release_build=${IS_RELEASE_BUILD:-false} 
 tag_suffix=""
 
 while getopts ":ro:cs:" opt; do
