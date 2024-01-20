@@ -148,7 +148,6 @@ is_release_branch=$(echo "$current_branch_name" | grep -q "releases/v$current_ve
 tag_current_release="V${current_version_major}.${current_version_minor}"
 exists_tag_current_release=$(git tag --list "${tag_current_release}" | grep -qE "${tag_current_release}$" && echo true || echo false)
 
-
 # Determine the tag type and base version format
 if is_release_build; then
     cmake_update_versions+=("version_minor")
