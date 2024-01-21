@@ -16,20 +16,22 @@ jobs:
   prepare_build:
     runs-on: ubuntu-22.04
     outputs:
-      ci_tag: ${{ steps.tag_set.outputs.ci_tag }}
-      tag_created: ${{ steps.tag_set.outputs.tag_created }}
+      ci_tag: ${{ steps.set_vars.outputs.ci_tag }}
+      tag_created: ${{ steps.set_vars.outputs.tag_created }}
     steps:
       - uses: actions/checkout@93ea575cb5d8a053eaa0ac8fa3b40d7e05a33cc8 #v3.1.0
       - name: Set the tag and version
         id: tag_set
         run: |
           ci/actions/generate_next_git_tag.sh -c
-          echo "ci_tag=$CI_TAG" >> $GITHUB_OUTPUT
-          echo "tag_created=$TAG_CREATED" >> $GITHUB_OUTPUT
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           IS_RELEASE_BUILD: ${{ github.event.inputs.is_release_build || 'false' }}
-
+      - name: Set output
+        id: set_vars
+        run: |
+          echo "ci_tag=$CI_TAG" >> $GITHUB_OUTPUT
+          echo "tag_created=$TAG_CREATED" >> $GITHUB_OUTPUT
 
 
   osx_job:
