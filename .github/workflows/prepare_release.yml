@@ -47,19 +47,19 @@ jobs:
 
       - name: Increment Major version on default branch
         run: |
-          # Setup temporary branch name to prepare a pull request
-          NEW_BRANCH="prs/temp-increment-major-$(date +%Y%m%d%H%M%S)"
+          git checkout ${{ steps.get-default-branch.outputs.default-branch }}
+          NEW_BRANCH="prs/temp-increment-major-$(date +%Y%m%d%H%M%S)"          
           git checkout -b $NEW_BRANCH
-          # Perform the version increment
           new_version_major=$((${{ steps.fetch-versions.outputs.major }} + 1))
           sed -i.bak "s/set(CPACK_PACKAGE_VERSION_MAJOR \"[0-9]*\")/set(CPACK_PACKAGE_VERSION_MAJOR \"$new_version_major\")/g" CMakeLists.txt
           rm CMakeLists.txt.bak
-          # Commit changes
           git add CMakeLists.txt
           git commit -m "Update CPACK_PACKAGE_VERSION_MAJOR to $new_version_major"
           git push origin $NEW_BRANCH
+          # Create pull request
+          export GH_TOKEN=${{ secrets.GITHUB_TOKEN }}
           gh pr create --base ${{ steps.get-default-branch.outputs.default-branch }} --head $NEW_BRANCH --title "Update CPACK_PACKAGE_VERSION_MAJOR to $new_version_major" --body "Auto-generated PR to update CPACK_PACKAGE_VERSION_MAJOR"
-          git push origin --delete $NEW_BRANCH
+
 
       - name: Prepare release branch and set pre-release to 0
         run: |
