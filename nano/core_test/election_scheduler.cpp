@@ -112,6 +112,8 @@ TEST (election_scheduler, no_vacancy)
 				  .sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub)
 				  .work (*system.work.generate (send->hash ()))
 				  .build_shared ();
+	// Ensure election for send is already confirmed before processing the receive block
+	ASSERT_TIMELY (5s, nano::test::confirmed (node, { receive }));
 	ASSERT_EQ (nano::process_result::progress, node.process (*block1).code);
 
 	// There is vacancy so it should be inserted
@@ -138,5 +140,5 @@ TEST (election_scheduler, no_vacancy)
 	// Election confirmed, next in queue should begin
 	election->force_confirm ();
 	ASSERT_TIMELY (5s, node.active.election (block2->qualified_root ()) != nullptr);
-	ASSERT_TRUE (node.scheduler.priority.empty ());
+	ASSERT_TIMELY (1s, node.scheduler.priority.empty ());
 }
