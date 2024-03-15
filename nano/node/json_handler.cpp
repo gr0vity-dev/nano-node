@@ -164,19 +164,14 @@ void nano::json_handler::response_errors ()
 		ec = nano::error_rpc::empty_response;
 	}
 	if (ec)
-	{
-		boost::property_tree::ptree response_error;
-		response_error.put ("error", ec.message ());
-		std::stringstream ostream;
-		boost::property_tree::write_json (ostream, response_error);
-		response (ostream.str ());
-	}
-	else
-	{
-		std::stringstream ostream;
-		boost::property_tree::write_json (ostream, response_l);
-		response (ostream.str ());
-	}
+    {       
+        response_l.put("error", ec.message());
+    }
+    
+    // Convert response_l to JSON string and send the response
+    std::stringstream ostream;
+    boost::property_tree::write_json(ostream, response_l);
+    response(ostream.str());
 }
 
 std::shared_ptr<nano::wallet> nano::json_handler::wallet_impl ()
