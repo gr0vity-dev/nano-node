@@ -89,8 +89,10 @@ void nano::transport::tcp_listener::stop ()
 	}
 	condition.notify_all ();
 
-	acceptor.cancel(); // Cancel any outstanding asynchronous operations
-	acceptor.close ();
+	// Schedule the acceptor to be closed on the IO context
+    boost::asio::post(acceptor.get_executor(), [this]() {
+        acceptor.close();
+    });
 
 	if (thread.joinable ())
 	{
