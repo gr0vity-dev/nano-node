@@ -89,6 +89,7 @@ void nano::transport::tcp_listener::stop ()
 	}
 	condition.notify_all ();
 
+	acceptor.cancel(); // Cancel any outstanding asynchronous operations
 	acceptor.close ();
 
 	if (thread.joinable ())
@@ -173,11 +174,15 @@ void nano::transport::tcp_listener::run ()
 		}
 		catch (boost::system::system_error const & ex)
 		{
-			stats.inc (nano::stat::type::tcp_listener, nano::stat::detail::accept_error, nano::stat::dir::in);
-			logger.log (stopped ? nano::log::level::debug : nano::log::level::error, // Avoid logging expected errors when stopping
-			nano::log::type::tcp_listener, "Error accepting incoming connection: {}", ex.what ());
+			if (ex.code() != boost::asio::error::operation_aborted)
+			{
+				stats.inc (nano::stat::type::tcp_listener, nano::stat::detail::accept_error, nano::stat::dir::in);
+				logger.log (stopped ? nano::log::level::debug : nano::log::level::error, // Avoid logging expected errors when stopping
+				nano::log::type::tcp_listener, "Error accepting incoming connection: {}", ex.what ());
 
-			cooldown = true;
+				cooldown = true;	
+			}
+			
 		}
 
 		lock.lock ();
