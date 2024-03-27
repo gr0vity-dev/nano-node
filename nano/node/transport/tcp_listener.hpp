@@ -57,6 +57,7 @@ private:
 	void run_cleanup ();
 	void cleanup ();
 	void wait_available_slots ();
+	void start_accept ();
 
 	enum class accept_result
 	{
