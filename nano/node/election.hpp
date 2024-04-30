@@ -72,7 +72,7 @@ private: // State management
 	// These are modified while not holding the mutex from transition_time only
 	std::chrono::steady_clock::time_point last_block{};
 	nano::block_hash last_block_hash{ 0 };
-	std::chrono::steady_clock::time_point last_req{};
+	std::chrono::steady_clock::time_point last_req = std::chrono::steady_clock::now ();
 	/** The last time vote for this election was generated */
 	std::chrono::steady_clock::time_point last_vote{};
 

@@ -140,13 +140,14 @@ bool nano::election::state_change (nano::election_state expected_a, nano::electi
 
 std::chrono::milliseconds nano::election::confirm_req_time () const
 {
+	auto exp_factor = 1 << confirmation_request_count;
 	switch (behavior ())
 	{
 		case election_behavior::normal:
 		case election_behavior::hinted:
-			return base_latency () * 5;
+			return base_latency () * 5 * exp_factor;
 		case election_behavior::optimistic:
-			return base_latency () * 2;
+			return base_latency () * 2 * exp_factor;
 	}
 	debug_assert (false);
 	return {};

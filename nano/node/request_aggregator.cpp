@@ -107,8 +107,8 @@ void nano::request_aggregator::run ()
 				if (!remaining.first.empty ())
 				{
 					// Generate votes for the remaining hashes
-					auto const generated = generator.generate (remaining.first, channel);
-					stats.add (nano::stat::type::requests, nano::stat::detail::requests_cannot_vote, stat::dir::in, remaining.first.size () - generated);
+					// auto const generated = generator.generate (remaining.first, channel);
+					// stats.add (nano::stat::type::requests, nano::stat::detail::requests_cannot_vote, stat::dir::in, remaining.first.size () - generated);
 				}
 				if (!remaining.second.empty ())
 				{
@@ -281,7 +281,7 @@ std::pair<std::vector<std::shared_ptr<nano::block>>, std::vector<std::shared_ptr
 					}
 					else
 					{
-						to_generate.push_back (block);
+						// to_generate.push_back (block);
 					}
 				}
 
