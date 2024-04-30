@@ -23,6 +23,7 @@
 #include <chrono>
 #include <vector>
 
+
 namespace
 {
 void construct_json (nano::container_info_component * component, boost::property_tree::ptree & parent);
@@ -38,7 +39,8 @@ nano::json_handler::json_handler (nano::node & node_a, nano::node_rpc_config con
 	node (node_a),
 	response (response_a),
 	stop_callback (stop_callback_a),
-	node_rpc_config (node_rpc_config_a)
+	node_rpc_config (node_rpc_config_a),
+	buckets(std::make_unique<nano::scheduler::buckets>())
 {
 }
 
@@ -2068,12 +2070,21 @@ void nano::json_handler::confirmation_history ()
 	}
 	if (!ec)
 	{
+		auto transaction = node.ledger.tx_begin_read ();
 		for (auto const & status : node.active.recently_cemented.list ())
 		{
 			if (hash.is_zero () || status.winner->hash () == hash)
 			{
+				
+				auto block_hash = status.winner->hash ();
+				auto block = node.ledger.block (transaction, block_hash);
+				auto balance = block->balance().number(); 
+				auto previous_balance = node.ledger.balance (transaction, block->previous ()).value_or (0);
+				auto const balance_priority = std::max (balance, previous_balance);				
+				auto priority_bucket = buckets->index (balance_priority);
+
 				boost::property_tree::ptree election;
-				election.put ("hash", status.winner->hash ().to_string ());
+				election.put ("hash", block_hash.to_string ());
 				election.put ("duration", status.election_duration.count ());
 				election.put ("time", status.election_end.count ());
 				election.put ("tally", status.tally.to_string_dec ());
@@ -2081,6 +2092,7 @@ void nano::json_handler::confirmation_history ()
 				election.put ("blocks", std::to_string (status.block_count));
 				election.put ("voters", std::to_string (status.voter_count));
 				election.put ("request_count", std::to_string (status.confirmation_request_count));
+				election.put ("priority_bucket", std::to_string(priority_bucket));
 				elections.push_back (std::make_pair ("", election));
 			}
 			running_total += status.election_duration;

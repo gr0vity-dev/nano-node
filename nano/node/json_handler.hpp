@@ -4,6 +4,7 @@
 #include <nano/node/ipc/flatbuffers_handler.hpp>
 #include <nano/node/wallet.hpp>
 #include <nano/rpc/rpc.hpp>
+#include <nano/node/scheduler/buckets.hpp>
 
 #include <boost/property_tree/ptree.hpp>
 
@@ -179,6 +180,7 @@ public:
 	bool enable_sign_hash{ false };
 	std::function<void ()> stop_callback;
 	nano::node_rpc_config const & node_rpc_config;
+	std::unique_ptr<nano::scheduler::buckets> buckets;
 	std::function<void ()> create_worker_task (std::function<void (std::shared_ptr<nano::json_handler> const &)> const &);
 };
 
@@ -190,7 +192,8 @@ public:
 		node (node_a),
 		ipc_server (ipc_server_a),
 		stop_callback (stop_callback_a),
-		node_rpc_config (node_rpc_config_a)
+		node_rpc_config (node_rpc_config_a),
+		buckets(std::make_unique<nano::scheduler::buckets>())
 	{
 	}
 
@@ -216,5 +219,6 @@ private:
 	boost::optional<nano::rpc &> rpc;
 	std::function<void ()> stop_callback;
 	nano::node_rpc_config const & node_rpc_config;
+	std::unique_ptr<nano::scheduler::buckets> buckets;
 };
 }
