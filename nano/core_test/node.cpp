@@ -3033,7 +3033,7 @@ TEST (node, rollback_vote_self)
 
 	// Process and mark the first 2 blocks as confirmed to allow voting
 	ASSERT_TRUE (nano::test::process (node, { send1, open }));
-	ASSERT_TRUE (nano::test::start_elections (system, node, { send1, open }, true));
+	node.ledger.confirm (node.ledger.tx_begin_write (), open->hash ());
 	ASSERT_TIMELY_EQ (5s, node.ledger.cemented_count (), 3);
 
 	// wait until the rep weights have caught up with the weight transfer
