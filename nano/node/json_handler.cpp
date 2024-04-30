@@ -2082,10 +2082,14 @@ void nano::json_handler::confirmation_history ()
 				auto previous_balance = node.ledger.balance (transaction, block->previous ()).value_or (0);
 				auto const balance_priority = std::max (balance, previous_balance);				
 				auto priority_bucket = buckets->index (balance_priority);
+				int64_t timestamp_ms = block->sideband().timestamp * 1000;  // Convert timestamp from seconds to milliseconds
+				int64_t election_end_ms = status.election_end.count(); 
+				int64_t duration_ms = election_end_ms - timestamp_ms;
 
 				boost::property_tree::ptree election;
 				election.put ("hash", block_hash.to_string ());
 				election.put ("duration", status.election_duration.count ());
+				election.put ("total_duration", duration_ms);
 				election.put ("time", status.election_end.count ());
 				election.put ("tally", status.tally.to_string_dec ());
 				election.add ("final", status.final_tally.to_string_dec ());
