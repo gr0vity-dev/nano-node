@@ -289,7 +289,7 @@ void nano::active_transactions::cleanup_election (nano::unique_lock<nano::mutex>
 
 	node.stats.sample (nano::stat::sample::active_election_duration, { 0, 1000 * 60 * 10 /* 0-10 minutes range */ }, election->duration ().count ());
 
-	vacancy_update ();
+	election_stopped.notify (election);
 
 	for (auto const & [hash, block] : blocks_l)
 	{
@@ -438,7 +438,6 @@ nano::election_insertion_result nano::active_transactions::insert (std::shared_p
 		trigger_vote_cache (hash);
 
 		node.observers.active_started.notify (hash);
-		vacancy_update ();
 	}
 
 	// Votes are generated for inserted or ongoing elections
@@ -640,7 +639,6 @@ void nano::active_transactions::clear ()
 		blocks.clear ();
 		roots.clear ();
 	}
-	vacancy_update ();
 }
 
 std::unique_ptr<nano::container_info_component> nano::collect_container_info (active_transactions & active_transactions, std::string const & name)
