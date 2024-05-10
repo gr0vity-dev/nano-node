@@ -1,5 +1,6 @@
 #include <nano/lib/blocks.hpp>
 #include <nano/node/scheduler/bucket.hpp>
+#include <iostream> // Ensure this include is present to use std::cout
 
 bool nano::scheduler::bucket::value_type::operator< (value_type const & other_a) const
 {
@@ -54,15 +55,22 @@ bool nano::scheduler::bucket::empty () const
 }
 
 
-void nano::scheduler::bucket::modify_active_election_count(int adjustment) {
+void nano::scheduler::bucket::modify_active_election_count(bool increment) {
     nano::lock_guard<nano::mutex> lock{ mutex };
-    if (adjustment == 1) {
+
+    // Output the current count and maximum before adjustment
+    std::cout << "Before Adjustment - Active Election Count: " << active_election_count << ", Maximum Active: " << maximum_active << std::endl;
+
+    if (increment) {
         debug_assert(active_election_count < maximum_active); // Ensure no overflow
         active_election_count++;
-    } else if (adjustment == -1) {
+    } else {
         debug_assert(active_election_count > 0);  // Ensure no underflow
         active_election_count--;
     }
+
+    // Output the updated count and maximum after adjustment
+    std::cout << "After Adjustment - Active Election Count: " << active_election_count << ", Maximum Active: " << maximum_active << std::endl;
 }
 
 

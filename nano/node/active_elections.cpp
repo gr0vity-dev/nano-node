@@ -435,6 +435,7 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 
 		node.vote_router.trigger_vote_cache (hash);
 		node.observers.active_started.notify (hash);
+		node.scheduler.priority.election_started(result.election);
 		vacancy_update ();
 	}
 

@@ -36,11 +36,11 @@ public:
 	bool empty () const;
 	void dump () const;
 	bool vacancy () const;
-	void modify_active_election_count(int adjustment);
+	void modify_active_election_count(bool increment);
 
 private:
 	mutable nano::mutex mutex;
-	size_t active_election_count;
+	size_t active_election_count = 0;
 	size_t const maximum_active = 128;
 };
 } // namespace nano::scheduler

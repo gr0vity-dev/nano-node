@@ -137,6 +137,21 @@ void nano::scheduler::priority::run ()
 	}
 }
 
+void nano::scheduler::priority::election_started(std::shared_ptr<nano::election> election)
+{
+    nano::lock_guard<nano::mutex> lock{ mutex };
+	auto transaction = node.ledger.tx_begin_read ();
+	
+    for (auto const& [hash, block] : election->blocks())
+    {
+		auto account = block->account ();
+		auto head = node.ledger.confirmed.account_head (transaction, account);
+		auto const balance_priority = std::max (block->balance ().number (), node.ledger.confirmed.block_balance (transaction, head).value_or (0).number ());
+		
+		buckets->reduce_vacancy(balance_priority);
+    }    
+}
+
 void nano::scheduler::priority::election_stopped(std::shared_ptr<nano::election> election)
 {
     nano::lock_guard<nano::mutex> lock{ mutex };
@@ -148,7 +163,7 @@ void nano::scheduler::priority::election_stopped(std::shared_ptr<nano::election>
 		auto head = node.ledger.confirmed.account_head (transaction, account);
 		auto const balance_priority = std::max (block->balance ().number (), node.ledger.confirmed.block_balance (transaction, head).value_or (0).number ());
 
-		buckets->add_vacancy();        
+		buckets->add_vacancy(balance_priority);        
     }    
 }
 

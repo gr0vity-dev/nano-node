@@ -4,6 +4,7 @@
 #include <nano/node/scheduler/buckets.hpp>
 
 #include <string>
+#include <iostream> // Include for std::cout
 
 /** Moves the bucket pointer to the next bucket */
 void nano::scheduler::buckets::next ()
@@ -63,9 +64,15 @@ nano::scheduler::buckets::~buckets ()
 
 std::size_t nano::scheduler::buckets::index (nano::uint128_t const & balance) const
 {
-	auto index = std::upper_bound (minimums.begin (), minimums.end (), balance) - minimums.begin () - 1;
-	return index;
+    auto index = std::upper_bound(minimums.begin(), minimums.end(), balance) - minimums.begin() - 1;
+    
+    // Output the balance and the index
+    std::cout << "Balance: " << balance << std::endl;
+    std::cout << "Bucket Index: " << index << std::endl;
+    
+    return index;
 }
+
 
 /**
  * Push a block and its associated time into the prioritization container.
@@ -85,19 +92,24 @@ void nano::scheduler::buckets::push (uint64_t time, std::shared_ptr<nano::block>
 /** Checks for vacancy in the current bucket (Limit active elections per bucket) */
 bool nano::scheduler::buckets::vacancy()
 {
-    debug_assert(current != end());
-    if (!(*current)->vacancy()) {
+	auto & bucket = (*current) ;
+    if (!bucket->vacancy()) {
         seek();  // Move to the next non-empty bucket only if no vacancy is found to avoid stalling the predicate
         return false;
-    }
-	(*current)->modify_active_election_count(+1);
+    }	
     return true; // There is a vacancy, do not move the current pointer
 }
 
-void nano::scheduler::buckets::add_vacancy (std::size_t index)
+void nano::scheduler::buckets::add_vacancy (nano::amount const & priority)
 {	
-	auto & bucket = buckets_m[index] ;
-	bucket->modify_active_election_count(-1);
+	auto & bucket = buckets_m[index (priority.number ())];
+	bucket->modify_active_election_count(false);
+}
+
+void nano::scheduler::buckets::reduce_vacancy (nano::amount const & priority)
+{	
+	auto & bucket = buckets_m[index (priority.number ())];
+	bucket->modify_active_election_count(true);
 }
 
 

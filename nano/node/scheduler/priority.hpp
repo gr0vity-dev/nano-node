@@ -6,6 +6,7 @@
 
 #include <condition_variable>
 #include <deque>
+#include <map>
 #include <memory>
 #include <string>
 #include <thread>
@@ -14,6 +15,7 @@ namespace nano
 {
 class block;
 class container_info_component;
+class election;
 class node;
 class stats;
 }
@@ -43,6 +45,7 @@ public:
 	std::size_t size () const;
 	bool empty () const;
 	void election_stopped (std::shared_ptr<nano::election> election);
+	void election_started (std::shared_ptr<nano::election> election);
 
 	std::unique_ptr<container_info_component> collect_container_info (std::string const & name);
 

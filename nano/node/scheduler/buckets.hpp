@@ -52,8 +52,9 @@ public:
 	std::size_t bucket_count () const;
 	std::size_t bucket_size (std::size_t index) const;
 	bool empty () const;
-	bool vacancy() const
-	void add_vacancy (std::size_t index);
+	bool vacancy();
+	void add_vacancy (nano::amount const & priority);
+	void reduce_vacancy (nano::amount const & priority);
 	void dump () const;
 	std::size_t index (nano::uint128_t const & balance) const;
 
