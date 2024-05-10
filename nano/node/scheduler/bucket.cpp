@@ -53,6 +53,27 @@ bool nano::scheduler::bucket::empty () const
 	return queue.empty ();
 }
 
+
+void nano::scheduler::bucket::modify_active_election_count(int adjustment) {
+    nano::lock_guard<nano::mutex> lock{ mutex };
+    if (adjustment == 1) {
+        debug_assert(active_election_count < maximum_active); // Ensure no overflow
+        active_election_count++;
+    } else if (adjustment == -1) {
+        debug_assert(active_election_count > 0);  // Ensure no underflow
+        active_election_count--;
+    }
+}
+
+
+
+bool nano::scheduler::bucket::vacancy () const
+{
+    nano::lock_guard<nano::mutex> lock{ mutex };
+    return active_election_count < maximum_active;
+}
+
+
 void nano::scheduler::bucket::dump () const
 {
 	for (auto const & item : queue)

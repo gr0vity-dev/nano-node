@@ -43,7 +43,7 @@ class buckets final
 	void seek ();
 
 public:
-	buckets (uint64_t maximum = 250000u);
+	buckets (uint64_t maximum = 250000); 
 	~buckets ();
 	void push (uint64_t time, std::shared_ptr<nano::block> block, nano::amount const & priority);
 	std::shared_ptr<nano::block> top () const;
@@ -52,6 +52,8 @@ public:
 	std::size_t bucket_count () const;
 	std::size_t bucket_size (std::size_t index) const;
 	bool empty () const;
+	bool vacancy() const
+	void add_vacancy (std::size_t index);
 	void dump () const;
 	std::size_t index (nano::uint128_t const & balance) const;
 

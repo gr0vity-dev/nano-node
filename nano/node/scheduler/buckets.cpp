@@ -82,6 +82,25 @@ void nano::scheduler::buckets::push (uint64_t time, std::shared_ptr<nano::block>
 	}
 }
 
+/** Checks for vacancy in the current bucket (Limit active elections per bucket) */
+bool nano::scheduler::buckets::vacancy()
+{
+    debug_assert(current != end());
+    if (!(*current)->vacancy()) {
+        seek();  // Move to the next non-empty bucket only if no vacancy is found to avoid stalling the predicate
+        return false;
+    }
+	(*current)->modify_active_election_count(+1);
+    return true; // There is a vacancy, do not move the current pointer
+}
+
+void nano::scheduler::buckets::add_vacancy (std::size_t index)
+{	
+	auto & bucket = buckets_m[index] ;
+	bucket->modify_active_election_count(-1);
+}
+
+
 /** Return the highest priority block of the current bucket */
 std::shared_ptr<nano::block> nano::scheduler::buckets::top () const
 {

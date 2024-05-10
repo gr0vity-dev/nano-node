@@ -24,7 +24,7 @@ class bucket final
 		bool operator== (value_type const & other_a) const;
 	};
 	std::set<value_type> queue;
-	size_t const maximum;
+	size_t const maximum;	
 
 public:
 	bucket (size_t maximum);
@@ -35,5 +35,12 @@ public:
 	size_t size () const;
 	bool empty () const;
 	void dump () const;
+	bool vacancy () const;
+	void modify_active_election_count(int adjustment);
+
+private:
+	mutable nano::mutex mutex;
+	size_t active_election_count;
+	size_t const maximum_active = 128;
 };
 } // namespace nano::scheduler

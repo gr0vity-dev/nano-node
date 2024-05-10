@@ -42,6 +42,7 @@ public:
 	void notify ();
 	std::size_t size () const;
 	bool empty () const;
+	void election_stopped (std::shared_ptr<nano::election> election);
 
 	std::unique_ptr<container_info_component> collect_container_info (std::string const & name);
 

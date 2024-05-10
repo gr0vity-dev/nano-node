@@ -95,7 +95,7 @@ bool nano::scheduler::priority::empty () const
 
 bool nano::scheduler::priority::predicate () const
 {
-	return node.active.vacancy () > 0 && !buckets->empty ();
+	return node.active.vacancy () > 0 && !buckets->empty () && buckets->vacancy();
 }
 
 void nano::scheduler::priority::run ()
@@ -135,6 +135,21 @@ void nano::scheduler::priority::run ()
 			lock.lock ();
 		}
 	}
+}
+
+void nano::scheduler::priority::election_stopped(std::shared_ptr<nano::election> election)
+{
+    nano::lock_guard<nano::mutex> lock{ mutex };
+	auto transaction = node.ledger.tx_begin_read ();
+	
+    for (auto const& [hash, block] : election->blocks())
+    {
+		auto account = block->account ();
+		auto head = node.ledger.confirmed.account_head (transaction, account);
+		auto const balance_priority = std::max (block->balance ().number (), node.ledger.confirmed.block_balance (transaction, head).value_or (0).number ());
+
+		buckets->add_vacancy();        
+    }    
 }
 
 std::unique_ptr<nano::container_info_component> nano::scheduler::priority::collect_container_info (std::string const & name)
