@@ -105,6 +105,7 @@ void nano::add_node_flag_options (boost::program_options::options_description & 
 		("disable_bootstrap_listener", "Disables bootstrap processing for TCP listener (not including realtime network TCP connections)")
 		("disable_unchecked_cleanup", "Disables periodic cleanup of old records from unchecked table")
 		("disable_unchecked_drop", "Disables drop of unchecked table at startup")
+		("disable_max_peers_per_ip", "Disable limit for peers sharing the same ip address")
 		("disable_providing_telemetry_metrics", "Disable using any node information in the telemetry_ack messages.")
 		("disable_block_processor_unchecked_deletion", "Disable deletion of unchecked blocks after processing")
 		("enable_pruning", "Enable experimental ledger pruning")
@@ -132,6 +133,7 @@ std::error_code nano::update_flags (nano::node_flags & flags_a, boost::program_o
 	flags_a.disable_ascending_bootstrap = (vm.count ("disable_ascending_bootstrap") > 0);
 	flags_a.disable_rep_crawler = (vm.count ("disable_rep_crawler") > 0);
 	flags_a.disable_request_loop = (vm.count ("disable_request_loop") > 0);
+	flags_a.disable_max_peers_per_ip = (vm.count ("disable_max_peers_per_ip") > 0);
 	if (!flags_a.inactive_node)
 	{
 		flags_a.disable_bootstrap_listener = (vm.count ("disable_bootstrap_listener") > 0);
