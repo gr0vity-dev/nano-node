@@ -505,7 +505,7 @@ bool nano::active_elections::publish (std::shared_ptr<nano::block> const & block
 			node.vote_router.connect (block_a->hash (), election);
 			lock.unlock ();
 
-			node.vote_router.trigger_vote_cache (block_a->hash ());
+			// node.vote_router.trigger_vote_cache (block_a->hash ());
 
 			node.stats.inc (nano::stat::type::active, nano::stat::detail::election_block_conflict);
 		}
