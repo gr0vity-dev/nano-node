@@ -102,7 +102,8 @@ bool nano::scheduler::priority::empty () const
 
 bool nano::scheduler::priority::predicate () const
 {
-	return node.active.vacancy (nano::election_behavior::priority) > 0 && !buckets->empty ();
+	const size_t max_confirming = 1000;
+	return !buckets->empty () && node.active.vacancy (nano::election_behavior::priority) > 0 && node.active.election_winner_details_size () < max_confirming;
 }
 
 void nano::scheduler::priority::run ()
