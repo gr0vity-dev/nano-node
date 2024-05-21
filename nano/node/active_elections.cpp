@@ -384,7 +384,7 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 	auto const existing = roots.get<tag_root> ().find (root);
 	if (existing == roots.get<tag_root> ().end ())
 	{
-		if (!recently_confirmed.exists (root))
+		// if (!recently_confirmed.exists (root))
 		{
 			result.inserted = true;
 			auto observe_rep_cb = [&node = node] (auto const & rep_a) {
@@ -408,10 +408,10 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 			hash.to_string (),
 			to_string (election_behavior_a));
 		}
-		else
-		{
-			// result is not set
-		}
+		// else
+		// {
+		// 	// result is not set
+		// }
 	}
 	else
 	{

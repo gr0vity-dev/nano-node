@@ -54,7 +54,7 @@ void nano::election::confirm_once (nano::unique_lock<nano::mutex> & lock_a)
 		status.voter_count = nano::narrow_cast<decltype (status.voter_count)> (last_votes.size ());
 		auto const status_l = status;
 
-		node.active.recently_confirmed.put (qualified_root, status_l.winner->hash ());
+		// node.active.recently_confirmed.put (qualified_root, status_l.winner->hash ());
 
 		node.logger.trace (nano::log::type::election, nano::log::detail::election_confirmed,
 		nano::log::arg{ "id", id },

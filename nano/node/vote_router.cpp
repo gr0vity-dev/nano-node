@@ -95,11 +95,11 @@ std::unordered_map<nano::block_hash, nano::vote_code> nano::vote_router::vote (s
 			}
 			else
 			{
-				if (!recently_confirmed.exists (hash))
-				{
-					results[hash] = nano::vote_code::indeterminate;
-				}
-				else
+				// if (!recently_confirmed.exists (hash))
+				// {
+				// 	results[hash] = nano::vote_code::indeterminate;
+				// }
+				// else
 				{
 					results[hash] = nano::vote_code::replay;
 				}

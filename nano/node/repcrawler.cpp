@@ -282,10 +282,10 @@ auto nano::rep_crawler::prepare_query_target () -> std::optional<hash_root_t>
 		hash_root = node.ledger.hash_root_random (transaction);
 
 		// Rebroadcasted votes for recently confirmed blocks might confuse the rep crawler
-		if (active.recently_confirmed.exists (hash_root->first))
-		{
-			hash_root = std::nullopt;
-		}
+		// if (active.recently_confirmed.exists (hash_root->first))
+		// {
+		// 	hash_root = std::nullopt;
+		// }
 	}
 
 	if (!hash_root)
