@@ -225,10 +225,11 @@ auto nano::request_aggregator::aggregate (nano::secure::transaction const & tran
 			for (auto & found_vote : find_votes)
 			{
 				cached_votes.push_back (found_vote);
-				for (auto & found_hash : found_vote->hashes)
-				{
-					cached_hashes.insert (found_hash);
-				}
+				cached_hashes.insert (hash);
+				// for (auto & found_hash : found_vote->hashes)
+				// {
+				// 	cached_hashes.insert (found_hash);
+				// }
 			}
 		}
 		else
