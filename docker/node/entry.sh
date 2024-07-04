@@ -60,7 +60,7 @@ if [ "$1" = 'nano_node' ]; then
 		"-l")
 			echo "log_to_cerr = true"
 			command="${command} --config"
-			command="${command} node.logging.log_to_cerr=true"
+			command="${command} log.console.to_cerr=true"
 			;;
 		*)
 			command="${command} $i"
