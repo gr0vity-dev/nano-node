@@ -4,13 +4,11 @@ set -euf
 
 usage() {
 	printf "Usage:\n"
-	printf "  $0 nano_node [daemon] [cli_options] [-l] [-v size]\n"
+	printf "  $0 nano_node [daemon] [cli_options] [-v size]\n"
 	printf "    daemon\n"
 	printf "      start as daemon\n\n"
 	printf "    cli_options\n"
 	printf "      nano_node cli options <see nano_node --help>\n\n"
-	printf "    -l\n"
-	printf "      log to console <use docker logs {container}>\n\n"
 	printf "    -v<size>\n"
 	printf "      vacuum database if over size GB on startup\n\n"
 	printf "  $0 sh [other]\n"
@@ -20,7 +18,7 @@ usage() {
 	printf "    *\n"
 	printf "      usage\n\n"
 	printf "default:\n"
-	printf "  $0 nano_node daemon -l\n"
+	printf "  $0 nano_node daemon\n"
 }
 
 OPTIND=1
@@ -56,11 +54,6 @@ if [ "$1" = 'nano_node' ]; then
 		*"-v"*)
 			db_size=$(echo $i | tr -d -c 0-9)
 			echo "Vacuum DB if over $db_size GB on startup"
-			;;
-		"-l")
-			echo "log_to_cerr = true"
-			command="${command} --config"
-			command="${command} log.console.to_cerr=true"
 			;;
 		*)
 			command="${command} $i"
