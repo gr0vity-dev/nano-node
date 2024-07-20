@@ -162,43 +162,70 @@ nano::account nano::bootstrap_ascending::account_sets::next ()
 {
 	if (priorities.empty ())
 	{
-		return { 0 };
+		return { 0 }; // Return a "null" account if no priorities exist.
 	}
 
-	std::vector<float> weights;
-	std::vector<nano::account> candidates;
-
-	int iterations = 0;
-	while (candidates.size () < config.consideration_count && iterations++ < config.consideration_count * 10)
+	// Iterate through the priorities to find an account that passes the check.
+	for (auto iter = priorities.get<tag_priority> ().begin (); iter != priorities.get<tag_priority> ().end (); ++iter)
 	{
-		debug_assert (candidates.size () == weights.size ());
-
-		// Use a dedicated, uniformly distributed field for sampling to avoid problematic corner case when accounts in the queue are very close together
-		auto search = nano::bootstrap_ascending::generate_id ();
-		auto iter = priorities.get<tag_id> ().lower_bound (search);
-		if (iter == priorities.get<tag_id> ().end ())
-		{
-			iter = priorities.get<tag_id> ().begin ();
-		}
-
 		if (check_timestamp (iter->account))
 		{
-			candidates.push_back (iter->account);
-			weights.push_back (iter->priority);
+			auto result = iter->account;
+			// std::cout << "DEBUG: " << result.to_account () << std::endl;
+
+			// Update the timestamp directly after accessing this account.
+			priorities.get<tag_priority> ().modify (iter, [] (auto & entry) {
+				entry.timestamp = nano::milliseconds_since_epoch ();
+			});
+
+			return result;
 		}
 	}
 
-	if (candidates.empty ())
-	{
-		return { 0 }; // All sampled accounts are busy
-	}
-
-	std::discrete_distribution dist{ weights.begin (), weights.end () };
-	auto selection = dist (rng);
-	debug_assert (!weights.empty () && selection < weights.size ());
-	auto result = candidates[selection];
-	return result;
+	return { 0 }; // Return a "null" account if no valid account is found.
 }
+
+// nano::account nano::bootstrap_ascending::account_sets::next ()
+// {
+// 	if (priorities.empty ())
+// 	{
+// 		return { 0 };
+// 	}
+
+// 	std::vector<float> weights;
+// 	std::vector<nano::account> candidates;
+
+// 	int iterations = 0;
+// 	while (candidates.size () < config.consideration_count && iterations++ < config.consideration_count * 10)
+// 	{
+// 		debug_assert (candidates.size () == weights.size ());
+
+// 		// Use a dedicated, uniformly distributed field for sampling to avoid problematic corner case when accounts in the queue are very close together
+// 		auto search = nano::bootstrap_ascending::generate_id ();
+// 		auto iter = priorities.get<tag_id> ().lower_bound (search);
+// 		if (iter == priorities.get<tag_id> ().end ())
+// 		{
+// 			iter = priorities.get<tag_id> ().begin ();
+// 		}
+
+// 		if (check_timestamp (iter->account))
+// 		{
+// 			candidates.push_back (iter->account);
+// 			weights.push_back (iter->priority);
+// 		}
+// 	}
+
+// 	if (candidates.empty ())
+// 	{
+// 		return { 0 }; // All sampled accounts are busy
+// 	}
+
+// 	std::discrete_distribution dist{ weights.begin (), weights.end () };
+// 	auto selection = dist (rng);
+// 	debug_assert (!weights.empty () && selection < weights.size ());
+// 	auto result = candidates[selection];
+// 	return result;
+// }
 
 bool nano::bootstrap_ascending::account_sets::blocked (nano::account const & account) const
 {

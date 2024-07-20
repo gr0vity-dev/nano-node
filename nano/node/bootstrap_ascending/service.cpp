@@ -12,6 +12,8 @@
 #include <nano/store/account.hpp>
 #include <nano/store/component.hpp>
 
+#include <algorithm>
+
 using namespace std::chrono_literals;
 
 /*
@@ -92,7 +94,10 @@ void nano::bootstrap_ascending::service::send (std::shared_ptr<nano::transport::
 
 	nano::asc_pull_req::blocks_payload request_payload;
 	request_payload.start = tag.start;
-	request_payload.count = config.bootstrap_ascending.pull_count;
+	// request_payload.count = config.bootstrap_ascending.pull_count;
+	size_t account_priority = static_cast<size_t> (accounts.priority (tag.account));
+	size_t payload_count = std::clamp (account_priority, static_cast<size_t> (2), config.bootstrap_ascending.pull_count);
+	request_payload.count = payload_count;
 	request_payload.start_type = (tag.type == async_tag::query_type::blocks_by_hash) ? nano::asc_pull_req::hash_type::block : nano::asc_pull_req::hash_type::account;
 
 	request.payload = request_payload;
@@ -104,6 +109,7 @@ void nano::bootstrap_ascending::service::send (std::shared_ptr<nano::transport::
 	channel->send (
 	request, nullptr,
 	nano::transport::buffer_drop_policy::limiter, nano::transport::traffic_type::bootstrap);
+	std::cout << "DEBUG SEND " << tag.account.to_account () << " priority: " << payload_count << std::endl;
 }
 
 std::size_t nano::bootstrap_ascending::service::priority_size () const

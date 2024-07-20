@@ -37,10 +37,17 @@ nano::error nano::bootstrap_ascending_config::deserialize (nano::tomlconfig & to
 	toml.get ("throttle_wait", throttle_wait);
 	toml.get ("block_wait_count", block_wait_count);
 
+	std::cout << "DEBUG CONFIG bootstrap_ascending" << std::endl;
+	std::cout << "DEBUG pull_count " << pull_count << std::endl;
+	std::cout << "DEBUG throttle_wait " << throttle_wait << std::endl;
+
 	if (toml.has_key ("account_sets"))
 	{
 		auto config_l = toml.get_required_child ("account_sets");
 		account_sets.deserialize (config_l);
+		std::cout << "DEBUG CONFIG bootstrap_ascending.account_sets" << std::endl;
+		std::cout << "DEBUG cooldown " << account_sets.cooldown << std::endl;
+		std::cout << "DEBUG priorities_max " << account_sets.priorities_max << std::endl;
 	}
 
 	return toml.get_error ();
