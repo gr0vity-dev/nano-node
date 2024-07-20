@@ -30,7 +30,7 @@ void nano::bootstrap_ascending::account_sets::priority_up (nano::account const &
 				val.priority = std::min ((val.priority * account_sets::priority_increase), account_sets::priority_max);
 			});
 		}
-		else
+		else if (!account.is_zero ())
 		{
 			priorities.get<tag_account> ().insert ({ account, account_sets::priority_initial });
 			stats.inc (nano::stat::type::bootstrap_ascending_accounts, nano::stat::detail::priority_insert);
@@ -51,7 +51,7 @@ void nano::bootstrap_ascending::account_sets::priority_down (nano::account const
 	{
 		stats.inc (nano::stat::type::bootstrap_ascending_accounts, nano::stat::detail::deprioritize);
 
-		auto priority_new = iter->priority - account_sets::priority_decrease;
+		auto priority_new = iter->priority * account_sets::priority_decrease;
 		if (priority_new <= account_sets::priority_cutoff)
 		{
 			priorities.get<tag_account> ().erase (iter);
@@ -100,7 +100,7 @@ void nano::bootstrap_ascending::account_sets::unblock (nano::account const & acc
 			debug_assert (existing->original_entry.account == account);
 			priorities.get<tag_account> ().insert (existing->original_entry);
 		}
-		else
+		else if (!account.is_zero ())
 		{
 			priorities.get<tag_account> ().insert ({ account, account_sets::priority_initial });
 		}
@@ -114,16 +114,40 @@ void nano::bootstrap_ascending::account_sets::unblock (nano::account const & acc
 	}
 }
 
-void nano::bootstrap_ascending::account_sets::timestamp (const nano::account & account, bool reset)
-{
-	const nano::millis_t tstamp = reset ? 0 : nano::milliseconds_since_epoch ();
+// void nano::bootstrap_ascending::account_sets::timestamp (const nano::account & account, bool reset)
+// {
+// 	const nano::millis_t tstamp = reset ? 0 : nano::milliseconds_since_epoch ();
 
+// 	auto iter = priorities.get<tag_account> ().find (account);
+// 	if (iter != priorities.get<tag_account> ().end ())
+// 	{
+// 		priorities.get<tag_account> ().modify (iter, [tstamp] (auto & entry) {
+// 			entry.timestamp = tstamp;
+// 		});
+// 	}
+// }
+
+void nano::bootstrap_ascending::account_sets::timestamp (const nano::account & account, bool subtract)
+{
 	auto iter = priorities.get<tag_account> ().find (account);
 	if (iter != priorities.get<tag_account> ().end ())
 	{
-		priorities.get<tag_account> ().modify (iter, [tstamp] (auto & entry) {
-			entry.timestamp = tstamp;
-		});
+		if (subtract)
+		{
+			// Subtract 100ms from the existing timestamp
+			const nano::millis_t new_tstamp = iter->timestamp - 100; // Directly subtract 100ms
+			priorities.get<tag_account> ().modify (iter, [new_tstamp] (auto & entry) {
+				entry.timestamp = new_tstamp;
+			});
+		}
+		else
+		{
+			// Set the timestamp to the current time
+			const nano::millis_t tstamp = nano::milliseconds_since_epoch ();
+			priorities.get<tag_account> ().modify (iter, [tstamp] (auto & entry) {
+				entry.timestamp = tstamp;
+			});
+		}
 	}
 }
 
@@ -168,17 +192,11 @@ nano::account nano::bootstrap_ascending::account_sets::next ()
 	// Iterate through the priorities to find an account that passes the check.
 	for (auto iter = priorities.get<tag_priority> ().begin (); iter != priorities.get<tag_priority> ().end (); ++iter)
 	{
-		if (check_timestamp (iter->account))
+		auto account = iter->account;
+		if (check_timestamp (account))
 		{
-			auto result = iter->account;
-			// std::cout << "DEBUG: " << result.to_account () << std::endl;
-
-			// Update the timestamp directly after accessing this account.
-			priorities.get<tag_priority> ().modify (iter, [] (auto & entry) {
-				entry.timestamp = nano::milliseconds_since_epoch ();
-			});
-
-			return result;
+			// std::cout << "DEBUG: NEXT" << account.to_account () << std::endl;
+			return account;
 		}
 	}
 

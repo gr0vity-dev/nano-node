@@ -175,6 +175,12 @@ void nano::bootstrap_ascending::service::inspect (secure::transaction const & tx
 		break;
 		case nano::block_status::gap_previous:
 		{
+			if (block.type () == block_type::state)
+			{
+				const auto account = block.account_field ().value ();
+				accounts.priority_down (account);
+			}
+
 			// TODO: Track stats
 		}
 		break;
@@ -311,6 +317,7 @@ void nano::bootstrap_ascending::service::throttle_if_needed (nano::unique_lock<n
 void nano::bootstrap_ascending::service::run ()
 {
 	nano::unique_lock<nano::mutex> lock{ mutex };
+	size_t iteration_count = 0; // Counter for iterations
 	while (!stopped)
 	{
 		lock.unlock ();
@@ -318,6 +325,13 @@ void nano::bootstrap_ascending::service::run ()
 		run_one ();
 		lock.lock ();
 		throttle_if_needed (lock);
+		// Designed to only iterate over accounts when natural priorities die down... Doesn't reduce published blocks
+		// if (++iteration_count % 10000 == 0)
+		// {
+		// 	size_t current_limit = config.bootstrap_ascending.database_requests_limit / accounts.priority_size ();
+		// 	database_limiter.reset (current_limit, 1.0);
+		// 	std::cout << "DEBUG database_limiter current_limit: " << current_limit << std::endl;
+		// }
 	}
 }
 

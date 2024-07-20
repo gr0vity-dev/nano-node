@@ -102,7 +102,7 @@ namespace bootstrap_ascending
 			mi::ordered_unique<mi::tag<tag_account>,
 				mi::member<priority_entry, nano::account, &priority_entry::account>>,
 			mi::ordered_non_unique<mi::tag<tag_priority>,
-				mi::member<priority_entry, float, &priority_entry::priority>>,
+				mi::member<priority_entry, float, &priority_entry::priority>, std::greater<float>>,
 			mi::ordered_unique<mi::tag<tag_id>,
 				mi::member<priority_entry, nano::bootstrap_ascending::id_t, &priority_entry::id>>
 		>>;
@@ -128,9 +128,9 @@ namespace bootstrap_ascending
 		nano::account_sets_config config;
 
 	public: // Consts
-		static float constexpr priority_initial = 8.0f;
-		static float constexpr priority_increase = 8.0f;
-		static float constexpr priority_decrease = 32.0f;
+		static float constexpr priority_initial = 16.0f;
+		static float constexpr priority_increase = 2.0f;
+		static float constexpr priority_decrease = 0.5f;
 		static float constexpr priority_max = 128.0f;
 		static float constexpr priority_cutoff = 1.0f;
 
