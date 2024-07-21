@@ -109,7 +109,7 @@ void nano::bootstrap_ascending::service::send (std::shared_ptr<nano::transport::
 	channel->send (
 	request, nullptr,
 	nano::transport::buffer_drop_policy::limiter, nano::transport::traffic_type::bootstrap);
-	std::cout << "DEBUG SEND " << tag.account.to_account () << " priority: " << payload_count << std::endl;
+	// std::cout << "DEBUG SEND " << tag.account.to_account () << " priority: " << payload_count << std::endl;
 }
 
 std::size_t nano::bootstrap_ascending::service::priority_size () const
@@ -175,12 +175,6 @@ void nano::bootstrap_ascending::service::inspect (secure::transaction const & tx
 		break;
 		case nano::block_status::gap_previous:
 		{
-			if (block.type () == block_type::state)
-			{
-				const auto account = block.account_field ().value ();
-				accounts.priority_down (account);
-			}
-
 			// TODO: Track stats
 		}
 		break;
@@ -317,7 +311,7 @@ void nano::bootstrap_ascending::service::throttle_if_needed (nano::unique_lock<n
 void nano::bootstrap_ascending::service::run ()
 {
 	nano::unique_lock<nano::mutex> lock{ mutex };
-	size_t iteration_count = 0; // Counter for iterations
+	size_t iteration_count = 1; // Counter for iterations
 	while (!stopped)
 	{
 		lock.unlock ();
@@ -326,12 +320,15 @@ void nano::bootstrap_ascending::service::run ()
 		lock.lock ();
 		throttle_if_needed (lock);
 		// Designed to only iterate over accounts when natural priorities die down... Doesn't reduce published blocks
-		// if (++iteration_count % 10000 == 0)
-		// {
-		// 	size_t current_limit = config.bootstrap_ascending.database_requests_limit / accounts.priority_size ();
-		// 	database_limiter.reset (current_limit, 1.0);
-		// 	std::cout << "DEBUG database_limiter current_limit: " << current_limit << std::endl;
-		// }
+		if (++iteration_count % 2500 == 0)
+		{
+			size_t priority_size = std::max (accounts.priority_size (), size_t (1)); // Ensure priority_size is at least 1
+			double priority_sqrt = sqrt (static_cast<double> (priority_size));
+			size_t current_limit = static_cast<size_t> (config.bootstrap_ascending.database_requests_limit / priority_sqrt);
+			database_limiter.reset (current_limit, 1.0);
+			std::cout << "DEBUG database_limiter current_limit: " << current_limit << std::endl;
+			iteration_count = 1; // Reset iteration count after updating
+		}
 	}
 }
 

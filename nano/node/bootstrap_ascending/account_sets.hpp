@@ -129,8 +129,8 @@ namespace bootstrap_ascending
 
 	public: // Consts
 		static float constexpr priority_initial = 16.0f;
-		static float constexpr priority_increase = 2.0f;
-		static float constexpr priority_decrease = 0.5f;
+		static float constexpr priority_increase = 1.0f;
+		static float constexpr priority_decrease = 8.0f;
 		static float constexpr priority_max = 128.0f;
 		static float constexpr priority_cutoff = 1.0f;
 
