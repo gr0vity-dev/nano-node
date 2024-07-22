@@ -15,7 +15,7 @@ public:
 	nano::error serialize (nano::tomlconfig & toml) const;
 
 	std::size_t consideration_count{ 4 };
-	std::size_t priorities_max{ 256 * 1024 };
+	std::size_t priorities_max{ 2 * 1024 };
 	std::size_t blocking_max{ 256 * 1024 };
 	nano::millis_t cooldown{ 1000 * 3 };
 };

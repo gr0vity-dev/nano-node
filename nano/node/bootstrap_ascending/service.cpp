@@ -146,14 +146,14 @@ void nano::bootstrap_ascending::service::inspect (secure::transaction const & tx
 
 			// If we've inserted any block in to an account, unmark it as blocked
 			accounts.unblock (account);
-			accounts.priority_up (account);
+			accounts.priority_up (account); // increase priority for each processed block.
 			accounts.timestamp (account, /* reset timestamp */ true);
 
 			if (block.is_send ())
 			{
 				auto destination = block.destination ();
-				accounts.unblock (destination, hash); // Unblocking automatically inserts account into priority set
-				accounts.priority_up (destination);
+				accounts.unblock (destination, hash); // Unblocking inserts previoulsy blocked account into priority set
+				accounts.priority_set (destination); // set to initial priority
 			}
 		}
 		break;
@@ -214,7 +214,7 @@ nano::account nano::bootstrap_ascending::service::available_account ()
 		}
 	}
 
-	if (database_limiter.should_pass (1))
+	if (accounts.priority_vacancy () && database_limiter.should_pass (1)) // only iterate to next account if there is vacancy in the priorities
 	{
 		auto account = iterator.next ();
 		if (!account.is_zero ())
@@ -284,6 +284,7 @@ bool nano::bootstrap_ascending::service::run_one ()
 	auto account = wait_available_account ();
 	if (account.is_zero ())
 	{
+		// std::cout << "Account is zero" << std::endl;
 		return false;
 	}
 
@@ -291,6 +292,7 @@ bool nano::bootstrap_ascending::service::run_one ()
 	auto channel = wait_available_channel ();
 	if (!channel)
 	{
+		// std::cout << "No channel found: " << account.to_account () << std::endl;
 		return false;
 	}
 

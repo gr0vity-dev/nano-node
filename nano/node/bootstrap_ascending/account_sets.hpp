@@ -39,6 +39,8 @@ namespace bootstrap_ascending
 		 * Current implementation divides priority by 2.0f and saturates down to 1.0f.
 		 */
 		void priority_down (nano::account const & account);
+		void priority_set (nano::account const & account);
+		bool priority_vacancy () const;
 		void block (nano::account const & account, nano::block_hash const & dependency);
 		void unblock (nano::account const & account, std::optional<nano::block_hash> const & hash = std::nullopt);
 		void timestamp (nano::account const & account, bool reset = false);
@@ -128,7 +130,7 @@ namespace bootstrap_ascending
 		nano::account_sets_config config;
 
 	public: // Consts
-		static float constexpr priority_initial = 16.0f;
+		static float constexpr priority_initial = 10.0f;
 		static float constexpr priority_increase = 1.0f;
 		static float constexpr priority_decrease = 8.0f;
 		static float constexpr priority_max = 128.0f;

@@ -17,6 +17,21 @@ nano::bootstrap_ascending::account_sets::account_sets (nano::stats & stats_a, na
 {
 }
 
+void nano::bootstrap_ascending::account_sets::priority_set (nano::account const & account)
+{
+	if (!blocked (account) && !account.is_zero ())
+	{
+		stats.inc (nano::stat::type::bootstrap_ascending_accounts, nano::stat::detail::prioritize);
+
+		auto iter = priorities.get<tag_account> ().find (account);
+		if (iter == priorities.get<tag_account> ().end ())
+		{
+			priorities.get<tag_account> ().insert ({ account, account_sets::priority_initial });
+			stats.inc (nano::stat::type::bootstrap_ascending_accounts, nano::stat::detail::priority_insert);
+		}
+	}
+}
+
 void nano::bootstrap_ascending::account_sets::priority_up (nano::account const & account)
 {
 	if (!blocked (account))
@@ -55,6 +70,7 @@ void nano::bootstrap_ascending::account_sets::priority_down (nano::account const
 		if (priority_new <= account_sets::priority_cutoff)
 		{
 			priorities.get<tag_account> ().erase (iter);
+			// std::cout << "DEBUG erase priority due to down: " << account.to_account () << std::endl;
 			stats.inc (nano::stat::type::bootstrap_ascending_accounts, nano::stat::detail::priority_erase_threshold);
 		}
 		else
@@ -78,6 +94,7 @@ void nano::bootstrap_ascending::account_sets::block (nano::account const & accou
 	auto entry = existing == priorities.get<tag_account> ().end () ? priority_entry{ 0, 0 } : *existing;
 
 	priorities.get<tag_account> ().erase (account);
+	// std::cout << "DEBUG erase priority due to block: " << account.to_account () << std::endl;
 	stats.inc (nano::stat::type::bootstrap_ascending_accounts, nano::stat::detail::priority_erase_block);
 
 	blocking.get<tag_account> ().insert ({ account, dependency, entry });
@@ -253,6 +270,11 @@ bool nano::bootstrap_ascending::account_sets::blocked (nano::account const & acc
 std::size_t nano::bootstrap_ascending::account_sets::priority_size () const
 {
 	return priorities.size ();
+}
+
+bool nano::bootstrap_ascending::account_sets::priority_vacancy () const
+{
+	return priorities.size () < config.priorities_max;
 }
 
 std::size_t nano::bootstrap_ascending::account_sets::blocked_size () const
