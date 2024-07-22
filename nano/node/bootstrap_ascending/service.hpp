@@ -5,6 +5,7 @@
 #include <nano/lib/observer_set.hpp>
 #include <nano/lib/timer.hpp>
 #include <nano/node/bandwidth_limiter.hpp>
+#include <nano/node/blockprocessor.hpp>
 #include <nano/node/bootstrap/bootstrap_config.hpp>
 #include <nano/node/bootstrap_ascending/account_sets.hpp>
 #include <nano/node/bootstrap_ascending/common.hpp>
@@ -93,12 +94,13 @@ namespace bootstrap_ascending
 
 	private:
 		/* Inspects a block that has been processed by the block processor */
-		void inspect (secure::transaction const &, nano::block_status const & result, nano::block const & block);
+		void inspect (secure::transaction const &, nano::block_status const & result, block_processor::context const & context);
 
 		void throttle_if_needed (nano::unique_lock<nano::mutex> & lock);
 		void run ();
 		bool run_one ();
 		void run_timeouts ();
+		void run_limiter ();
 
 		/* Throttles requesting new blocks, not to overwhelm blockprocessor */
 		void wait_blockprocessor ();
@@ -168,6 +170,7 @@ namespace bootstrap_ascending
 		mutable nano::condition_variable condition;
 		std::thread thread;
 		std::thread timeout_thread;
+		std::thread limiter_thread;
 	};
 }
 }

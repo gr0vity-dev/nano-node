@@ -42,7 +42,7 @@ nano::bootstrap_ascending::service::service (nano::node_config & config_a, nano:
 			for (auto const & [result, context] : batch)
 			{
 				debug_assert (context.block != nullptr);
-				inspect (transaction, result, *context.block);
+				inspect (transaction, result, context);
 			}
 		}
 
@@ -71,6 +71,11 @@ void nano::bootstrap_ascending::service::start ()
 		nano::thread_role::set (nano::thread_role::name::ascending_bootstrap);
 		run_timeouts ();
 	});
+
+	limiter_thread = std::thread ([this] () {
+		nano::thread_role::set (nano::thread_role::name::ascending_bootstrap);
+		run_limiter ();
+	});
 }
 
 void nano::bootstrap_ascending::service::stop ()
@@ -82,6 +87,7 @@ void nano::bootstrap_ascending::service::stop ()
 	condition.notify_all ();
 	nano::join_or_pass (thread);
 	nano::join_or_pass (timeout_thread);
+	nano::join_or_pass (limiter_thread);
 }
 
 void nano::bootstrap_ascending::service::send (std::shared_ptr<nano::transport::channel> channel, async_tag tag)
@@ -134,8 +140,9 @@ std::size_t nano::bootstrap_ascending::service::score_size () const
 - Marks an account as blocked if the result code is gap source as there is no reason request additional blocks for this account until the dependency is resolved
 - Marks an account as forwarded if it has been recently referenced by a block that has been inserted.
  */
-void nano::bootstrap_ascending::service::inspect (secure::transaction const & tx, nano::block_status const & result, nano::block const & block)
+void nano::bootstrap_ascending::service::inspect (secure::transaction const & tx, nano::block_status const & result, block_processor::context const & context)
 {
+	auto & block = *context.block;
 	auto const hash = block.hash ();
 
 	switch (result)
@@ -175,6 +182,11 @@ void nano::bootstrap_ascending::service::inspect (secure::transaction const & tx
 		break;
 		case nano::block_status::gap_previous:
 		{
+			if (context.source == nano::block_source::live && block.type () == block_type::state)
+			{
+				const auto account = block.account_field ().value ();
+				accounts.priority_set (account); // set to initial priority
+			}
 			// TODO: Track stats
 		}
 		break;
@@ -321,16 +333,39 @@ void nano::bootstrap_ascending::service::run ()
 		run_one ();
 		lock.lock ();
 		throttle_if_needed (lock);
-		// Designed to only iterate over accounts when natural priorities die down... Doesn't reduce published blocks
-		if (++iteration_count % 2500 == 0)
+		// // Designed to only iterate over accounts when natural priorities die down... Doesn't reduce published blocks
+		// if (++iteration_count % 2500 == 0)
+		// {
+		// 	size_t priority_size = std::max (accounts.priority_size (), size_t (1)); // Ensure priority_size is at least 1
+		// 	double priority_sqrt = sqrt (static_cast<double> (priority_size));
+		// 	size_t current_limit = static_cast<size_t> (config.bootstrap_ascending.database_requests_limit / priority_sqrt);
+		// 	database_limiter.reset (current_limit, 1.0);
+		// 	std::cout << "DEBUG database_limiter current_limit: " << current_limit << std::endl;
+		// 	iteration_count = 1; // Reset iteration count after updating
+		// }
+	}
+}
+
+void nano::bootstrap_ascending::service::run_limiter ()
+{
+	while (!stopped)
+	{
 		{
-			size_t priority_size = std::max (accounts.priority_size (), size_t (1)); // Ensure priority_size is at least 1
+			auto account_count = ledger.account_count (); // Fetch the total number of accounts.
+
+			nano::unique_lock<nano::mutex> lock{ mutex };
+			size_t priority_size = std::max (accounts.priority_size (), size_t (1));
 			double priority_sqrt = sqrt (static_cast<double> (priority_size));
 			size_t current_limit = static_cast<size_t> (config.bootstrap_ascending.database_requests_limit / priority_sqrt);
+
+			// Ensure the current_limit does not exceed the account_count.
+			current_limit = std::min (current_limit, static_cast<size_t> (account_count));
+
 			database_limiter.reset (current_limit, 1.0);
 			std::cout << "DEBUG database_limiter current_limit: " << current_limit << std::endl;
-			iteration_count = 1; // Reset iteration count after updating
-		}
+		} // Release lock before sleeping
+
+		std::this_thread::sleep_for (std::chrono::seconds (1)); // Sleep to maintain ~1 second interval
 	}
 }
 
@@ -513,7 +548,7 @@ std::size_t nano::bootstrap_ascending::service::compute_throttle_size () const
 {
 	// Scales logarithmically with ledger block
 	// Returns: config.throttle_coefficient * sqrt(block_count)
-	std::size_t size_new = config.bootstrap_ascending.throttle_coefficient * std::sqrt (ledger.block_count ());
+	std::size_t size_new = ledger.account_count () / config.bootstrap_ascending.throttle_coefficient;
 	return size_new == 0 ? 16 : size_new;
 }
 
