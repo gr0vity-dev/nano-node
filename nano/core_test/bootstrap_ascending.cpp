@@ -104,12 +104,24 @@ TEST (account_sets, priority_unblock_keep)
 	nano::bootstrap_ascending::account_sets sets{ system.stats };
 	sets.priority_up (account);
 	sets.priority_up (account);
-	ASSERT_EQ (sets.priority (account), nano::bootstrap_ascending::account_sets::priority_initial * nano::bootstrap_ascending::account_sets::priority_increase);
+	ASSERT_EQ (sets.priority (account), nano::bootstrap_ascending::account_sets::priority_initial + nano::bootstrap_ascending::account_sets::priority_increase);
 	auto hash = random_hash ();
 	sets.block (account, hash);
 	ASSERT_EQ (0.0f, sets.priority (account));
 	sets.unblock (account, hash);
-	ASSERT_EQ (sets.priority (account), nano::bootstrap_ascending::account_sets::priority_initial * nano::bootstrap_ascending::account_sets::priority_increase);
+	ASSERT_EQ (sets.priority (account), nano::bootstrap_ascending::account_sets::priority_initial + nano::bootstrap_ascending::account_sets::priority_increase);
+}
+
+TEST (account_sets, priority_set)
+{
+	nano::test::system system;
+
+	nano::account account{ 1 };
+	auto store = nano::make_store (system.logger, nano::unique_path (), nano::dev::constants);
+	ASSERT_FALSE (store->init_error ());
+	nano::bootstrap_ascending::account_sets sets{ system.stats };
+	sets.priority_set (account);
+	ASSERT_EQ (sets.priority (account), nano::bootstrap_ascending::account_sets::priority_initial);
 }
 
 TEST (account_sets, priority_up_down)
