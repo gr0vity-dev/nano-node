@@ -153,7 +153,26 @@ void nano::bootstrap_ascending::account_sets::timestamp (const nano::account & a
 		}
 	}
 }
+
+bool nano::bootstrap_ascending::account_sets::check_blocking_timestamp (const nano::account & account)
+{
+	auto & index_by_account = blocking.get<tag_account> ();
+	auto iter = blocking.get<tag_account> ().find (account);
+	if (iter != blocking.get<tag_account> ().end ())
+	{
+		const nano::millis_t current_time = nano::milliseconds_since_epoch ();
+		if (current_time - iter->original_entry.timestamp < config.cooldown)
+		{
+			return false;
+		}
+		else
+		{
+			index_by_account.modify (iter, [current_time] (auto & entry) {
+				entry.original_entry.timestamp = current_time; // Reset the timestamp to the current time
+			});
+		}
 	}
+	return true;
 }
 
 bool nano::bootstrap_ascending::account_sets::check_timestamp (const nano::account & account) const
@@ -253,6 +272,12 @@ bool nano::bootstrap_ascending::account_sets::priority_vacancy () const
 {
 	return priorities.size () < config.priorities_max;
 }
+
+bool nano::bootstrap_ascending::account_sets::priority_half_full () const
+{
+	return priorities.size () >= (config.priorities_max / 2);
+}
+
 std::size_t nano::bootstrap_ascending::account_sets::blocked_size () const
 {
 	return blocking.size ();

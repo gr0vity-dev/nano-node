@@ -421,6 +421,7 @@ enum class detail
 	track,
 	timeout,
 	nothing_new,
+	try_unblock,
 
 	// bootstrap ascending accounts
 	prioritize,
