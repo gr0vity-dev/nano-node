@@ -25,6 +25,25 @@ nano::block_hash random_hash ()
 }
 }
 
+TEST (account_sets, timeout_blocking)
+{
+	nano::test::system system;
+
+	nano::account account{ 1 };
+	auto store = nano::make_store (system.logger, nano::unique_path (), nano::dev::constants);
+	ASSERT_FALSE (store->init_error ());
+	nano::bootstrap_ascending::account_sets sets{ system.stats };
+
+	nano::block_hash random_hash;
+	nano::random_pool::generate_block (random_hash.bytes.data (), random_hash.bytes.size ());
+
+	sets.block (account, random_hash);
+	auto next_hash = sets.next_blocking ();
+	ASSERT_EQ (next_hash.to_string (), random_hash.to_string ());
+	next_hash = sets.next_blocking ();
+	ASSERT_TRUE (next_hash.is_zero ());
+}
+
 TEST (account_sets, construction)
 {
 	nano::test::system system;
