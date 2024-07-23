@@ -142,18 +142,17 @@ bool nano::bootstrap_ascending::account_sets::check_timestamp (const nano::accou
 
 void nano::bootstrap_ascending::account_sets::trim_overflow ()
 {
-	if (priorities.size () > config.priorities_max)
+	while (priorities.size () > config.priorities_max)
 	{
-		// Evict the lowest priority entry
+		// Continuously evict the lowest priority entry until within the limit
 		priorities.get<tag_priority> ().erase (priorities.get<tag_priority> ().begin ());
-
 		stats.inc (nano::stat::type::bootstrap_ascending_accounts, nano::stat::detail::priority_erase_overflow);
 	}
-	if (blocking.size () > config.blocking_max)
-	{
-		// Evict the lowest priority entry
-		blocking.get<tag_priority> ().erase (blocking.get<tag_priority> ().begin ());
 
+	while (blocking.size () > config.blocking_max)
+	{
+		// Continuously evict the lowest priority entry until within the limit
+		blocking.get<tag_priority> ().erase (blocking.get<tag_priority> ().begin ());
 		stats.inc (nano::stat::type::bootstrap_ascending_accounts, nano::stat::detail::blocking_erase_overflow);
 	}
 }
