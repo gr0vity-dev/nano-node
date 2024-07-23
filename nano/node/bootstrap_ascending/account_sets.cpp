@@ -30,7 +30,7 @@ void nano::bootstrap_ascending::account_sets::priority_up (nano::account const &
 				val.priority = std::min ((val.priority + account_sets::priority_increase), account_sets::priority_max);
 			});
 		}
-		else
+		else if (!account.is_zero ())
 		{
 			priorities.get<tag_account> ().insert ({ account, account_sets::priority_initial });
 			stats.inc (nano::stat::type::bootstrap_ascending_accounts, nano::stat::detail::priority_insert);
@@ -100,7 +100,7 @@ void nano::bootstrap_ascending::account_sets::unblock (nano::account const & acc
 			debug_assert (existing->original_entry.account == account);
 			priorities.get<tag_account> ().insert (existing->original_entry);
 		}
-		else
+		else if (!account.is_zero ())
 		{
 			priorities.get<tag_account> ().insert ({ account, account_sets::priority_initial });
 		}
