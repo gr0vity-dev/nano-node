@@ -42,7 +42,7 @@ nano::bootstrap_ascending::service::service (nano::node_config & config_a, nano:
 			for (auto const & [result, context] : batch)
 			{
 				debug_assert (context.block != nullptr);
-				inspect (transaction, result, *context.block);
+				inspect (transaction, result, context);
 			}
 		}
 
@@ -133,8 +133,9 @@ std::size_t nano::bootstrap_ascending::service::score_size () const
 - Marks an account as blocked if the result code is gap source as there is no reason request additional blocks for this account until the dependency is resolved
 - Marks an account as forwarded if it has been recently referenced by a block that has been inserted.
  */
-void nano::bootstrap_ascending::service::inspect (secure::transaction const & tx, nano::block_status const & result, nano::block const & block)
+void nano::bootstrap_ascending::service::inspect (secure::transaction const & tx, nano::block_status const & result, block_processor::context const & context)
 {
+	auto & block = *context.block;
 	auto const hash = block.hash ();
 
 	switch (result)
@@ -174,6 +175,18 @@ void nano::bootstrap_ascending::service::inspect (secure::transaction const & tx
 		break;
 		case nano::block_status::gap_previous:
 		{
+			if (block.type () == block_type::state)
+			{
+				const auto account = block.account_field ().value ();
+				// if (context.source == nano::block_source::live)
+				// {
+				accounts.priority_set (account); // set to initial priority
+				// }
+				// else {
+
+				// }
+			}
+
 			// TODO: Track stats
 		}
 		break;

@@ -17,6 +17,21 @@ nano::bootstrap_ascending::account_sets::account_sets (nano::stats & stats_a, na
 {
 }
 
+void nano::bootstrap_ascending::account_sets::priority_set (nano::account const & account)
+{
+	if (!blocked (account) && !account.is_zero ())
+	{
+		stats.inc (nano::stat::type::bootstrap_ascending_accounts, nano::stat::detail::prioritize);
+
+		auto iter = priorities.get<tag_account> ().find (account);
+		if (iter == priorities.get<tag_account> ().end ())
+		{
+			priorities.get<tag_account> ().insert ({ account, account_sets::priority_initial });
+			stats.inc (nano::stat::type::bootstrap_ascending_accounts, nano::stat::detail::priority_insert);
+		}
+	}
+}
+
 void nano::bootstrap_ascending::account_sets::priority_up (nano::account const & account)
 {
 	if (!blocked (account))
