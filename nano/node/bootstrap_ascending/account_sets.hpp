@@ -102,7 +102,7 @@ namespace bootstrap_ascending
 			mi::ordered_unique<mi::tag<tag_account>,
 				mi::member<priority_entry, nano::account, &priority_entry::account>>,
 			mi::ordered_non_unique<mi::tag<tag_priority>,
-				mi::member<priority_entry, float, &priority_entry::priority>>,
+				mi::member<priority_entry, float, &priority_entry::priority>, std::greater<float>>,
 			mi::ordered_unique<mi::tag<tag_id>,
 				mi::member<priority_entry, nano::bootstrap_ascending::id_t, &priority_entry::id>>
 		>>;
