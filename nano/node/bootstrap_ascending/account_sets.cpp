@@ -129,16 +129,30 @@ void nano::bootstrap_ascending::account_sets::unblock (nano::account const & acc
 	}
 }
 
-void nano::bootstrap_ascending::account_sets::timestamp (const nano::account & account, bool reset)
-{
-	const nano::millis_t tstamp = reset ? 0 : nano::milliseconds_since_epoch ();
 
+void nano::bootstrap_ascending::account_sets::timestamp (const nano::account & account, bool subtract)
+{
 	auto iter = priorities.get<tag_account> ().find (account);
 	if (iter != priorities.get<tag_account> ().end ())
 	{
-		priorities.get<tag_account> ().modify (iter, [tstamp] (auto & entry) {
-			entry.timestamp = tstamp;
-		});
+		if (subtract)
+		{
+			// Subtract 100ms from the existing timestamp
+			const nano::millis_t new_tstamp = iter->timestamp - 100; // Directly subtract 100ms
+			priorities.get<tag_account> ().modify (iter, [new_tstamp] (auto & entry) {
+				entry.timestamp = new_tstamp;
+			});
+		}
+		else
+		{
+			// Set the timestamp to the current time
+			const nano::millis_t tstamp = nano::milliseconds_since_epoch ();
+			priorities.get<tag_account> ().modify (iter, [tstamp] (auto & entry) {
+				entry.timestamp = tstamp;
+			});
+		}
+	}
+}
 	}
 }
 
