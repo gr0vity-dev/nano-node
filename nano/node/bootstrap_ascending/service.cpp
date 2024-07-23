@@ -152,8 +152,8 @@ void nano::bootstrap_ascending::service::inspect (secure::transaction const & tx
 			if (block.is_send ())
 			{
 				auto destination = block.destination ();
-				accounts.unblock (destination, hash); // Unblocking automatically inserts account into priority set
-				accounts.priority_up (destination);
+				accounts.unblock (destination, hash); // Unblocking inserts previoulsy blocked account into priority set
+				accounts.priority_set (destination); // set to initial priority
 			}
 		}
 		break;
