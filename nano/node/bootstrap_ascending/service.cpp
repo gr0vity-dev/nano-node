@@ -226,7 +226,7 @@ nano::account nano::bootstrap_ascending::service::available_account ()
 		}
 	}
 
-	if (database_limiter.should_pass (1))
+	if (accounts.priority_vacancy () && database_limiter.should_pass (1)) // only iterate to next account if there is vacancy in the priorities
 	{
 		auto account = iterator.next ();
 		if (!account.is_zero ())

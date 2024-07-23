@@ -249,6 +249,10 @@ std::size_t nano::bootstrap_ascending::account_sets::priority_size () const
 	return priorities.size ();
 }
 
+bool nano::bootstrap_ascending::account_sets::priority_vacancy () const
+{
+	return priorities.size () < config.priorities_max;
+}
 std::size_t nano::bootstrap_ascending::account_sets::blocked_size () const
 {
 	return blocking.size ();
