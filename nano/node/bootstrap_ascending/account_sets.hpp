@@ -41,11 +41,13 @@ namespace bootstrap_ascending
 		void priority_down (nano::account const & account);
 		void priority_set (nano::account const & account);
 		bool priority_vacancy () const;
+		bool priority_half_full () const;
 		void block (nano::account const & account, nano::block_hash const & dependency);
 		void unblock (nano::account const & account, std::optional<nano::block_hash> const & hash = std::nullopt);
 		void timestamp (nano::account const & account, bool reset = false);
 
 		nano::account next ();
+		nano::block_hash next_blocking ();
 
 	public:
 		bool blocked (nano::account const & account) const;
@@ -63,6 +65,7 @@ namespace bootstrap_ascending
 	private:
 		void trim_overflow ();
 		bool check_timestamp (nano::account const & account) const;
+		bool check_blocking_timestamp (nano::account const & account);
 
 	private: // Dependencies
 		nano::stats & stats;

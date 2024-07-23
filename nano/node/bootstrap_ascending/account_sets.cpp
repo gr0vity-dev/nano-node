@@ -168,6 +168,27 @@ void nano::bootstrap_ascending::account_sets::timestamp (const nano::account & a
 	}
 }
 
+bool nano::bootstrap_ascending::account_sets::check_blocking_timestamp (const nano::account & account)
+{
+	auto & index_by_account = blocking.get<tag_account> ();
+	auto iter = blocking.get<tag_account> ().find (account);
+	if (iter != blocking.get<tag_account> ().end ())
+	{
+		const nano::millis_t current_time = nano::milliseconds_since_epoch ();
+		if (current_time - iter->original_entry.timestamp < config.cooldown)
+		{
+			return false;
+		}
+		else
+		{
+			index_by_account.modify (iter, [current_time] (auto & entry) {
+				entry.original_entry.timestamp = current_time; // Reset the timestamp to the current time
+			});
+		}
+	}
+	return true;
+}
+
 bool nano::bootstrap_ascending::account_sets::check_timestamp (const nano::account & account) const
 {
 	auto iter = priorities.get<tag_account> ().find (account);
@@ -197,6 +218,7 @@ void nano::bootstrap_ascending::account_sets::trim_overflow ()
 		stats.inc (nano::stat::type::bootstrap_ascending_accounts, nano::stat::detail::blocking_erase_overflow);
 	}
 }
+
 nano::account nano::bootstrap_ascending::account_sets::next ()
 {
 	if (priorities.empty ())
@@ -218,47 +240,37 @@ nano::account nano::bootstrap_ascending::account_sets::next ()
 	return { 0 }; // Return a "null" account if no valid account is found.
 }
 
-// nano::account nano::bootstrap_ascending::account_sets::next ()
-// {
-// 	if (priorities.empty ())
-// 	{
-// 		return { 0 };
-// 	}
+nano::block_hash nano::bootstrap_ascending::account_sets::next_blocking ()
+{
+	if (blocking.empty ())
+	{
+		return { 0 }; // Return a "null" block hash if no blocking exists.
+	}
 
-// 	std::vector<float> weights;
-// 	std::vector<nano::account> candidates;
+	auto & seq_index = blocking.get<tag_sequenced> ();
 
-// 	int iterations = 0;
-// 	while (candidates.size () < config.consideration_count && iterations++ < config.consideration_count * 10)
-// 	{
-// 		debug_assert (candidates.size () == weights.size ());
+	// Attempt to start from the next element after the last processed one, or start from the beginning if the end is reached.
+	static auto iter = seq_index.begin ();
 
-// 		// Use a dedicated, uniformly distributed field for sampling to avoid problematic corner case when accounts in the queue are very close together
-// 		auto search = nano::bootstrap_ascending::generate_id ();
-// 		auto iter = priorities.get<tag_id> ().lower_bound (search);
-// 		if (iter == priorities.get<tag_id> ().end ())
-// 		{
-// 			iter = priorities.get<tag_id> ().begin ();
-// 		}
+	if (iter == seq_index.end ())
+	{
+		// If the end is reached, loop back to the start.
+		iter = seq_index.begin ();
+		if (iter == seq_index.end ())
+			return { 0 }; // Handle the case when blocking is empty after a loop.
+	}
 
-// 		if (check_timestamp (iter->account))
-// 		{
-// 			candidates.push_back (iter->account);
-// 			weights.push_back (iter->priority);
-// 		}
-// 	}
+	const auto & entry = *iter;
+	if (check_blocking_timestamp (entry.account))
+	{
+		auto block_hash = entry.dependency; // Get the dependency block hash
+		++iter; // Move the iterator forward for the next call to get_next_blocking()
+		// std::cout << "DEBUG next_blocking: " << block_hash.to_string () << std::endl;
+		return block_hash;
+	}
 
-// 	if (candidates.empty ())
-// 	{
-// 		return { 0 }; // All sampled accounts are busy
-// 	}
-
-// 	std::discrete_distribution dist{ weights.begin (), weights.end () };
-// 	auto selection = dist (rng);
-// 	debug_assert (!weights.empty () && selection < weights.size ());
-// 	auto result = candidates[selection];
-// 	return result;
-// }
+	return { 0 };
+}
 
 bool nano::bootstrap_ascending::account_sets::blocked (nano::account const & account) const
 {
@@ -273,6 +285,11 @@ std::size_t nano::bootstrap_ascending::account_sets::priority_size () const
 bool nano::bootstrap_ascending::account_sets::priority_vacancy () const
 {
 	return priorities.size () < config.priorities_max;
+}
+
+bool nano::bootstrap_ascending::account_sets::priority_half_full () const
+{
+	return priorities.size () >= (config.priorities_max / 2);
 }
 
 std::size_t nano::bootstrap_ascending::account_sets::blocked_size () const

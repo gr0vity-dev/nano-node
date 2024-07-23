@@ -182,11 +182,18 @@ void nano::bootstrap_ascending::service::inspect (secure::transaction const & tx
 		break;
 		case nano::block_status::gap_previous:
 		{
-			if (context.source == nano::block_source::live && block.type () == block_type::state)
+			if (block.type () == block_type::state)
 			{
 				const auto account = block.account_field ().value ();
+				// if (context.source == nano::block_source::live)
+				// {
 				accounts.priority_set (account); // set to initial priority
+				// }
+				// else {
+
+				// }
 			}
+
 			// TODO: Track stats
 		}
 		break;
@@ -287,6 +294,23 @@ bool nano::bootstrap_ascending::service::request (nano::account & account, std::
 	return true; // Request sent
 }
 
+bool nano::bootstrap_ascending::service::request (nano::block_hash & block_a, std::shared_ptr<nano::transport::channel> & channel)
+{
+	async_tag tag{};
+	tag.id = nano::bootstrap_ascending::generate_id ();
+	tag.time = nano::milliseconds_since_epoch ();
+
+	tag.type = async_tag::query_type::blocks_by_hash;
+	tag.start = block_a;
+
+	on_request.notify (tag, channel);
+
+	track (tag);
+	send (channel, tag);
+
+	return true; // Request sent
+}
+
 bool nano::bootstrap_ascending::service::run_one ()
 {
 	// Ensure there is enough space in blockprocessor for queuing new blocks
@@ -312,6 +336,36 @@ bool nano::bootstrap_ascending::service::run_one ()
 	return success;
 }
 
+bool nano::bootstrap_ascending::service::run_try_unblock ()
+{
+	// Only move to next entry when new priorities can be inserted
+	if (accounts.priority_half_full ())
+	{
+		return false;
+	}
+
+	// Ensure there is enough space in blockprocessor for queuing new blocks
+	wait_blockprocessor ();
+
+	// Waits for account either from priority queue or database
+	auto block_hash = accounts.next_blocking ();
+	if (block_hash.is_zero ())
+	{
+		return false;
+	}
+
+	// Waits for channel that is not full
+	auto channel = wait_available_channel ();
+	if (!channel)
+	{
+		return false;
+	}
+
+	bool success = request (block_hash, channel);
+	stats.inc (nano::stat::type::bootstrap_ascending, nano::stat::detail::try_unblock);
+	return success;
+}
+
 void nano::bootstrap_ascending::service::throttle_if_needed (nano::unique_lock<nano::mutex> & lock)
 {
 	debug_assert (lock.owns_lock ());
@@ -331,18 +385,9 @@ void nano::bootstrap_ascending::service::run ()
 		lock.unlock ();
 		stats.inc (nano::stat::type::bootstrap_ascending, nano::stat::detail::loop);
 		run_one ();
+		run_try_unblock ();
 		lock.lock ();
 		throttle_if_needed (lock);
-		// // Designed to only iterate over accounts when natural priorities die down... Doesn't reduce published blocks
-		// if (++iteration_count % 2500 == 0)
-		// {
-		// 	size_t priority_size = std::max (accounts.priority_size (), size_t (1)); // Ensure priority_size is at least 1
-		// 	double priority_sqrt = sqrt (static_cast<double> (priority_size));
-		// 	size_t current_limit = static_cast<size_t> (config.bootstrap_ascending.database_requests_limit / priority_sqrt);
-		// 	database_limiter.reset (current_limit, 1.0);
-		// 	std::cout << "DEBUG database_limiter current_limit: " << current_limit << std::endl;
-		// 	iteration_count = 1; // Reset iteration count after updating
-		// }
 	}
 }
 

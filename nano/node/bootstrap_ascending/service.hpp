@@ -99,6 +99,7 @@ namespace bootstrap_ascending
 		void throttle_if_needed (nano::unique_lock<nano::mutex> & lock);
 		void run ();
 		bool run_one ();
+		bool run_try_unblock ();
 		void run_timeouts ();
 		void run_limiter ();
 
@@ -111,6 +112,8 @@ namespace bootstrap_ascending
 		nano::account wait_available_account ();
 
 		bool request (nano::account &, std::shared_ptr<nano::transport::channel> &);
+		bool request (nano::block_hash &, std::shared_ptr<nano::transport::channel> &);
+
 		void send (std::shared_ptr<nano::transport::channel>, async_tag tag);
 		void track (async_tag const & tag);
 
