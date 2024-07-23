@@ -27,7 +27,7 @@ void nano::bootstrap_ascending::account_sets::priority_up (nano::account const &
 		if (iter != priorities.get<tag_account> ().end ())
 		{
 			priorities.get<tag_account> ().modify (iter, [] (auto & val) {
-				val.priority = std::min ((val.priority * account_sets::priority_increase), account_sets::priority_max);
+				val.priority = std::min ((val.priority + account_sets::priority_increase), account_sets::priority_max);
 			});
 		}
 		else
