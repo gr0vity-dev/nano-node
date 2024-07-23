@@ -15,7 +15,7 @@ public:
 	nano::error serialize (nano::tomlconfig & toml) const;
 
 	std::size_t consideration_count{ 4 };
-	std::size_t priorities_max{ 256 * 1024 };
+	std::size_t priorities_max{ 16 * 1024 };
 	std::size_t blocking_max{ 256 * 1024 };
 	nano::millis_t cooldown{ 1000 * 3 };
 };
@@ -29,6 +29,7 @@ public:
 	// Maximum number of un-responded requests per channel
 	std::size_t requests_limit{ 64 };
 	std::size_t database_requests_limit{ 1024 };
+	std::size_t database_requests_limit{ 1024 * 100 }; // actual usage is adjusted by priorities_size. Low priorities --> max limit
 	std::size_t pull_count{ nano::bootstrap_server::max_blocks };
 	nano::millis_t timeout{ 1000 * 3 };
 	std::size_t throttle_coefficient{ 16 };

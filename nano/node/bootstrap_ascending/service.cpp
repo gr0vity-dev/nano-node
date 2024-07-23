@@ -71,6 +71,11 @@ void nano::bootstrap_ascending::service::start ()
 		nano::thread_role::set (nano::thread_role::name::ascending_bootstrap);
 		run_timeouts ();
 	});
+
+	limiter_thread = std::thread ([this] () {
+		nano::thread_role::set (nano::thread_role::name::ascending_bootstrap);
+		run_limiter ();
+	});
 }
 
 void nano::bootstrap_ascending::service::stop ()
@@ -82,6 +87,7 @@ void nano::bootstrap_ascending::service::stop ()
 	condition.notify_all ();
 	nano::join_or_pass (thread);
 	nano::join_or_pass (timeout_thread);
+	nano::join_or_pass (limiter_thread);
 }
 
 void nano::bootstrap_ascending::service::send (std::shared_ptr<nano::transport::channel> channel, async_tag tag)
@@ -330,6 +336,29 @@ void nano::bootstrap_ascending::service::run ()
 		run_one ();
 		lock.lock ();
 		throttle_if_needed (lock);
+	}
+}
+
+void nano::bootstrap_ascending::service::run_limiter ()
+{
+	while (!stopped)
+	{
+		{
+			auto account_count = ledger.account_count (); // Fetch the total number of accounts.
+
+			nano::unique_lock<nano::mutex> lock{ mutex };
+			size_t priority_size = std::max (accounts.priority_size (), size_t (1));
+			double priority_sqrt = sqrt (static_cast<double> (priority_size));
+			size_t current_limit = static_cast<size_t> (config.bootstrap_ascending.database_requests_limit / priority_sqrt);
+
+			// Ensure the current_limit does not exceed the account_count.
+			current_limit = std::min (current_limit, static_cast<size_t> (account_count));
+
+			database_limiter.reset (current_limit, 1.0);
+			std::cout << "DEBUG database_limiter current_limit: " << current_limit << std::endl;
+		} // Release lock before sleeping
+
+		std::this_thread::sleep_for (std::chrono::seconds (1)); // Sleep to maintain ~1 second interval
 	}
 }
 

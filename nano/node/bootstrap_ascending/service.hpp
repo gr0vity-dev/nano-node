@@ -100,6 +100,7 @@ namespace bootstrap_ascending
 		void run ();
 		bool run_one ();
 		void run_timeouts ();
+		void run_limiter ();
 
 		/* Throttles requesting new blocks, not to overwhelm blockprocessor */
 		void wait_blockprocessor ();
@@ -169,6 +170,7 @@ namespace bootstrap_ascending
 		mutable nano::condition_variable condition;
 		std::thread thread;
 		std::thread timeout_thread;
+		std::thread limiter_thread;
 	};
 }
 }
