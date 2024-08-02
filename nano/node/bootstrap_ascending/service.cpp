@@ -75,10 +75,10 @@ void nano::bootstrap_ascending::service::start ()
 		run_priorities ();
 	});
 
-	// database_thread = std::thread ([this] () {
-	// 	nano::thread_role::set (nano::thread_role::name::ascending_bootstrap);
-	// 	run_database ();
-	// });
+	database_thread = std::thread ([this] () {
+		nano::thread_role::set (nano::thread_role::name::ascending_bootstrap);
+		run_database ();
+	});
 
 	dependencies_thread = std::thread ([this] () {
 		nano::thread_role::set (nano::thread_role::name::ascending_bootstrap);
