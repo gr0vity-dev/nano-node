@@ -687,25 +687,25 @@ void nano::bootstrap_ascending::service::cleanup_and_sync ()
 
 	throttle.resize (compute_throttle_size ());
 
-	auto const cutoff = std::chrono::steady_clock::now () - config.bootstrap_ascending.request_timeout;
-	auto should_timeout = [cutoff] (async_tag const & tag) {
-		return tag.timestamp < cutoff;
-	};
+	// auto const cutoff = std::chrono::steady_clock::now () - config.bootstrap_ascending.request_timeout;
+	// auto should_timeout = [cutoff] (async_tag const & tag) {
+	// 	return tag.timestamp < cutoff;
+	// };
 
-	auto & tags_by_order = tags.get<tag_sequenced> ();
-	while (!tags_by_order.empty () && should_timeout (tags_by_order.front ()))
-	{
-		auto tag = tags_by_order.front ();
-		tags_by_order.pop_front ();
-		on_timeout.notify (tag);
-		stats.inc (nano::stat::type::bootstrap_ascending, nano::stat::detail::timeout);
-	}
+	// auto & tags_by_order = tags.get<tag_sequenced> ();
+	// while (!tags_by_order.empty () && should_timeout (tags_by_order.front ()))
+	// {
+	// 	auto tag = tags_by_order.front ();
+	// 	tags_by_order.pop_front ();
+	// 	on_timeout.notify (tag);
+	// 	stats.inc (nano::stat::type::bootstrap_ascending, nano::stat::detail::timeout);
+	// }
 
-	if (sync_dependencies_interval.elapsed (60s))
-	{
-		stats.inc (nano::stat::type::bootstrap_ascending, nano::stat::detail::sync_dependencies);
-		accounts.sync_dependencies ();
-	}
+	// if (sync_dependencies_interval.elapsed (60s))
+	// {
+	// 	stats.inc (nano::stat::type::bootstrap_ascending, nano::stat::detail::sync_dependencies);
+	// 	accounts.sync_dependencies ();
+	// }
 }
 
 void nano::bootstrap_ascending::service::run_timeouts ()
