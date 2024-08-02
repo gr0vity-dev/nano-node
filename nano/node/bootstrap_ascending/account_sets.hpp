@@ -44,8 +44,8 @@ namespace bootstrap_ascending
 		void block (nano::account const & account, nano::block_hash const & dependency);
 		void unblock (nano::account const & account, std::optional<nano::block_hash> const & hash = std::nullopt);
 
-		void timestamp_set (nano::account const & account);
-		void timestamp_reset (nano::account const & account);
+		void cooldown_set (nano::account const & account);
+		void cooldown_reset (nano::account const & account);
 
 		/**
 		 * Sets information about the account chain that contains the block hash
@@ -82,7 +82,7 @@ namespace bootstrap_ascending
 
 	private:
 		void trim_overflow ();
-		bool check_timestamp (std::chrono::steady_clock::time_point timestamp) const;
+		bool cooldown_check (std::chrono::steady_clock::time_point timestamp) const;
 
 	private:
 		struct priority_entry

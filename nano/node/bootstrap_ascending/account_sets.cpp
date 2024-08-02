@@ -153,20 +153,20 @@ void nano::bootstrap_ascending::account_sets::unblock (nano::account const & acc
 	}
 }
 
-void nano::bootstrap_ascending::account_sets::timestamp_set (const nano::account & account)
+void nano::bootstrap_ascending::account_sets::cooldown_set (const nano::account & account)
 {
 	debug_assert (!account.is_zero ());
 
 	auto iter = priorities.get<tag_account> ().find (account);
 	if (iter != priorities.get<tag_account> ().end ())
 	{
-		priorities.get<tag_account> ().modify (iter, [] (auto & entry) {
-			entry.timestamp = std::chrono::steady_clock::now ();
+		priorities.get<tag_account> ().modify (iter, [this] (auto & entry) {
+			entry.timestamp = std::chrono::steady_clock::now () + config.cooldown;
 		});
 	}
 }
 
-void nano::bootstrap_ascending::account_sets::timestamp_reset (const nano::account & account)
+void nano::bootstrap_ascending::account_sets::cooldown_reset (const nano::account & account)
 {
 	debug_assert (!account.is_zero ());
 
@@ -209,10 +209,9 @@ void nano::bootstrap_ascending::account_sets::dependency_update (nano::block_has
 }
 
 // Returns false if the account is busy, true if the account is available for more requests
-bool nano::bootstrap_ascending::account_sets::check_timestamp (std::chrono::steady_clock::time_point timestamp) const
+bool nano::bootstrap_ascending::account_sets::cooldown_check (std::chrono::steady_clock::time_point cooldown_ts) const
 {
-	auto const cutoff = std::chrono::steady_clock::now () - config.cooldown;
-	return timestamp < cutoff;
+	return std::chrono::steady_clock::now () > cooldown_ts;
 }
 
 void nano::bootstrap_ascending::account_sets::trim_overflow ()
@@ -240,7 +239,7 @@ nano::account nano::bootstrap_ascending::account_sets::next_priority (std::funct
 
 	for (auto const & entry : priorities.get<tag_priority> ())
 	{
-		if (!check_timestamp (entry.timestamp))
+		if (!cooldown_check (entry.timestamp))
 		{
 			continue;
 		}

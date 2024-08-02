@@ -437,7 +437,7 @@ enum class detail
 	loop_frontiers_processing,
 	duplicate_request,
 	invalid_response_type,
-	timestamp_reset,
+	cooldown_reset,
 
 	// bootstrap_ascending_accounts
 	prioritize,

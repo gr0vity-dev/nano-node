@@ -513,7 +513,7 @@ void nano::bootstrap_ascending::service::run_one_priority ()
 	if (sent)
 	{
 		nano::lock_guard<nano::mutex> lock{ mutex };
-		accounts.timestamp_set (account);
+		accounts.cooldown_set (account);
 	}
 }
 
@@ -811,10 +811,10 @@ void nano::bootstrap_ascending::service::process (const nano::asc_pull_ack::bloc
 				{
 					// It's the last block submitted for this account chanin, reset timestamp to allow more requests
 					block_processor.add (block, nano::block_source::bootstrap, nullptr, [this, account = tag.account] (auto result) {
-						stats.inc (nano::stat::type::bootstrap_ascending, nano::stat::detail::timestamp_reset);
+						stats.inc (nano::stat::type::bootstrap_ascending, nano::stat::detail::cooldown_reset);
 						{
 							nano::lock_guard<nano::mutex> guard{ mutex };
-							accounts.timestamp_reset (account);
+							accounts.cooldown_reset (account);
 						}
 						condition.notify_all ();
 					});
