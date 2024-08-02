@@ -87,12 +87,12 @@ void nano::bootstrap_ascending::service::start ()
 
 	frontiers_thread = std::thread ([this] () {
 		nano::thread_role::set (nano::thread_role::name::ascending_bootstrap);
-		run_frontiers ();
+		// run_frontiers ();
 	});
 
 	frontiers_processing_thread = std::thread ([this] () {
 		nano::thread_role::set (nano::thread_role::name::ascending_bootstrap);
-		run_frontiers_processing ();
+		// run_frontiers_processing ();
 	});
 
 	timeout_thread = std::thread ([this] () {
