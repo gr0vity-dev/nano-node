@@ -193,14 +193,27 @@ impl BootstrapAscending {
 
     /* Waits for a condition to be satisfied with incremental backoff */
     fn wait(&self, mut predicate: impl FnMut(&mut BootstrapAscendingLogic) -> bool) {
-        let mut guard = self.mutex.lock().unwrap();
+        let mut guard = match self.mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                warn!("Mutex poisoned in wait method: {:?}", poisoned);
+                poisoned.into_inner()
+            }
+        };
         let mut interval = Duration::from_millis(5);
         while !guard.stopped && !predicate(&mut guard) {
-            guard = self
+            let result = self
                 .condition
-                .wait_timeout_while(guard, interval, |g| !g.stopped)
-                .unwrap()
-                .0;
+                .wait_timeout_while(guard, interval, |g| !g.stopped);
+            match result {
+                Ok((new_guard, _)) => {
+                    guard = new_guard;
+                }
+                Err(e) => {
+                    warn!("Condition variable wait failed: {:?}", e);
+                    break; // Decide how to handle this error
+                }
+            }
             interval = min(interval * 2, self.config.throttle_wait);
         }
     }
@@ -444,13 +457,23 @@ impl BootstrapAscending {
 
     /// Process `asc_pull_ack` message coming from network
     pub fn process(&self, message: &AscPullAck, channel_id: ChannelId) {
-        let mut guard = self.mutex.lock().unwrap();
+        let mut guard = match self.mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                warn!("Mutex poisoned in process method: {:?}", poisoned);
+                poisoned.into_inner()
+            }
+        };
 
         // Only process messages that have a known tag
-        let Some(tag) = guard.tags.remove(message.id) else {
-            self.stats
-                .inc(StatType::BootstrapAscending, DetailType::MissingTag);
-            return;
+        let tag = match guard.tags.remove(message.id) {
+            Some(tag) => tag,
+            None => {
+                self.stats
+                    .inc(StatType::BootstrapAscending, DetailType::MissingTag);
+                warn!("Received message with unknown tag: {:?}", message.id);
+                return;
+            }
         };
 
         self.stats
@@ -471,6 +494,10 @@ impl BootstrapAscending {
             self.stats.inc(
                 StatType::BootstrapAscending,
                 DetailType::InvalidResponseType,
+            );
+            warn!(
+                "Invalid response type: {:?} for tag query type: {:?}",
+                message.pull_type, tag.query_type
             );
             return;
         }
@@ -655,17 +682,32 @@ impl BootstrapAscending {
     fn batch_processed(&self, batch: &[(BlockStatus, Arc<BlockProcessorContext>)]) {
         let mut should_notify = false;
         {
-            let mut guard = self.mutex.lock().unwrap();
+            let mut guard = match self.mutex.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    warn!("Mutex poisoned in batch_processed: {:?}", poisoned);
+                    poisoned.into_inner()
+                }
+            };
             let tx = self.ledger.read_txn();
             for (result, context) in batch {
                 // Do not try to unnecessarily bootstrap live traffic chains
                 if context.source == BlockSource::Bootstrap {
-                    let account = context.block.account_field().unwrap_or_else(|| {
-                        self.ledger
-                            .any()
-                            .block_account(&tx, &context.block.previous())
-                            .unwrap()
-                    });
+                    let account = if let Some(account) = context.block.account_field() {
+                        account
+                    } else if let Some(account) = self
+                        .ledger
+                        .any()
+                        .block_account(&tx, &context.block.previous())
+                    {
+                        account
+                    } else {
+                        warn!(
+                            "Could not find account for block with previous hash: {:?}",
+                            context.block.previous()
+                        );
+                        continue; // Skip this block
+                    };
 
                     guard.inspect(
                         &self.stats,
