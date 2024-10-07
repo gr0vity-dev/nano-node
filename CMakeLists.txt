@@ -9,6 +9,10 @@ if(CMAKE_VERSION VERSION_GREATER 3.13 OR CMAKE_VERSION VERSION_EQUAL 3.13)
   cmake_policy(SET CMP0077 NEW)
 endif()
 
+find_library(BACKTRACE_LIB backtrace)
+if(BACKTRACE_LIB)
+  message(STATUS "Found libbacktrace: ${BACKTRACE_LIB}")
+
 # OSX compatibility needs to be set before project is declared
 set(CMAKE_OSX_DEPLOYMENT_TARGET
     13.3
