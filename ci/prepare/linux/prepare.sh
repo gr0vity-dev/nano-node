@@ -15,7 +15,6 @@ curl \
 wget \
 python3 \
 zlib1g-dev \
-libbacktrace-dev \
 cmake \
 git \
 qtbase5-dev \
