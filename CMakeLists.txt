@@ -495,6 +495,7 @@ foreach(lib IN LISTS BOOST_MODULE_LIBS)
 endforeach()
 include_directories(${BOOST_LIBRARY_INCLUDES})
 add_library(Boost::stacktrace ALIAS boost_stacktrace_basic)
+target_link_libraries(boost_stacktrace_basic PRIVATE ${BACKTRACE_LIB})
 add_definitions(-DBOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED)
 
 # Workaround for missing reference errata in the boost property_tree module
