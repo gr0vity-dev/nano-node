@@ -10,6 +10,10 @@ if(CMAKE_VERSION VERSION_GREATER 3.13 OR CMAKE_VERSION VERSION_EQUAL 3.13)
 endif()
 
 find_library(BACKTRACE_LIB backtrace)
+if(NOT BACKTRACE_LIB)
+    # If not found, try the custom location where we installed it
+    find_library(BACKTRACE_LIB backtrace PATHS /usr/local/lib NO_DEFAULT_PATH)
+endif()
 if(BACKTRACE_LIB)
   message(STATUS "Found libbacktrace: ${BACKTRACE_LIB}")
 endif()
