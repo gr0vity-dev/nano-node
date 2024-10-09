@@ -12,6 +12,7 @@ endif()
 find_library(BACKTRACE_LIB backtrace)
 if(BACKTRACE_LIB)
   message(STATUS "Found libbacktrace: ${BACKTRACE_LIB}")
+endif()
 
 # OSX compatibility needs to be set before project is declared
 set(CMAKE_OSX_DEPLOYMENT_TARGET
