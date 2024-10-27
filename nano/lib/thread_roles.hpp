@@ -18,6 +18,7 @@ enum class name
 	vote_cache_processing,
 	block_processing,
 	request_loop,
+	cleanup_loop,
 	wallet_actions,
 	bootstrap_initiator,
 	bootstrap_connections,

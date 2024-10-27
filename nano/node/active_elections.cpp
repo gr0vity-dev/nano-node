@@ -77,11 +77,17 @@ void nano::active_elections::start ()
 		return;
 	}
 
-	debug_assert (!thread.joinable ());
+	debug_assert (!request_thread.joinable ());
+	debug_assert (!cleanup_thread.joinable ());
 
-	thread = std::thread ([this] () {
+	request_thread = std::thread ([this] () {
 		nano::thread_role::set (nano::thread_role::name::request_loop);
 		request_loop ();
+	});
+
+	cleanup_thread = std::thread ([this] () {
+		nano::thread_role::set (nano::thread_role::name::cleanup_loop);
+		cleanup_loop ();
 	});
 }
 
@@ -92,7 +98,8 @@ void nano::active_elections::stop ()
 		stopped = true;
 	}
 	condition.notify_all ();
-	nano::join_or_pass (thread);
+	nano::join_or_pass (request_thread);
+	nano::join_or_pass (cleanup_thread);
 	clear ();
 }
 
@@ -231,43 +238,6 @@ int64_t nano::active_elections::vacancy (nano::election_behavior behavior) const
 	return std::min (election_vacancy (behavior), election_winners_vacancy ());
 }
 
-void nano::active_elections::request_confirm (nano::unique_lock<nano::mutex> & lock_a)
-{
-	debug_assert (lock_a.owns_lock ());
-
-	std::size_t const this_loop_target_l (roots.size ());
-	auto const elections_l{ list_active_impl (this_loop_target_l) };
-
-	lock_a.unlock ();
-
-	nano::confirmation_solicitor solicitor (node.network, node.config);
-	solicitor.prepare (node.rep_crawler.principal_representatives (std::numeric_limits<std::size_t>::max ()));
-
-	std::size_t unconfirmed_count_l (0);
-	nano::timer<std::chrono::milliseconds> elapsed (nano::timer_state::started);
-
-	/*
-	 * Loop through active elections in descending order of proof-of-work difficulty, requesting confirmation
-	 *
-	 * Only up to a certain amount of elections are queued for confirmation request and block rebroadcasting. The remaining elections can still be confirmed if votes arrive
-	 * Elections extending the soft config.size limit are flushed after a certain time-to-live cutoff
-	 * Flushed elections are later re-activated via frontier confirmation
-	 */
-	for (auto const & election_l : elections_l)
-	{
-		bool const confirmed_l (election_l->confirmed ());
-		unconfirmed_count_l += !confirmed_l;
-
-		if (election_l->transition_time (solicitor))
-		{
-			erase (election_l->qualified_root);
-		}
-	}
-
-	solicitor.flush ();
-	lock_a.lock ();
-}
-
 void nano::active_elections::cleanup_election (nano::unique_lock<nano::mutex> & lock_a, std::shared_ptr<nano::election> election)
 {
 	debug_assert (!mutex.try_lock ());
@@ -349,23 +319,94 @@ std::vector<std::shared_ptr<nano::election>> nano::active_elections::list_active
 	return result_l;
 }
 
+std::vector<std::shared_ptr<nano::election>> nano::active_elections::list_all_active () const
+{
+	std::vector<std::shared_ptr<nano::election>> result_l;
+	result_l.reserve (roots.size ());
+
+	for (const auto & root_entry : roots)
+	{
+		result_l.push_back (root_entry.election);
+	}
+
+	return result_l;
+}
+
 void nano::active_elections::request_loop ()
 {
 	nano::unique_lock<nano::mutex> lock{ mutex };
 	while (!stopped)
 	{
-		auto const stamp_l = std::chrono::steady_clock::now ();
+		auto const start_time = std::chrono::steady_clock::now ();
 
 		node.stats.inc (nano::stat::type::active, nano::stat::detail::loop);
 
-		request_confirm (lock);
+		// request_confirm (lock);
 		debug_assert (lock.owns_lock ());
 
 		if (!stopped)
 		{
-			auto const min_sleep_l = std::chrono::milliseconds (node.network_params.network.aec_loop_interval_ms / 2);
-			auto const wakeup_l = std::max (stamp_l + std::chrono::milliseconds (node.network_params.network.aec_loop_interval_ms), std::chrono::steady_clock::now () + min_sleep_l);
-			condition.wait_until (lock, wakeup_l, [&wakeup_l, &stopped = stopped] { return stopped || std::chrono::steady_clock::now () >= wakeup_l; });
+			auto const wakeup_time = start_time + node.network_params.network.request_solicitor_loop_ms;
+			condition.wait_until (lock, wakeup_time, [&] () { return stopped || std::chrono::steady_clock::now () >= wakeup_time; });
+		}
+	}
+}
+
+void nano::active_elections::request_confirm (nano::unique_lock<nano::mutex> & lock_a)
+{
+	debug_assert (lock_a.owns_lock ());
+
+	auto const elections_l = list_active_impl (roots.size ());
+
+	lock_a.unlock ();
+
+	nano::confirmation_solicitor solicitor (node.network, node.config);
+	solicitor.prepare (node.rep_crawler.principal_representatives (std::numeric_limits<std::size_t>::max ()));
+
+	for (auto const & election_l : elections_l)
+	{
+		if (!election_l->confirmed ())
+		{
+			// Only send confirmation requests
+			election_l->send_confirm_req (solicitor);
+		}
+	}
+
+	solicitor.flush ();
+	lock_a.lock ();
+}
+
+void nano::active_elections::cleanup_loop ()
+{
+	nano::unique_lock<nano::mutex> lock{ mutex };
+	while (!stopped)
+	{
+		auto const start_time = std::chrono::steady_clock::now ();
+
+		cleanup_elections (lock);
+		debug_assert (lock.owns_lock ());
+
+		if (!stopped)
+		{
+			auto const wakeup_time = start_time + node.network_params.network.aec_cleanup_interval_ms;
+			condition.wait_until (lock, wakeup_time, [&] () { return stopped || std::chrono::steady_clock::now () >= wakeup_time; });
+		}
+	}
+}
+
+void nano::active_elections::cleanup_elections (nano::unique_lock<nano::mutex> & lock_a)
+{
+	debug_assert (lock_a.owns_lock ());
+
+	// Step 1: Gather active elections
+	auto const elections_l = list_all_active ();
+
+	// Step 2: Iterate over each election and check if it is confirmed
+	for (auto const & election_l : elections_l)
+	{
+		if (election_l->confirmed ()) // Assuming confirmed() checks if an election is confirmed or expired
+		{
+			erase (election_l->qualified_root);
 		}
 	}
 }

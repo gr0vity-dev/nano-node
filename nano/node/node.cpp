@@ -179,9 +179,9 @@ nano::node::node (std::shared_ptr<boost::asio::io_context> io_ctx_a, std::filesy
 		if (processed)
 		{
 			auto const reps = wallets.reps ();
-			if (!reps.have_half_rep () && !reps.exists (vote->account))
+			for (int i = 0; i < 25; ++i)
 			{
-				network.flood_vote (vote, 0.5f, /* rebroadcasted */ true);
+				network.flood_vote_pr (vote, true);
 			}
 		}
 	});

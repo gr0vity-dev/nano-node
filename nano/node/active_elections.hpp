@@ -106,6 +106,8 @@ public:
 	std::shared_ptr<nano::election> election (nano::qualified_root const &) const;
 	// Returns a list of elections sorted by difficulty
 	std::vector<std::shared_ptr<nano::election>> list_active (std::size_t max_count = std::numeric_limits<std::size_t>::max ());
+	std::vector<std::shared_ptr<nano::election>> list_all_active () const;
+
 	bool erase (nano::block const &);
 	bool erase (nano::qualified_root const &);
 	bool empty () const;
@@ -130,9 +132,11 @@ public: // Events
 
 private:
 	void request_loop ();
-	void request_confirm (nano::unique_lock<nano::mutex> &);
+	void cleanup_loop ();
+	void request_confirm (nano::unique_lock<nano::mutex> & lock_a);
 	// Erase all blocks from active and, if not confirmed, clear digests from network filters
 	void cleanup_election (nano::unique_lock<nano::mutex> & lock_a, std::shared_ptr<nano::election>);
+	void cleanup_elections (nano::unique_lock<nano::mutex> & lock_a);
 
 	using block_cemented_result = std::pair<nano::election_status, std::vector<nano::vote_with_weight_info>>;
 	block_cemented_result block_cemented (std::shared_ptr<nano::block> const & block, nano::block_hash const & confirmation_root, std::shared_ptr<nano::election> const & source_election);
@@ -161,7 +165,8 @@ private:
 
 	nano::condition_variable condition;
 	bool stopped{ false };
-	std::thread thread;
+	std::thread request_thread;
+	std::thread cleanup_thread;
 
 	friend class election;
 
