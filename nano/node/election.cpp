@@ -323,7 +323,7 @@ std::chrono::seconds nano::election::cooldown_time (nano::uint128_t weight) cons
 	auto online_stake = node.online_reps.trended ();
 	if (weight > online_stake / 20) // Reps with more than 5% weight
 	{
-		return std::chrono::seconds{ 1 };
+		return std::chrono::seconds{ 5 };
 	}
 	if (weight > online_stake / 100) // Reps with more than 1% weight
 	{
