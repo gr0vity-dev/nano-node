@@ -150,6 +150,10 @@ enum class detail
 	overfill,
 	batch,
 
+	// active_election specific
+	loop_solicitor,
+	loop_state,
+
 	// error specific
 	insufficient_work,
 	http_callback,

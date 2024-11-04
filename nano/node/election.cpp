@@ -255,26 +255,26 @@ nano::election_status nano::election::get_status () const
 	return status;
 }
 
-bool nano::election::transition_time (nano::confirmation_solicitor & solicitor_a)
+bool nano::election::transition_time ()
 {
 	nano::unique_lock<nano::mutex> lock{ mutex };
 	bool result = false;
 	switch (state_m)
 	{
 		case nano::election_state::passive:
-			if (base_latency () * passive_duration_factor < std::chrono::steady_clock::now ().time_since_epoch () - state_start)
-			{
-				state_change (nano::election_state::passive, nano::election_state::active);
-			}
+			// if (base_latency () * passive_duration_factor < std::chrono::steady_clock::now ().time_since_epoch () - state_start)
+			// {
+			// 	state_change (nano::election_state::passive, nano::election_state::active);
+			// }
 			break;
 		case nano::election_state::active:
-			broadcast_vote_locked (lock);
-			broadcast_block (solicitor_a);
-			send_confirm_req (solicitor_a);
+			// broadcast_vote_locked (lock);
+			// broadcast_block (solicitor_a);
+			// send_confirm_req (solicitor_a);
 			break;
 		case nano::election_state::confirmed:
 			result = true; // Return true to indicate this election should be cleaned up
-			broadcast_block (solicitor_a); // Ensure election winner is broadcasted
+			// broadcast_block (solicitor_a); // Ensure election winner is broadcasted
 			state_change (nano::election_state::confirmed, nano::election_state::expired_confirmed);
 			break;
 		case nano::election_state::expired_unconfirmed:
