@@ -101,6 +101,11 @@ void nano::vote_generator::add (const root & root, const block_hash & hash)
 	vote_generation_queue.add (std::make_pair (root, hash));
 }
 
+void nano::vote_generator::add_priority (const root & root, const block_hash & hash)
+{
+	vote_generation_queue.add_priority (std::make_pair (root, hash));
+}
+
 void nano::vote_generator::process_batch (std::deque<queue_entry_t> & batch)
 {
 	std::deque<candidate_t> verified;

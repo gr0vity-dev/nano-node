@@ -604,7 +604,14 @@ void nano::election::broadcast_vote_locked (nano::unique_lock<nano::mutex> & loc
 			nano::log::arg{ "winner", status.winner },
 			nano::log::arg{ "type", "final" });
 
-			node.final_generator.add (root, status.winner->hash ()); // Broadcasts vote to the network
+			if (behavior_m == nano::election_behavior::priority)
+			{
+				node.final_generator.add_priority (root, status.winner->hash ()); // Broadcasts vote to the network
+			}
+			else
+			{
+				node.final_generator.add (root, status.winner->hash ()); // Broadcasts vote to the network
+			}
 		}
 		else
 		{
@@ -615,7 +622,14 @@ void nano::election::broadcast_vote_locked (nano::unique_lock<nano::mutex> & loc
 			nano::log::arg{ "winner", status.winner },
 			nano::log::arg{ "type", "normal" });
 
-			node.generator.add (root, status.winner->hash ()); // Broadcasts vote to the network
+			if (behavior_m == nano::election_behavior::priority)
+			{
+				node.generator.add_priority (root, status.winner->hash ()); // Broadcasts vote to the network
+			}
+			else
+			{
+				node.generator.add (root, status.winner->hash ()); // Broadcasts vote to the network
+			}
 		}
 	}
 }

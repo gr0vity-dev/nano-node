@@ -140,6 +140,7 @@ enum class detail
 
 	// processing queue
 	queue,
+	queue_priority,
 	overfill,
 	batch,
 

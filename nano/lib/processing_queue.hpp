@@ -83,6 +83,26 @@ public:
 	}
 
 	/**
+	 * Queues high-priority item for batch processing at the front of the queue
+	 */
+	template <class Item>
+	void add_priority (Item && item)
+	{
+		nano::unique_lock<nano::mutex> lock{ mutex };
+		if (queue.size () < max_queue_size)
+		{
+			queue.push_front (std::forward<T> (item));
+			lock.unlock ();
+			condition.notify_one ();
+			stats.inc (stat_type, nano::stat::detail::queue_priority);
+		}
+		else
+		{
+			stats.inc (stat_type, nano::stat::detail::overfill);
+		}
+	}
+
+	/**
 	 * Queues item for batch processing
 	 */
 	template <class Item>
