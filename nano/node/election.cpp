@@ -310,8 +310,9 @@ std::chrono::milliseconds nano::election::time_to_live () const
 		case election_behavior::priority:
 			return std::chrono::milliseconds (5 * 60 * 1000);
 		case election_behavior::hinted:
-		case election_behavior::optimistic:
 			return std::chrono::milliseconds (30 * 1000);
+		case election_behavior::optimistic:
+			return std::chrono::milliseconds (10 * 60 * 1000);
 	}
 	debug_assert (false);
 	return {};
