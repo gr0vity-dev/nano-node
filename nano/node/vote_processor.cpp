@@ -329,6 +329,7 @@ void nano::vote_cache_processor::run_batch (nano::unique_lock<nano::mutex> & loc
 		{
 			vote_router.vote (cached_vote, nano::vote_source::cache, hash);
 		}
+		vote_cache.erase (hash);
 	}
 }
 
