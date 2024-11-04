@@ -1770,7 +1770,7 @@ TEST (node, mass_block_new)
 	nano::node_config node_config = system.default_config ();
 	node_config.backlog_population.enable = false;
 	auto & node = *system.add_node (node_config);
-	node.network_params.network.aec_loop_interval_ms = 500;
+	node.network_params.network.aec_loop_interval_ms = 500ms;
 
 #ifndef NDEBUG
 	auto const num_blocks = 5000;
