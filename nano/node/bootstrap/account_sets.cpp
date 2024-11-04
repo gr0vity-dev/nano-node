@@ -272,6 +272,8 @@ nano::block_hash nano::bootstrap::account_sets::next_blocking (std::function<boo
 
 void nano::bootstrap::account_sets::sync_dependencies ()
 {
+	stats.inc (nano::stat::type::bootstrap_account_sets, nano::stat::detail::sync_dependencies);
+
 	// Sample all accounts with a known dependency account (> account 0)
 	auto begin = blocking.get<tag_dependency_account> ().upper_bound (nano::account{ 0 });
 	auto end = blocking.get<tag_dependency_account> ().end ();
@@ -287,7 +289,7 @@ void nano::bootstrap::account_sets::sync_dependencies ()
 
 		if (!blocked (entry.dependency_account) && !prioritized (entry.dependency_account))
 		{
-			stats.inc (nano::stat::type::bootstrap_account_sets, nano::stat::detail::sync_dependencies);
+			stats.inc (nano::stat::type::bootstrap_account_sets, nano::stat::detail::dependency_synced);
 			priority_set (entry.dependency_account);
 		}
 	}

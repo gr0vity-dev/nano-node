@@ -60,7 +60,7 @@ nano::bootstrap_service::~bootstrap_service ()
 	debug_assert (!database_thread.joinable ());
 	debug_assert (!dependencies_thread.joinable ());
 	debug_assert (!frontiers_thread.joinable ());
-	debug_assert (!timeout_thread.joinable ());
+	debug_assert (!cleanup_thread.joinable ());
 	debug_assert (!workers.alive ());
 }
 
@@ -70,7 +70,7 @@ void nano::bootstrap_service::start ()
 	debug_assert (!database_thread.joinable ());
 	debug_assert (!dependencies_thread.joinable ());
 	debug_assert (!frontiers_thread.joinable ());
-	debug_assert (!timeout_thread.joinable ());
+	debug_assert (!cleanup_thread.joinable ());
 
 	if (!config.enable)
 	{
@@ -99,7 +99,7 @@ void nano::bootstrap_service::start ()
 	if (config.enable_dependency_walker)
 	{
 		dependencies_thread = std::thread ([this] () {
-			nano::thread_role::set (nano::thread_role::name::bootstrap_dependendy_walker);
+			nano::thread_role::set (nano::thread_role::name::bootstrap_dependency_walker);
 			run_dependencies ();
 		});
 	}
@@ -112,7 +112,7 @@ void nano::bootstrap_service::start ()
 		});
 	}
 
-	timeout_thread = std::thread ([this] () {
+	cleanup_thread = std::thread ([this] () {
 		nano::thread_role::set (nano::thread_role::name::bootstrap_cleanup);
 		run_timeouts ();
 	});
@@ -130,7 +130,7 @@ void nano::bootstrap_service::stop ()
 	nano::join_or_pass (database_thread);
 	nano::join_or_pass (dependencies_thread);
 	nano::join_or_pass (frontiers_thread);
-	nano::join_or_pass (timeout_thread);
+	nano::join_or_pass (cleanup_thread);
 
 	workers.stop ();
 }
@@ -418,7 +418,7 @@ nano::block_hash nano::bootstrap_service::next_blocking ()
 	debug_assert (!mutex.try_lock ());
 
 	auto blocking = accounts.next_blocking ([this] (nano::block_hash const & hash) {
-		return count_tags (hash, query_source::blocking) == 0;
+		return count_tags (hash, query_source::dependencies) == 0;
 	});
 	if (blocking.is_zero ())
 	{
@@ -590,7 +590,7 @@ void nano::bootstrap_service::run_database ()
 	}
 }
 
-void nano::bootstrap_service::run_one_blocking ()
+void nano::bootstrap_service::run_one_dependency ()
 {
 	// No need to wait for blockprocessor, as we are not processing blocks
 	auto channel = wait_channel ();
@@ -603,7 +603,7 @@ void nano::bootstrap_service::run_one_blocking ()
 	{
 		return;
 	}
-	request_info (blocking, channel, query_source::blocking);
+	request_info (blocking, channel, query_source::dependencies);
 }
 
 void nano::bootstrap_service::run_dependencies ()
@@ -613,7 +613,7 @@ void nano::bootstrap_service::run_dependencies ()
 	{
 		lock.unlock ();
 		stats.inc (nano::stat::type::bootstrap, nano::stat::detail::loop_dependencies);
-		run_one_blocking ();
+		run_one_dependency ();
 		lock.lock ();
 	}
 }
