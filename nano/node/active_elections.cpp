@@ -78,23 +78,23 @@ void nano::active_elections::start ()
 		return;
 	}
 
-	
 	debug_assert (!state_thread.joinable ());
-    debug_assert (!cleanup_thread.joinable ());
-    debug_assert (!solicitor_thread.joinable ());
+	debug_assert (!cleanup_thread.joinable ());
+	debug_assert (!solicitor_thread.joinable ());
 
 	state_thread = std::thread ([this] () {
 		nano::thread_role::set (nano::thread_role::name::request_loop);
-		state_loop ();
+		run_state ();
 	});
+
 	cleanup_thread = std::thread ([this] () {
 		nano::thread_role::set (nano::thread_role::name::request_loop);
-		cleanup_loop ();
+		run_cleanup ();
 	});
 
 	solicitor_thread = std::thread ([this] () {
 		nano::thread_role::set (nano::thread_role::name::request_loop);
-		solicitor_loop ();
+		run_solicitor ();
 	});
 }
 
@@ -246,7 +246,6 @@ int64_t nano::active_elections::vacancy (nano::election_behavior behavior) const
 	return std::min (election_vacancy (behavior), election_winners_vacancy ());
 }
 
-
 void nano::active_elections::cleanup_election (nano::unique_lock<nano::mutex> & lock_a, std::shared_ptr<nano::election> election)
 {
 	debug_assert (!mutex.try_lock ());
@@ -308,23 +307,22 @@ void nano::active_elections::cleanup_election (nano::unique_lock<nano::mutex> & 
 }
 
 std::vector<std::shared_ptr<nano::election>> nano::active_elections::list_active_filtered_impl (
-    std::function<bool(std::shared_ptr<nano::election> const &)> const & predicate) const
+std::function<bool (std::shared_ptr<nano::election> const &)> const & predicate) const
 {
-    std::vector<std::shared_ptr<nano::election>> result_l;
-    result_l.reserve (roots.size());  // Reserve max possible size
-    {
-        auto & sorted_roots_l (roots.get<tag_sequenced> ());
-        for (auto i = sorted_roots_l.begin (), n = sorted_roots_l.end (); i != n; ++i)
-        {
-            if (predicate(i->election))
-            {
-                result_l.push_back (i->election);
-            }
-        }
-    }
-    return result_l;
+	std::vector<std::shared_ptr<nano::election>> result_l;
+	result_l.reserve (roots.size ()); // Reserve max possible size
+	{
+		auto & sorted_roots_l (roots.get<tag_sequenced> ());
+		for (auto i = sorted_roots_l.begin (), n = sorted_roots_l.end (); i != n; ++i)
+		{
+			if (predicate (i->election))
+			{
+				result_l.push_back (i->election);
+			}
+		}
+	}
+	return result_l;
 }
-
 
 std::vector<std::shared_ptr<nano::election>> nano::active_elections::list_active (std::size_t max_a)
 {
@@ -347,92 +345,101 @@ std::vector<std::shared_ptr<nano::election>> nano::active_elections::list_active
 	return result_l;
 }
 
-
-void nano::active_elections::state_loop ()
+// In active_elections.cpp:
+void nano::active_elections::run_state_batch (nano::unique_lock<nano::mutex> & lock)
 {
-    nano::unique_lock<nano::mutex> lock{ mutex };
-    while (!stopped)
-    {
-        auto const elections_l = list_active_impl (roots.size ());
-        
-        // Process state changes
-        for (auto const & election_l : elections_l)
-        {
-			//instruction only change teh state of the election. think thsi works by removing solicitor and adjustine transition_time() in election.cpp
-            election_l->transition_time();
-        }
+	debug_assert (lock.owns_lock ());
+	auto const elections_l = list_active_impl (roots.size ());
 
-        node.stats.inc (nano::stat::type::active_elections, nano::stat::detail::loop_state);
-
-        if (!stopped)
-        {
-            condition.wait_for (lock, state_loop_interval, [this] () { return stopped; });
-        }
-    }
+	for (auto const & election_l : elections_l)
+	{
+		election_l->transition_time ();
+	}
 }
 
-void nano::active_elections::cleanup_loop ()
+void nano::active_elections::run_cleanup_batch (nano::unique_lock<nano::mutex> & lock)
 {
-    nano::unique_lock<nano::mutex> lock{ mutex };
-    while (!stopped)
-    {
-        // Get only elections that need cleanup
-        auto const elections_l = list_active_filtered_impl ([](auto const & election) {
-            auto state = election->state();
-            return state == nano::election_state::confirmed ||
-                   state == nano::election_state::expired_confirmed ||
-                   state == nano::election_state::expired_unconfirmed ||
-                   state == nano::election_state::cancelled;
-        });
+	debug_assert (lock.owns_lock ());
 
-        // Process cleanup
-        for (auto const & election_l : elections_l)
-        {   
-            cleanup_election (lock, election_l);
-            debug_assert (!lock.owns_lock ());
-            lock.lock ();            
-        }
+	auto const elections_l = list_active_filtered_impl ([] (auto const & election) {
+		auto state = election->state ();
+		return state == nano::election_state::confirmed || state == nano::election_state::expired_confirmed || state == nano::election_state::expired_unconfirmed || state == nano::election_state::cancelled;
+	});
 
-        node.stats.inc (nano::stat::type::active_elections, nano::stat::detail::loop_cleanup);
-
-        if (!stopped)
-        {
-            condition.wait_for (lock, cleanup_loop_interval, [this] () { return stopped; });
-        }
-    }
+	for (auto const & election_l : elections_l)
+	{
+		cleanup_election (lock, election_l);
+		debug_assert (!lock.owns_lock ());
+		lock.lock ();
+	}
 }
 
-void nano::active_elections::solicitor_loop ()
+void nano::active_elections::run_solicitor_batch (nano::unique_lock<nano::mutex> & lock)
 {
-    nano::unique_lock<nano::mutex> lock{ mutex };
-    while (!stopped)
-    {
-        auto const elections_l = list_active_impl (roots.size ());
-        lock.unlock ();
+	debug_assert (lock.owns_lock ());
+	auto const elections_l = list_active_filtered_impl ([] (auto const & election) {
+		auto state = election->state ();
+		return state == nano::election_state::active;
+	});
+	lock.unlock ();
 
-        nano::confirmation_solicitor solicitor (node.network, node.config);
-        solicitor.prepare (node.rep_crawler.principal_representatives (std::numeric_limits<std::size_t>::max ()));
+	nano::confirmation_solicitor solicitor (node.network, node.config);
+	solicitor.prepare (node.rep_crawler.principal_representatives (std::numeric_limits<std::size_t>::max ()));
 
-        // Process network solicitation
-        for (auto const & election_l : elections_l)
-        {
-			if (election_l->state() == nano::election_state::active)
-			{
-				election_l->broadcast_vote();
-				election_l->broadcast_block(solicitor);
-				election_l->send_confirm_req(solicitor);
-			}
-        }
+	for (auto const & election_l : elections_l)
+	{
+		if (election_l->state () == nano::election_state::active)
+		{
+			election_l->broadcast_vote ();
+			election_l->broadcast_block (solicitor);
+			election_l->send_confirm_req (solicitor);
+		}
+	}
 
-        solicitor.flush ();
-        node.stats.inc (nano::stat::type::active_elections, nano::stat::detail::loop_solicitor);
+	solicitor.flush ();
+	lock.lock ();
+}
 
-        lock.lock ();
-        if (!stopped)
-        {
-            condition.wait_for (lock, solicitor_loop_interval, [this] () { return stopped; });
-        }
-    }
+void nano::active_elections::run_state ()
+{
+	nano::unique_lock<nano::mutex> lock{ mutex };
+	while (!stopped)
+	{
+		run_state_batch (lock);
+		node.stats.inc (nano::stat::type::active_elections, nano::stat::detail::loop_state);
+		if (!stopped)
+		{
+			condition.wait_for (lock, state_loop_interval, [this] () { return stopped; });
+		}
+	}
+}
+
+void nano::active_elections::run_cleanup ()
+{
+	nano::unique_lock<nano::mutex> lock{ mutex };
+	while (!stopped)
+	{
+		run_cleanup_batch (lock);
+		node.stats.inc (nano::stat::type::active_elections, nano::stat::detail::loop_cleanup);
+		if (!stopped)
+		{
+			condition.wait_for (lock, cleanup_loop_interval, [this] () { return stopped; });
+		}
+	}
+}
+
+void nano::active_elections::run_solicitor ()
+{
+	nano::unique_lock<nano::mutex> lock{ mutex };
+	while (!stopped)
+	{
+		run_solicitor_batch (lock);
+		node.stats.inc (nano::stat::type::active_elections, nano::stat::detail::loop_solicitor);
+		if (!stopped)
+		{
+			condition.wait_for (lock, node.network_params.network.solicitor_interval_ms, [this] () { return stopped; });
+		}
+	}
 }
 
 nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<nano::block> const & block_a, nano::election_behavior election_behavior_a, erased_callback_t erased_callback_a)
@@ -462,7 +469,7 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 				node.online_reps.observe (rep_a);
 			};
 			result.election = nano::make_shared<nano::election> (node, block_a, nullptr, observe_rep_cb, election_behavior_a);
-			result.election->transition_active();
+			result.election->transition_active ();
 			roots.get<tag_root> ().emplace (entry{ root, result.election, std::move (erased_callback_a) });
 			node.vote_router.connect (hash, result.election);
 

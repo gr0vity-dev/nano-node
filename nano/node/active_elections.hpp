@@ -128,11 +128,15 @@ public:
 public: // Events
 	nano::observer_set<> vacancy_updated;
 
-private:	
-    void state_loop();
-    void cleanup_loop();
-    void solicitor_loop();
-	
+private:
+	void run_state_batch (nano::unique_lock<nano::mutex> & lock);
+	void run_cleanup_batch (nano::unique_lock<nano::mutex> & lock);
+	void run_solicitor_batch (nano::unique_lock<nano::mutex> & lock);
+
+	void run_state ();
+	void run_cleanup ();
+	void run_solicitor ();
+
 	// Erase all blocks from active and, if not confirmed, clear digests from network filters
 	void cleanup_election (nano::unique_lock<nano::mutex> & lock_a, std::shared_ptr<nano::election>);
 
@@ -142,7 +146,7 @@ private:
 
 	std::shared_ptr<nano::election> election_impl (nano::qualified_root const &) const;
 	std::vector<std::shared_ptr<nano::election>> list_active_impl (std::size_t max_count) const;
-	std::vector<std::shared_ptr<nano::election>> list_active_filtered_impl (std::function<bool(std::shared_ptr<nano::election> const &)> const & predicate) const;
+	std::vector<std::shared_ptr<nano::election>> list_active_filtered_impl (std::function<bool (std::shared_ptr<nano::election> const &)> const & predicate) const;
 
 private: // Dependencies
 	active_elections_config const & config;
@@ -165,15 +169,12 @@ private:
 	nano::condition_variable condition;
 	bool stopped{ false };
 	// Individual loop threads
-    std::thread state_thread;
-    std::thread cleanup_thread; 
-    std::thread solicitor_thread;
+	std::thread state_thread;
+	std::thread cleanup_thread;
+	std::thread solicitor_thread;
 
-    static constexpr auto state_loop_interval = std::chrono::milliseconds(25);
-    static constexpr auto cleanup_loop_interval = std::chrono::milliseconds(25);
-    static constexpr auto solicitor_loop_interval = std::chrono::milliseconds(500);
-
-
+	static constexpr std::chrono::milliseconds state_loop_interval = 25ms;
+	static constexpr std::chrono::milliseconds cleanup_loop_interval = 25ms;
 
 	friend class election;
 
