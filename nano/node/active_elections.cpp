@@ -397,6 +397,10 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 				node.online_reps.observe (rep_a);
 			};
 			result.election = nano::make_shared<nano::election> (node, block_a, nullptr, observe_rep_cb, election_behavior_a);
+			if (election_behavior_a == nano::election_behavior::priority)
+			{
+				result.election->transition_active ();
+			}
 			roots.get<tag_root> ().emplace (entry{ root, result.election, std::move (erased_callback_a) });
 			node.vote_router.connect (hash, result.election);
 
