@@ -169,7 +169,7 @@ public:
 		default_rpc_port (45000),
 		default_ipc_port (46000),
 		default_websocket_port (47000),
-		aec_loop_interval_ms (300), // Update AEC ~3 times per second
+		solicitor_interval_ms (300), // interval for outgoing network activity for active elections
 		cleanup_period (default_cleanup_period),
 		merge_period (std::chrono::milliseconds (250)),
 		keepalive_period (std::chrono::seconds (15)),
@@ -205,7 +205,7 @@ public:
 		}
 		else if (is_dev_network ())
 		{
-			aec_loop_interval_ms = 20ms;
+			solicitor_interval_ms = 20ms;
 			cleanup_period = 1s;
 			merge_period = 10ms;
 			keepalive_period = 1s;
@@ -261,8 +261,8 @@ public:
 	std::chrono::milliseconds vote_broadcast_interval;
 	std::chrono::milliseconds block_broadcast_interval;
 
-	/** Time to wait before requesting the next votes */
-	std::chrono::milliseconds aec_loop_interval_ms;
+	/** Time to wait before initiating next network activity for active elections*/
+	std::chrono::milliseconds solicitor_interval_ms;
 
 	/** We do not reply to telemetry requests made within cooldown period */
 	std::chrono::milliseconds telemetry_request_cooldown{ 1000 * 15 };
