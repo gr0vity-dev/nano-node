@@ -65,7 +65,11 @@ void nano::scheduler::hinted::notify ()
 bool nano::scheduler::hinted::predicate () const
 {
 	// Check if there is space inside AEC for a new hinted election
-	return active.vacancy (nano::election_behavior::hinted) > 0;
+	// return active.vacancy (nano::election_behavior::hinted) > 0;
+
+	// verify there is enough space in the vote_generator.
+	// hinted elections should fill the remaining up to 255 hashes/vote but ensure all priority votes are broadcast first.
+	return true;
 }
 
 void nano::scheduler::hinted::activate (secure::read_transaction & transaction, nano::block_hash const & hash, bool check_dependents)
