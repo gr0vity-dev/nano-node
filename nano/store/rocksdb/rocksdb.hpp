@@ -101,6 +101,35 @@ public:
 
 	std::string error_string (int status) const override;
 
+public: // Make KeyOperation public
+	struct KeyOperation
+	{
+		enum class Type
+		{
+			Put,
+			Delete
+		}; // Define the Type enum properly
+		Type type;
+		tables table;
+		const void * key_data;
+		size_t key_size;
+		const void * value_data;
+		size_t value_size;
+	};
+
+private: // Private section for internal members
+	static constexpr size_t MAX_LOG_SIZE = 10000;
+	std::vector<KeyOperation> operation_log;
+	mutable std::mutex operation_log_mutex;
+
+	// Add function declarations
+	void log_operation (KeyOperation::Type type,
+	tables table,
+	nano::store::rocksdb::db_val const & key,
+	nano::store::rocksdb::db_val const * value = nullptr);
+	void dump_operation_log () const;
+	std::string get_thread_id () const;
+
 private:
 	bool error{ false };
 	nano::logger & logger;

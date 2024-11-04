@@ -203,6 +203,65 @@ void nano::store::rocksdb::component::open (bool & error_a, std::filesystem::pat
 	error_a |= !s.ok ();
 }
 
+void nano::store::rocksdb::component::log_operation (KeyOperation::Type type,
+tables table, nano::store::rocksdb::db_val const & key,
+nano::store::rocksdb::db_val const * value)
+{
+	// Get data pointers and sizes directly from db_val
+	const void * key_data = key.data ();
+	size_t key_size = key.size ();
+
+	const void * value_data = nullptr;
+	size_t value_size = 0;
+	if (value)
+	{
+		value_data = value->data ();
+		value_size = value->size ();
+	}
+
+	// Fast logging to stderr
+	fprintf (stderr, "RocksDB Op: %s Table: %d Key: %p[%zu] Value: %p[%zu] Thread: %zu\n",
+	type == KeyOperation::Type::Put ? "Put" : "Del",
+	static_cast<int> (table),
+	key_data, key_size,
+	value_data, value_size,
+	std::hash<std::thread::id>{}(std::this_thread::get_id ()));
+
+	// Store operation if needed
+	if (operation_log.size () < MAX_LOG_SIZE)
+	{
+		std::lock_guard<std::mutex> lock (operation_log_mutex);
+		operation_log.push_back ({ type,
+		table,
+		key_data,
+		key_size,
+		value_data,
+		value_size });
+	}
+}
+
+std::string nano::store::rocksdb::component::get_thread_id () const
+{
+	std::stringstream ss;
+	ss << std::this_thread::get_id ();
+	return ss.str ();
+}
+
+void nano::store::rocksdb::component::dump_operation_log () const
+{
+	std::lock_guard<std::mutex> lock (operation_log_mutex);
+
+	std::cerr << "\n=== RocksDB Operation Log ===\n";
+	for (const auto & op : operation_log)
+	{
+		std::cerr << "Operation: " << (op.type == KeyOperation::Type::Put ? "Put" : "Delete")
+				  << "\nTable: " << static_cast<int> (op.table)
+				  << "\nKey: " << op.key_data << " [size: " << op.key_size << "]"
+				  << "\nValue: " << op.value_data << " [size: " << op.value_size << "]"
+				  << "\n---\n";
+	}
+}
+
 bool nano::store::rocksdb::component::do_upgrades (store::write_transaction & transaction)
 {
 	auto error (false);
@@ -520,6 +579,7 @@ int nano::store::rocksdb::component::del (store::write_transaction const & trans
 	// RocksDB does not report not_found status, it is a pre-condition that the key exists
 	debug_assert (exists (transaction_a, table_a, key_a));
 	flush_tombstones_check (table_a);
+	log_operation (KeyOperation::Type::Delete, table_a, key_a);
 	return tx (transaction_a)->Delete (table_to_column_family (table_a), key_a).code ();
 }
 
@@ -577,6 +637,7 @@ int nano::store::rocksdb::component::put (store::write_transaction const & trans
 {
 	debug_assert (transaction_a.contains (table_a));
 	auto txn = tx (transaction_a);
+	log_operation (KeyOperation::Type::Put, table_a, key_a, &value_a);
 	return txn->Put (table_to_column_family (table_a), key_a, value_a).code ();
 }
 
