@@ -26,13 +26,18 @@ namespace bootstrap
 		bool limit_exceeded (std::shared_ptr<nano::transport::channel> const & channel) const;
 		bool try_send_message (std::shared_ptr<nano::transport::channel> const & channel);
 		void received_message (std::shared_ptr<nano::transport::channel> const & channel);
+
 		std::shared_ptr<nano::transport::channel> channel ();
-		[[nodiscard]] std::size_t size () const;
-		std::size_t available () const;
+
+		// Synchronize channels with the network, passed channels should be shuffled
+		void sync (std::deque<std::shared_ptr<nano::transport::channel>> const & list);
+
 		// Cleans up scores for closed channels
 		// Decays scores which become inaccurate over time due to message drops
 		void timeout ();
-		void sync (std::deque<std::shared_ptr<nano::transport::channel>> const & list);
+
+		std::size_t size () const;
+		std::size_t available () const;
 
 		nano::container_info container_info () const;
 
@@ -83,6 +88,8 @@ namespace bootstrap
 				mi::member<peer_score, uint64_t, &peer_score::outstanding>>>>;
 		// clang-format on
 		ordered_scoring scoring;
+
+		std::deque<std::shared_ptr<nano::transport::channel>> channels;
 	};
 }
 }

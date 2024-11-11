@@ -659,7 +659,7 @@ void nano::bootstrap_service::cleanup_and_sync ()
 {
 	debug_assert (!mutex.try_lock ());
 
-	scoring.sync (network.list ());
+	scoring.sync (network.list (/* all */ 0, network_constants.bootstrap_protocol_version_min));
 	scoring.timeout ();
 
 	throttle.resize (compute_throttle_size ());

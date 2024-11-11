@@ -66,17 +66,13 @@ void nano::bootstrap::peer_scoring::received_message (std::shared_ptr<nano::tran
 
 std::shared_ptr<nano::transport::channel> nano::bootstrap::peer_scoring::channel ()
 {
-	auto & index = scoring.get<tag_outstanding> ();
-	for (auto const & score : index)
+	for (auto const & channel : channels)
 	{
-		if (auto channel = score.shared ())
+		if (!channel->max (nano::transport::traffic_type::bootstrap))
 		{
-			if (!channel->max (nano::transport::traffic_type::bootstrap))
+			if (!try_send_message (channel))
 			{
-				if (!try_send_message (channel))
-				{
-					return channel;
-				}
+				return channel;
 			}
 		}
 	}
@@ -90,12 +86,8 @@ std::size_t nano::bootstrap::peer_scoring::size () const
 
 std::size_t nano::bootstrap::peer_scoring::available () const
 {
-	return std::count_if (scoring.begin (), scoring.end (), [this] (auto const & score) {
-		if (auto channel = score.shared ())
-		{
-			return !limit_exceeded (channel);
-		}
-		return false;
+	return std::count_if (channels.begin (), channels.end (), [this] (auto const & channel) {
+		return !limit_exceeded (channel);
 	});
 }
 
@@ -122,20 +114,7 @@ void nano::bootstrap::peer_scoring::timeout ()
 
 void nano::bootstrap::peer_scoring::sync (std::deque<std::shared_ptr<nano::transport::channel>> const & list)
 {
-	auto & index = scoring.get<tag_channel> ();
-	for (auto const & channel : list)
-	{
-		if (channel->get_network_version () >= network_constants.bootstrap_protocol_version_min)
-		{
-			if (index.find (channel.get ()) == index.end ())
-			{
-				if (!channel->max (nano::transport::traffic_type::bootstrap))
-				{
-					index.emplace (channel, 1, 1, 0);
-				}
-			}
-		}
-	}
+	channels = list;
 }
 
 nano::container_info nano::bootstrap::peer_scoring::container_info () const
