@@ -673,8 +673,9 @@ void nano::bootstrap_service::cleanup_and_sync ()
 	while (!tags_by_order.empty () && should_timeout (tags_by_order.front ()))
 	{
 		auto tag = tags_by_order.front ();
-		tags_by_order.pop_front ();
 		stats.inc (nano::stat::type::bootstrap, nano::stat::detail::timeout);
+		stats.inc (nano::stat::type::bootstrap_timeout, to_stat_detail (tag.type));
+		tags_by_order.pop_front ();
 	}
 
 	if (sync_dependencies_interval.elapsed (60s))

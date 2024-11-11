@@ -69,6 +69,7 @@ enum class type
 	bootstrap_frontiers,
 	bootstrap_account_sets,
 	bootstrap_frontier_scan,
+	bootstrap_timeout,
 	bootstrap_server,
 	bootstrap_server_request,
 	bootstrap_server_overfill,
