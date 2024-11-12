@@ -128,22 +128,14 @@ void nano::bootstrap::account_sets::unblock (nano::account const & account, std:
 
 	// Unblock only if the dependency is fulfilled
 	auto existing = blocking.get<tag_account> ().find (account);
+
 	if (existing != blocking.get<tag_account> ().end () && (!hash || existing->dependency == *hash))
 	{
 		stats.inc (nano::stat::type::bootstrap_account_sets, nano::stat::detail::unblock);
-
 		debug_assert (priorities.get<tag_account> ().count (account) == 0);
-		if (!existing->original_entry.account.is_zero ())
-		{
-			debug_assert (existing->original_entry.account == account);
-			priorities.get<tag_account> ().insert (existing->original_entry);
-		}
-		else
-		{
-			priorities.get<tag_account> ().insert ({ account, account_sets::priority_initial });
-		}
-		blocking.get<tag_account> ().erase (account);
 
+		priorities.get<tag_account> ().insert ({ account, account_sets::priority_initial });
+		blocking.get<tag_account> ().erase (account);
 		trim_overflow ();
 	}
 	else
