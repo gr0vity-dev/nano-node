@@ -200,7 +200,7 @@ bool nano::test::active (nano::node & node, std::vector<nano::block_hash> hashes
 {
 	for (auto & hash : hashes)
 	{
-		if (!node.vote_router.active (hash))
+		if (!node.vote_router.is_active (hash))
 		{
 			return false;
 		}

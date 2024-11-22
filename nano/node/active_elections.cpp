@@ -432,7 +432,7 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 	{
 		debug_assert (result.election);
 
-		node.vote_cache_processor.trigger (hash);
+		// node.vote_cache_processor.trigger (hash);
 		node.observers.active_started.notify (hash);
 		vacancy_updated.notify ();
 	}

@@ -5,6 +5,9 @@
 #include <nano/node/election.hpp>
 #include <nano/node/vote_cache.hpp>
 #include <nano/node/vote_router.hpp>
+#include <nano/secure/ledger.hpp>
+#include <nano/secure/ledger_set_any.hpp>
+#include <nano/secure/ledger_set_confirmed.hpp>
 #include <nano/secure/vote.hpp>
 
 #include <chrono>
@@ -21,9 +24,14 @@ nano::stat::detail nano::to_stat_detail (nano::vote_source source)
 	return nano::enum_util::cast<nano::stat::detail> (source);
 }
 
-nano::vote_router::vote_router (nano::vote_cache & vote_cache_a, nano::recently_confirmed_cache & recently_confirmed_a) :
+nano::vote_router::vote_router (nano::vote_cache & vote_cache_a,
+nano::recently_confirmed_cache & recently_confirmed_a,
+nano::ledger & ledger_a,
+nano::active_elections & active_a) :
 	vote_cache{ vote_cache_a },
-	recently_confirmed{ recently_confirmed_a }
+	recently_confirmed{ recently_confirmed_a },
+	ledger{ ledger_a },
+	active{ active_a }
 {
 }
 
@@ -53,6 +61,37 @@ void nano::vote_router::disconnect (nano::block_hash const & hash)
 	std::unique_lock lock{ mutex };
 	[[maybe_unused]] auto erased = elections.erase (hash);
 	debug_assert (erased == 1);
+}
+
+std::shared_ptr<nano::block> nano::vote_router::get_block (nano::block_hash const & hash)
+{
+	std::shared_lock cache_lock{ cache_mutex };
+	auto cache_it = block_cache.find (hash);
+	if (cache_it != block_cache.end ())
+	{
+		cache_it->second.last_access = std::chrono::steady_clock::now ();
+		return cache_it->second.block;
+	}
+	cache_lock.unlock ();
+
+	// Not in cache, check ledger
+	auto transaction = ledger.tx_begin_read ();
+	auto block = ledger.any.block_get (transaction, hash);
+
+	if (block)
+	{
+		// Add to cache
+		std::unique_lock write_lock{ cache_mutex };
+		prune_cache ();
+		block_cache[hash] = { block, std::chrono::steady_clock::now () };
+	}
+
+	return block;
+}
+
+void nano::vote_router::prune_cache ()
+{
+	// TODO: prune cache (name it trim_overflow maybe?)
 }
 
 // Validate a vote and apply it to the current election if one exists
@@ -96,13 +135,29 @@ std::unordered_map<nano::block_hash, nano::vote_code> nano::vote_router::vote (s
 			}
 			else
 			{
-				if (!recently_confirmed.exists (hash))
+				if (recently_confirmed.exists (hash))
 				{
-					results[hash] = nano::vote_code::indeterminate;
+					results[hash] = nano::vote_code::replay;
 				}
 				else
 				{
-					results[hash] = nano::vote_code::replay;
+					// If no election exists, try to get the block and create new election
+					if (auto block = get_block (hash))
+					{
+						auto result = active.insert (block, nano::election_behavior::passive);
+						if (result.inserted)
+						{
+							process[hash] = result.election;
+						}
+						else
+						{
+							results[hash] = nano::vote_code::indeterminate;
+						}
+					}
+					else
+					{
+						results[hash] = nano::vote_code::indeterminate;
+					}
 				}
 			}
 		}
@@ -119,18 +174,12 @@ std::unordered_map<nano::block_hash, nano::vote_code> nano::vote_router::vote (s
 		return results.find (hash) != results.end ();
 	}));
 
-	// Cache the votes that didn't match any election
-	if (source != nano::vote_source::cache)
-	{
-		vote_cache.insert (vote, results);
-	}
-
 	vote_processed.notify (vote, source, results);
 
 	return results;
 }
 
-bool nano::vote_router::active (nano::block_hash const & hash) const
+bool nano::vote_router::is_active (nano::block_hash const & hash) const
 {
 	std::shared_lock lock{ mutex };
 	if (auto existing = elections.find (hash); existing != elections.end ())

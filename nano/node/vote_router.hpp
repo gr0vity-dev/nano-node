@@ -37,7 +37,9 @@ nano::stat::detail to_stat_detail (vote_source);
 class vote_router final
 {
 public:
-	vote_router (nano::vote_cache & cache, nano::recently_confirmed_cache & recently_confirmed);
+	vote_router (nano::vote_cache & cache, nano::recently_confirmed_cache & recently_confirmed_a, nano::ledger & ledger_a, nano::active_elections & active_a);
+
+	// vote_router (nano::vote_cache & cache, nano::recently_confirmed_cache & recently_confirmed);
 	~vote_router ();
 
 	// Add a route for 'hash' to 'election'
@@ -53,8 +55,9 @@ public:
 	// If 'filter' parameter is non-zero, only elections for the specified hash are notified.
 	// This eliminates duplicate processing when triggering votes from the vote_cache as the result of a specific election being created.
 	std::unordered_map<nano::block_hash, nano::vote_code> vote (std::shared_ptr<nano::vote> const &, nano::vote_source = nano::vote_source::live, nano::block_hash filter = { 0 });
-	bool active (nano::block_hash const & hash) const;
+	bool is_active (nano::block_hash const & hash) const;
 	std::shared_ptr<nano::election> election (nano::block_hash const & hash) const;
+	std::shared_ptr<nano::block> get_block (nano::block_hash const & hash);
 
 	void start ();
 	void stop ();
@@ -67,15 +70,39 @@ public:
 private: // Dependencies
 	nano::vote_cache & vote_cache;
 	nano::recently_confirmed_cache & recently_confirmed;
+	nano::ledger & ledger;
+	nano::active_elections & active;
+
+private:
+	struct block_cache_entry
+	{
+		std::shared_ptr<nano::block> block;
+		std::chrono::steady_clock::time_point last_access;
+		// Add default constructor
+		block_cache_entry () = default;
+
+		// Add constructor for initialization
+		block_cache_entry (std::shared_ptr<nano::block> block_a,
+		std::chrono::steady_clock::time_point time_a) :
+			block (block_a),
+			last_access (time_a)
+		{
+		}
+	};
 
 private:
 	void run ();
+	void prune_cache ();
 
 private:
+	// Block cache
+	std::unordered_map<nano::block_hash, block_cache_entry> block_cache;
+	mutable std::shared_mutex cache_mutex;
+
+	// Election routing
 	// Mapping of block hashes to elections.
 	// Election already contains the associated block
 	std::unordered_map<nano::block_hash, std::weak_ptr<nano::election>> elections;
-
 	bool stopped{ false };
 	std::condition_variable_any condition;
 	mutable std::shared_mutex mutex;

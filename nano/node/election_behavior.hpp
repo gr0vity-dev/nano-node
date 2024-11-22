@@ -23,6 +23,7 @@ enum class election_behavior
 	 * - more frequent confirmation requests
 	 */
 	optimistic,
+	passive,
 };
 
 std::string_view to_string (election_behavior);

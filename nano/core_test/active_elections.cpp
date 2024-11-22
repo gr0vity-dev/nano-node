@@ -514,7 +514,7 @@ TEST (inactive_votes_cache, election_start)
 	node.vote_processor.vote (vote2, std::make_shared<nano::transport::inproc::channel> (node, node));
 	// Only election for send1 should start, other blocks are missing dependencies and don't have enough final weight
 	ASSERT_TIMELY_EQ (5s, 1, node.active.size ());
-	ASSERT_TRUE (node.vote_router.active (send1->hash ()));
+	ASSERT_TRUE (node.vote_router.is_active (send1->hash ()));
 
 	// Confirm elections with weight quorum
 	auto vote0 = nano::test::make_final_vote (nano::dev::genesis_key, { open1, open2, send4 });
@@ -661,7 +661,7 @@ TEST (active_elections, dropped_cleanup)
 
 	// Not yet removed
 	ASSERT_TRUE (node.network.filter.apply (block_bytes.data (), block_bytes.size ()));
-	ASSERT_TRUE (node.vote_router.active (hash));
+	ASSERT_TRUE (node.vote_router.is_active (hash));
 
 	// Now simulate dropping the election
 	ASSERT_FALSE (election->confirmed ());
@@ -674,7 +674,7 @@ TEST (active_elections, dropped_cleanup)
 	ASSERT_EQ (1, node.stats.count (nano::stat::type::active_elections_dropped, nano::stat::detail::manual));
 
 	// Block cleared from active
-	ASSERT_FALSE (node.vote_router.active (hash));
+	ASSERT_FALSE (node.vote_router.is_active (hash));
 
 	// Repeat test for a confirmed election
 	ASSERT_TRUE (node.network.filter.apply (block_bytes.data (), block_bytes.size ()));
@@ -692,7 +692,7 @@ TEST (active_elections, dropped_cleanup)
 	ASSERT_EQ (1, node.stats.count (nano::stat::type::active_elections_dropped, nano::stat::detail::manual));
 
 	// Block cleared from active
-	ASSERT_FALSE (node.vote_router.active (hash));
+	ASSERT_FALSE (node.vote_router.is_active (hash));
 }
 
 TEST (active_elections, republish_winner)
@@ -750,7 +750,7 @@ TEST (active_elections, republish_winner)
 				.build ();
 
 	node1.process_active (fork);
-	ASSERT_TIMELY (5s, node1.vote_router.active (fork->hash ()));
+	ASSERT_TIMELY (5s, node1.vote_router.is_active (fork->hash ()));
 	auto election = node1.active.election (fork->qualified_root ());
 	ASSERT_NE (nullptr, election);
 	auto vote = nano::test::make_final_vote (nano::dev::genesis_key, { fork });

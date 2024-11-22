@@ -262,10 +262,10 @@ bool nano::election::transition_time (nano::confirmation_solicitor & solicitor_a
 	switch (state_m)
 	{
 		case nano::election_state::passive:
-			if (base_latency () * passive_duration_factor < std::chrono::steady_clock::now ().time_since_epoch () - state_start)
-			{
-				state_change (nano::election_state::passive, nano::election_state::active);
-			}
+			// if (base_latency () * passive_duration_factor < std::chrono::steady_clock::now ().time_since_epoch () - state_start)
+			// {
+			// 	state_change (nano::election_state::passive, nano::election_state::active);
+			// }
 			break;
 		case nano::election_state::active:
 			broadcast_vote_locked (lock);
