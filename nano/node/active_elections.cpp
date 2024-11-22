@@ -386,6 +386,7 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 	}
 
 	auto const root = block_a->qualified_root ();
+	// auto & root_index = roots.get<tag_root> ();
 	auto const hash = block_a->hash ();
 	auto const existing = roots.get<tag_root> ().find (root);
 	if (existing == roots.get<tag_root> ().end ())
@@ -398,23 +399,28 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 				node.online_reps.observe (rep_a);
 			};
 			result.election = nano::make_shared<nano::election> (node, block_a, nullptr, observe_rep_cb, election_behavior_a);
-			roots.get<tag_root> ().emplace (entry{ root, result.election, std::move (erased_callback_a) });
-			node.vote_router.connect (hash, result.election);
 
 			// Keep track of election count by election type
 			debug_assert (count_by_behavior[result.election->behavior ()] >= 0);
 			count_by_behavior[result.election->behavior ()]++;
 
-			node.stats.inc (nano::stat::type::active_elections, nano::stat::detail::started);
-			node.stats.inc (nano::stat::type::active_elections_started, to_stat_detail (election_behavior_a));
+			if (election_behavior_a != nano::election_behavior::passive)
+			{
+				roots.get<tag_root> ().emplace (entry{ root, result.election, std::move (erased_callback_a) });
+				result.election->transition_active ();
+				node.vote_router.connect (hash, result.election);
 
-			node.logger.trace (nano::log::type::active_elections, nano::log::detail::active_started,
-			nano::log::arg{ "behavior", election_behavior_a },
-			nano::log::arg{ "election", result.election });
+				node.stats.inc (nano::stat::type::active_elections, nano::stat::detail::started);
+				node.stats.inc (nano::stat::type::active_elections_started, to_stat_detail (election_behavior_a));
 
-			node.logger.debug (nano::log::type::active_elections, "Started new election for block: {} (behavior: {})",
-			hash.to_string (),
-			to_string (election_behavior_a));
+				node.logger.trace (nano::log::type::active_elections, nano::log::detail::active_started,
+				nano::log::arg{ "behavior", election_behavior_a },
+				nano::log::arg{ "election", result.election });
+
+				node.logger.debug (nano::log::type::active_elections, "Started new election for block: {} (behavior: {})",
+				hash.to_string (),
+				to_string (election_behavior_a));
+			}
 		}
 		else
 		{
@@ -424,23 +430,40 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 	else
 	{
 		result.election = existing->election;
+		// If existing election is passive and new behavior is different
+		if (result.election->behavior () == nano::election_behavior::passive && election_behavior_a != nano::election_behavior::passive)
+		{
+			// Update behavior counters
+			count_by_behavior[result.election->behavior ()]--;
+			count_by_behavior[election_behavior_a]++;
+
+			// // Update the callback in the existing entry
+			// root_index.modify (existing, [&erased_callback_a] (entry & e) {
+			// 	e.erased_callback = std::move (erased_callback_a);
+			// });
+
+			result.election->transition_active ();
+		}
 	}
 
 	lock.unlock ();
 
-	if (result.inserted)
+	if (election_behavior_a != nano::election_behavior::passive)
 	{
-		debug_assert (result.election);
+		if (result.inserted)
+		{
+			debug_assert (result.election);
 
-		// node.vote_cache_processor.trigger (hash);
-		node.observers.active_started.notify (hash);
-		vacancy_updated.notify ();
-	}
+			// node.vote_cache_processor.trigger (hash);
+			node.observers.active_started.notify (hash);
+			vacancy_updated.notify ();
+		}
 
-	// Votes are generated for inserted or ongoing elections
-	if (result.election)
-	{
-		result.election->broadcast_vote ();
+		// Votes are generated for inserted or ongoing elections
+		if (result.election)
+		{
+			result.election->broadcast_vote ();
+		}
 	}
 
 	return result;
@@ -530,7 +553,7 @@ bool nano::active_elections::publish (std::shared_ptr<nano::block> const & block
 			node.vote_router.connect (block_a->hash (), election);
 			lock.unlock ();
 
-			node.vote_cache_processor.trigger (block_a->hash ());
+			// node.vote_cache_processor.trigger (block_a->hash ());
 
 			node.stats.inc (nano::stat::type::active, nano::stat::detail::election_block_conflict);
 			node.logger.debug (nano::log::type::active_elections, "Block was added to an existing election: {}", block_a->hash ().to_string ());

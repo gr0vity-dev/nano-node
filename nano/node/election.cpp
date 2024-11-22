@@ -504,10 +504,11 @@ nano::vote_code nano::election::vote (nano::account const & rep, uint64_t timest
 	nano::log::arg{ "vote_source", vote_source_a },
 	nano::log::arg{ "weight", weight });
 
-	if (!confirmed_locked ())
+	if (state_m != nano::election_state::passive && !confirmed_locked ())
 	{
 		confirm_if_quorum (lock);
 	}
+
 
 	return vote_code::vote;
 }

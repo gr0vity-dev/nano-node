@@ -93,76 +93,85 @@ void nano::vote_router::prune_cache ()
 {
 	// TODO: prune cache (name it trim_overflow maybe?)
 }
-
-// Validate a vote and apply it to the current election if one exists
 std::unordered_map<nano::block_hash, nano::vote_code> nano::vote_router::vote (std::shared_ptr<nano::vote> const & vote, nano::vote_source source, nano::block_hash filter)
 {
 	debug_assert (!vote->validate ()); // false => valid vote
-	// If present, filter should be set to one of the hashes in the vote
 	debug_assert (filter.is_zero () || std::any_of (vote->hashes.begin (), vote->hashes.end (), [&filter] (auto const & hash) {
 		return hash == filter;
 	}));
 
 	std::unordered_map<nano::block_hash, nano::vote_code> results;
 	std::unordered_map<nano::block_hash, std::shared_ptr<nano::election>> process;
+	std::vector<std::pair<nano::block_hash, std::shared_ptr<nano::election>>> to_connect;
+
+	// Single loop to handle both existing and new elections
+	for (auto const & hash : vote->hashes)
 	{
-		std::shared_lock lock{ mutex };
-		for (auto const & hash : vote->hashes)
+		// Ignore votes for other hashes if a filter is set
+		if (!filter.is_zero () && hash != filter)
 		{
-			// Ignore votes for other hashes if a filter is set
-			if (!filter.is_zero () && hash != filter)
-			{
-				continue;
-			}
+			continue;
+		}
+		// Ignore duplicate hashes (should not happen with a well-behaved voting node)
+		if (results.find (hash) != results.end ())
+		{
+			continue;
+		}
 
-			// Ignore duplicate hashes (should not happen with a well-behaved voting node)
-			if (results.find (hash) != results.end ())
+		// First check existing elections and confirmed blocks under shared lock
+		bool needs_new_election = false;
+		{
+			std::shared_lock lock{ mutex };
+			if (auto existing = elections.find (hash); existing != elections.end ())
 			{
-				continue;
-			}
-
-			auto find_election = [this] (auto const & hash) -> std::shared_ptr<nano::election> {
-				if (auto existing = elections.find (hash); existing != elections.end ())
+				if (auto election = existing->second.lock ())
 				{
-					return existing->second.lock ();
+					process[hash] = election;
+					continue;
 				}
-				return {};
-			};
-
-			if (auto election = find_election (hash))
-			{
-				process[hash] = election;
 			}
-			else
+			else if (recently_confirmed.exists (hash))
 			{
-				if (recently_confirmed.exists (hash))
+				results[hash] = nano::vote_code::replay;
+				continue;
+			}
+			needs_new_election = true;
+		}
+
+		// If we get here, we need to try creating a new election
+		if (needs_new_election)
+		{
+			if (auto block = get_block (hash))
+			{
+				auto result = active.insert (block, nano::election_behavior::passive);
+				if (result.inserted && result.election)
 				{
-					results[hash] = nano::vote_code::replay;
+					process[hash] = result.election;
+					to_connect.emplace_back (hash, result.election);
 				}
 				else
 				{
-					// If no election exists, try to get the block and create new election
-					if (auto block = get_block (hash))
-					{
-						auto result = active.insert (block, nano::election_behavior::passive);
-						if (result.inserted)
-						{
-							process[hash] = result.election;
-						}
-						else
-						{
-							results[hash] = nano::vote_code::indeterminate;
-						}
-					}
-					else
-					{
-						results[hash] = nano::vote_code::indeterminate;
-					}
+					results[hash] = nano::vote_code::indeterminate;
 				}
+			}
+			else
+			{
+				results[hash] = nano::vote_code::indeterminate;
 			}
 		}
 	}
 
+	// Connect any new elections
+	if (!to_connect.empty ())
+	{
+		std::unique_lock lock{ mutex };
+		for (auto const & [hash, election] : to_connect)
+		{
+			elections.insert_or_assign (hash, election);
+		}
+	}
+
+	// Process votes for all elections
 	for (auto const & [block_hash, election] : process)
 	{
 		auto const vote_result = election->vote (vote->account, vote->timestamp (), block_hash, source);
@@ -175,7 +184,6 @@ std::unordered_map<nano::block_hash, nano::vote_code> nano::vote_router::vote (s
 	}));
 
 	vote_processed.notify (vote, source, results);
-
 	return results;
 }
 
