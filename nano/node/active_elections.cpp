@@ -389,6 +389,9 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 	// auto & root_index = roots.get<tag_root> ();
 	auto const hash = block_a->hash ();
 	auto const existing = roots.get<tag_root> ().find (root);
+
+
+	// If no election is found for this root, create one
 	if (existing == roots.get<tag_root> ().end ())
 	{
 		if (!recently_confirmed.exists (root))
@@ -404,9 +407,11 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 			debug_assert (count_by_behavior[result.election->behavior ()] >= 0);
 			count_by_behavior[result.election->behavior ()]++;
 
-			if (election_behavior_a != nano::election_behavior::passive)
+			roots.get<tag_root> ().emplace (entry{ root, result.election, std::move (erased_callback_a) });
+
+
+			if (election_behavior_a != nano::election_behavior::passive && election_behavior_a != nano::election_behavior::hinted)
 			{
-				roots.get<tag_root> ().emplace (entry{ root, result.election, std::move (erased_callback_a) });
 				result.election->transition_active ();
 				node.vote_router.connect (hash, result.election);
 
@@ -427,23 +432,30 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 			// result is not set
 		}
 	}
-	else
+	else //if an election already exists
 	{
 		result.election = existing->election;
-		// If existing election is passive and new behavior is different
+		// if the current election is pasive, we upgrade it to teh new behaviour
 		if (result.election->behavior () == nano::election_behavior::passive && election_behavior_a != nano::election_behavior::passive)
 		{
 			// Update behavior counters
 			count_by_behavior[result.election->behavior ()]--;
 			count_by_behavior[election_behavior_a]++;
-
-			// // Update the callback in the existing entry
-			// root_index.modify (existing, [&erased_callback_a] (entry & e) {
-			// 	e.erased_callback = std::move (erased_callback_a);
-			// });
-
+			
+			// Update the election's behavior BEFORE transitioning state
+			result.election->update_behavior(election_behavior_a);
 			result.election->transition_active ();
+
+			node.logger.info(nano::log::type::election, "Upgrading passive election to {} for block: {}",
+			to_string(election_behavior_a),
+			hash.to_string());
+
+			// Update the callback in the existing entry
+			// roots.get<tag_root>().modify(existing, [&erased_callback_a](entry & e) {
+			// 	e.erased_callback = std::move(erased_callback_a);
+			// });
 		}
+		
 	}
 
 	lock.unlock ();

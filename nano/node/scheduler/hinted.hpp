@@ -41,7 +41,7 @@ public:
 class hinted final
 {
 public:
-	hinted (hinted_config const &, nano::node &, nano::vote_cache &, nano::active_elections &, nano::online_reps &, nano::stats &);
+	hinted (hinted_config const &, nano::node &, nano::active_elections &, nano::online_reps &, nano::stats &);
 	~hinted ();
 
 	void start ();
@@ -64,8 +64,7 @@ private:
 	nano::uint128_t final_tally_threshold () const;
 
 private: // Dependencies
-	nano::node & node;
-	nano::vote_cache & vote_cache;
+	nano::node & node;	
 	nano::active_elections & active;
 	nano::online_reps & online_reps;
 	nano::stats & stats;

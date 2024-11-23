@@ -22,7 +22,12 @@ std::chrono::milliseconds nano::election::base_latency () const
  * election
  */
 
-nano::election::election (nano::node & node_a, std::shared_ptr<nano::block> const & block_a, std::function<void (std::shared_ptr<nano::block> const &)> const & confirmation_action_a, std::function<void (nano::account const &)> const & live_vote_action_a, nano::election_behavior election_behavior_a) :
+nano::election::election (nano::node & node_a, 
+						  std::shared_ptr<nano::block> const & block_a, 
+						  std::function<void (std::shared_ptr<nano::block> const &)> const & confirmation_action_a, 
+						  std::function<void (nano::account const &)> const & live_vote_action_a, 
+						  nano::election_behavior election_behavior_a) :
+
 	confirmation_action (confirmation_action_a),
 	live_vote_action (live_vote_action_a),
 	node (node_a),
@@ -143,14 +148,19 @@ bool nano::election::state_change (nano::election_state expected_a, nano::electi
 
 std::chrono::milliseconds nano::election::confirm_req_time () const
 {
+	// Calculate exponential backoff factor: 2^confirmation_request_count
+	// Using min to prevent overflow and excessive delays
+	uint64_t backoff_factor = 1ULL << std::min(confirmation_request_count.load(), 10u);
+
 	switch (behavior ())
 	{
 		case election_behavior::manual:
 		case election_behavior::priority:
+			return base_latency () * 2 * backoff_factor;
 		case election_behavior::hinted:
-			return base_latency () * 5;
+			return base_latency () * 60 * backoff_factor;
 		case election_behavior::optimistic:
-			return base_latency () * 2;
+			return base_latency () * 1 * backoff_factor;
 	}
 	debug_assert (false);
 	return {};
@@ -173,6 +183,12 @@ void nano::election::transition_active ()
 	nano::lock_guard<nano::mutex> guard{ mutex };
 	state_change (nano::election_state::passive, nano::election_state::active);
 }
+
+void nano::election::update_behavior(nano::election_behavior behavior_a)
+{
+    behavior_m = behavior_a;
+}
+
 
 void nano::election::cancel ()
 {
@@ -486,7 +502,7 @@ nano::vote_code nano::election::vote (nano::account const & rep, uint64_t timest
 	}
 
 	last_votes[rep] = { std::chrono::steady_clock::now (), timestamp_a, block_hash_a };
-	if (vote_source_a != vote_source::cache)
+	if (vote_source_a == vote_source::cache)
 	{
 		live_vote_action (rep);
 	}

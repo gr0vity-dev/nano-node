@@ -77,7 +77,7 @@ private: // State management
 	// These are modified while not holding the mutex from transition_time only
 	std::chrono::steady_clock::time_point last_block{};
 	nano::block_hash last_block_hash{ 0 };
-	std::chrono::steady_clock::time_point last_req{};
+	std::chrono::steady_clock::time_point last_req{ std::chrono::steady_clock::now () }; // no immediate request
 	/** The last time vote for this election was generated */
 	std::chrono::steady_clock::time_point last_vote{};
 
@@ -87,6 +87,7 @@ private: // State management
 public: // State transitions
 	bool transition_time (nano::confirmation_solicitor &);
 	void transition_active ();
+	void update_behavior(nano::election_behavior behavior_a);
 	void cancel ();
 
 public: // Status
@@ -180,7 +181,7 @@ private:
 	mutable nano::uint128_t final_weight{ 0 };
 	mutable std::unordered_map<nano::block_hash, nano::uint128_t> last_tally;
 
-	nano::election_behavior const behavior_m;
+	nano::election_behavior behavior_m;
 	std::chrono::steady_clock::time_point const election_start{ std::chrono::steady_clock::now () };
 
 	mutable nano::mutex mutex;

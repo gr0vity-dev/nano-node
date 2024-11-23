@@ -97,6 +97,17 @@ void nano::vote_generator::stop ()
 	}
 }
 
+bool nano::vote_generator::has_vacancy () const
+{
+	static constexpr size_t max_queued_votes = 200;
+	return size () < max_queued_votes;
+}
+
+std::size_t nano::vote_generator::size () const
+{
+	return vote_generation_queue.size ();
+}
+
 void nano::vote_generator::add (const root & root, const block_hash & hash)
 {
 	vote_generation_queue.add (std::make_pair (root, hash));
