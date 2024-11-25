@@ -158,6 +158,7 @@ public:
 private:
 	/** Keeps track of number of elections by election behavior (normal, hinted, optimistic) */
 	nano::enum_array<nano::election_behavior, int64_t> count_by_behavior{};
+	std::vector<std::shared_ptr<nano::election>> pending_solicitations;
 
 	nano::condition_variable condition;
 	bool stopped{ false };

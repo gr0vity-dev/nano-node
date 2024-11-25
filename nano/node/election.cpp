@@ -457,6 +457,12 @@ nano::vote_code nano::election::vote (nano::account const & rep, uint64_t timest
 
 	nano::unique_lock<nano::mutex> lock{ mutex };
 
+	// If we receive a final vote and election is passive, transition to active
+	if (state_m == nano::election_state::passive && nano::vote::is_final_timestamp (timestamp_a))
+	{
+		state_change (nano::election_state::passive, nano::election_state::active);
+	}
+
 	auto last_vote_it (last_votes.find (rep));
 	if (last_vote_it != last_votes.end ())
 	{

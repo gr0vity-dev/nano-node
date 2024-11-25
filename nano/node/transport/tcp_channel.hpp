@@ -29,7 +29,7 @@ public:
 	bool full (traffic_type) const;
 
 	constexpr static size_t max_size = 8;
-	constexpr static size_t full_size =	4 * max_size;
+	constexpr static size_t full_size = 4 * max_size;
 
 private:
 	void seek_next ();

@@ -239,8 +239,26 @@ void nano::active_elections::request_confirm (nano::unique_lock<nano::mutex> & l
 	std::size_t const this_loop_target_l (roots.size ());
 	auto const elections_l{ list_active_impl (this_loop_target_l) };
 
+	// Get pending solicitations and clear the queue
+	auto pending_solicitations_l = std::move (pending_solicitations);
+	pending_solicitations.clear ();
+
 	lock_a.unlock ();
 
+	// Process pending solicitations with limited representatives
+	if (!pending_solicitations_l.empty ())
+	{
+		nano::confirmation_solicitor solicitor_new (node.network, node.config);
+		solicitor_new.prepare (node.rep_crawler.principal_representatives (1)); // Only use 2 reps for new elections
+
+		for (auto const & election_l : pending_solicitations_l)
+		{
+			solicitor_new.add (*election_l);
+		}
+		solicitor_new.flush ();
+	}
+
+	// Process active elections with full representative set
 	nano::confirmation_solicitor solicitor (node.network, node.config);
 	solicitor.prepare (node.rep_crawler.principal_representatives (std::numeric_limits<std::size_t>::max ()));
 
@@ -398,6 +416,10 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 				node.online_reps.observe (rep_a);
 			};
 			result.election = nano::make_shared<nano::election> (node, block_a, nullptr, observe_rep_cb, election_behavior_a);
+
+			// Queue for next solicitation round instead of immediate solicitation
+			pending_solicitations.push_back (result.election);
+
 			roots.get<tag_root> ().emplace (entry{ root, result.election, std::move (erased_callback_a) });
 			node.vote_router.connect (hash, result.election);
 
@@ -431,7 +453,6 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 	if (result.inserted)
 	{
 		debug_assert (result.election);
-
 		node.vote_cache_processor.trigger (hash);
 		node.observers.active_started.notify (hash);
 		vacancy_updated.notify ();
