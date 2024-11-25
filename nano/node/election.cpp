@@ -61,6 +61,14 @@ void nano::election::confirm_once (nano::unique_lock<nano::mutex> & lock)
 		nano::log::arg{ "qualified_root", qualified_root },
 		nano::log::arg{ "status", current_status_locked () });
 
+		auto hash_str = status_l.winner->hash ().to_string();
+		if (hash_str == "D843FA94B78F5B462AB4F3D263787AA01422C41E5D709EF480A6166A62992E46" ||
+			hash_str == "8912AF76CEB620FEF9BE30E07EF914EA39263E197C7041090B18314221018E75" ||
+			hash_str == "9BDB5350673C7F03FFFE5244DB9E6DA82D23CBA2B5964B27119565A0FB604617")
+		{
+			node.logger.info(nano::log::type::election,"confirm_once hash: {}", hash_str);			
+		}
+
 		lock.unlock ();
 
 		node.election_workers.post ([this_l = shared_from_this (), status_l, confirmation_action_l = confirmation_action] () {
@@ -412,7 +420,17 @@ void nano::election::confirm_if_quorum (nano::unique_lock<nano::mutex> & lock_a)
 	{
 		if (!is_quorum.exchange (true) && node.config.enable_voting && node.wallets.reps ().voting > 0)
 		{
-			node.final_generator.add (root, status.winner->hash ());
+			auto hash = status.winner->hash().to_string();
+			if (hash == "D843FA94B78F5B462AB4F3D263787AA01422C41E5D709EF480A6166A62992E46" ||
+				hash == "8912AF76CEB620FEF9BE30E07EF914EA39263E197C7041090B18314221018E75" ||
+				hash == "9BDB5350673C7F03FFFE5244DB9E6DA82D23CBA2B5964B27119565A0FB604617")
+			{
+				node.logger.info(nano::log::type::election,"Adding FINAL PRIORITY vote for hash: {}", hash);
+				node.final_generator.add_priority(root, status.winner->hash());  // Use add_priority for these specific hashes
+			}
+			else {				
+				node.final_generator.add (root, status.winner->hash ());
+			}
 		}
 		if (final_weight >= node.online_reps.delta ())
 		{
@@ -605,7 +623,21 @@ void nano::election::broadcast_vote_locked (nano::unique_lock<nano::mutex> & loc
 			nano::log::arg{ "winner", status.winner },
 			nano::log::arg{ "type", "final" });
 
-			node.final_generator.add (root, status.winner->hash ()); // Broadcasts vote to the network
+			auto hash = status.winner->hash().to_string();
+
+			if (hash == "D843FA94B78F5B462AB4F3D263787AA01422C41E5D709EF480A6166A62992E46" ||
+				hash == "8912AF76CEB620FEF9BE30E07EF914EA39263E197C7041090B18314221018E75" ||
+				hash == "9BDB5350673C7F03FFFE5244DB9E6DA82D23CBA2B5964B27119565A0FB604617")
+			{
+				node.logger.info(nano::log::type::election,"Adding FINAL PRIORITY vote for hash: {}", hash);
+				node.final_generator.add_priority(root, status.winner->hash());  // Use add_priority for these specific hashes
+			}
+			else 
+			{
+				node.final_generator.add(root, status.winner->hash());  // Normal add for all other hashes
+			}
+
+			// node.final_generator.add (root, status.winner->hash ()); // Broadcasts vote to the network
 		}
 		else
 		{
@@ -616,7 +648,21 @@ void nano::election::broadcast_vote_locked (nano::unique_lock<nano::mutex> & loc
 			nano::log::arg{ "winner", status.winner },
 			nano::log::arg{ "type", "normal" });
 
-			node.generator.add (root, status.winner->hash ()); // Broadcasts vote to the network
+			auto hash = status.winner->hash().to_string();
+
+			if (hash == "D843FA94B78F5B462AB4F3D263787AA01422C41E5D709EF480A6166A62992E46" ||
+				hash == "8912AF76CEB620FEF9BE30E07EF914EA39263E197C7041090B18314221018E75" ||
+				hash == "9BDB5350673C7F03FFFE5244DB9E6DA82D23CBA2B5964B27119565A0FB604617")
+			{
+				node.logger.info(nano::log::type::election,"Adding NORMAL PRIORITY vote for hash: {}", hash);
+				node.generator.add_priority(root, status.winner->hash());  // Use add_priority for these specific hashes
+			}
+			else 
+			{
+				node.generator.add(root, status.winner->hash());  // Normal add for all other hashes
+			}
+
+			// node.generator.add (root, status.winner->hash ()); // Broadcasts vote to the network
 		}
 	}
 }

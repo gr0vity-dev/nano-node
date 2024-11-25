@@ -299,6 +299,18 @@ void nano::vote_generator::run ()
 
 		if (broadcast_predicate ())
 		{
+			// Debug: Log candidate hashes before broadcast
+			for (auto const& candidate : candidates) {
+				auto const& hash = candidate.second.to_string();
+				if (hash == "D843FA94B78F5B462AB4F3D263787AA01422C41E5D709EF480A6166A62992E46" ||
+					hash == "8912AF76CEB620FEF9BE30E07EF914EA39263E197C7041090B18314221018E75" ||
+					hash == "9BDB5350673C7F03FFFE5244DB9E6DA82D23CBA2B5964B27119565A0FB604617")
+				{
+					logger.info(nano::log::type::vote_generator, 
+					"Found watched hash in broadcast queue: {}, queue_size: {}", 
+					hash, candidates.size());
+				}
+			}
 			broadcast (lock);
 			next_broadcast = std::chrono::steady_clock::now () + config.vote_generator_delay;
 		}
@@ -306,6 +318,17 @@ void nano::vote_generator::run ()
 		if (!requests.empty ())
 		{
 			auto request (requests.front ());
+			for (auto const& entry : request.first) {
+				auto const& hash = entry.second.to_string();
+				if (hash == "D843FA94B78F5B462AB4F3D263787AA01422C41E5D709EF480A6166A62992E46" ||
+					hash == "8912AF76CEB620FEF9BE30E07EF914EA39263E197C7041090B18314221018E75" ||
+					hash == "9BDB5350673C7F03FFFE5244DB9E6DA82D23CBA2B5964B27119565A0FB604617")
+				{
+					logger.info(nano::log::type::vote_generator, 
+					"Found watched hash in request queue: {}, queue_size: {}", 
+					hash, requests.size());
+				}
+			}
 			requests.pop_front ();
 			reply (lock, std::move (request));
 		}
@@ -336,4 +359,9 @@ nano::container_info nano::vote_generator::container_info () const
 	info.put ("requests", requests.size ());
 	info.add ("queue", vote_generation_queue.container_info ());
 	return info;
+}
+
+void nano::vote_generator::add_priority (const root & root, const block_hash & hash)
+{
+	vote_generation_queue.add_priority (std::make_pair (root, hash));
 }

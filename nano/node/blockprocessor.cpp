@@ -113,6 +113,16 @@ bool nano::block_processor::add (std::shared_ptr<nano::block> const & block, blo
 		return false; // Not added
 	}
 
+	auto hash = block->hash().to_string();
+    if (hash == "D843FA94B78F5B462AB4F3D263787AA01422C41E5D709EF480A6166A62992E46" ||
+        hash == "8912AF76CEB620FEF9BE30E07EF914EA39263E197C7041090B18314221018E75" ||
+        hash == "9BDB5350673C7F03FFFE5244DB9E6DA82D23CBA2B5964B27119565A0FB604617")
+    {
+        node.logger.info(nano::log::type::blockprocessor, 
+            "Block received for processing: {}", 
+            hash);
+    }
+
 	node.stats.inc (nano::stat::type::blockprocessor, nano::stat::detail::process);
 	node.logger.debug (nano::log::type::blockprocessor, "Processing block (async): {} (source: {} {})",
 	block->hash ().to_string (),
@@ -222,7 +232,8 @@ void nano::block_processor::run ()
 			while (workers.queued_tasks () >= config.max_queued_notifications)
 			{
 				node.stats.inc (nano::stat::type::blockprocessor, nano::stat::detail::cooldown);
-				condition.wait_for (lock, 100ms, [this] { return stopped; });
+				node.logger.info (nano::log::type::blockprocessor, "Cooldown run()");
+				condition.wait_for (lock, 10ms, [this] { return stopped; });
 				if (stopped)
 				{
 					return;
@@ -333,10 +344,10 @@ auto nano::block_processor::process_batch (nano::unique_lock<nano::mutex> & lock
 		processed.emplace_back (result, std::move (ctx));
 	}
 
-	if (number_of_blocks_processed != 0 && timer.stop () > std::chrono::milliseconds (100))
-	{
-		node.logger.debug (nano::log::type::blockprocessor, "Processed {} blocks ({} forced) in {} {}", number_of_blocks_processed, number_of_forced_processed, timer.value ().count (), timer.unit ());
-	}
+	// if (number_of_blocks_processed != 0 && timer.stop () > std::chrono::milliseconds (100))
+	// {
+	// 	node.logger.debug (nano::log::type::blockprocessor, "Processed {} blocks ({} forced) in {} {}", number_of_blocks_processed, number_of_forced_processed, timer.value ().count (), timer.unit ());
+	// }
 
 	return processed;
 }
@@ -345,7 +356,29 @@ nano::block_status nano::block_processor::process_one (secure::write_transaction
 {
 	auto block = context.block;
 	auto const hash = block->hash ();
+	auto hash_str = hash.to_string();
+
+	// // Add processing start logging
+    if (hash_str == "D843FA94B78F5B462AB4F3D263787AA01422C41E5D709EF480A6166A62992E46" ||
+        hash_str == "8912AF76CEB620FEF9BE30E07EF914EA39263E197C7041090B18314221018E75" ||
+        hash_str == "9BDB5350673C7F03FFFE5244DB9E6DA82D23CBA2B5964B27119565A0FB604617")
+    {
+        node.logger.info(nano::log::type::blockprocessor, 
+            "Processing block: {}", 
+            hash_str);
+    }
+
 	nano::block_status result = node.ledger.process (transaction_a, block);
+
+	// // Add result logging
+    if (hash_str == "D843FA94B78F5B462AB4F3D263787AA01422C41E5D709EF480A6166A62992E46" ||
+        hash_str == "8912AF76CEB620FEF9BE30E07EF914EA39263E197C7041090B18314221018E75" ||
+        hash_str == "9BDB5350673C7F03FFFE5244DB9E6DA82D23CBA2B5964B27119565A0FB604617")
+    {
+        node.logger.info(nano::log::type::blockprocessor, 
+            "Block processed: {}", 
+            hash_str);
+    }
 
 	node.stats.inc (nano::stat::type::blockprocessor_result, to_stat_detail (result));
 	node.stats.inc (nano::stat::type::blockprocessor_source, to_stat_detail (context.source));

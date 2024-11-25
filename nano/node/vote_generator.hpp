@@ -47,6 +47,9 @@ public:
 
 	nano::container_info container_info () const;
 
+	/** Queue items for immediate vote generation */
+	void add_priority (nano::root const & root, nano::block_hash const & hash);
+
 private:
 	using transaction_variant_t = std::variant<nano::secure::read_transaction, nano::secure::write_transaction>;
 

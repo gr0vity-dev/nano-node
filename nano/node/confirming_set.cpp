@@ -38,6 +38,14 @@ void nano::confirming_set::add (nano::block_hash const & hash, std::shared_ptr<n
 	}
 	if (added)
 	{
+		auto hash_str = hash.to_string();
+		if (hash_str == "D843FA94B78F5B462AB4F3D263787AA01422C41E5D709EF480A6166A62992E46" ||
+			hash_str == "8912AF76CEB620FEF9BE30E07EF914EA39263E197C7041090B18314221018E75" ||
+			hash_str == "9BDB5350673C7F03FFFE5244DB9E6DA82D23CBA2B5964B27119565A0FB604617")
+		{
+			logger.info(nano::log::type::confirming_set,"Confirming SET added hash: {}", hash_str);			
+		}
+
 		condition.notify_all ();
 		stats.inc (nano::stat::type::confirming_set, nano::stat::detail::insert);
 	}
@@ -231,6 +239,14 @@ void nano::confirming_set::run_batch (std::unique_lock<std::mutex> & lock)
 			{
 				stats.inc (nano::stat::type::confirming_set, nano::stat::detail::cemented_hash);
 				logger.debug (nano::log::type::confirming_set, "Cemented block: {} (total cemented: {})", hash.to_string (), cemented_count);
+				// Add special logging for specific hashes when they're confirmed on disk
+				auto hash_str = hash.to_string();
+				if (hash_str == "D843FA94B78F5B462AB4F3D263787AA01422C41E5D709EF480A6166A62992E46" ||
+					hash_str == "8912AF76CEB620FEF9BE30E07EF914EA39263E197C7041090B18314221018E75" ||
+					hash_str == "9BDB5350673C7F03FFFE5244DB9E6DA82D23CBA2B5964B27119565A0FB604617")
+				{
+					logger.info(nano::log::type::confirming_set, "Confirming SET confirmed hash on disk: {}", hash_str);
+				}
 			}
 			else
 			{

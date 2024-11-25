@@ -168,13 +168,13 @@ void nano::vote_processor::run_batch (nano::unique_lock<nano::mutex> & lock)
 
 	total_processed += batch.size ();
 
-	if (batch.size () == config.batch_size && timer.stop () > 100ms)
-	{
-		logger.debug (nano::log::type::vote_processor, "Processed {} votes in {} milliseconds (rate of {} votes per second)",
-		batch.size (),
-		timer.value ().count (),
-		((batch.size () * 1000ULL) / timer.value ().count ()));
-	}
+	// if (batch.size () == config.batch_size && timer.stop () > 100ms)
+	// {
+	// 	logger.debug (nano::log::type::vote_processor, "Processed {} votes in {} milliseconds (rate of {} votes per second)",
+	// 	batch.size (),
+	// 	timer.value ().count (),
+	// 	((batch.size () * 1000ULL) / timer.value ().count ()));
+	// }
 }
 
 nano::vote_code nano::vote_processor::vote_blocking (std::shared_ptr<nano::vote> const & vote, std::shared_ptr<nano::transport::channel> const & channel, nano::vote_source source)
