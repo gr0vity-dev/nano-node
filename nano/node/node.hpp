@@ -179,11 +179,13 @@ public:
 	nano::port_mapping & port_mapping;
 	nano::block_processor block_processor;
 	std::unique_ptr<nano::confirming_set> confirming_set_impl;
-	nano::confirming_set & confirming_set;
+	nano::confirming_set & confirming_set;	
+	nano::online_reps online_reps;
+	nano::rep_crawler rep_crawler;		
+	std::unique_ptr<nano::confirmation_solicitor> solicitor_impl;
+	nano::confirmation_solicitor & solicitor;
 	std::unique_ptr<nano::active_elections> active_impl;
 	nano::active_elections & active;
-	nano::online_reps online_reps;
-	nano::rep_crawler rep_crawler;
 	nano::rep_tiers rep_tiers;
 	unsigned warmed_up;
 	std::unique_ptr<nano::local_vote_history> history_impl;

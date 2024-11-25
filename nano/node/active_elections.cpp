@@ -4,11 +4,10 @@
 #include <nano/lib/numbers.hpp>
 #include <nano/lib/threading.hpp>
 #include <nano/node/active_elections.hpp>
-#include <nano/node/confirmation_solicitor.hpp>
 #include <nano/node/confirming_set.hpp>
+#include <nano/node/confirmation_solicitor.hpp>
 #include <nano/node/election.hpp>
 #include <nano/node/node.hpp>
-#include <nano/node/repcrawler.hpp>
 #include <nano/node/scheduler/component.hpp>
 #include <nano/node/scheduler/priority.hpp>
 #include <nano/node/vote_router.hpp>
@@ -20,11 +19,12 @@
 
 using namespace std::chrono;
 
-nano::active_elections::active_elections (nano::node & node_a, nano::confirming_set & confirming_set_a, nano::block_processor & block_processor_a) :
+nano::active_elections::active_elections (nano::node & node_a, nano::confirming_set & confirming_set_a, nano::block_processor & block_processor_a, nano::confirmation_solicitor & solicitor_a) :
 	config{ node_a.config.active_elections },
 	node{ node_a },
 	confirming_set{ confirming_set_a },
 	block_processor{ block_processor_a },
+	solicitor{ solicitor_a },
 	recently_confirmed{ config.confirmation_cache },
 	recently_cemented{ config.confirmation_history_size }
 {
@@ -240,10 +240,7 @@ void nano::active_elections::request_confirm (nano::unique_lock<nano::mutex> & l
 	auto const elections_l{ list_active_impl (this_loop_target_l) };
 
 	lock_a.unlock ();
-
-	nano::confirmation_solicitor solicitor (node.network, node.config);
-	solicitor.prepare (node.rep_crawler.principal_representatives (std::numeric_limits<std::size_t>::max ()));
-
+	
 	std::size_t unconfirmed_count_l (0);
 	nano::timer<std::chrono::milliseconds> elapsed (nano::timer_state::started);
 
@@ -264,8 +261,7 @@ void nano::active_elections::request_confirm (nano::unique_lock<nano::mutex> & l
 			erase (election_l->qualified_root);
 		}
 	}
-
-	solicitor.flush ();
+	
 	lock_a.lock ();
 }
 
@@ -398,6 +394,7 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 				node.online_reps.observe (rep_a);
 			};
 			result.election = nano::make_shared<nano::election> (node, block_a, nullptr, observe_rep_cb, election_behavior_a);
+			solicitor.request_confirmation_check(*result.election);
 			roots.get<tag_root> ().emplace (entry{ root, result.election, std::move (erased_callback_a) });
 			node.vote_router.connect (hash, result.election);
 

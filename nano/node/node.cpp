@@ -22,6 +22,7 @@
 #include <nano/node/local_vote_history.hpp>
 #include <nano/node/make_store.hpp>
 #include <nano/node/message_processor.hpp>
+#include <nano/node/confirmation_solicitor.hpp>
 #include <nano/node/monitor.hpp>
 #include <nano/node/node.hpp>
 #include <nano/node/peer_history.hpp>
@@ -128,9 +129,11 @@ nano::node::node (std::shared_ptr<boost::asio::io_context> io_ctx_a, std::filesy
 	block_processor (*this),
 	confirming_set_impl{ std::make_unique<nano::confirming_set> (config.confirming_set, ledger, stats, logger) },
 	confirming_set{ *confirming_set_impl },
-	active_impl{ std::make_unique<nano::active_elections> (*this, confirming_set, block_processor) },
-	active{ *active_impl },
 	rep_crawler (config.rep_crawler, *this),
+	solicitor_impl{ std::make_unique<nano::confirmation_solicitor> (rep_crawler, network, config) },
+	solicitor{ *solicitor_impl },
+	active_impl{ std::make_unique<nano::active_elections> (*this, confirming_set, block_processor, solicitor) },
+	active{ *active_impl },	
 	rep_tiers{ ledger, network_params, online_reps, stats, logger },
 	warmed_up (0),
 	online_reps (ledger, config),
@@ -564,10 +567,14 @@ void nano::node::process_local_async (std::shared_ptr<nano::block> const & block
 
 void nano::node::start ()
 {
+	logger.info (nano::log::type::node, "NODE start");
 	long_inactivity_cleanup ();
+	logger.info (nano::log::type::node, "long_inactivity_cleanup end");
 
 	network.start ();
+	logger.info (nano::log::type::node, "network start");
 	message_processor.start ();
+	logger.info (nano::log::type::node, "message_processor start");
 
 	if (flags.enable_pruning)
 	{
@@ -579,6 +586,7 @@ void nano::node::start ()
 	if (!flags.disable_rep_crawler)
 	{
 		rep_crawler.start ();
+		logger.info (nano::log::type::node, "rep_crawler start");
 	}
 
 	ongoing_online_weight_calculation_queue ();
@@ -600,32 +608,40 @@ void nano::node::start ()
 	{
 		logger.warn (nano::log::type::node, "Peering is disabled");
 	}
-
+	logger.info (nano::log::type::node, "backup_wallet start");
 	if (!flags.disable_backup)
 	{
-		backup_wallet ();
+		// backup_wallet ();
 	}
+	logger.info (nano::log::type::node, "backup_wallet end");
 	if (!flags.disable_search_pending)
 	{
 		search_receivable_all ();
 	}
+	logger.info (nano::log::type::node, "search_receivable_all end");
 	// Start port mapping if external address is not defined and TCP ports are enabled
 	if (config.external_address == boost::asio::ip::address_v6::any ().to_string () && tcp_enabled)
 	{
 		port_mapping.start ();
 	}
 	unchecked.start ();
+	logger.info (nano::log::type::node, "unchecked start");
 	wallets.start ();
 	rep_tiers.start ();
+	logger.info (nano::log::type::node, "rep_tiers start");
 	vote_processor.start ();
 	vote_cache_processor.start ();
 	block_processor.start ();
+	logger.info (nano::log::type::node, "block_processor start");	
+	logger.info (nano::log::type::node, "solicitor start");
 	active.start ();
+	logger.info (nano::log::type::node, "active start");
 	generator.start ();
 	final_generator.start ();
 	confirming_set.start ();
 	scheduler.start ();
 	aggregator.start ();
+	solicitor.start ();
 	backlog.start ();
 	bootstrap_server.start ();
 	bootstrap.start ();
@@ -636,8 +652,10 @@ void nano::node::start ()
 	peer_history.start ();
 	vote_router.start ();
 	monitor.start ();
+	logger.info (nano::log::type::node, "monitor start");
 
 	add_initial_peers ();
+	logger.info (nano::log::type::node, "initial peers added");
 }
 
 void nano::node::stop ()
@@ -668,6 +686,7 @@ void nano::node::stop ()
 	rep_tiers.stop ();
 	scheduler.stop ();
 	active.stop ();
+	solicitor.stop ();
 	generator.stop ();
 	final_generator.stop ();
 	confirming_set.stop ();

@@ -12,6 +12,7 @@
 #include <nano/node/vote_router.hpp>
 #include <nano/node/vote_with_weight_info.hpp>
 #include <nano/secure/common.hpp>
+#include <nano/node/confirmation_solicitor.hpp>
 
 #include <boost/multi_index/hashed_index.hpp>
 #include <boost/multi_index/member.hpp>
@@ -24,6 +25,7 @@
 #include <memory>
 #include <thread>
 #include <unordered_map>
+
 
 namespace mi = boost::multi_index;
 
@@ -90,7 +92,7 @@ private: // Elections
 	ordered_roots roots;
 
 public:
-	active_elections (nano::node &, nano::confirming_set &, nano::block_processor &);
+	active_elections (nano::node &, nano::confirming_set &, nano::block_processor &, nano::confirmation_solicitor &);
 	~active_elections ();
 
 	void start ();
@@ -146,6 +148,7 @@ private: // Dependencies
 	nano::node & node;
 	nano::confirming_set & confirming_set;
 	nano::block_processor & block_processor;
+	nano::confirmation_solicitor & solicitor;
 
 public:
 	nano::recently_confirmed_cache recently_confirmed;

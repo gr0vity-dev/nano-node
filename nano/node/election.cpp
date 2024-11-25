@@ -425,12 +425,9 @@ void nano::election::confirm_if_quorum (nano::unique_lock<nano::mutex> & lock_a)
 				hash == "8912AF76CEB620FEF9BE30E07EF914EA39263E197C7041090B18314221018E75" ||
 				hash == "9BDB5350673C7F03FFFE5244DB9E6DA82D23CBA2B5964B27119565A0FB604617")
 			{
-				node.logger.info(nano::log::type::election,"Adding FINAL PRIORITY vote for hash: {}", hash);
-				node.final_generator.add_priority(root, status.winner->hash());  // Use add_priority for these specific hashes
+				node.logger.info(nano::log::type::election,"Adding FINAL PRIORITY vote for hash: {}", hash);				
 			}
-			else {				
-				node.final_generator.add (root, status.winner->hash ());
-			}
+			node.final_generator.add(root, status.winner->hash()); 
 		}
 		if (final_weight >= node.online_reps.delta ())
 		{
@@ -630,14 +627,11 @@ void nano::election::broadcast_vote_locked (nano::unique_lock<nano::mutex> & loc
 				hash == "9BDB5350673C7F03FFFE5244DB9E6DA82D23CBA2B5964B27119565A0FB604617")
 			{
 				node.logger.info(nano::log::type::election,"Adding FINAL PRIORITY vote for hash: {}", hash);
-				node.final_generator.add_priority(root, status.winner->hash());  // Use add_priority for these specific hashes
 			}
-			else 
-			{
-				node.final_generator.add(root, status.winner->hash());  // Normal add for all other hashes
-			}
+			
+			node.final_generator.add(root, status.winner->hash()); 
 
-			// node.final_generator.add (root, status.winner->hash ()); // Broadcasts vote to the network
+			
 		}
 		else
 		{
@@ -655,14 +649,8 @@ void nano::election::broadcast_vote_locked (nano::unique_lock<nano::mutex> & loc
 				hash == "9BDB5350673C7F03FFFE5244DB9E6DA82D23CBA2B5964B27119565A0FB604617")
 			{
 				node.logger.info(nano::log::type::election,"Adding NORMAL PRIORITY vote for hash: {}", hash);
-				node.generator.add_priority(root, status.winner->hash());  // Use add_priority for these specific hashes
 			}
-			else 
-			{
-				node.generator.add(root, status.winner->hash());  // Normal add for all other hashes
-			}
-
-			// node.generator.add (root, status.winner->hash ()); // Broadcasts vote to the network
+			node.generator.add(root, status.winner->hash()); 
 		}
 	}
 }

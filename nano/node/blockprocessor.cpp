@@ -111,17 +111,7 @@ bool nano::block_processor::add (std::shared_ptr<nano::block> const & block, blo
 	{
 		node.stats.inc (nano::stat::type::blockprocessor, nano::stat::detail::insufficient_work);
 		return false; // Not added
-	}
-
-	auto hash = block->hash().to_string();
-    if (hash == "D843FA94B78F5B462AB4F3D263787AA01422C41E5D709EF480A6166A62992E46" ||
-        hash == "8912AF76CEB620FEF9BE30E07EF914EA39263E197C7041090B18314221018E75" ||
-        hash == "9BDB5350673C7F03FFFE5244DB9E6DA82D23CBA2B5964B27119565A0FB604617")
-    {
-        node.logger.info(nano::log::type::blockprocessor, 
-            "Block received for processing: {}", 
-            hash);
-    }
+	}	
 
 	node.stats.inc (nano::stat::type::blockprocessor, nano::stat::detail::process);
 	node.logger.debug (nano::log::type::blockprocessor, "Processing block (async): {} (source: {} {})",
@@ -165,6 +155,17 @@ void nano::block_processor::force (std::shared_ptr<nano::block> const & block_a)
 
 bool nano::block_processor::add_impl (context ctx, std::shared_ptr<nano::transport::channel> const & channel)
 {
+
+	auto hash =  ctx.block->hash().to_string();
+    if (hash == "D843FA94B78F5B462AB4F3D263787AA01422C41E5D709EF480A6166A62992E46" ||
+        hash == "8912AF76CEB620FEF9BE30E07EF914EA39263E197C7041090B18314221018E75" ||
+        hash == "9BDB5350673C7F03FFFE5244DB9E6DA82D23CBA2B5964B27119565A0FB604617")
+    {
+        node.logger.info(nano::log::type::blockprocessor, 
+            "Block received for processing: {}", 
+            hash);
+    }
+
 	auto const source = ctx.source;
 	bool added = false;
 	{
@@ -233,7 +234,7 @@ void nano::block_processor::run ()
 			{
 				node.stats.inc (nano::stat::type::blockprocessor, nano::stat::detail::cooldown);
 				node.logger.info (nano::log::type::blockprocessor, "Cooldown run()");
-				condition.wait_for (lock, 10ms, [this] { return stopped; });
+				condition.wait_for (lock, 100ms, [this] { return stopped; });
 				if (stopped)
 				{
 					return;

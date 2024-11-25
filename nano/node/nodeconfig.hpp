@@ -72,7 +72,7 @@ public:
 	nano::amount receive_minimum{ nano::nano_ratio / 1000 / 1000 }; // 0.000001 nano
 	nano::amount vote_minimum{ nano::Knano_ratio }; // 1000 nano
 	nano::amount rep_crawler_weight_minimum{ "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF" };
-	std::chrono::milliseconds vote_generator_delay{ std::chrono::milliseconds (100) };
+	std::chrono::milliseconds vote_generator_delay{ std::chrono::milliseconds (20) };
 	nano::amount online_weight_minimum{ 60000 * nano::Knano_ratio }; // 60 million nano
 	/*
 	 * The minimum vote weight that a representative must have for its vote to be counted.
