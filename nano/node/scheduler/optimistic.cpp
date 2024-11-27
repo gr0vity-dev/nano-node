@@ -26,14 +26,14 @@ nano::scheduler::optimistic::optimistic (optimistic_config const & config_a, nan
 			if (result == nano::block_status::progress && context.source == nano::block_source::bootstrap)
 			{
 				release_assert (context.block != nullptr);
-				auto const & account = context.block->account();
-				if (auto info = ledger.any.account_get(transaction, account))
+				auto const & account = context.block->account ();
+				if (auto info = ledger.any.account_get (transaction, account))
 				{
 					nano::confirmation_height_info conf_info;
-					ledger.store.confirmation_height.get(transaction, account, conf_info);
+					ledger.store.confirmation_height.get (transaction, account, conf_info);
 					if (conf_info.height < info->block_count)
 					{
-						activate(account, *info, conf_info);
+						activate (account, *info, conf_info);
 					}
 				}
 			}

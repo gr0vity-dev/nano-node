@@ -430,11 +430,11 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 			node.logger.trace (nano::log::type::active_elections, nano::log::detail::active_started,
 			nano::log::arg{ "behavior", election_behavior_a },
 			nano::log::arg{ "election", result.election });
-			node.logger.debug (nano::log::type::active_elections, 
-					"Started new election for block: {} (behavior: {}, active: {})",
-					hash.to_string (),
-					to_string (election_behavior_a),
-					active_state);
+			node.logger.debug (nano::log::type::active_elections,
+			"Started new election for block: {} (behavior: {}, active: {})",
+			hash.to_string (),
+			to_string (election_behavior_a),
+			active_state);
 		}
 		else
 		{
@@ -444,21 +444,21 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 	else
 	{
 		result.election = existing->election;
-		
-		// If new behavior is priority and existing election is not priority, upgrade it
-		if (election_behavior_a == nano::election_behavior::priority && 
-			result.election->behavior () != nano::election_behavior::priority)
+		auto previous_behavior = result.election->behavior ();
+		// Upgrade priority election to allow an immediate vote broadcast
+		if (election_behavior_a == nano::election_behavior::priority && previous_behavior != nano::election_behavior::priority)
 		{
 			// Update behavior counts
-			count_by_behavior[result.election->behavior ()]--;
+			count_by_behavior[previous_behavior]--;
 			count_by_behavior[election_behavior_a]++;
-			
+
 			// Update the election's behavior
 			result.election->transition_priority ();
-
-			node.logger.debug (nano::log::type::active_elections, 
-				"Upgraded election behavior to priority for block: {}", 
-				hash.to_string ());
+			node.logger.debug (nano::log::type::active_elections,
+			"Upgraded election behavior to priority from {} for block: {}",
+			to_string (previous_behavior),
+			hash.to_string ()
+			);
 		}
 	}
 

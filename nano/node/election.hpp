@@ -202,6 +202,5 @@ public: // Only used in tests
 	friend class confirmation_solicitor_bypass_max_requests_cap_Test;
 	friend class votes_add_existing_Test;
 	friend class votes_add_old_Test;
-
 };
 }
