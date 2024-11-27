@@ -44,7 +44,7 @@ class optimistic final
 	struct entry;
 
 public:
-	optimistic (optimistic_config const &, nano::node &, nano::ledger &, nano::active_elections &, nano::network_constants const & network_constants, nano::stats &);
+	optimistic (optimistic_config const &, nano::node &, nano::ledger &, nano::block_processor &, nano::active_elections &, nano::network_constants const & network_constants, nano::stats &);
 	~optimistic ();
 
 	void start ();
@@ -73,6 +73,7 @@ private: // Dependencies
 	optimistic_config const & config;
 	nano::node & node;
 	nano::ledger & ledger;
+	nano::block_processor & block_processor;
 	nano::active_elections & active;
 	nano::network_constants const & network_constants;
 	nano::stats & stats;
