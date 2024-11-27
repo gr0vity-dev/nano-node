@@ -396,6 +396,7 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 		return result;
 	}
 
+	auto active_state = false;
 	auto const root = block_a->qualified_root ();
 	auto const hash = block_a->hash ();
 	auto const existing = roots.get<tag_root> ().find (root);
@@ -416,16 +417,24 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 			debug_assert (count_by_behavior[result.election->behavior ()] >= 0);
 			count_by_behavior[result.election->behavior ()]++;
 
+			// If block is not in vote cache, transition to active immediately
+			if (node.vote_cache.find (hash).empty ())
+			{
+				result.election->transition_active ();
+				active_state = true;
+			}
+
 			node.stats.inc (nano::stat::type::active_elections, nano::stat::detail::started);
 			node.stats.inc (nano::stat::type::active_elections_started, to_stat_detail (election_behavior_a));
 
 			node.logger.trace (nano::log::type::active_elections, nano::log::detail::active_started,
 			nano::log::arg{ "behavior", election_behavior_a },
 			nano::log::arg{ "election", result.election });
-
-			node.logger.debug (nano::log::type::active_elections, "Started new election for block: {} (behavior: {})",
-			hash.to_string (),
-			to_string (election_behavior_a));
+			node.logger.debug (nano::log::type::active_elections, 
+					"Started new election for block: {} (behavior: {}, active: {})",
+					hash.to_string (),
+					to_string (election_behavior_a),
+					active_state);
 		}
 		else
 		{
