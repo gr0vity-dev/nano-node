@@ -88,6 +88,7 @@ public: // State transitions
 	bool transition_time (nano::confirmation_solicitor &);
 	void transition_active ();
 	void cancel ();
+	void transition_priority ();
 
 public: // Status
 	bool confirmed () const;
@@ -180,7 +181,7 @@ private:
 	mutable nano::uint128_t final_weight{ 0 };
 	mutable std::unordered_map<nano::block_hash, nano::uint128_t> last_tally;
 
-	nano::election_behavior const behavior_m;
+	nano::election_behavior behavior_m;
 	std::chrono::steady_clock::time_point const election_start{ std::chrono::steady_clock::now () };
 
 	mutable nano::mutex mutex;
@@ -201,5 +202,6 @@ public: // Only used in tests
 	friend class confirmation_solicitor_bypass_max_requests_cap_Test;
 	friend class votes_add_existing_Test;
 	friend class votes_add_old_Test;
+
 };
 }

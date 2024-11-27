@@ -435,6 +435,22 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 	else
 	{
 		result.election = existing->election;
+		
+		// If new behavior is priority and existing election is not priority, upgrade it
+		if (election_behavior_a == nano::election_behavior::priority && 
+			result.election->behavior () != nano::election_behavior::priority)
+		{
+			// Update behavior counts
+			count_by_behavior[result.election->behavior ()]--;
+			count_by_behavior[election_behavior_a]++;
+			
+			// Update the election's behavior
+			result.election->transition_priority ();
+
+			node.logger.debug (nano::log::type::active_elections, 
+				"Upgraded election behavior to priority for block: {}", 
+				hash.to_string ());
+		}
 	}
 
 	lock.unlock ();

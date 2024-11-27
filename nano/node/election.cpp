@@ -848,3 +848,10 @@ nano::stat::detail nano::to_stat_detail (nano::election_state state)
 {
 	return nano::enum_util::cast<nano::stat::detail> (state);
 }
+
+void nano::election::transition_priority ()
+{
+	nano::lock_guard<nano::mutex> guard{ mutex };
+	behavior_m = nano::election_behavior::priority;
+	last_vote = std::chrono::steady_clock::time_point{};
+}
