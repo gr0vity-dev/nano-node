@@ -183,6 +183,13 @@ void nano::election::transition_active ()
 	state_change (nano::election_state::passive, nano::election_state::active);
 }
 
+void nano::election::transition_priority ()
+{
+	nano::lock_guard<nano::mutex> guard{ mutex };
+	behavior_m = nano::election_behavior::priority;
+	last_vote = std::chrono::steady_clock::time_point{}; // allow new outgoing votes immediately
+}
+
 void nano::election::cancel ()
 {
 	nano::lock_guard<nano::mutex> guard{ mutex };
