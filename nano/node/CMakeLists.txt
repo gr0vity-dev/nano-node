@@ -22,6 +22,8 @@ add_library(
   bandwidth_limiter.cpp
   blockprocessor.hpp
   blockprocessor.cpp
+  bootstrap_heuristic.hpp
+  bootstrap_heuristic.cpp
   bucketing.hpp
   bucketing.cpp
   bootstrap_weights_beta.hpp
