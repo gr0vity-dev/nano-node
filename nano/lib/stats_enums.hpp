@@ -59,6 +59,7 @@ enum class type
 	blockprocessor_result,
 	blockprocessor_overfill,
 	bootstrap,
+	bootstrap_heuristic,
 	bootstrap_verify,
 	bootstrap_verify_blocks,
 	bootstrap_verify_frontiers,

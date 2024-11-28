@@ -63,6 +63,8 @@ namespace rocksdb
 
 namespace nano
 {
+class bootstrap_heuristic;
+
 class node final : public std::enable_shared_from_this<node>
 {
 public:
@@ -171,6 +173,8 @@ public:
 	nano::port_mapping & port_mapping;
 	std::unique_ptr<nano::block_processor> block_processor_impl;
 	nano::block_processor & block_processor;
+	std::unique_ptr<nano::bootstrap_heuristic> bootstrap_heuristic_impl;
+	nano::bootstrap_heuristic & bootstrap_heuristic;
 	std::unique_ptr<nano::confirming_set> confirming_set_impl;
 	nano::confirming_set & confirming_set;
 	std::unique_ptr<nano::bucketing> bucketing_impl;

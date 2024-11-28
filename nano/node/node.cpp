@@ -10,6 +10,7 @@
 #include <nano/node/active_elections.hpp>
 #include <nano/node/backlog_scan.hpp>
 #include <nano/node/bandwidth_limiter.hpp>
+#include <nano/node/bootstrap_heuristic.hpp>
 #include <nano/node/bootstrap/bootstrap_server.hpp>
 #include <nano/node/bootstrap/bootstrap_service.hpp>
 #include <nano/node/bootstrap_weights_beta.hpp>
@@ -128,6 +129,8 @@ nano::node::node (std::shared_ptr<boost::asio::io_context> io_ctx_a, std::filesy
 	port_mapping{ *port_mapping_impl },
 	block_processor_impl{ std::make_unique<nano::block_processor> (config, ledger, unchecked, stats, logger) },
 	block_processor{ *block_processor_impl },
+	bootstrap_heuristic_impl{ std::make_unique<nano::bootstrap_heuristic> (*this, stats, logger) },
+	bootstrap_heuristic{ *bootstrap_heuristic_impl },
 	confirming_set_impl{ std::make_unique<nano::confirming_set> (config.confirming_set, ledger, block_processor, stats, logger) },
 	confirming_set{ *confirming_set_impl },
 	bucketing_impl{ std::make_unique<nano::bucketing> () },
@@ -662,6 +665,8 @@ void nano::node::start ()
 	monitor.start ();
 
 	add_initial_peers ();
+
+	bootstrap_heuristic.start ();
 }
 
 void nano::node::stop ()
@@ -717,6 +722,8 @@ void nano::node::stop ()
 	// Stop the IO runner last
 	runner.join ();
 	debug_assert (io_ctx_shared.use_count () == 1); // Node should be the last user of the io_context
+
+	bootstrap_heuristic.stop ();
 }
 
 void nano::node::keepalive_preconfigured ()
