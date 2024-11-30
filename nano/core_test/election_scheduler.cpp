@@ -4,6 +4,7 @@
 #include <nano/node/scheduler/component.hpp>
 #include <nano/node/scheduler/priority.hpp>
 #include <nano/secure/ledger.hpp>
+#include <nano/test_common/chains.hpp>
 #include <nano/test_common/system.hpp>
 #include <nano/test_common/testutil.hpp>
 
@@ -155,6 +156,58 @@ TEST (election_scheduler, activate_one_flush)
 	node.ledger.process (node.ledger.tx_begin_write (), send1);
 	node.scheduler.priority.activate (node.ledger.tx_begin_read (), nano::dev::genesis_key.pub);
 	ASSERT_TIMELY (5s, node.active.election (send1->qualified_root ()));
+}
+
+/*
+ * Tests that an optimistic election can be transitioned to a priority election.
+ *
+ * The test:
+ * 1. Creates a chain of 2 blocks with an optimistic election for the second block
+ * 2. Confirms the first block in the chain
+ * 3. Attempts to start a priority election for the second block
+ * 4. Verifies that the existing optimistic election is transitioned to priority
+ * 5. Verifies a new vote is broadcast after the transition
+ */
+TEST (election_scheduler, transition_optimistic_to_priority)
+{
+	nano::test::system system;
+	nano::node_config config = system.default_config ();
+	config.optimistic_scheduler.gap_threshold = 1;
+	config.enable_voting = true;
+	config.hinted_scheduler.enable = false;
+	config.network_params.network.vote_broadcast_interval = 15000ms;
+	auto & node = *system.add_node (config);
+
+	// Add representative
+	const nano::uint128_t rep_weight = nano::Knano_ratio * 100;
+	nano::keypair rep = nano::test::setup_rep (system, node, rep_weight);
+	system.wallet (0)->insert_adhoc (rep.prv);
+
+	// Create a chain of blocks - and trigger an optimistic election for the last block
+	const int howmany_blocks = 2;
+	auto chains = nano::test::setup_chains (system, node, /* single chain */ 1, howmany_blocks, nano::dev::genesis_key, /* do not confirm */ false);
+	auto & [account, blocks] = chains.front ();
+
+	// Wait for optimistic election to start for last block
+	auto const & block = blocks.back ();
+	ASSERT_TIMELY (5s, node.vote_router.active (block->hash ()));
+	auto election = node.active.election (block->qualified_root ());
+	ASSERT_EQ (election->behavior (), nano::election_behavior::optimistic);
+
+	// Confirm first block to allow upgrading second block's election
+	nano::test::confirm (node.ledger, blocks.at (howmany_blocks - 1));
+
+	// Attempt to start priority election for second block
+	node.stats.clear ();
+	ASSERT_EQ (0, node.stats.count (nano::stat::type::election, nano::stat::detail::broadcast_vote));
+	node.active.insert (block, nano::election_behavior::priority);
+
+	// Verify priority transition
+	ASSERT_EQ (election->behavior (), nano::election_behavior::priority);
+	ASSERT_EQ (1, node.stats.count (nano::stat::type::active_elections, nano::stat::detail::transition_priority));
+	// Verify vote broadcast after transitioning
+	ASSERT_TIMELY_EQ (1s, 1, node.stats.count (nano::stat::type::election, nano::stat::detail::broadcast_vote));
+	ASSERT_TRUE (node.active.active (*block));
 }
 
 /**

@@ -400,6 +400,7 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 		return result;
 	}
 
+	auto active_state = false;
 	auto const root = block_a->qualified_root ();
 	auto const hash = block_a->hash ();
 	auto const existing = roots.get<tag_root> ().find (root);
@@ -420,6 +421,13 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 			debug_assert (count_by_behavior[result.election->behavior ()] >= 0);
 			count_by_behavior[result.election->behavior ()]++;
 
+			// If block is not in vote cache, transition to active immediately
+			if (node.vote_cache.find (hash).empty ())
+			{
+				result.election->transition_active ();
+				active_state = true;
+			}
+
 			node.stats.inc (nano::stat::type::active_elections, nano::stat::detail::started);
 			node.stats.inc (nano::stat::type::active_elections_started, to_stat_detail (election_behavior_a));
 
@@ -427,9 +435,10 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 			nano::log::arg{ "behavior", election_behavior_a },
 			nano::log::arg{ "election", result.election });
 
-			node.logger.debug (nano::log::type::active_elections, "Started new election for block: {} (behavior: {})",
+			node.logger.debug (nano::log::type::active_elections, "Started new election for block: {} (behavior: {}, active: {})",
 			hash.to_string (),
-			to_string (election_behavior_a));
+			to_string (election_behavior_a),
+			active_state);
 		}
 		else
 		{
@@ -439,6 +448,23 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 	else
 	{
 		result.election = existing->election;
+
+		// Upgrade to priority election to enable immediate vote broadcasting.
+		auto previous_behavior = result.election->behavior ();
+		if (election_behavior_a == nano::election_behavior::priority && previous_behavior != nano::election_behavior::priority)
+		{
+			bool transitioned = result.election->transition_priority ();
+			if (transitioned)
+			{
+				count_by_behavior[previous_behavior]--;
+				count_by_behavior[election_behavior_a]++;
+				node.stats.inc (nano::stat::type::active_elections, nano::stat::detail::transition_priority);
+			}
+			else
+			{
+				node.stats.inc (nano::stat::type::active_elections, nano::stat::detail::transition_priority_failed);
+			}
+		}
 	}
 
 	lock.unlock ();

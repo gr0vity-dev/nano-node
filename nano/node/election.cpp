@@ -152,7 +152,7 @@ bool nano::election::state_change (nano::election_state expected_a, nano::electi
 
 std::chrono::milliseconds nano::election::confirm_req_time () const
 {
-	switch (behavior ())
+	switch (behavior_m)
 	{
 		case election_behavior::manual:
 		case election_behavior::priority:
@@ -181,6 +181,25 @@ void nano::election::transition_active ()
 {
 	nano::lock_guard<nano::mutex> guard{ mutex };
 	state_change (nano::election_state::passive, nano::election_state::active);
+}
+
+bool nano::election::transition_priority ()
+{
+	nano::lock_guard<nano::mutex> guard{ mutex };
+
+	if (behavior_m == nano::election_behavior::priority || behavior_m == nano::election_behavior::manual)
+	{
+		return false;
+	}
+
+	behavior_m = nano::election_behavior::priority;
+	last_vote = std::chrono::steady_clock::time_point{}; // allow new outgoing votes immediately
+
+	node.logger.debug (nano::log::type::election, "Transitioned election behavior to priority from {} for root: {}",
+	to_string (behavior_m),
+	qualified_root.to_string ());
+
+	return true;
 }
 
 void nano::election::cancel ()
@@ -314,7 +333,7 @@ bool nano::election::transition_time (nano::confirmation_solicitor & solicitor_a
 
 std::chrono::milliseconds nano::election::time_to_live () const
 {
-	switch (behavior ())
+	switch (behavior_m)
 	{
 		case election_behavior::manual:
 		case election_behavior::priority:
@@ -769,6 +788,7 @@ std::vector<nano::vote_with_weight_info> nano::election::votes_with_weight () co
 
 nano::election_behavior nano::election::behavior () const
 {
+	nano::lock_guard<nano::mutex> guard{ mutex };
 	return behavior_m;
 }
 
