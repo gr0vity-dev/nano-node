@@ -4,6 +4,7 @@
 #include <nano/node/scheduler/component.hpp>
 #include <nano/node/scheduler/priority.hpp>
 #include <nano/secure/ledger.hpp>
+#include <nano/test_common/chains.hpp>
 #include <nano/test_common/system.hpp>
 #include <nano/test_common/testutil.hpp>
 
@@ -155,6 +156,42 @@ TEST (election_scheduler, activate_one_flush)
 	node.ledger.process (node.ledger.tx_begin_write (), send1);
 	node.scheduler.priority.activate (node.ledger.tx_begin_read (), nano::dev::genesis_key.pub);
 	ASSERT_TIMELY (5s, node.active.election (send1->qualified_root ()));
+}
+
+TEST (election_scheduler, transition_optimistic_to_priority)
+{
+	nano::test::system system;
+	nano::node_config config = system.default_config ();
+	config.optimistic_scheduler.gap_threshold = 1;
+	auto & node = *system.add_node (config);
+
+	// Create a chain of blocks
+	const int howmany_blocks = 2;
+	auto chains = nano::test::setup_chains (system, node, /* single chain */ 1, howmany_blocks, nano::dev::genesis_key, /* do not confirm */ false);
+	auto & [account, blocks] = chains.front ();
+
+	// Priority election is created for the first block in chain
+	ASSERT_TIMELY (1s, node.active.size () == 1);
+
+	// Wait for the optimistic election to start
+	auto const & block = blocks.back ();
+	ASSERT_TIMELY (5s, node.vote_router.active (block->hash ()));
+	auto election = node.active.election (block->qualified_root ());
+	ASSERT_EQ (election->behavior (), nano::election_behavior::optimistic);
+	ASSERT_EQ (node.active.size (), 2);
+
+	// Confirm block prior to the optimitic election
+	nano::test::confirm (node.ledger, blocks.at (howmany_blocks - 1));
+
+	// Now activate a priority election for the same block
+	auto secure_transaction (node.ledger.tx_begin_read ());
+	node.scheduler.priority.activate (secure_transaction, nano::dev::genesis_key.pub);
+
+	// Verify the election was upgraded to priority
+	ASSERT_TIMELY (5s, election->behavior () == nano::election_behavior::priority);
+
+	// Verify the election is still active and properly transitioned
+	ASSERT_TRUE (node.active.active (*block));
 }
 
 /**
