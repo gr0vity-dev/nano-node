@@ -141,6 +141,8 @@ public: // Information
 
 	std::vector<nano::vote_with_weight_info> votes_with_weight () const;
 	nano::election_behavior behavior () const;
+	nano::election_behavior behavior_locked (nano::unique_lock<nano::mutex> & lock_a) const;
+
 	nano::election_state state () const;
 
 	std::unordered_map<nano::account, nano::vote_info> votes () const;
