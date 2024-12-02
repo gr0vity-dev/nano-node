@@ -4,6 +4,7 @@
 #include <nano/lib/numbers.hpp>
 #include <nano/lib/threading.hpp>
 #include <nano/node/active_elections.hpp>
+#include <nano/node/bootstrap_heuristic.hpp>
 #include <nano/node/confirmation_solicitor.hpp>
 #include <nano/node/confirming_set.hpp>
 #include <nano/node/election.hpp>
@@ -25,6 +26,7 @@ nano::active_elections::active_elections (nano::node & node_a, nano::confirming_
 	node{ node_a },
 	confirming_set{ confirming_set_a },
 	block_processor{ block_processor_a },
+	bootstrap_heuristic{ node_a.bootstrap_heuristic },
 	recently_confirmed{ config.confirmation_cache },
 	recently_cemented{ config.confirmation_history_size }
 {
@@ -209,7 +211,9 @@ int64_t nano::active_elections::limit (nano::election_behavior behavior) const
 		}
 		case nano::election_behavior::optimistic:
 		{
-			const uint64_t limit = config.optimistic_limit_percentage * config.size / 100;
+			const uint64_t base_limit = config.optimistic_limit_percentage * config.size / 100;
+			// TODO: make configureable. Increase limit to 80% of size when bootstrapping
+			const uint64_t limit = bootstrap_heuristic.is_bootstrapping () ? config.size * 0.8 : base_limit;
 			return static_cast<int64_t> (limit);
 		}
 	}

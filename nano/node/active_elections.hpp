@@ -3,6 +3,7 @@
 #include <nano/lib/enum_util.hpp>
 #include <nano/lib/numbers.hpp>
 #include <nano/lib/observer_set.hpp>
+#include <nano/node/bootstrap_heuristic.hpp>
 #include <nano/node/election_behavior.hpp>
 #include <nano/node/election_insertion_result.hpp>
 #include <nano/node/election_status.hpp>
@@ -146,6 +147,7 @@ private: // Dependencies
 	nano::node & node;
 	nano::confirming_set & confirming_set;
 	nano::block_processor & block_processor;
+	nano::bootstrap_heuristic & bootstrap_heuristic;
 
 public:
 	nano::recently_confirmed_cache recently_confirmed;
