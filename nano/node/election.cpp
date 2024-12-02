@@ -152,7 +152,7 @@ bool nano::election::state_change (nano::election_state expected_a, nano::electi
 
 std::chrono::milliseconds nano::election::confirm_req_time () const
 {
-	switch (behavior_m)
+	switch (behavior ())
 	{
 		case election_behavior::manual:
 		case election_behavior::priority:
@@ -321,7 +321,7 @@ bool nano::election::transition_time (nano::confirmation_solicitor & solicitor_a
 
 std::chrono::milliseconds nano::election::time_to_live () const
 {
-	switch (behavior_m)
+	switch (behavior ())
 	{
 		case election_behavior::manual:
 		case election_behavior::priority:
@@ -776,15 +776,8 @@ std::vector<nano::vote_with_weight_info> nano::election::votes_with_weight () co
 	return result;
 }
 
-nano::election_behavior nano::election::behavior_locked (nano::unique_lock<nano::mutex> & lock_a) const
-{
-	debug_assert (lock_a.owns_lock ());
-	return behavior_m;
-}
-
 nano::election_behavior nano::election::behavior () const
 {
-	nano::lock_guard<nano::mutex> guard{ mutex };
 	return behavior_m;
 }
 

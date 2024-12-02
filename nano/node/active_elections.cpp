@@ -287,9 +287,8 @@ void nano::active_elections::cleanup_election (nano::unique_lock<nano::mutex> & 
 	debug_assert (!election->confirmed () || recently_confirmed.exists (election->qualified_root));
 
 	// Keep track of election count by election type
-	auto election_behavior = election->behavior_locked (lock_a);
-	debug_assert (count_by_behavior[election_behavior] > 0);
-	count_by_behavior[election_behavior]--;
+	debug_assert (count_by_behavior[election->behavior ()] > 0);
+	count_by_behavior[election->behavior ()]--;
 
 	auto blocks_l = election->blocks ();
 	node.vote_router.disconnect (*election);
@@ -303,13 +302,13 @@ void nano::active_elections::cleanup_election (nano::unique_lock<nano::mutex> & 
 	node.stats.inc (nano::stat::type::active_elections, nano::stat::detail::stopped);
 	node.stats.inc (nano::stat::type::active_elections, election->confirmed () ? nano::stat::detail::confirmed : nano::stat::detail::unconfirmed);
 	node.stats.inc (nano::stat::type::active_elections_stopped, to_stat_detail (election->state ()));
-	node.stats.inc (to_stat_type (election->state ()), to_stat_detail (election_behavior));
+	node.stats.inc (to_stat_type (election->state ()), to_stat_detail (election->behavior ()));
 
 	node.logger.trace (nano::log::type::active_elections, nano::log::detail::active_stopped, nano::log::arg{ "election", election });
 
 	node.logger.debug (nano::log::type::active_elections, "Erased election for blocks: {} (behavior: {}, state: {})",
 	fmt::join (std::views::keys (blocks_l), ", "),
-	to_string (election_behavior),
+	to_string (election->behavior ()),
 	to_string (election->state ()));
 
 	lock_a.unlock ();
@@ -439,9 +438,9 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 
 		// Upgrade to priority election to enable immediate vote broadcasting.
 		auto previous_behavior = result.election->behavior ();
-		if (election_behavior_a == nano::election_behavior::priority && previous_behavior != nano::election_behavior::priority)
+		if (election_behavior_a == nano::election_behavior::priority && result.election->behavior () != nano::election_behavior::priority)
 		{
-			count_by_behavior[previous_behavior]--;
+			count_by_behavior[result.election->behavior ()]--;
 			count_by_behavior[election_behavior_a]++;
 			result.election->transition_priority ();
 
