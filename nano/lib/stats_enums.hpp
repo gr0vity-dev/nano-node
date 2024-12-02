@@ -426,6 +426,8 @@ enum class detail
 	// active
 	insert,
 	insert_failed,
+	transition_priority,
+	transition_priority_failed,
 	election_cleanup,
 
 	// active_elections

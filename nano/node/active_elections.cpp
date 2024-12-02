@@ -440,13 +440,17 @@ nano::election_insertion_result nano::active_elections::insert (std::shared_ptr<
 		auto previous_behavior = result.election->behavior ();
 		if (election_behavior_a == nano::election_behavior::priority && result.election->behavior () != nano::election_behavior::priority)
 		{
-			count_by_behavior[result.election->behavior ()]--;
-			count_by_behavior[election_behavior_a]++;
-			result.election->transition_priority ();
-
-			node.logger.debug (nano::log::type::active_elections, "Upgraded election behavior from {} to priority for block: {}",
-			to_string (previous_behavior),
-			hash.to_string ());
+			bool transitioned = result.election->transition_priority ();
+			if (transitioned)
+			{
+				count_by_behavior[result.election->behavior ()]--;
+				count_by_behavior[election_behavior_a]++;
+				node.stats.inc (nano::stat::type::active_elections, nano::stat::detail::transition_priority);
+			}
+			else
+			{
+				node.stats.inc (nano::stat::type::active_elections, nano::stat::detail::transition_priority_failed);
+			}
 		}
 	}
 
