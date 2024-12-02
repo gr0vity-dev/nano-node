@@ -115,6 +115,7 @@ bool nano::bootstrap::frontier_scan::process (nano::account start, std::deque<st
 			{
 				stats.inc (nano::stat::type::bootstrap_frontier_scan, nano::stat::detail::done_range);
 				entry.next = entry.start;
+				entry.cycle_completed = true;
 			}
 
 			done = true;
@@ -185,4 +186,22 @@ nano::container_info nano::bootstrap::frontier_scan::container_info () const
 	info.add ("responses", collect_responses ());
 	info.add ("processed", collect_processed ());
 	return info;
+}
+
+bool nano::bootstrap::frontier_scan::is_cycle_complete () const
+{
+	return std::all_of (heads.begin (), heads.end (),
+	[] (auto const & head) { return head.cycle_completed; });
+}
+
+void nano::bootstrap::frontier_scan::reset_cycles ()
+{
+	// Use the sequenced index to modify all heads
+	auto & heads_by_sequence = heads.get<tag_sequenced> ();
+	for (auto it = heads_by_sequence.begin (); it != heads_by_sequence.end (); ++it)
+	{
+		heads_by_sequence.modify (it, [] (frontier_head & head) {
+			head.cycle_completed = false;
+		});
+	}
 }

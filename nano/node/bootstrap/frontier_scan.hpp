@@ -30,6 +30,8 @@ public:
 
 	nano::account next ();
 	bool process (nano::account start, std::deque<std::pair<nano::account, nano::block_hash>> const & response);
+	bool is_cycle_complete () const;
+	void reset_cycles ();
 
 	nano::container_info container_info () const;
 
@@ -60,6 +62,8 @@ private:
 		unsigned completed{ 0 };
 		std::chrono::steady_clock::time_point timestamp{};
 		size_t processed{ 0 }; // Total number of accounts processed
+
+		bool cycle_completed{ false };
 
 		nano::account index () const
 		{
