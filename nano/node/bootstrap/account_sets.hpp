@@ -78,6 +78,7 @@ namespace bootstrap
 		std::size_t priority_size () const;
 		std::size_t blocked_size () const;
 		bool priority_half_full () const;
+		bool priority_filled (std::size_t minimum) const;
 		bool blocked_half_full () const;
 
 		nano::container_info container_info () const;

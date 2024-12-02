@@ -57,6 +57,7 @@ public:
 	std::size_t throttle_coefficient{ 8 * 1024 };
 	std::chrono::milliseconds throttle_wait{ 100 };
 	std::size_t block_processor_threshold{ 1000 };
+	std::size_t priority_minimum{ 8 }; // Run frontier scan when priority queue drops below this size
 	std::size_t max_requests{ 1024 };
 	unsigned optimistic_request_percentage{ 75 };
 

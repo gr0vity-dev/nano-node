@@ -316,6 +316,11 @@ bool nano::bootstrap::account_sets::priority_half_full () const
 	return priorities.size () > config.priorities_max / 2;
 }
 
+bool nano::bootstrap::account_sets::priority_filled (std::size_t minimum) const
+{
+	return priorities.size () >= minimum;
+}
+
 bool nano::bootstrap::account_sets::blocked_half_full () const
 {
 	return blocking.size () > config.blocking_max / 2;

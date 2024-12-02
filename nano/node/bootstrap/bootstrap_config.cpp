@@ -47,6 +47,7 @@ nano::error nano::bootstrap_config::deserialize (nano::tomlconfig & toml)
 	toml.get ("block_processor_threshold", block_processor_threshold);
 	toml.get ("max_requests", max_requests);
 	toml.get ("optimistic_request_percentage", optimistic_request_percentage);
+	toml.get ("priority_minimum", priority_minimum);
 
 	if (toml.has_key ("account_sets"))
 	{
@@ -75,6 +76,7 @@ nano::error nano::bootstrap_config::serialize (nano::tomlconfig & toml) const
 	toml.put ("block_processor_threshold", block_processor_threshold, "Bootstrap will wait while block processor has more than this many blocks queued.\ntype:uint64");
 	toml.put ("max_requests", max_requests, "Maximum total number of in flight requests.\ntype:uint64");
 	toml.put ("optimistic_request_percentage", optimistic_request_percentage, "Percentage of requests that will be optimistic. Optimistic requests start from the (possibly unconfirmed) account frontier and are vulnerable to bootstrap poisoning. Safe requests start from the confirmed frontier and given enough time will eventually resolve forks.\ntype:uint64");
+	toml.put ("priority_minimum", priority_minimum, "Run frontier scan when priority queue drops below this number of accounts.\ntype:uint64");
 
 	nano::tomlconfig account_sets_l;
 	account_sets.serialize (account_sets_l);
