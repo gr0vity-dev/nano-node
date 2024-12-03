@@ -132,6 +132,8 @@ private:
 	nano::block_hash wait_blocking ();
 	/* Waits for next available frontier scan range */
 	nano::account wait_frontier ();
+	/* Determines if frontier scanning should continue based on priority thresholds */
+	bool should_scan_frontiers ();
 
 	bool request (nano::account, size_t count, std::shared_ptr<nano::transport::channel> const &, query_source);
 	bool request_info (nano::block_hash, std::shared_ptr<nano::transport::channel> const &, query_source);

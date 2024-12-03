@@ -643,6 +643,7 @@ void nano::bootstrap_service::run_one_frontier ()
 	});
 	wait ([this] () {
 		return frontiers_limiter.should_pass (1);
+		return should_scan_frontiers ();
 	});
 	wait ([this] () {
 		return workers.queued_tasks () < config.frontier_scan.max_pending;
@@ -1179,6 +1180,42 @@ bool nano::bootstrap_service::should_scan_frontiers ()
 	bool const cycle_complete = frontiers.is_cycle_complete ();
 	bool const cycle_ready = !cycle_complete;
 	bool const bootstrap_ongoing = bootstrap_heuristic.is_bootstrapping ();
+
+	// Case : Already scanning
+	if (frontiers_ongoing.load ())
+	{
+		// Stop ongoing scan if cycle is complete
+		if (cycle_complete)
+		{
+			frontiers_ongoing.store (false);
+			frontiers.reset_cycles ();
+			return false;
+		}
+		// Stop ongoing scan if priority queue is full
+		if (priority_high)
+		{
+			frontiers_ongoing.store (false);
+			return false;
+		}
+		return true; // Continue ongoing scan
+	}
+
+	// Case : Not scanning , bootstrapping
+	if (priority_low && cycle_ready && bootstrap_ongoing)
+	{
+		frontiers_ongoing.store (true); // Scan ongoing
+		return true;
+	}
+
+	// Case : Not scanning , Not bootstrapping
+	if (!bootstrap_ongoing && bootstrap_heuristic.trigger_randomly (std::chrono::minutes (60), std::chrono::minutes (90)))
+	{
+		frontiers_ongoing.store (true); // Scan ongoing
+		return true;
+	}
+
+	return false;
+}
 
 void nano::bootstrap_service::update_channel_limit()
 {
