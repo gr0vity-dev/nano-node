@@ -166,6 +166,7 @@ private:
 
 	// Calculates a lookback size based on the size of the ledger where larger ledgers have a larger sample count
 	std::size_t compute_throttle_size () const;
+	void update_channel_limit();
 
 private:
 	nano::bootstrap::account_sets accounts;

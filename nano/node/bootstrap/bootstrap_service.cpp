@@ -329,9 +329,10 @@ std::shared_ptr<nano::transport::channel> nano::bootstrap_service::wait_channel 
 		return tags.size () < config.max_requests;
 	});
 
-	// Wait until more requests can be sent
+	// Update and check rate limit
+	update_channel_limit();
 	wait ([this] () {
-		return limiter.should_pass (1);
+		return limiter.should_pass(1);
 	});
 
 	// Wait until a channel is available
@@ -1161,4 +1162,29 @@ nano::container_info nano::bootstrap_service::container_info () const
 nano::stat::detail nano::to_stat_detail (nano::bootstrap_service::query_type type)
 {
 	return nano::enum_util::cast<nano::stat::detail> (type);
+}
+
+bool nano::bootstrap_service::should_scan_frontiers ()
+{	
+	//TODO : think of a better way to throttle frontier scan while having few accounts in the ledger...
+	auto account_count = ledger.account_count();
+    double scale_factor = std::min(1.0, static_cast<double>(account_count) / 1000000.0);
+
+	bool const priority_low = !accounts.priority_filled (config.priority_minimum * scale_factor);
+	bool const priority_high = accounts.priority_half_full ();
+	bool const cycle_complete = frontiers.is_cycle_complete ();
+	bool const cycle_ready = !cycle_complete;
+	bool const bootstrap_ongoing = bootstrap_heuristic.is_bootstrapping ();
+
+void nano::bootstrap_service::update_channel_limit()
+{
+    // If we are bootstrapping, disable rate limiting to maximize sync speed
+    if (bootstrap_heuristic.is_bootstrapping())
+    {
+        limiter.set(0); // No rate limiting
+    }
+    else 
+    {
+        limiter.set(config.rate_limit); // Use configured rate limit
+    }
 }
