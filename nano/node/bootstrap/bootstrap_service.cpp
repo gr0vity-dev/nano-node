@@ -805,13 +805,26 @@ bool nano::bootstrap_service::process (const nano::asc_pull_ack::blocks_payload 
 				if (block == blocks.back ())
 				{
 					// It's the last block submitted for this account chain, reset timestamp to allow more requests
-					block_processor.add (block, nano::block_source::bootstrap, nullptr, [this, account = tag.account] (auto result) {
+					block_processor.add (block, nano::block_source::bootstrap, nullptr, [this, account = tag.account, blocks_size = blocks.size()] (auto result) {
 						stats.inc (nano::stat::type::bootstrap, nano::stat::detail::timestamp_reset);
 						{
 							nano::lock_guard<nano::mutex> guard{ mutex };
 							accounts.timestamp_reset (account);
 						}
+						// Add optimistic scheduler activation
+						//if (blocks_size >= optimistic.gap_threshold()) {
+						auto transaction = ledger.tx_begin_read ();
+						if (auto info = ledger.any.account_get (transaction, account))
+						{
+							nano::confirmation_height_info conf_info;
+							ledger.store.confirmation_height.get (transaction, account, conf_info);
+							if (conf_info.height < info->block_count)
+							{
+								optimistic.activate (account, *info, conf_info);
+							}
+						}
 						condition.notify_all ();
+						//}
 					});
 				}
 				else
