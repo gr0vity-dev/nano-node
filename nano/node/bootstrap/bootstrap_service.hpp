@@ -14,6 +14,7 @@
 #include <nano/node/bootstrap/frontier_scan.hpp>
 #include <nano/node/bootstrap/peer_scoring.hpp>
 #include <nano/node/bootstrap/throttle.hpp>
+#include <nano/node/bootstrap_heuristic.hpp>
 #include <nano/node/fwd.hpp>
 
 #include <boost/multi_index/hashed_index.hpp>
@@ -21,6 +22,7 @@
 #include <boost/multi_index/sequenced_index.hpp>
 #include <boost/multi_index_container.hpp>
 
+#include <atomic>
 #include <thread>
 
 namespace mi = boost::multi_index;
@@ -30,7 +32,7 @@ namespace nano
 class bootstrap_service
 {
 public:
-	bootstrap_service (nano::node_config const &, nano::block_processor &, nano::ledger &, nano::network &, nano::stats &, nano::logger &);
+	bootstrap_service (nano::node_config const &, nano::block_processor &, nano::bootstrap_heuristic &, nano::ledger &, nano::network &, nano::stats &, nano::logger &, nano::scheduler::optimistic &);
 	~bootstrap_service ();
 
 	void start ();
@@ -60,6 +62,8 @@ private: // Dependencies
 	nano::network & network;
 	nano::stats & stats;
 	nano::logger & logger;
+	nano::bootstrap_heuristic & bootstrap_heuristic;
+	nano::scheduler::optimistic & optimistic;
 
 public: // Tag
 	enum class query_type
@@ -210,6 +214,8 @@ private:
 
 	nano::thread_pool workers;
 	nano::random_generator_mt rng;
+
+	std::atomic<bool> frontiers_ongoing{ false }; // Tracks if we're currently scanning frontiers
 };
 
 nano::stat::detail to_stat_detail (bootstrap_service::query_type);

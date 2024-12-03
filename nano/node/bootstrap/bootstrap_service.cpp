@@ -6,6 +6,7 @@
 #include <nano/node/blockprocessor.hpp>
 #include <nano/node/bootstrap/bootstrap_service.hpp>
 #include <nano/node/bootstrap/crawlers.hpp>
+#include <nano/node/bootstrap_heuristic.hpp>
 #include <nano/node/network.hpp>
 #include <nano/node/nodeconfig.hpp>
 #include <nano/node/transport/transport.hpp>
@@ -15,10 +16,18 @@
 #include <nano/store/account.hpp>
 #include <nano/store/component.hpp>
 #include <nano/store/confirmation_height.hpp>
+#include <nano/node/scheduler/optimistic.hpp>
 
 using namespace std::chrono_literals;
 
-nano::bootstrap_service::bootstrap_service (nano::node_config const & node_config_a, nano::block_processor & block_processor_a, nano::ledger & ledger_a, nano::network & network_a, nano::stats & stat_a, nano::logger & logger_a) :
+nano::bootstrap_service::bootstrap_service (nano::node_config const & node_config_a,
+nano::block_processor & block_processor_a,
+nano::bootstrap_heuristic & bootstrap_heuristic_a,
+nano::ledger & ledger_a,
+nano::network & network_a,
+nano::stats & stat_a,
+nano::logger & logger_a,
+nano::scheduler::optimistic & optimistic_a) :
 	config{ node_config_a.bootstrap },
 	network_constants{ node_config_a.network_params.network },
 	block_processor{ block_processor_a },
@@ -26,6 +35,8 @@ nano::bootstrap_service::bootstrap_service (nano::node_config const & node_confi
 	network{ network_a },
 	stats{ stat_a },
 	logger{ logger_a },
+	bootstrap_heuristic{ bootstrap_heuristic_a },
+	optimistic{ optimistic_a },
 	accounts{ config.account_sets, stats },
 	database_scan{ ledger },
 	frontiers{ config.frontier_scan, stats },
@@ -34,7 +45,8 @@ nano::bootstrap_service::bootstrap_service (nano::node_config const & node_confi
 	limiter{ config.rate_limit },
 	database_limiter{ config.database_rate_limit },
 	frontiers_limiter{ config.frontier_rate_limit },
-	workers{ 1, nano::thread_role::name::bootstrap_worker }
+	workers{ 1, nano::thread_role::name::bootstrap_worker },
+	frontiers_ongoing{ false }
 {
 	block_processor.batch_processed.add ([this] (auto const & batch) {
 		{
