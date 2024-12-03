@@ -44,7 +44,7 @@ class optimistic final
 	struct entry;
 
 public:
-	optimistic (optimistic_config const &, nano::node &, nano::ledger &, nano::active_elections &, nano::network_constants const & network_constants, nano::stats &);
+	optimistic (optimistic_config const &, nano::node &, nano::ledger &, nano::block_processor &, nano::active_elections &, nano::network_constants const & network_constants, nano::stats &);
 	~optimistic ();
 
 	void start ();
@@ -62,6 +62,9 @@ public:
 
 	nano::container_info container_info () const;
 
+	/** Get the configured gap threshold for optimistic scheduling */
+	std::size_t gap_threshold() const;
+
 private:
 	bool activate_predicate (nano::account_info const &, nano::confirmation_height_info const &) const;
 
@@ -73,6 +76,7 @@ private: // Dependencies
 	optimistic_config const & config;
 	nano::node & node;
 	nano::ledger & ledger;
+	nano::block_processor & block_processor;
 	nano::active_elections & active;
 	nano::network_constants const & network_constants;
 	nano::stats & stats;

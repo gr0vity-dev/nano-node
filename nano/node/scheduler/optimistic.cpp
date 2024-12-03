@@ -9,14 +9,36 @@
 #include <nano/secure/ledger_set_any.hpp>
 #include <nano/secure/ledger_set_confirmed.hpp>
 
-nano::scheduler::optimistic::optimistic (optimistic_config const & config_a, nano::node & node_a, nano::ledger & ledger_a, nano::active_elections & active_a, nano::network_constants const & network_constants_a, nano::stats & stats_a) :
+nano::scheduler::optimistic::optimistic (optimistic_config const & config_a, nano::node & node_a, nano::ledger & ledger_a, nano::block_processor & block_processor_a, nano::active_elections & active_a, nano::network_constants const & network_constants_a, nano::stats & stats_a) :
 	config{ config_a },
 	node{ node_a },
 	ledger{ ledger_a },
+	block_processor{ block_processor_a },
 	active{ active_a },
 	network_constants{ network_constants_a },
 	stats{ stats_a }
 {
+	// // Activate accounts with fresh blocks from bootstrap
+	// block_processor.batch_processed.add ([this] (auto const & batch) {
+	// 	auto transaction = ledger.tx_begin_read ();
+	// 	for (auto const & [result, context] : batch)
+	// 	{
+	// 		if (result == nano::block_status::progress && context.source == nano::block_source::bootstrap)
+	// 		{
+	// 			release_assert (context.block != nullptr);
+	// 			auto const & account = context.block->account ();
+	// 			if (auto info = ledger.any.account_get (transaction, account))
+	// 			{
+	// 				nano::confirmation_height_info conf_info;
+	// 				ledger.store.confirmation_height.get (transaction, account, conf_info);
+	// 				if (conf_info.height < info->block_count)
+	// 				{
+	// 					activate (account, *info, conf_info);
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+	// });
 }
 
 nano::scheduler::optimistic::~optimistic ()
@@ -175,6 +197,11 @@ nano::container_info nano::scheduler::optimistic::container_info () const
 	nano::container_info info;
 	info.put ("candidates", candidates);
 	return info;
+}
+
+std::size_t nano::scheduler::optimistic::gap_threshold() const
+{
+	return config.gap_threshold;
 }
 
 /*
