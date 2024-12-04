@@ -415,6 +415,7 @@ void nano::election::confirm_if_quorum (nano::unique_lock<nano::mutex> & lock_a)
 	{
 		status.winner = block_l;
 		remove_votes (status_winner_hash_l);
+		node.network.flood_block (block_l, nano::transport::buffer_drop_policy::no_limiter_drop);
 		node.block_processor.force (block_l);
 	}
 	if (have_quorum (tally_l))
