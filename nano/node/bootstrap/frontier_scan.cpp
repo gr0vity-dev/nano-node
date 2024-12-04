@@ -122,6 +122,18 @@ bool nano::bootstrap::frontier_scan::process (nano::account start, std::deque<st
 		}
 	});
 
+	if (done)
+	{
+		processed_frontiers += response.size (); // Track processed frontiers
+
+		// Log progress every 1000 frontiers processed
+		if (processed_frontiers % 1000 == 0)
+		{
+			stats.inc (nano::stat::type::bootstrap_frontier_scan, nano::stat::detail::progress);
+			stats.add (nano::stat::type::bootstrap_frontier_scan, nano::stat::detail::frontiers_processed, response.size ());
+		}
+	}
+
 	return done;
 }
 

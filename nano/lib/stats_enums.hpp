@@ -468,6 +468,7 @@ enum class detail
 	invalid_response,
 	timestamp_reset,
 	processing_frontiers,
+	frontiers_processed,
 	frontiers_dropped,
 	sync_accounts,
 

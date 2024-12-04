@@ -38,7 +38,7 @@ public:
 	 */
 	bool try_consume (unsigned tokens_required = 1);
 	/** Update the max_token_count and/or refill_rate_a parameters */
-    void reset (std::size_t max_token_count, std::size_t refill_rate);
+	void reset (std::size_t max_token_count, std::size_t refill_rate);
 	/** Update the max_token_count and/or refill_rate_a parameters without resetting current tokens */
 	void set (std::size_t max_token_count, std::size_t refill_rate);
 

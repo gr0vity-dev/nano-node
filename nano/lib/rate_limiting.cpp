@@ -61,7 +61,7 @@ void nano::rate::token_bucket::set (std::size_t max_token_count_a, std::size_t r
 
 void nano::rate::token_bucket::reset (std::size_t max_token_count_a, std::size_t refill_rate_a)
 {
-	set(max_token_count_a, refill_rate_a);
+	set (max_token_count_a, refill_rate_a);
 	smallest_size = current_size = max_token_count;
 }
 
@@ -74,8 +74,6 @@ std::size_t nano::rate::token_bucket::size () const
 {
 	return current_size;
 }
-
-
 
 /*
  * rate_limiter

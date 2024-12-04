@@ -11,6 +11,7 @@
 #include <boost/multi_index/sequenced_index.hpp>
 #include <boost/multi_index_container.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <map>
 #include <set>
@@ -35,9 +36,32 @@ public:
 
 	nano::container_info container_info () const;
 
+	size_t processed_count () const
+	{
+		return processed_frontiers.load ();
+	}
+
+	void reset_processed_count ()
+	{
+		processed_frontiers.store (0);
+	}
+
+	void set_initial_account_count (size_t count)
+	{
+		initial_accounts = count;
+	}
+
+	size_t initial_account_count () const
+	{
+		return initial_accounts;
+	}
+
 private: // Dependencies
 	frontier_scan_config const & config;
 	nano::stats & stats;
+
+	std::atomic<size_t> processed_frontiers{ 0 };
+	std::atomic<size_t> initial_accounts{ 0 };
 
 private:
 	// Represents a range of accounts to scan, once the full range is scanned (goes past `end`) the head wraps around (to the `start`)

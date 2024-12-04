@@ -9,6 +9,7 @@
 #include <nano/node/bootstrap_heuristic.hpp>
 #include <nano/node/network.hpp>
 #include <nano/node/nodeconfig.hpp>
+#include <nano/node/scheduler/optimistic.hpp>
 #include <nano/node/transport/transport.hpp>
 #include <nano/secure/common.hpp>
 #include <nano/secure/ledger.hpp>
@@ -16,7 +17,6 @@
 #include <nano/store/account.hpp>
 #include <nano/store/component.hpp>
 #include <nano/store/confirmation_height.hpp>
-#include <nano/node/scheduler/optimistic.hpp>
 
 using namespace std::chrono_literals;
 
@@ -334,9 +334,9 @@ std::shared_ptr<nano::transport::channel> nano::bootstrap_service::wait_channel 
 	});
 
 	// Update and check rate limit
-	update_channel_limit();
+	update_channel_limit ();
 	wait ([this] () {
-		return limiter.should_pass(1);
+		return limiter.should_pass (1);
 	});
 
 	// Wait until a channel is available
@@ -637,16 +637,11 @@ void nano::bootstrap_service::run_dependencies ()
 
 void nano::bootstrap_service::run_one_frontier ()
 {
-	// No need to wait for blockprocessor, as we are not processing blocks
-	wait ([this] () {
-		return !accounts.priority_half_full ();
-	});
-	wait ([this] () {
-		return frontiers_limiter.should_pass (1);
-		return should_scan_frontiers ();
-	});
 	wait ([this] () {
 		return workers.queued_tasks () < config.frontier_scan.max_pending;
+	});
+	wait ([this] () {
+		return should_scan_frontiers ();
 	});
 	auto channel = wait_channel ();
 	if (!channel)
@@ -811,14 +806,14 @@ bool nano::bootstrap_service::process (const nano::asc_pull_ack::blocks_payload 
 				if (block == blocks.back ())
 				{
 					// It's the last block submitted for this account chain, reset timestamp to allow more requests
-					block_processor.add (block, nano::block_source::bootstrap, nullptr, [this, account = tag.account, blocks_size = blocks.size()] (auto result) {
+					block_processor.add (block, nano::block_source::bootstrap, nullptr, [this, account = tag.account, blocks_size = blocks.size ()] (auto result) {
 						stats.inc (nano::stat::type::bootstrap, nano::stat::detail::timestamp_reset);
 						{
 							nano::lock_guard<nano::mutex> guard{ mutex };
 							accounts.timestamp_reset (account);
 						}
 						// Add optimistic scheduler activation
-						//if (blocks_size >= optimistic.gap_threshold()) {
+						// if (blocks_size >= optimistic.gap_threshold()) {
 						auto transaction = ledger.tx_begin_read ();
 						if (auto info = ledger.any.account_get (transaction, account))
 						{
@@ -1170,62 +1165,104 @@ nano::stat::detail nano::to_stat_detail (nano::bootstrap_service::query_type typ
 }
 
 bool nano::bootstrap_service::should_scan_frontiers ()
-{	
-	//TODO : think of a better way to throttle frontier scan while having few accounts in the ledger...
-	auto account_count = ledger.account_count();
-    double scale_factor = std::min(1.0, static_cast<double>(account_count) / 1000000.0);
+{
+	auto account_count = ledger.account_count ();
+	double scale_factor = std::min (1.0, static_cast<double> (account_count) / 1000000.0);
 
 	bool const priority_low = !accounts.priority_filled (config.priority_minimum * scale_factor);
 	bool const priority_high = accounts.priority_half_full ();
 	bool const cycle_complete = frontiers.is_cycle_complete ();
-	bool const cycle_ready = !cycle_complete;
 	bool const bootstrap_ongoing = bootstrap_heuristic.is_bootstrapping ();
 
 	// Case : Already scanning
 	if (frontiers_ongoing.load ())
 	{
-		// Stop ongoing scan if cycle is complete
+		// Stop ongoing scan if cycle is complete with meaningful data
 		if (cycle_complete)
 		{
+			auto final_account_count = ledger.account_count ();
+			auto new_accounts = final_account_count > frontiers.initial_account_count () ? final_account_count - frontiers.initial_account_count () : 0;
+
+			logger.info (nano::log::type::bootstrap,
+			"Frontier scan complete - processed {} frontiers, discovered {} new accounts ({} -> {})",
+			frontiers.processed_count (),
+			new_accounts,
+			frontiers.initial_account_count (),
+			final_account_count);
+
 			frontiers_ongoing.store (false);
 			frontiers.reset_cycles ();
+			frontiers.reset_processed_count ();
 			return false;
 		}
 		// Stop ongoing scan if priority queue is full
 		if (priority_high)
 		{
+			auto final_account_count = ledger.account_count ();
+			auto new_accounts = final_account_count > frontiers.initial_account_count () ? final_account_count - frontiers.initial_account_count () : 0;
+
+			logger.info (nano::log::type::bootstrap,
+			"Frontier scan interrupted - priority queue full, processed {} frontiers, discovered {} new accounts ({} -> {})",
+			frontiers.processed_count (),
+			new_accounts,
+			frontiers.initial_account_count (),
+			final_account_count);
+
 			frontiers_ongoing.store (false);
+			frontiers.reset_cycles ();
 			return false;
 		}
 		return true; // Continue ongoing scan
 	}
 
 	// Case : Not scanning , bootstrapping
-	if (priority_low && cycle_ready && bootstrap_ongoing)
+	if (priority_low && bootstrap_ongoing)
 	{
-		frontiers_ongoing.store (true); // Scan ongoing
+		logger.info (nano::log::type::bootstrap,
+		"Starting frontier scan during bootstrap low priority, processed {} frontiers",
+		frontiers.processed_count ());
+		frontiers_ongoing.store (true);
+		frontiers.reset_processed_count ();
+		frontiers.set_initial_account_count (account_count);
+		return true;
+	}
+
+	// Case : Not scanning , bootstrapping , 0 blocking, not overfilled
+	if (bootstrap_ongoing && accounts.blocked_size () == 0 && !priority_high)
+	{
+		logger.info (nano::log::type::bootstrap,
+		"Starting frontier scan during bootstrap 0 blocked, processed {} frontiers",
+		frontiers.processed_count ());
+		frontiers_ongoing.store (true);
+		frontiers.reset_processed_count ();
+		frontiers.set_initial_account_count (account_count);
 		return true;
 	}
 
 	// Case : Not scanning , Not bootstrapping
 	if (!bootstrap_ongoing && bootstrap_heuristic.trigger_randomly (std::chrono::minutes (60), std::chrono::minutes (90)))
 	{
-		frontiers_ongoing.store (true); // Scan ongoing
+		logger.info (nano::log::type::bootstrap,
+		"Starting periodic frontier scan, processed {} frontiers",
+		frontiers.processed_count ());
+		frontiers_ongoing.store (true);
+		frontiers.reset_processed_count ();
+		frontiers.set_initial_account_count (account_count);
 		return true;
 	}
 
 	return false;
 }
 
-void nano::bootstrap_service::update_channel_limit()
+void nano::bootstrap_service::update_channel_limit ()
 {
-    // If we are bootstrapping, disable rate limiting to maximize sync speed
-    if (bootstrap_heuristic.is_bootstrapping())
-    {
-        limiter.set(0); // No rate limiting
-    }
-    else 
-    {
-        limiter.set(config.rate_limit); // Use configured rate limit
-    }
+	// If we are bootstrapping, disable rate limiting to maximize sync speed
+	if (bootstrap_heuristic.is_bootstrapping ())
+	{
+		limiter.set (0); // No rate limiting
+	}
+	else
+	{
+		limiter.set (config.rate_limit); // Use configured rate limit
+	}
 }

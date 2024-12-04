@@ -33,7 +33,7 @@ bool nano::bootstrap_heuristic::is_bootstrapping () const
 
 	if (recent_blocks.size () < window_size / 2)
 	{
-		logger.info (nano::log::type::bootstrap, "Bootstrap heuristic (check): true (low block count)");
+		// logger.info (nano::log::type::bootstrap, "Bootstrap heuristic (check): true (low block count)");
 		return true;
 	}
 
@@ -43,7 +43,7 @@ bool nano::bootstrap_heuristic::is_bootstrapping () const
 	});
 
 	bool is_bootstrapping = (double)bootstrap_count / recent_blocks.size () >= bootstrap_threshold;
-	logger.info (nano::log::type::bootstrap, "Bootstrap heuristic check: {} ({}/{} blocks from bootstrap)", is_bootstrapping, bootstrap_count, recent_blocks.size ());
+	// logger.info (nano::log::type::bootstrap, "Bootstrap heuristic check: {} ({}/{} blocks from bootstrap)", is_bootstrapping, bootstrap_count, recent_blocks.size ());
 	return is_bootstrapping;
 }
 

@@ -63,7 +63,7 @@ public:
 	nano::container_info container_info () const;
 
 	/** Get the configured gap threshold for optimistic scheduling */
-	std::size_t gap_threshold() const;
+	std::size_t gap_threshold () const;
 
 private:
 	bool activate_predicate (nano::account_info const &, nano::confirmation_height_info const &) const;

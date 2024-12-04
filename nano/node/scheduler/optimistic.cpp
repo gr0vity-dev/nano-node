@@ -199,7 +199,7 @@ nano::container_info nano::scheduler::optimistic::container_info () const
 	return info;
 }
 
-std::size_t nano::scheduler::optimistic::gap_threshold() const
+std::size_t nano::scheduler::optimistic::gap_threshold () const
 {
 	return config.gap_threshold;
 }
