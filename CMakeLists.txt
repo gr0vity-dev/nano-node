@@ -129,13 +129,9 @@ if(NANO_STACKTRACE_BACKTRACE)
   add_definitions(-DNANO_STACKTRACE_BACKTRACE)
   add_definitions(-DBOOST_STACKTRACE_USE_BACKTRACE)
 
-  find_library(BACKTRACE_LIB backtrace)
-  if(NOT BACKTRACE_LIB)
-    file(GLOB_RECURSE BACKTRACE_GLOB_RESULTS
-    "/usr/lib*/libbacktrace.a"
-    "/usr/local/lib*/libbacktrace.a")
-    get_filename_component(BACKTRACE_HINT_DIRS "${BACKTRACE_GLOB_RESULTS}" DIRECTORY)
-    find_library(BACKTRACE_LIB backtrace HINTS ${BACKTRACE_HINT_DIRS})
+  find_package(PkgConfig QUIET)
+  if(PKG_CONFIG_FOUND)
+    pkg_check_modules(BACKTRACE libbacktrace)
   endif()
 endif()
 
