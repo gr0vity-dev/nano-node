@@ -9,6 +9,17 @@ if(CMAKE_VERSION VERSION_GREATER 3.13 OR CMAKE_VERSION VERSION_EQUAL 3.13)
   cmake_policy(SET CMP0077 NEW)
 endif()
 
+if(NOT WIN32 AND NOT APPLE)
+  find_library(BACKTRACE_LIB backtrace)
+  if(NOT BACKTRACE_LIB)
+    file(GLOB_RECURSE BACKTRACE_GLOB_RESULTS
+    "/usr/lib*/libbacktrace.a"
+    "/usr/local/lib*/libbacktrace.a")
+    get_filename_component(BACKTRACE_HINT_DIRS "${BACKTRACE_GLOB_RESULTS}" DIRECTORY)
+    find_library(BACKTRACE_LIB backtrace HINTS ${BACKTRACE_HINT_DIRS})
+  endif()
+endif()
+
 # OSX compatibility needs to be set before project is declared
 set(CMAKE_OSX_DEPLOYMENT_TARGET
     13.3
@@ -497,6 +508,9 @@ foreach(lib IN LISTS BOOST_MODULE_LIBS)
 endforeach()
 include_directories(${BOOST_LIBRARY_INCLUDES})
 add_library(Boost::stacktrace ALIAS boost_stacktrace_basic)
+if(NOT WIN32 AND NOT APPLE)
+  target_link_libraries(boost_stacktrace_basic PRIVATE ${BACKTRACE_LIB})
+endif()
 add_definitions(-DBOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED)
 
 # Workaround for missing reference errata in the boost property_tree module
