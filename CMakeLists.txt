@@ -128,8 +128,11 @@ option(NANO_STACKTRACE_BACKTRACE
 if(NANO_STACKTRACE_BACKTRACE)
   add_definitions(-DNANO_STACKTRACE_BACKTRACE)
   add_definitions(-DBOOST_STACKTRACE_USE_BACKTRACE)
-  find_library(BACKTRACE_LIB NAMES backtrace)
-  find_path(BACKTRACE_INCLUDE_DIR NAMES backtrace.h)
+
+  find_package(PkgConfig QUIET)
+  if(PKG_CONFIG_FOUND)
+    pkg_check_modules(BACKTRACE libbacktrace)
+  endif()
 endif()
 
 # Enable NANO_TRACING by default in Debug builds
