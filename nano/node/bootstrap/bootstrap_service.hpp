@@ -212,6 +212,9 @@ private:
 
 	nano::thread_pool workers;
 	nano::random_generator_mt rng;
+
+	// Add this helper method declaration
+	void attempt_optimistic_election (nano::secure::transaction const & tx, nano::account const & account);
 };
 
 nano::stat::detail to_stat_detail (bootstrap_service::query_type);

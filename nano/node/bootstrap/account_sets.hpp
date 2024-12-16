@@ -48,7 +48,7 @@ namespace bootstrap
 		bool priority_down (nano::account const & account);
 		void priority_set (nano::account const & account, double priority = priority_initial);
 
-		void block (nano::account const & account, nano::block_hash const & dependency);
+		bool block (nano::account const & account, nano::block_hash const & dependency);
 		void unblock (nano::account const & account, std::optional<nano::block_hash> const & hash = std::nullopt);
 
 		void timestamp_set (nano::account const & account);

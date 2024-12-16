@@ -296,8 +296,12 @@ void nano::bootstrap_service::inspect (secure::transaction const & tx, nano::blo
 
 				if (!account.is_zero () && !source_hash.is_zero ())
 				{
-					// Mark account as blocked because it is missing the source block
-					accounts.block (account, source_hash);
+					// Mark account as blocked because it is missing the source block 
+					if (accounts.block (account, source_hash))
+					{
+						// Account was dropped from priority set, try to schedule optimistic election
+						attempt_optimistic_election (tx, account);
+					}
 				}
 			}
 		}
@@ -863,14 +867,7 @@ bool nano::bootstrap_service::process (const nano::asc_pull_ack::blocks_payload 
 				{
 					// Account was dropped from priority set, try to schedule optimistic election
 					auto transaction = ledger.tx_begin_read ();
-					if (auto info = ledger.store.account.get (transaction, tag.account))
-					{
-						if (auto conf_info = ledger.store.confirmation_height.get (transaction, tag.account))
-						{
-							stats.inc (nano::stat::type::bootstrap_verify_blocks, nano::stat::detail::started_optimistic);
-							scheduler_optimistic.activate (tag.account, *info, *conf_info);
-						}
-					}
+					attempt_optimistic_election (transaction, tag.account);
 				}
 				accounts.timestamp_reset (tag.account);
 
@@ -1191,4 +1188,16 @@ nano::container_info nano::bootstrap_service::container_info () const
 nano::stat::detail nano::to_stat_detail (nano::bootstrap_service::query_type type)
 {
 	return nano::enum_util::cast<nano::stat::detail> (type);
+}
+
+void nano::bootstrap_service::attempt_optimistic_election (nano::secure::transaction const & tx, nano::account const & account)
+{
+	if (auto info = ledger.store.account.get (tx, account))
+	{
+		if (auto conf_info = ledger.store.confirmation_height.get (tx, account))
+		{
+			stats.inc (nano::stat::type::bootstrap_verify_blocks, nano::stat::detail::started_optimistic);
+			scheduler_optimistic.activate (account, *info, *conf_info);
+		}
+	}
 }

@@ -106,7 +106,7 @@ void nano::bootstrap::account_sets::priority_set (nano::account const & account,
 	}
 }
 
-void nano::bootstrap::account_sets::block (nano::account const & account, nano::block_hash const & dependency)
+bool nano::bootstrap::account_sets::block (nano::account const & account, nano::block_hash const & dependency)
 {
 	debug_assert (!account.is_zero ());
 
@@ -119,10 +119,12 @@ void nano::bootstrap::account_sets::block (nano::account const & account, nano::
 		debug_assert (blocking.get<tag_account> ().count (account) == 0);
 		blocking.get<tag_account> ().insert ({ account, dependency });
 		trim_overflow ();
+		return true;
 	}
 	else
 	{
 		stats.inc (nano::stat::type::bootstrap_account_sets, nano::stat::detail::block_failed);
+		return false;
 	}
 }
 
