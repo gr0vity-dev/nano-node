@@ -50,11 +50,11 @@ void nano::bootstrap::account_sets::priority_up (nano::account const & account)
 	}
 }
 
-void nano::bootstrap::account_sets::priority_down (nano::account const & account)
+bool nano::bootstrap::account_sets::priority_down (nano::account const & account)
 {
 	if (account.is_zero ())
 	{
-		return;
+		return false;
 	}
 
 	if (auto it = priorities.get<tag_account> ().find (account); it != priorities.get<tag_account> ().end ())
@@ -67,6 +67,7 @@ void nano::bootstrap::account_sets::priority_down (nano::account const & account
 		{
 			stats.inc (nano::stat::type::bootstrap_account_sets, nano::stat::detail::erase_by_threshold);
 			priorities.get<tag_account> ().erase (it);
+			return true;
 		}
 		else
 		{
@@ -80,6 +81,7 @@ void nano::bootstrap::account_sets::priority_down (nano::account const & account
 	{
 		stats.inc (nano::stat::type::bootstrap_account_sets, nano::stat::detail::deprioritize_failed);
 	}
+	return false;
 }
 
 void nano::bootstrap::account_sets::priority_set (nano::account const & account, double priority)

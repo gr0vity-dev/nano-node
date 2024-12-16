@@ -30,7 +30,7 @@ namespace nano
 class bootstrap_service
 {
 public:
-	bootstrap_service (nano::node_config const &, nano::block_processor &, nano::ledger &, nano::network &, nano::stats &, nano::logger &);
+	bootstrap_service (nano::node_config const &, nano::block_processor &, nano::ledger &, nano::network &, nano::stats &, nano::logger &, nano::scheduler::optimistic &);
 	~bootstrap_service ();
 
 	void start ();
@@ -60,6 +60,7 @@ private: // Dependencies
 	nano::network & network;
 	nano::stats & stats;
 	nano::logger & logger;
+	nano::scheduler::optimistic & scheduler_optimistic;
 
 public: // Tag
 	enum class query_type

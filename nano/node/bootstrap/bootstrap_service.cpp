@@ -18,7 +18,7 @@
 
 using namespace std::chrono_literals;
 
-nano::bootstrap_service::bootstrap_service (nano::node_config const & node_config_a, nano::block_processor & block_processor_a, nano::ledger & ledger_a, nano::network & network_a, nano::stats & stat_a, nano::logger & logger_a) :
+nano::bootstrap_service::bootstrap_service (nano::node_config const & node_config_a, nano::block_processor & block_processor_a, nano::ledger & ledger_a, nano::network & network_a, nano::stats & stat_a, nano::logger & logger_a, nano::scheduler::optimistic & scheduler_optimistic_a) :
 	config{ node_config_a.bootstrap },
 	network_constants{ node_config_a.network_params.network },
 	block_processor{ block_processor_a },
@@ -26,6 +26,7 @@ nano::bootstrap_service::bootstrap_service (nano::node_config const & node_confi
 	network{ network_a },
 	stats{ stat_a },
 	logger{ logger_a },
+	scheduler_optimistic{ scheduler_optimistic_a },
 	accounts{ config.account_sets, stats },
 	database_scan{ ledger },
 	frontiers{ config.frontier_scan, stats },
@@ -858,7 +859,19 @@ bool nano::bootstrap_service::process (const nano::asc_pull_ack::blocks_payload 
 			{
 				nano::lock_guard<nano::mutex> lock{ mutex };
 
-				accounts.priority_down (tag.account);
+				if (accounts.priority_down (tag.account))
+				{
+					// Account was dropped from priority set, try to schedule optimistic election
+					auto transaction = ledger.tx_begin_read ();
+					if (auto info = ledger.store.account.get (transaction, tag.account))
+					{
+						if (auto conf_info = ledger.store.confirmation_height.get (transaction, tag.account))
+						{
+							stats.inc (nano::stat::type::bootstrap_verify_blocks, nano::stat::detail::started_optimistic);
+							scheduler_optimistic.activate (tag.account, *info, *conf_info);
+						}
+					}
+				}
 				accounts.timestamp_reset (tag.account);
 
 				if (tag.source == query_source::database)

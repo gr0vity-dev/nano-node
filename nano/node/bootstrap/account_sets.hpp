@@ -45,7 +45,7 @@ namespace bootstrap
 		 * Decreases account priority
 		 * Current implementation divides priority by 2.0f and saturates down to 1.0f.
 		 */
-		void priority_down (nano::account const & account);
+		bool priority_down (nano::account const & account);
 		void priority_set (nano::account const & account, double priority = priority_initial);
 
 		void block (nano::account const & account, nano::block_hash const & dependency);
