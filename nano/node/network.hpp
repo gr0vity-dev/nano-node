@@ -100,6 +100,7 @@ public:
 	void flood_keepalive_self (float scale = 0.5f) const;
 	void flood_vote (std::shared_ptr<nano::vote> const &, float scale, bool rebroadcasted = false) const;
 	void flood_vote_pr (std::shared_ptr<nano::vote> const &, bool rebroadcasted = false) const;
+	void flood_vote_pr_subset (std::shared_ptr<nano::vote> const &, float scale = 1.0f, bool rebroadcasted = false) const;
 	void flood_vote_non_pr (std::shared_ptr<nano::vote> const &, float scale, bool rebroadcasted = false) const;
 	// Flood block to all PRs and a random selection of non-PRs
 	void flood_block_initial (std::shared_ptr<nano::block> const &) const;
@@ -123,6 +124,7 @@ public:
 
 	std::deque<std::shared_ptr<nano::transport::channel>> list (std::size_t max_count = 0, uint8_t minimum_version = 0) const;
 	std::deque<std::shared_ptr<nano::transport::channel>> list_non_pr (std::size_t max_count, uint8_t minimum_version = 0) const;
+	std::deque<std::shared_ptr<nano::transport::channel>> list_pr (std::size_t max_count = 0, uint8_t minimum_version = 0) const;
 
 	// Desired fanout for a given scale
 	std::size_t fanout (float scale = 1.0f) const;

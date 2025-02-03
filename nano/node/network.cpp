@@ -315,6 +315,15 @@ void nano::network::flood_vote_pr (std::shared_ptr<nano::vote> const & vote, boo
 	}
 }
 
+void nano::network::flood_vote_pr_subset (std::shared_ptr<nano::vote> const & vote, float scale, bool rebroadcasted) const
+{
+	nano::confirm_ack message{ node.network_params.network, vote, rebroadcasted };
+	for (auto const & channel : list_pr (fanout (scale)))
+	{
+		channel->send (message, rebroadcasted ? nano::transport::traffic_type::vote_rebroadcast : nano::transport::traffic_type::vote);
+	}
+}
+
 void nano::network::flood_block_many (std::deque<std::shared_ptr<nano::block>> blocks, nano::transport::traffic_type type, std::chrono::milliseconds delay, std::function<void ()> callback) const
 {
 	if (blocks.empty ())
@@ -404,6 +413,27 @@ std::deque<std::shared_ptr<nano::transport::channel>> nano::network::list (std::
 	if (max_count > 0 && result.size () > max_count)
 	{
 		result.resize (max_count, nullptr);
+	}
+	return result;
+}
+
+std::deque<std::shared_ptr<nano::transport::channel>> nano::network::list_pr (std::size_t max_count, uint8_t minimum_version) const
+{
+	auto prs = node.rep_crawler.principal_representatives ();
+	std::deque<std::shared_ptr<nano::transport::channel>> result;
+
+	for (auto const & pr : prs)
+	{
+		if (pr.channel->get_network_version () >= minimum_version)
+		{
+			result.push_back (pr.channel);
+		}
+	}
+
+	nano::random_pool_shuffle (result.begin (), result.end ());
+	if (max_count > 0 && result.size () > max_count)
+	{
+		result.resize (max_count);
 	}
 	return result;
 }
