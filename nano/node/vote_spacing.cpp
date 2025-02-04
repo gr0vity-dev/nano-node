@@ -1,5 +1,10 @@
 #include <nano/node/vote_spacing.hpp>
 
+nano::vote_spacing::vote_spacing (std::chrono::milliseconds const & delay_a) :
+	delay{ delay_a }
+{
+}
+
 void nano::vote_spacing::trim ()
 {
 	recent.get<tag_time> ().erase (recent.get<tag_time> ().begin (), recent.get<tag_time> ().upper_bound (std::chrono::steady_clock::now () - delay));

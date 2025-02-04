@@ -63,8 +63,27 @@ bool nano::vote_rebroadcaster::put (std::shared_ptr<nano::vote> const & vote)
 		{
 			if (!reps.exists (vote->account))
 			{
-				queue.push_back (vote);
-				added = true;
+				// Check if we should rebroadcast this vote based on spacing rules
+				bool should_rebroadcast = true;
+				for (auto const & hash : vote->hashes)
+				{
+					if (!spacing.votable (hash, hash))
+					{
+						should_rebroadcast = false;
+						break;
+					}
+				}
+				
+				if (should_rebroadcast)
+				{
+					// Flag all hashes in the vote
+					for (auto const & hash : vote->hashes)
+					{
+						spacing.flag (hash, hash);
+					}
+					queue.push_back (vote);
+					added = true;
+				}
 			}
 		}
 	}
@@ -102,6 +121,7 @@ void nano::vote_rebroadcaster::run ()
 
 			reps = wallets.reps ();
 			enable = !reps.have_half_rep (); // Disable vote rebroadcasting if the node has a principal representative (or close to)
+			spacing.trim ();
 		}
 
 		if (!queue.empty ())
@@ -113,12 +133,13 @@ void nano::vote_rebroadcaster::run ()
 
 			stats.inc (nano::stat::type::vote_rebroadcaster, nano::stat::detail::rebroadcast);
 			stats.add (nano::stat::type::vote_rebroadcaster, nano::stat::detail::rebroadcast_hashes, vote->hashes.size ());
-			//network.flood_vote (vote, 0.5f, /* rebroadcasted */ true); // TODO: Track number of peers that we sent the vote to
+			network.flood_vote (vote, 0.5f);
 
 			lock.lock ();
 		}
 	}
 }
+
 
 nano::container_info nano::vote_rebroadcaster::container_info () const
 {

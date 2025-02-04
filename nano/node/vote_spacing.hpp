@@ -1,7 +1,6 @@
 #pragma once
 
 #include <nano/lib/numbers.hpp>
-#include <nano/lib/numbers_templ.hpp>
 
 #include <boost/multi_index/hashed_index.hpp>
 #include <boost/multi_index/member.hpp>
@@ -16,31 +15,39 @@ namespace nano
 {
 class vote_spacing final
 {
+public:
+	vote_spacing (std::chrono::milliseconds const & delay = std::chrono::milliseconds{ 5 * 60 * 1000 });
+	bool votable (nano::root const & root_a, nano::block_hash const & hash_a) const;
+	void flag (nano::root const & root_a, nano::block_hash const & hash_a);
+	std::size_t size () const;
+	void trim ();
+
+private:
 	class entry
 	{
 	public:
 		nano::root root;
 		std::chrono::steady_clock::time_point time;
 		nano::block_hash hash;
+		entry (nano::root const & root_a, std::chrono::steady_clock::time_point const & time_a, nano::block_hash const & hash_a) :
+			root (root_a),
+			time (time_a),
+			hash (hash_a)
+		{
+		}
 	};
-
+	
+	std::chrono::milliseconds const delay;
+	// clang-format off
+	class tag_root {};
+	class tag_time {};
 	boost::multi_index_container<entry,
 	mi::indexed_by<
-	mi::hashed_non_unique<mi::tag<class tag_root>,
-	mi::member<entry, nano::root, &entry::root>>,
-	mi::ordered_non_unique<mi::tag<class tag_time>,
-	mi::member<entry, std::chrono::steady_clock::time_point, &entry::time>>>>
+		mi::ordered_non_unique<mi::tag<tag_root>,
+			mi::member<entry, nano::root, &entry::root>>,
+		mi::ordered_non_unique<mi::tag<tag_time>,
+			mi::member<entry, std::chrono::steady_clock::time_point, &entry::time>>>>
 	recent;
-	std::chrono::milliseconds const delay;
-	void trim ();
-
-public:
-	vote_spacing (std::chrono::milliseconds const & delay) :
-		delay{ delay }
-	{
-	}
-	bool votable (nano::root const & root_a, nano::block_hash const & hash_a) const;
-	void flag (nano::root const & root_a, nano::block_hash const & hash_a);
-	std::size_t size () const;
+	// clang-format on
 };
 }
