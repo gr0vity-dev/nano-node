@@ -63,27 +63,28 @@ bool nano::vote_rebroadcaster::put (std::shared_ptr<nano::vote> const & vote)
 		{
 			if (!reps.exists (vote->account))
 			{
-				// Check if we should rebroadcast this vote based on spacing rules
-				bool should_rebroadcast = true;
-				for (auto const & hash : vote->hashes)
+				// Use vote signature as unique identifier for spacing
+				// Convert first 32 bytes of signature to root
+				nano::root signature_root;
+				std::memcpy(signature_root.bytes.data(), vote->signature.bytes.data(), sizeof(nano::root));
+				// Convert second 32 bytes of signature to block_hash
+				nano::block_hash signature_hash;
+				std::memcpy(signature_hash.bytes.data(), vote->signature.bytes.data() + sizeof(nano::root), sizeof(nano::block_hash));
+
+				if (spacing.votable(signature_root, signature_hash))
 				{
-					if (!spacing.votable (hash, hash))
-					{
-						should_rebroadcast = false;
-						break;
-					}
-				}
-				
-				if (should_rebroadcast)
-				{
-					// Flag all hashes in the vote
-					for (auto const & hash : vote->hashes)
-					{
-						spacing.flag (hash, hash);
-					}
+					spacing.flag(signature_root, signature_hash);
+					stats.add(nano::stat::type::vote_rebroadcaster, nano::stat::detail::vote_spacing, spacing.size());
 					queue.push_back (vote);
 					added = true;
+					logger.debug(nano::log::type::vote_rebroadcaster, "Vote queued for rebroadcast - Signature: {}",
+                               vote->signature.to_string());
 				}
+				else
+                {
+                    logger.debug(nano::log::type::vote_rebroadcaster, "Vote rejected by spacing - Signature: {}",
+                               vote->signature.to_string());
+                }
 			}
 		}
 	}
@@ -120,8 +121,7 @@ void nano::vote_rebroadcaster::run ()
 			stats.inc (nano::stat::type::vote_rebroadcaster, nano::stat::detail::refresh);
 
 			reps = wallets.reps ();
-			enable = !reps.have_half_rep (); // Disable vote rebroadcasting if the node has a principal representative (or close to)
-			spacing.trim ();
+			enable = !reps.have_half_rep (); // Disable vote rebroadcasting if the node has a principal representative (or close to)			
 		}
 
 		if (!queue.empty ())

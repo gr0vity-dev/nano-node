@@ -659,6 +659,7 @@ enum class detail
 
 	// vote_rebroadcaster
 	rebroadcast_hashes,
+	vote_spacing,
 
 	_last // Must be the last enum
 };

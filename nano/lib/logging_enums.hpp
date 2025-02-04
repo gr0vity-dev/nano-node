@@ -87,6 +87,7 @@ enum class type
 	confirming_set,
 	bounded_backlog,
 	request_aggregator,
+	vote_rebroadcaster,
 
 	// bootstrap
 	bulk_pull_client,
