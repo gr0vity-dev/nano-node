@@ -208,7 +208,9 @@ add_library(
   websocketconfig.cpp
   websocket_stream.hpp
   websocket_stream.cpp
-  xorshift.hpp)
+  xorshift.hpp
+  vote_signature_spacing.hpp
+  vote_signature_spacing.cpp)
 
 target_link_libraries(
   node

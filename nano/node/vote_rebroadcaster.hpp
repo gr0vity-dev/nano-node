@@ -1,7 +1,7 @@
 #pragma once
 
 #include <nano/lib/numbers.hpp>
-#include <nano/node/vote_spacing.hpp>
+#include <nano/node/vote_signature_spacing.hpp>
 #include <nano/secure/common.hpp>
 
 #include <nano/node/fwd.hpp>
@@ -55,7 +55,7 @@ private:
 	std::deque<std::shared_ptr<nano::vote>> queue;
 	nano::wallet_representatives reps;
 	nano::interval refresh_interval;
-	nano::vote_spacing spacing{ vote_spacing_delay };
+	nano::vote_signature_spacing spacing;
 
 	bool stopped{ false };
 	std::condition_variable condition;

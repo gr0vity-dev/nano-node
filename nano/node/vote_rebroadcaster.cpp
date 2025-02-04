@@ -13,7 +13,8 @@ nano::vote_rebroadcaster::vote_rebroadcaster (nano::vote_router & vote_router_a,
 	network{ network_a },
 	wallets{ wallets_a },
 	stats{ stats_a },
-	logger{ logger_a }
+	logger{ logger_a },
+	spacing{ vote_spacing_delay, logger_a }
 {
 	vote_router.vote_processed.add ([this] (std::shared_ptr<nano::vote> const & vote, nano::vote_source source, std::unordered_map<nano::block_hash, nano::vote_code> const & results) {
 		bool processed = std::any_of (results.begin (), results.end (), [] (auto const & result) {
@@ -63,17 +64,9 @@ bool nano::vote_rebroadcaster::put (std::shared_ptr<nano::vote> const & vote)
 		{
 			if (!reps.exists (vote->account))
 			{
-				// Use vote signature as unique identifier for spacing
-				// Convert first 32 bytes of signature to root
-				nano::root signature_root;
-				std::memcpy(signature_root.bytes.data(), vote->signature.bytes.data(), sizeof(nano::root));
-				// Convert second 32 bytes of signature to block_hash
-				nano::block_hash signature_hash;
-				std::memcpy(signature_hash.bytes.data(), vote->signature.bytes.data() + sizeof(nano::root), sizeof(nano::block_hash));
-
-				if (spacing.votable(signature_root, signature_hash))
+				if (spacing.votable(vote->signature))
 				{
-					spacing.flag(signature_root, signature_hash);
+					spacing.flag(vote->signature);
 					stats.add(nano::stat::type::vote_rebroadcaster, nano::stat::detail::vote_spacing, spacing.size());
 					queue.push_back (vote);
 					added = true;
