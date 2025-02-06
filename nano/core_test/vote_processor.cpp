@@ -263,6 +263,7 @@ TEST (vote_processor, no_broadcast_local_with_a_principal_representative)
 	flags.disable_request_loop = true;
 	nano::node_config config1, config2;
 	config1.backlog_scan.enable = false;
+	config1.vote_rebroadcaster.interval = 10ms;
 	auto & node (*system.add_node (config1, flags));
 	config2.backlog_scan.enable = false;
 	config2.peering_port = system.get_available_port ();
@@ -291,7 +292,7 @@ TEST (vote_processor, no_broadcast_local_with_a_principal_representative)
 	ASSERT_TRUE (node.wallets.reps ().exists (nano::dev::genesis_key.pub));
 	ASSERT_TRUE (node.wallets.reps ().have_half_rep ()); // Genesis balance after `send' is over both half_rep and PR threshold.
 	// Process a vote with a key that is in the local wallet.
-	auto vote = std::make_shared<nano::vote> (nano::dev::genesis_key.pub, nano::dev::genesis_key.prv, nano::milliseconds_since_epoch (), nano::vote::duration_max, std::vector<nano::block_hash>{ send->hash () });
+	auto vote = nano::test::make_final_vote (nano::dev::genesis_key, std::vector<std::shared_ptr<nano::block>>{ send });
 	ASSERT_EQ (nano::vote_code::vote, node.vote_router.vote (vote).at (send->hash ()));
 	// Make sure the vote was processed.
 	auto election (node.active.election (send->qualified_root ()));
@@ -300,8 +301,13 @@ TEST (vote_processor, no_broadcast_local_with_a_principal_representative)
 	auto existing (votes.find (nano::dev::genesis_key.pub));
 	ASSERT_NE (votes.end (), existing);
 	ASSERT_EQ (vote->timestamp (), existing->second.timestamp);
-	// Ensure the vote was not broadcast.
-	ASSERT_EQ (0, node.stats.count (nano::stat::type::message, nano::stat::detail::confirm_ack, nano::stat::dir::out));
+
+	// The vote will be broadcast by the original node
+	ASSERT_TIMELY_EQ (5s, 1, node.stats.count (nano::stat::type::vote_generator, nano::stat::detail::generator_broadcasts));
+	std::this_thread::sleep_for (200ms);
+	// The vote will be broadcast by the original node once but should not be republished
+	// It's in candidate set and broadcast during the run() loop
+	ASSERT_EQ (1, node.stats.count (nano::stat::type::message, nano::stat::detail::confirm_ack, nano::stat::dir::out));
 	ASSERT_EQ (1, node.stats.count (nano::stat::type::message, nano::stat::detail::publish, nano::stat::dir::out));
 }
 

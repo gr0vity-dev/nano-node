@@ -8,7 +8,8 @@
 #include <nano/node/wallet.hpp>
 #include <nano/secure/vote.hpp>
 
-nano::vote_rebroadcaster::vote_rebroadcaster (nano::vote_router & vote_router_a, nano::network & network_a, nano::wallets & wallets_a, nano::stats & stats_a, nano::logger & logger_a) :
+nano::vote_rebroadcaster::vote_rebroadcaster (vote_rebroadcaster_config const & config_a, nano::vote_router & vote_router_a, nano::network & network_a, nano::wallets & wallets_a, nano::stats & stats_a, nano::logger & logger_a) :
+	config{ config_a },
 	vote_router{ vote_router_a },
 	network{ network_a },
 	wallets{ wallets_a },
@@ -96,7 +97,7 @@ void nano::vote_rebroadcaster::run ()
 
 		stats.inc (nano::stat::type::vote_rebroadcaster, nano::stat::detail::loop);
 
-		if (refresh_interval.elapse (15s))
+		if (refresh_interval.elapse (config.interval))
 		{
 			stats.inc (nano::stat::type::vote_rebroadcaster, nano::stat::detail::refresh);
 
@@ -109,6 +110,11 @@ void nano::vote_rebroadcaster::run ()
 			auto vote = queue.front ();
 			queue.pop_front ();
 
+			if (!enable)
+			{
+				continue; // Discard votes added while the node was not a representative
+			}
+			
 			lock.unlock ();
 
 			stats.inc (nano::stat::type::vote_rebroadcaster, nano::stat::detail::rebroadcast);
@@ -116,6 +122,7 @@ void nano::vote_rebroadcaster::run ()
 			network.flood_vote (vote, 0.5f, /* rebroadcasted */ true); // TODO: Track number of peers that we sent the vote to
 
 			lock.lock ();
+			
 		}
 	}
 }
@@ -127,4 +134,18 @@ nano::container_info nano::vote_rebroadcaster::container_info () const
 	nano::container_info info;
 	info.put ("queue", queue.size ());
 	return info;
+}
+
+nano::error nano::vote_rebroadcaster_config::serialize (nano::tomlconfig & toml) const
+{
+	toml.put ("interval", interval.count (), "Time between rebroadcast operations in milliseconds\ntype:uint64");
+	return toml.get_error ();
+}
+
+nano::error nano::vote_rebroadcaster_config::deserialize (nano::tomlconfig & toml)
+{
+	auto interval_l = interval.count ();
+	toml.get ("interval", interval_l);
+	interval = std::chrono::milliseconds (interval_l);
+	return toml.get_error ();
 }
