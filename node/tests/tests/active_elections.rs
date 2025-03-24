@@ -540,6 +540,8 @@ fn inactive_votes_cache_election_start() {
     ));
     node.vote_processor_queue
         .vote(vote2, None, VoteSource::Live, None);
+    // Wait a moment to prevent arbitrary failing
+    sleep(Duration::from_millis(200));
     // Only election for send1 should start, other blocks are missing dependencies and don't have enough final weight
     assert_timely_eq2(|| node.active.len(), 1);
     assert!(node.active.is_active_hash(&send1.hash()));
