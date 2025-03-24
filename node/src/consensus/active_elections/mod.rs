@@ -228,6 +228,9 @@ impl ActiveElections {
             self.clock.now(),
         );
 
+        // Add debug log to track if insert is failing
+        debug!(inserted = inserted, block = %hash, behavior = ?election_behavior, "Election insert result");
+
         if inserted {
             self.stats
                 .inc(StatType::ActiveElections, DetailType::Started);

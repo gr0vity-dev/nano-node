@@ -80,15 +80,42 @@ impl ActiveElectionsContainer {
         erased_callback: Option<ErasedCallback>,
         now: Timestamp,
     ) -> bool {
+        let hash = block.hash();
+        
         if self.stopped {
+            tracing::debug!(block = %hash, "Insert failed: AEC is stopped");
             return false;
         }
 
-        let hash = block.hash();
+        if self.cooldown.is_cooling_down() {
+            tracing::debug!(
+                block = %hash, 
+                behavior = ?election_behavior,
+                reason = ?self.cooldown.reason(),
+                "Insert failed: AEC is cooling down"
+            );
+            // Don't return false here - we want to allow elections to start even during cooldown
+        }
+
+        // Check if we've reached max elections and election_behavior isn't high priority
+        if self.roots.len() >= self.max_elections && 
+           election_behavior != ElectionBehavior::Priority && 
+           election_behavior != ElectionBehavior::Manual {
+            tracing::debug!(
+                block = %hash, 
+                behavior = ?election_behavior,
+                size = self.roots.len(),
+                max = self.max_elections,
+                "Insert failed: Max elections reached"
+            );
+            return false;
+        }
+
         let root = block.qualified_root();
 
         if self.recently_confirmed.root_exists(&root) {
             // This block or a fork got recently confirmed, so there is no need for a new election.
+            tracing::debug!(block = %hash, "Insert failed: Root exists in recently_confirmed");
             return false;
         }
 
@@ -101,6 +128,19 @@ impl ActiveElectionsContainer {
             if upgraded {
                 *self.count_by_behavior_mut(previous_behavior) -= 1;
                 *self.count_by_behavior_mut(election_behavior) += 1;
+                tracing::debug!(
+                    block = %hash, 
+                    from = ?previous_behavior,
+                    to = ?election_behavior,
+                    "Election behavior upgraded"
+                );
+            } else {
+                tracing::debug!(
+                    block = %hash, 
+                    existing = ?previous_behavior,
+                    requested = ?election_behavior,
+                    "Insert failed: Election already exists for this root"
+                );
             }
             return false;
         }
@@ -116,6 +156,14 @@ impl ActiveElectionsContainer {
         // Keep track of election count by election type
         *self.count_by_behavior_mut(election_behavior) += 1;
         self.vote_router.connect(hash, root);
+        
+        tracing::debug!(
+            block = %hash, 
+            behavior = ?election_behavior,
+            count = %self.roots.len(),
+            "Election inserted successfully"
+        );
+        
         true
     }
 

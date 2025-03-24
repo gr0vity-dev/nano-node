@@ -26,7 +26,6 @@ use std::{
     net::SocketAddrV6,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::SyncSender,
         Arc, RwLock,
     },
     time::SystemTime,

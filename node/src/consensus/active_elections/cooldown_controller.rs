@@ -30,6 +30,16 @@ impl CooldownController {
         self.source_states[source as usize]
     }
 
+    pub fn reason(&self) -> Option<AecCooldownReason> {
+        for i in 0..AecCooldownReason::COUNT {
+            if self.source_states[i] {
+                // Convert index back to enum variant
+                return num_traits::FromPrimitive::from_usize(i);
+            }
+        }
+        None
+    }
+
     pub fn set_cooldown(&mut self, cooldown_source: AecCooldownReason, cool_down: bool) {
         // Update the specific source state
         let index = cooldown_source as usize;
