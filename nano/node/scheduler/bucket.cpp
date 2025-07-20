@@ -4,6 +4,41 @@
 #include <nano/node/node.hpp>
 #include <nano/node/scheduler/bucket.hpp>
 
+#include <chrono>
+
+/*
+ * simple_cps_limiter
+ */
+
+nano::scheduler::simple_cps_limiter::simple_cps_limiter (double baseline_cps, size_t bucket_count) :
+	baseline_cps{ baseline_cps },
+	per_bucket_cps{ baseline_cps / bucket_count }
+{
+	// Initialize all bucket states
+	for (auto & bucket : buckets)
+	{
+		bucket.min_interval_seconds = 1.0 / per_bucket_cps;
+	}
+}
+
+bool nano::scheduler::simple_cps_limiter::can_activate_now (size_t bucket_id)
+{
+	debug_assert (bucket_id < buckets.size ());
+	
+	auto now = std::chrono::steady_clock::now ();
+	auto & bucket_state = buckets[bucket_id];
+	
+	auto elapsed = std::chrono::duration<double> (now - bucket_state.last_activation).count ();
+	return elapsed >= bucket_state.min_interval_seconds;
+}
+
+void nano::scheduler::simple_cps_limiter::on_block_activated (size_t bucket_id)
+{
+	debug_assert (bucket_id < buckets.size ());
+	
+	buckets[bucket_id].last_activation = std::chrono::steady_clock::now ();
+}
+
 /*
  * bucket
  */
@@ -14,6 +49,11 @@ nano::scheduler::bucket::bucket (nano::bucket_index index_a, priority_bucket_con
 	active{ active_a },
 	stats{ stats_a }
 {
+	// Initialize CPS rate limiter if baseline_cps is configured
+	if (config.baseline_cps > 0.0)
+	{
+		rate_limiter = std::make_unique<simple_cps_limiter> (config.baseline_cps, 63); // 63 buckets
+	}
 }
 
 nano::scheduler::bucket::~bucket ()
@@ -80,6 +120,13 @@ bool nano::scheduler::bucket::activate ()
 		return false; // Not activated
 	}
 
+	// Check rate limit BEFORE removing from queue
+	if (rate_limiter && !rate_limiter->can_activate_now (index))
+	{
+		stats.inc (nano::stat::type::election_bucket, nano::stat::detail::cps_rate_limited);
+		return false; // Block stays in queue, try next iteration
+	}
+
 	block_entry top = *queue.begin ();
 	queue.erase (queue.begin ());
 
@@ -96,6 +143,12 @@ bool nano::scheduler::bucket::activate ()
 	{
 		release_assert (result.election);
 		elections.get<tag_root> ().insert ({ result.election, result.election->qualified_root, priority });
+
+		// Record successful activation for rate limiting
+		if (rate_limiter)
+		{
+			rate_limiter->on_block_activated (index);
+		}
 
 		stats.inc (nano::stat::type::election_bucket, nano::stat::detail::activate_success);
 	}
@@ -198,6 +251,7 @@ nano::error nano::scheduler::priority_bucket_config::serialize (nano::tomlconfig
 	toml.put ("max_blocks", max_blocks, "Maximum number of blocks to sort by priority per bucket. \nType: uint64");
 	toml.put ("reserved_elections", reserved_elections, "Number of guaranteed slots per bucket available for election activation. \nType: uint64");
 	toml.put ("max_elections", max_elections, "Maximum number of slots per bucket available for election activation if the active election count is below the configured limit. \nType: uint64");
+	toml.put ("baseline_cps", baseline_cps, "Baseline CPS rate limit across all buckets. Set to 0.0 to disable rate limiting. \nType: double");
 
 	return toml.get_error ();
 }
@@ -207,6 +261,7 @@ nano::error nano::scheduler::priority_bucket_config::deserialize (nano::tomlconf
 	toml.get ("max_blocks", max_blocks);
 	toml.get ("reserved_elections", reserved_elections);
 	toml.get ("max_elections", max_elections);
+	toml.get ("baseline_cps", baseline_cps);
 
 	return toml.get_error ();
 }

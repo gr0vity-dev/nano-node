@@ -18,11 +18,36 @@
 #include <deque>
 #include <memory>
 #include <set>
+#include <chrono>
+#include <array>
 
 namespace mi = boost::multi_index;
 
 namespace nano::scheduler
 {
+class simple_cps_limiter
+{
+public:
+	simple_cps_limiter (double baseline_cps, size_t bucket_count);
+	
+	// Returns true if bucket can activate a block now
+	bool can_activate_now (size_t bucket_id);
+	
+	// Record that a block was activated
+	void on_block_activated (size_t bucket_id);
+
+private:
+	const double baseline_cps;
+	const double per_bucket_cps; // baseline_cps / bucket_count
+	
+	struct bucket_state {
+		std::chrono::steady_clock::time_point last_activation{};
+		double min_interval_seconds; // 1.0 / per_bucket_cps
+	};
+	
+	std::array<bucket_state, 63> buckets;
+};
+
 class priority_bucket_config final
 {
 public:
@@ -38,6 +63,9 @@ public:
 
 	// Maximum number of slots per bucket available for election activation if the active election count is below the configured limit. (node.active_elections.size)
 	std::size_t max_elections{ 150 };
+
+	// CPS rate limiting - 0.0 disables rate limiting
+	double baseline_cps{ 0.0 };
 };
 
 /**
@@ -76,6 +104,9 @@ private: // Dependencies
 	priority_bucket_config const & config;
 	nano::active_elections & active;
 	nano::stats & stats;
+
+private: // Rate limiting
+	std::unique_ptr<simple_cps_limiter> rate_limiter;
 
 private: // Blocks
 	struct block_entry

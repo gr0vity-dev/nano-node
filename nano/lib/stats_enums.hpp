@@ -633,6 +633,7 @@ enum class detail
 	// election bucket
 	activate_success,
 	cancel_lowest,
+	cps_rate_limited,
 
 	// query_type
 	blocks_by_hash,
