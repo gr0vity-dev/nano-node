@@ -13,17 +13,16 @@
 nano::scheduler::minute_based_cps_limiter::minute_based_cps_limiter (double baseline_cps, size_t bucket_count, double burst_multiplier) :
 	baseline_cps{ baseline_cps },
 	bucket_count{ bucket_count },
-	burst_multiplier{ burst_multiplier }
+	burst_multiplier{ burst_multiplier },
+	per_bucket_cps{ baseline_cps / bucket_count }
 {
 	// Calculate quotas for each bucket
-	double baseline_quota_per_minute = (baseline_cps * 60.0) / bucket_count;
-	uint32_t baseline_quota = static_cast<uint32_t> (std::max (1.0, baseline_quota_per_minute));
+	uint32_t baseline_quota = static_cast<uint32_t> (baseline_cps * 60.0) / bucket_count;
 	uint32_t burst_quota = static_cast<uint32_t> (burst_multiplier * baseline_quota);
-	
+
 	// Initialize all bucket states
 	for (auto & bucket : buckets)
 	{
-		bucket.baseline_quota_per_minute = baseline_quota;
 		bucket.burst_quota_per_minute = burst_quota;
 	}
 }
@@ -31,61 +30,63 @@ nano::scheduler::minute_based_cps_limiter::minute_based_cps_limiter (double base
 void nano::scheduler::minute_based_cps_limiter::update_minute_window (size_t bucket_id)
 {
 	debug_assert (bucket_id < buckets.size ());
-	
+
 	auto now = std::chrono::steady_clock::now ();
 	auto & bucket_state = buckets[bucket_id];
-	
+
 	// Check if we need to start a new minute
 	auto elapsed = std::chrono::duration_cast<std::chrono::minutes> (now - bucket_state.minute_start);
 	if (elapsed.count () >= 1)
 	{
 		// Reset counters for new minute
 		bucket_state.minute_start = now;
-		bucket_state.baseline_used_this_minute = 0;
-		bucket_state.burst_used_this_minute = 0;
+		bucket_state.confirmations_this_minute = 0;
 	}
 }
 
 bool nano::scheduler::minute_based_cps_limiter::can_activate_now (size_t bucket_id, bool account_is_idle)
 {
 	debug_assert (bucket_id < buckets.size ());
-	
+
 	auto & state = buckets[bucket_id];
+	auto now = std::chrono::steady_clock::now ();
 	update_minute_window (bucket_id);
-	
-	// Anyone can use baseline quota
-	if (state.baseline_used_this_minute < state.baseline_quota_per_minute)
+
+	// Never exceed baseline_cps for single bucket (max burst speed)
+	auto time_since_last = std::chrono::duration<double> (now - state.last_activation).count ();
+	if (time_since_last < (1.0 / baseline_cps))
 	{
-		return true; // Will use baseline quota
+		return false; // Too soon - prevents spikes
 	}
-	
-	// Burst requires ALL 3 conditions:
-	bool condition1 = state.burst_used_this_minute < state.burst_quota_per_minute; // bursting quota > 0
-	bool condition2 = account_is_idle; // account idle > 1 hour
-	bool condition3 = (state.baseline_used_this_minute + state.burst_used_this_minute) < state.baseline_quota_per_minute; // current usage < baseline
-	
-	if (condition1 && condition2 && condition3)
+
+	// Condition 1: Anyone can use baseline rate
+	double baseline_interval = 1.0 / per_bucket_cps; // 3.15 seconds at 20 CPS
+	if (time_since_last >= baseline_interval)
 	{
-		return true; // Will use burst quota
+		state.last_activation = now;
+		return true; // Use baseline rate - evenly distributed
 	}
-	
-	return false; // Both quotas exhausted or conditions not met
+
+	// Condition 2: Burst requires only 2 conditions
+	bool burst_quota_available = state.confirmations_this_minute < state.burst_quota_per_minute;
+
+	if (burst_quota_available && account_is_idle)
+	{
+		state.last_activation = now;
+		return true;
+	}
+
+	return false;
 }
 
-void nano::scheduler::minute_based_cps_limiter::on_block_activated (size_t bucket_id, bool used_burst_quota)
+void nano::scheduler::minute_based_cps_limiter::on_confirmation (size_t bucket_id)
 {
 	debug_assert (bucket_id < buckets.size ());
-	
+
 	auto & state = buckets[bucket_id];
-	
-	if (used_burst_quota)
-	{
-		state.burst_used_this_minute++;
-	}
-	else
-	{
-		state.baseline_used_this_minute++;
-	}
+	auto now = std::chrono::steady_clock::now ();
+	update_minute_window (bucket_id);
+	state.confirmations_this_minute++;
 }
 
 /*
@@ -162,11 +163,10 @@ bool nano::scheduler::bucket::election_overfill () const
 
 bool nano::scheduler::bucket::is_account_idle (uint64_t priority_timestamp) const
 {
-	// Simple heuristic: if the priority timestamp is more than 1 hour old, consider account idle
-	auto now = std::chrono::steady_clock::now ();
-	auto timestamp_time = std::chrono::steady_clock::time_point (std::chrono::milliseconds (priority_timestamp));
-	auto age = std::chrono::duration_cast<std::chrono::hours> (now - timestamp_time);
-	return age.count () >= 1;
+	// priority_timestamp is seconds since epoch (Unix timestamp)
+	auto now_seconds = nano::seconds_since_epoch ();
+	auto age_seconds = now_seconds > priority_timestamp ? now_seconds - priority_timestamp : 0;
+	return age_seconds >= 3600; // 1 hour = 3600 seconds
 }
 
 bool nano::scheduler::bucket::activate ()
@@ -180,47 +180,12 @@ bool nano::scheduler::bucket::activate ()
 
 	block_entry top = *queue.begin ();
 	bool account_is_idle = is_account_idle (top.time);
-	bool used_burst_quota = false;
 
 	// Check rate limit BEFORE removing from queue
-	if (rate_limiter)
+	if (rate_limiter && !rate_limiter->can_activate_now (index, account_is_idle))
 	{
-		if (!rate_limiter->can_activate_now (index, account_is_idle))
-		{
-			// Determine why activation was denied for better stats
-			auto & state = rate_limiter->buckets[index];
-			rate_limiter->update_minute_window (index);
-			
-			if (state.baseline_used_this_minute >= state.baseline_quota_per_minute)
-			{
-				// Baseline exhausted, check burst conditions
-				if (state.burst_used_this_minute >= state.burst_quota_per_minute)
-				{
-					stats.inc (nano::stat::type::election_bucket, nano::stat::detail::cps_burst_denied_quota);
-				}
-				else if (!account_is_idle)
-				{
-					stats.inc (nano::stat::type::election_bucket, nano::stat::detail::cps_burst_denied_not_idle);
-				}
-				else
-				{
-					stats.inc (nano::stat::type::election_bucket, nano::stat::detail::cps_burst_denied_over_baseline);
-				}
-			}
-			else
-			{
-				stats.inc (nano::stat::type::election_bucket, nano::stat::detail::cps_rate_limited);
-			}
-			return false; // Block stays in queue, try next iteration
-		}
-		
-		// Determine if this activation will use burst quota
-		auto & state = rate_limiter->buckets[index];
-		if (state.baseline_used_this_minute >= state.baseline_quota_per_minute)
-		{
-			used_burst_quota = true;
-			stats.inc (nano::stat::type::election_bucket, nano::stat::detail::cps_burst_allowed);
-		}
+		stats.inc (nano::stat::type::election_bucket, nano::stat::detail::cps_rate_limited);
+		return false; // Block stays in queue, try next iteration
 	}
 
 	queue.erase (queue.begin ());
@@ -231,6 +196,12 @@ bool nano::scheduler::bucket::activate ()
 	auto erase_callback = [this] (std::shared_ptr<nano::election> election) {
 		nano::lock_guard<nano::mutex> lock{ mutex };
 		elections.get<tag_root> ().erase (election->qualified_root);
+
+		// Track confirmations for Burst Quota
+		if (rate_limiter)
+		{
+			rate_limiter->on_confirmation (index);
+		}
 	};
 
 	auto result = active.insert (block, nano::election_behavior::priority, erase_callback);
@@ -238,12 +209,6 @@ bool nano::scheduler::bucket::activate ()
 	{
 		release_assert (result.election);
 		elections.get<tag_root> ().insert ({ result.election, result.election->qualified_root, priority });
-
-		// Record successful activation for rate limiting
-		if (rate_limiter)
-		{
-			rate_limiter->on_block_activated (index, used_burst_quota);
-		}
 
 		stats.inc (nano::stat::type::election_bucket, nano::stat::detail::activate_success);
 	}

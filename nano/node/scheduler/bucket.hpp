@@ -13,13 +13,13 @@
 #include <boost/multi_index/sequenced_index.hpp>
 #include <boost/multi_index_container.hpp>
 
+#include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <memory>
 #include <set>
-#include <chrono>
-#include <array>
 
 namespace mi = boost::multi_index;
 
@@ -29,12 +29,12 @@ class minute_based_cps_limiter
 {
 public:
 	minute_based_cps_limiter (double baseline_cps, size_t bucket_count, double burst_multiplier);
-	
+
 	// Returns true if bucket can activate a block now
 	bool can_activate_now (size_t bucket_id, bool account_is_idle);
-	
-	// Record that a block was activated  
-	void on_block_activated (size_t bucket_id, bool used_burst_quota);
+
+	// Record that a block was confirmed
+	void on_confirmation (size_t bucket_id);
 
 	void update_minute_window (size_t bucket_id);
 
@@ -42,19 +42,23 @@ private:
 	const double baseline_cps;
 	const size_t bucket_count;
 	const double burst_multiplier;
-	
+	const double per_bucket_cps; // baseline_cps / bucket_count for global throttling
+
 public:
-	struct bucket_minute_state {
+	struct bucket_state
+	{
 		std::chrono::steady_clock::time_point minute_start{};
-		uint32_t baseline_used_this_minute = 0;
-		uint32_t burst_used_this_minute = 0;
-		
+		uint32_t confirmations_this_minute = 0; // Single counter for confirmations
+
 		// Calculated from config
-		uint32_t baseline_quota_per_minute;  // baseline_cps * 60 / bucket_count
-		uint32_t burst_quota_per_minute;     // burst_multiplier * baseline_quota_per_minute
+		uint32_t baseline_quota_per_minute; // baseline_cps * 60 / bucket_count
+		uint32_t burst_quota_per_minute; // burst_multiplier * baseline_quota_per_minute
+
+		// Global throttling
+		std::chrono::steady_clock::time_point last_activation{};
 	};
-	
-	std::array<bucket_minute_state, 63> buckets;
+
+	std::array<bucket_state, 63> buckets;
 };
 
 class priority_bucket_config final
@@ -75,7 +79,7 @@ public:
 
 	// CPS rate limiting - 0.0 disables rate limiting
 	double baseline_cps{ 0.0 };
-	
+
 	// Burst multiplier for idle accounts - burst quota = burst_multiplier * baseline_quota
 	double burst_multiplier{ 10.0 };
 };
