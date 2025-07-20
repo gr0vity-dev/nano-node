@@ -25,27 +25,36 @@ namespace mi = boost::multi_index;
 
 namespace nano::scheduler
 {
-class simple_cps_limiter
+class minute_based_cps_limiter
 {
 public:
-	simple_cps_limiter (double baseline_cps, size_t bucket_count);
+	minute_based_cps_limiter (double baseline_cps, size_t bucket_count, double burst_multiplier);
 	
 	// Returns true if bucket can activate a block now
-	bool can_activate_now (size_t bucket_id);
+	bool can_activate_now (size_t bucket_id, bool account_is_idle);
 	
-	// Record that a block was activated
-	void on_block_activated (size_t bucket_id);
+	// Record that a block was activated  
+	void on_block_activated (size_t bucket_id, bool used_burst_quota);
+
+	void update_minute_window (size_t bucket_id);
 
 private:
 	const double baseline_cps;
-	const double per_bucket_cps; // baseline_cps / bucket_count
+	const size_t bucket_count;
+	const double burst_multiplier;
 	
-	struct bucket_state {
-		std::chrono::steady_clock::time_point last_activation{};
-		double min_interval_seconds; // 1.0 / per_bucket_cps
+public:
+	struct bucket_minute_state {
+		std::chrono::steady_clock::time_point minute_start{};
+		uint32_t baseline_used_this_minute = 0;
+		uint32_t burst_used_this_minute = 0;
+		
+		// Calculated from config
+		uint32_t baseline_quota_per_minute;  // baseline_cps * 60 / bucket_count
+		uint32_t burst_quota_per_minute;     // burst_multiplier * baseline_quota_per_minute
 	};
 	
-	std::array<bucket_state, 63> buckets;
+	std::array<bucket_minute_state, 63> buckets;
 };
 
 class priority_bucket_config final
@@ -66,6 +75,9 @@ public:
 
 	// CPS rate limiting - 0.0 disables rate limiting
 	double baseline_cps{ 0.0 };
+	
+	// Burst multiplier for idle accounts - burst quota = burst_multiplier * baseline_quota
+	double burst_multiplier{ 10.0 };
 };
 
 /**
@@ -99,6 +111,7 @@ private:
 	bool election_vacancy (nano::priority_timestamp candidate) const;
 	bool election_overfill () const;
 	void cancel_lowest_election ();
+	bool is_account_idle (uint64_t priority_timestamp) const;
 
 private: // Dependencies
 	priority_bucket_config const & config;
@@ -106,7 +119,7 @@ private: // Dependencies
 	nano::stats & stats;
 
 private: // Rate limiting
-	std::unique_ptr<simple_cps_limiter> rate_limiter;
+	std::unique_ptr<minute_based_cps_limiter> rate_limiter;
 
 private: // Blocks
 	struct block_entry

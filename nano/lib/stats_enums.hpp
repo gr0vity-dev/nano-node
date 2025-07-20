@@ -634,6 +634,10 @@ enum class detail
 	activate_success,
 	cancel_lowest,
 	cps_rate_limited,
+	cps_burst_allowed,
+	cps_burst_denied_quota,
+	cps_burst_denied_not_idle,
+	cps_burst_denied_over_baseline,
 
 	// query_type
 	blocks_by_hash,
