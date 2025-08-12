@@ -189,11 +189,13 @@ impl BlockBatchProcessor {
             }
         }
 
-        // Record average processing time per block for this batch
+        // Record average processing time per block and batch elapsed for this batch
         let processed_count = result.len() as u64;
+        let elapsed_ms = timer.elapsed().as_millis() as u64;
         if processed_count > 0 {
-            let per_block_ms = (timer.elapsed().as_millis() as u64) / processed_count;
+            let per_block_ms = elapsed_ms / processed_count;
             self.stats.add_process_time_ms(per_block_ms);
+            self.stats.add_insert_batch_ms(elapsed_ms);
         }
 
         // Set results for futures when not holding the lock
@@ -230,6 +232,7 @@ pub(crate) struct BlockBatchProcessorStats {
     sources: [AtomicU64; BlockSource::COUNT],
     queue_wait_ms: Mutex<BoundedVecDeque<u64>>, // last N queue wait times in ms
     process_time_ms: Mutex<BoundedVecDeque<u64>>, // last N per-block processing times in ms
+    insert_batch_ms: Mutex<BoundedVecDeque<u64>>, // last N insert-batch elapsed times in ms
 }
 
 impl StatsSource for BlockBatchProcessorStats {
@@ -298,6 +301,14 @@ impl StatsSource for BlockBatchProcessorStats {
             "process_time_ms_p95",
             "process_time_ms_p99",
         );
+
+        publish_percentiles(
+            result,
+            &self.insert_batch_ms,
+            "insert_batch_ms_p50",
+            "insert_batch_ms_p95",
+            "insert_batch_ms_p99",
+        );
     }
 }
 
@@ -310,6 +321,7 @@ impl Default for BlockBatchProcessorStats {
             sources: from_fn(|_| AtomicU64::new(0)),
             queue_wait_ms: Mutex::new(BoundedVecDeque::new(1000)),
             process_time_ms: Mutex::new(BoundedVecDeque::new(1000)),
+            insert_batch_ms: Mutex::new(BoundedVecDeque::new(1000)),
         }
     }
 }
@@ -322,6 +334,11 @@ impl BlockBatchProcessorStats {
 
     pub fn add_process_time_ms(&self, ms: u64) {
         let mut guard = self.process_time_ms.lock().unwrap();
+        guard.push_back(ms);
+    }
+
+    pub fn add_insert_batch_ms(&self, ms: u64) {
+        let mut guard = self.insert_batch_ms.lock().unwrap();
         guard.push_back(ms);
     }
 }
