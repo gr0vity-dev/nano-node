@@ -308,14 +308,20 @@ impl Ledger {
                 });
         }
 
-        let tx = self.store.begin_read();
-        self.store
-            .cache
-            .pruned_count
-            .fetch_add(self.store.pruned.count(&tx), Ordering::SeqCst);
-
-        if self.store.pruned.count(&tx) > 0 {
-            self.enable_pruning();
+        {
+            use store_api::{PrunedStore, StoreProvider};
+            let tx = StoreProvider::begin_read(&self.store);
+            let pruned_count = <rsnano_store_lmdb::LmdbPrunedStore as PrunedStore<
+                rsnano_store_lmdb::adapter::ReadTxnPub,
+                rsnano_store_lmdb::adapter::WriteTxnPub,
+            >>::count(StoreProvider::pruned(&self.store), &tx);
+            self.store
+                .cache
+                .pruned_count
+                .fetch_add(pruned_count, Ordering::SeqCst);
+            if pruned_count > 0 {
+                self.enable_pruning();
+            }
         }
 
         Ok(())
