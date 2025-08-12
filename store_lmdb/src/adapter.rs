@@ -40,6 +40,8 @@ impl StoreProvider for LmdbStore {
     fn version(&self) -> &Self::Version { &self.version }
     type Pruned = LmdbPrunedStore;
     fn pruned(&self) -> &Self::Pruned { &self.pruned }
+    type Block = LmdbBlockStore;
+    fn block(&self) -> &Self::Block { &self.block }
 }
 
 impl RepWeightStoreApi<ReadTxnPub, WriteTxnPub> for LmdbRepWeightStore {
@@ -78,7 +80,7 @@ mod tests {
         let env = LmdbEnvironmentFactory::new_null().create(options)?;
         let store = LmdbStore::new(env)?;
 
-        let provider: &dyn StoreProvider<ReadTxn = ReadTxnPub, WriteTxn = WriteTxnPub, Version = LmdbVersionStore, Pruned = LmdbPrunedStore> = &store;
+        let provider: &dyn StoreProvider<ReadTxn = ReadTxnPub, WriteTxn = WriteTxnPub, Version = LmdbVersionStore, Pruned = LmdbPrunedStore, Block = LmdbBlockStore> = &store;
 
         // set via trait
         let mut w = provider.begin_write();

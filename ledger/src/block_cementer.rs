@@ -93,7 +93,14 @@ impl<'a> BlockCementer<'a> {
 
             if txn.is_refresh_needed() {
                 txn = self.store.env.refresh(txn);
-                if !self.store.block.exists(&txn, &target_hash) {
+        if {
+            use store_api::{BlockStore, StoreProvider};
+            let rtx = StoreProvider::begin_read(self.store);
+            !<rsnano_store_lmdb::LmdbBlockStore as BlockStore<
+                rsnano_store_lmdb::adapter::ReadTxnPub,
+                rsnano_store_lmdb::adapter::WriteTxnPub,
+            >>::exists(StoreProvider::block(self.store), &rtx, &target_hash)
+        } {
                     break; // Block was rolled back during cementing
                 }
             }

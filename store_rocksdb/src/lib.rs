@@ -1,12 +1,13 @@
 use anyhow::Result;
 use rocksdb::{Options, DB};
 use std::sync::Arc;
-use store_api::{ReadTxnLike, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi};
+use store_api::{ReadTxnLike, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi};
 
 pub struct RocksProvider {
     db: Arc<DB>,
     version: RocksVersionStore,
     pruned: RocksPrunedStore,
+    block: RocksBlockStore,
 }
 
 impl RocksProvider {
@@ -14,7 +15,7 @@ impl RocksProvider {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         let db = Arc::new(DB::open(&opts, path)?);
-        Ok(Self { version: RocksVersionStore { db: db.clone() }, pruned: RocksPrunedStore { db: db.clone() }, db })
+        Ok(Self { version: RocksVersionStore { db: db.clone() }, pruned: RocksPrunedStore { db: db.clone() }, block: RocksBlockStore { db: db.clone() }, db })
     }
 }
 
@@ -51,6 +52,8 @@ impl StoreProvider for RocksProvider {
     fn version(&self) -> &Self::Version { &self.version }
     type Pruned = RocksPrunedStore;
     fn pruned(&self) -> &Self::Pruned { &self.pruned }
+    type Block = RocksBlockStore;
+    fn block(&self) -> &Self::Block { &self.block }
 }
 
 pub struct RocksVersionStore {
@@ -94,6 +97,24 @@ impl PrunedStoreApi<RocksReadTxn, RocksWriteTxn> for RocksPrunedStore {
     }
     fn del(&self, write: &mut RocksWriteTxn, hash: &rsnano_core::BlockHash) {
         let mut key = PRUNED_PREFIX.to_vec();
+        key.extend_from_slice(hash.as_bytes());
+        let _ = write.batch.delete(key);
+    }
+}
+
+pub struct RocksBlockStore { db: Arc<DB> }
+
+impl BlockStoreApi<RocksReadTxn, RocksWriteTxn> for RocksBlockStore {
+    fn exists(&self, _read: &RocksReadTxn, hash: &rsnano_core::BlockHash) -> bool {
+        let mut key = b"block:".to_vec();
+        key.extend_from_slice(hash.as_bytes());
+        self.db.get(key).ok().flatten().is_some()
+    }
+    fn get(&self, _read: &RocksReadTxn, _hash: &rsnano_core::BlockHash) -> Option<rsnano_core::SavedBlock> {
+        None
+    }
+    fn del(&self, write: &mut RocksWriteTxn, hash: &rsnano_core::BlockHash) {
+        let mut key = b"block:".to_vec();
         key.extend_from_slice(hash.as_bytes());
         let _ = write.batch.delete(key);
     }
