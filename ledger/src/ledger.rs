@@ -27,6 +27,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
+    thread,
     time::SystemTime,
 };
 use tracing::debug;
@@ -664,6 +665,8 @@ impl Ledger {
                     insert_batch_start.elapsed().as_millis() as i64,
                     (0, 10_000),
                 );
+            // Allow other writer contenders (e.g. cementation) to acquire LMDB writer
+            thread::yield_now();
         }
 
         BatchProcessResult { processed }

@@ -640,6 +640,7 @@ mod tests {
                 priority_bootstrap: Some(45),
                 priority_live: Some(46),
                 priority_local: Some(47),
+                batch_size: None,
             }),
             ..Default::default()
         };
@@ -695,5 +696,6 @@ mod tests {
         assert_eq!(block_proc.priority_live, Some(46));
         assert_eq!(block_proc.priority_bootstrap, Some(47));
         assert_eq!(block_proc.priority_local, Some(48));
+        assert_eq!(block_proc.batch_size, Some(50));
     }
 }
