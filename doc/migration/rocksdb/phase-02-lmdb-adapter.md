@@ -1,6 +1,7 @@
 ### Phase 02: LMDB Adapter (Minimal Slice)
 
 Objective: Implement `store_api` traits for LMDB with the smallest surface (VersionStore + txn).
+ALWAYS RUN cargo test on the WHOLE codebase! tests are fast
 
 Steps:
 

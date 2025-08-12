@@ -1,6 +1,8 @@
 ### Phase 04: Ledger Integration (Micro-swaps)
 
 Objective: Transition `ledger` off LMDB types in tiny increments by swapping individual callsites to trait-based access.
+ALWAYS RUN cargo test on the WHOLE codebase! tests are fast
+
 
 Order of swaps (each is a separate micro-step):
 1. `Ledger::version()` → use `VersionStore` trait

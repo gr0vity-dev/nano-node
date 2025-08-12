@@ -1,6 +1,7 @@
 ### Phase 03: RocksDB MVP (VersionStore first)
 
 Objective: Introduce a new `store_rocksdb` crate with the minimal implementation to pass `VersionStore` tests.
+ALWAYS RUN cargo test on the WHOLE codebase! tests are fast
 
 Steps:
 

@@ -4216,6 +4216,7 @@ dependencies = [
  "rsnano_store_lmdb",
  "rsnano_work",
  "serde_json",
+ "store_api",
  "strum 0.27.2",
  "strum_macros 0.27.2",
  "tracing",

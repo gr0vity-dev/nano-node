@@ -3,6 +3,8 @@
 Objective: Introduce a minimal storage abstraction crate without changing runtime behavior.
 
 Scope per step: ≤ 50 LOC edits, compile and test after each.
+ALWAYS RUN cargo test on the WHOLE codebase! tests are fast
+
 
 Steps:
 

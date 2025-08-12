@@ -7,7 +7,7 @@ pub use tcp_socket::*;
 pub use tcp_stream::TcpStream;
 pub use tcp_stream_factory::TcpStreamFactory;
 
-static START_PORT: AtomicU16 = AtomicU16::new(1025);
+static START_PORT: AtomicU16 = AtomicU16::new(30000);
 
 pub fn get_available_port() -> u16 {
     let start = START_PORT.fetch_add(1, Ordering::SeqCst);
@@ -17,5 +17,5 @@ pub fn get_available_port() -> u16 {
 }
 
 fn is_port_available(port: u16) -> bool {
-    std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+    std::net::TcpListener::bind(("0.0.0.0", port)).is_ok()
 }

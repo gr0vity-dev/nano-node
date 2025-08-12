@@ -1,6 +1,8 @@
 ### Phase 05: Switch & Cleanup
 
 Objective: Make provider selection configurable and remove direct LMDB coupling from `ledger`.
+ALWAYS RUN cargo test on the WHOLE codebase! tests are fast
+
 
 Steps:
 1. `Ledger` holds `Box<dyn store_api::StoreProvider>` or is generic over provider

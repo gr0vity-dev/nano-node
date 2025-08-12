@@ -920,8 +920,19 @@ impl Ledger {
     }
 
     pub fn version(&self) -> u32 {
-        let tx = self.store.begin_read();
-        self.store.version.get(&tx).unwrap_or_default() as u32
+        #[cfg(feature = "store_api_ledger")]
+        {
+            use store_api::StoreProvider as _;
+            // Use LMDB adapter via provider semantics without changing field types yet
+            let provider = &self.store;
+            let tx = provider.begin_read();
+            return provider.version().get(&tx).unwrap_or_default() as u32;
+        }
+        #[cfg(not(feature = "store_api_ledger"))]
+        {
+            let tx = self.store.begin_read();
+            self.store.version.get(&tx).unwrap_or_default() as u32
+        }
     }
 
     pub fn store_vendor(&self) -> String {
