@@ -2,7 +2,7 @@ use std::{
     collections::VecDeque,
     sync::{
         atomic::{AtomicU64, Ordering::Relaxed},
-        Arc,
+        Arc, Mutex,
     },
     time::{Duration, Instant},
 };
@@ -16,6 +16,7 @@ use rsnano_core::{
 };
 use rsnano_ledger::{BlockError, Ledger};
 use rsnano_stats::{StatsCollection, StatsSource};
+use bounded_vec_deque::BoundedVecDeque;
 
 use super::{BlockContext, BlockSource, LedgerEvent, UncheckedMap};
 use crate::block_processing::ProcessedResult;
@@ -40,6 +41,15 @@ impl BlockBatchProcessor {
 
     pub(crate) fn process_blocks(&self, mut batch: VecDeque<Arc<BlockContext>>) {
         let timer = Instant::now();
+        let now = Instant::now();
+
+        // Record queue wait time for each block
+        for ctx in batch.iter() {
+            let wait_ms = now
+                .saturating_duration_since(ctx.ingest_at)
+                .as_millis() as u64;
+            self.stats.add_queue_wait(wait_ms);
+        }
 
         self.roll_back_competitor_blocks(&batch);
 
@@ -179,6 +189,13 @@ impl BlockBatchProcessor {
             }
         }
 
+        // Record average processing time per block for this batch
+        let processed_count = result.len() as u64;
+        if processed_count > 0 {
+            let per_block_ms = (timer.elapsed().as_millis() as u64) / processed_count;
+            self.stats.add_process_time_ms(per_block_ms);
+        }
+
         // Set results for futures when not holding the lock
         for (res, context) in result.iter_mut() {
             if let Some(cb) = &context.callback {
@@ -207,11 +224,12 @@ impl BlockBatchProcessor {
     }
 }
 
-#[derive(Default)]
 pub(crate) struct BlockBatchProcessorStats {
     progress: AtomicU64,
     errors: [AtomicU64; BlockError::COUNT],
     sources: [AtomicU64; BlockSource::COUNT],
+    queue_wait_ms: Mutex<BoundedVecDeque<u64>>, // last N queue wait times in ms
+    process_time_ms: Mutex<BoundedVecDeque<u64>>, // last N per-block processing times in ms
 }
 
 impl StatsSource for BlockBatchProcessorStats {
@@ -237,5 +255,73 @@ impl StatsSource for BlockBatchProcessorStats {
                 self.sources[s as usize].load(Relaxed),
             );
         }
+
+        // Latency percentiles for queue wait and processing time
+        fn publish_percentiles(
+            result: &mut StatsCollection,
+            samples: &Mutex<BoundedVecDeque<u64>>,
+            p50_detail: &'static str,
+            p95_detail: &'static str,
+            p99_detail: &'static str,
+        ) {
+            let mut vec: Vec<u64> = {
+                let guard = samples.lock().unwrap();
+                guard.iter().cloned().collect()
+            };
+            if vec.is_empty() {
+                result.insert("block_pipeline_latency", p50_detail, 0u64);
+                result.insert("block_pipeline_latency", p95_detail, 0u64);
+                result.insert("block_pipeline_latency", p99_detail, 0u64);
+                return;
+            }
+            vec.sort_unstable();
+            let pct = |p: usize| -> u64 {
+                let idx = (vec.len() * p) / 100;
+                vec[vec.len().saturating_sub(1).min(idx)]
+            };
+            result.insert("block_pipeline_latency", p50_detail, pct(50));
+            result.insert("block_pipeline_latency", p95_detail, pct(95));
+            result.insert("block_pipeline_latency", p99_detail, pct(99));
+        }
+
+        publish_percentiles(
+            result,
+            &self.queue_wait_ms,
+            "queue_wait_ms_p50",
+            "queue_wait_ms_p95",
+            "queue_wait_ms_p99",
+        );
+        publish_percentiles(
+            result,
+            &self.process_time_ms,
+            "process_time_ms_p50",
+            "process_time_ms_p95",
+            "process_time_ms_p99",
+        );
+    }
+}
+
+impl Default for BlockBatchProcessorStats {
+    fn default() -> Self {
+        use std::array::from_fn;
+        Self {
+            progress: AtomicU64::new(0),
+            errors: from_fn(|_| AtomicU64::new(0)),
+            sources: from_fn(|_| AtomicU64::new(0)),
+            queue_wait_ms: Mutex::new(BoundedVecDeque::new(1000)),
+            process_time_ms: Mutex::new(BoundedVecDeque::new(1000)),
+        }
+    }
+}
+
+impl BlockBatchProcessorStats {
+    pub fn add_queue_wait(&self, wait_ms: u64) {
+        let mut guard = self.queue_wait_ms.lock().unwrap();
+        guard.push_back(wait_ms);
+    }
+
+    pub fn add_process_time_ms(&self, ms: u64) {
+        let mut guard = self.process_time_ms.lock().unwrap();
+        guard.push_back(ms);
     }
 }

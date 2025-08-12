@@ -14,6 +14,7 @@ use rsnano_core::{
 };
 use rsnano_ledger::{CementingObserver, Ledger};
 use rsnano_stats::{DetailType, StatType, Stats};
+use rsnano_stats::{StatsCollection, StatsSource};
 
 use super::ordered_entries::OrderedEntries;
 use crate::{
@@ -177,6 +178,23 @@ impl ConfirmingSet {
     pub fn set_cooldown(&self, cool_down: bool) {
         self.thread.mutex.lock().unwrap().cool_down = cool_down;
         self.thread.condition.notify_all();
+    }
+}
+
+impl StatsSource for ConfirmingSet {
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        let guard = self.thread.mutex.lock().unwrap();
+        result.insert("confirming_set", "len_set", guard.set.len() as u64);
+        result.insert(
+            "confirming_set",
+            "len_current",
+            guard.current.len() as u64,
+        );
+        result.insert(
+            "confirming_set",
+            "len_deferred",
+            guard.deferred.len() as u64,
+        );
     }
 }
 

@@ -1,4 +1,5 @@
 use std::sync::{Arc, Condvar, Mutex};
+use std::time::Instant;
 
 use rsnano_core::{Block, SavedBlock};
 use rsnano_ledger::BlockError;
@@ -15,6 +16,7 @@ pub struct BlockContext {
     pub callback: Option<BlockProcessorCallback>,
     pub waiter: Arc<BlockProcessorWaiter>,
     pub channel_id: ChannelId,
+    pub ingest_at: Instant,
 }
 
 impl BlockContext {
@@ -26,6 +28,7 @@ impl BlockContext {
             callback: None,
             waiter: Arc::new(BlockProcessorWaiter::new()),
             channel_id,
+            ingest_at: Instant::now(),
         }
     }
 
@@ -42,6 +45,7 @@ impl BlockContext {
             callback: Some(callback),
             waiter: Arc::new(BlockProcessorWaiter::new()),
             channel_id,
+            ingest_at: Instant::now(),
         }
     }
 

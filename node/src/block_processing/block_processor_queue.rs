@@ -266,6 +266,20 @@ impl StatsSource for BlockProcessorQueueImpl {
             );
         }
         result.insert("block_processor", "process_blocking_timeout", self.timeout);
+
+        // Current queue sizes
+        result.insert(
+            "block_processor_queue",
+            "len_total",
+            self.process_queue.len() as u64,
+        );
+        for i in BlockSource::iter() {
+            result.insert(
+                "block_processor_queue_by_source",
+                i.into(),
+                self.process_queue.source_len(i) as u64,
+            );
+        }
     }
 }
 

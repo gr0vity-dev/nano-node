@@ -1233,6 +1233,9 @@ impl Node {
         stats_collector.add_source(bootstrap_stale_stats);
         stats_collector.add_source(block_processor.clone());
         stats_collector.add_source(block_processor_queue.clone());
+        // Track vote processor queue length and confirming set sizes
+        stats_collector.add_source(vote_processor_queue.clone());
+        stats_collector.add_source(confirming_set.clone());
         stats_collector.add_source(backlog_waiter.clone());
         stats_collector.add_source(conf_time_stats);
         stats_collector.add_source(winner_block_broadcaster.clone());

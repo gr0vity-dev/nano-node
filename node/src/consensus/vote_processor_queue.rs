@@ -12,6 +12,7 @@ use rsnano_core::{
 };
 use rsnano_network::{Channel, ChannelId, DeadChannelCleanupStep};
 use rsnano_stats::{DetailType, StatType, Stats};
+use rsnano_stats::{StatsCollection, StatsSource};
 
 use super::{RepTier, RepTiers, RepTiersConsumer, VoteProcessorConfig};
 
@@ -151,6 +152,12 @@ impl VoteProcessorQueue {
             .unwrap()
             .queue
             .compacted_info(|(tier, _)| *tier)
+    }
+}
+
+impl StatsSource for VoteProcessorQueue {
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        result.insert("vote_processor_queue", "len_total", self.len() as u64);
     }
 }
 
