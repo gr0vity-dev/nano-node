@@ -18,6 +18,7 @@ This folder is the single source of truth for migrating storage from LMDB to Roc
   - `phase-01-core-traits.md`: Minimal store API and contracts
   - `phase-02-lmdb-adapter.md`: LMDB adapters that implement the API
   - `phase-03-rocksdb-mvp.md`: Minimal RocksDB implementation (VersionStore first, transactional semantics)
+  - `phase-03-mirror-provider.md`: Test-only dual-write provider to validate Rocks parity early
   - `phase-04-ledger-integration.md`: Swap ledger callsites incrementally (LMDB provider underneath)
   - `phase-05-switch-and-cleanup.md`: Constructor flip, defaults, cleanup
 

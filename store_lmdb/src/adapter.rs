@@ -1,8 +1,8 @@
 use crate::{store::LmdbStore, version_store::LmdbVersionStore};
 use rsnano_nullable_lmdb::{ReadTransaction, WriteTransaction};
-use store_api::{ReadTxnLike, RepWeightStore as RepWeightStoreApi, StoreProvider, TransactionLike, VersionStore, WriteTxnLike};
+use store_api::{ReadTxnLike, RepWeightStore as RepWeightStoreApi, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi};
 use rsnano_core::{PublicKey, Amount};
-use crate::LmdbRepWeightStore;
+use crate::{LmdbRepWeightStore, LmdbPrunedStore};
 
 pub struct ReadTxnPub(pub ReadTransaction);
 pub struct WriteTxnPub(pub WriteTransaction);
@@ -38,6 +38,8 @@ impl StoreProvider for LmdbStore {
 
     type Version = LmdbVersionStore;
     fn version(&self) -> &Self::Version { &self.version }
+    type Pruned = LmdbPrunedStore;
+    fn pruned(&self) -> &Self::Pruned { &self.pruned }
 }
 
 impl RepWeightStoreApi<ReadTxnPub, WriteTxnPub> for LmdbRepWeightStore {
@@ -45,6 +47,13 @@ impl RepWeightStoreApi<ReadTxnPub, WriteTxnPub> for LmdbRepWeightStore {
     fn put(&self, write: &mut WriteTxnPub, rep: PublicKey, weight: Amount) { self.put(&mut write.0, rep, weight) }
     fn del(&self, write: &mut WriteTxnPub, rep: &PublicKey) { self.del(&mut write.0, rep) }
     fn count(&self, read: &ReadTxnPub) -> u64 { self.count(&read.0) }
+}
+
+impl PrunedStoreApi<ReadTxnPub, WriteTxnPub> for LmdbPrunedStore {
+    fn count(&self, read: &ReadTxnPub) -> u64 { self.count(&read.0) }
+    fn exists(&self, read: &ReadTxnPub, hash: &rsnano_core::BlockHash) -> bool { self.exists(&read.0, hash) }
+    fn put(&self, write: &mut WriteTxnPub, hash: &rsnano_core::BlockHash) { self.put(&mut write.0, hash) }
+    fn del(&self, write: &mut WriteTxnPub, hash: &rsnano_core::BlockHash) { self.del(&mut write.0, hash) }
 }
 
 #[cfg(test)]
@@ -63,7 +72,7 @@ mod tests {
         let env = LmdbEnvironmentFactory::new_null().create(options)?;
         let store = LmdbStore::new(env)?;
 
-        let provider: &dyn StoreProvider<ReadTxn = ReadTxnPub, WriteTxn = WriteTxnPub, Version = LmdbVersionStore> = &store;
+        let provider: &dyn StoreProvider<ReadTxn = ReadTxnPub, WriteTxn = WriteTxnPub, Version = LmdbVersionStore, Pruned = LmdbPrunedStore> = &store;
 
         // set via trait
         let mut w = provider.begin_write();

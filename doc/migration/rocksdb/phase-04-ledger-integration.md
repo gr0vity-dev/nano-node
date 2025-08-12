@@ -7,8 +7,8 @@ ALWAYS RUN cargo test on the WHOLE codebase! tests are fast
 Order of swaps (each is a separate micro-step):
 1. `Ledger::version()` → use `VersionStore` trait (LMDB provider)
 2. Rep weights initialization → accept trait-backed store in `RepWeightsUpdater` (LMDB provider)
-3. Pruning paths → `PrunedStore` + `BlockStore` trait methods (LMDB provider)
-4. Cache initializations (account/confirmed counts) → trait iteration wrappers
+3. Pruning paths → `PrunedStore` + minimal `BlockStore` trait (exists/get/del) used only in pruning (LMDB provider)
+4. Cache initializations (account/confirmed counts) → trait iteration wrappers for `AccountStore`/`ConfirmationHeightStore`
 5. Remaining sub-stores: `ConfirmationHeightStore`, `AccountStore`, `PendingStore`, `SuccessorStore`, `PeerStore`
 
 Per micro-step checklist:

@@ -1,11 +1,12 @@
 use anyhow::Result;
 use rocksdb::{Options, DB};
 use std::sync::Arc;
-use store_api::{ReadTxnLike, StoreProvider, TransactionLike, VersionStore, WriteTxnLike};
+use store_api::{ReadTxnLike, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi};
 
 pub struct RocksProvider {
     db: Arc<DB>,
     version: RocksVersionStore,
+    pruned: RocksPrunedStore,
 }
 
 impl RocksProvider {
@@ -13,7 +14,7 @@ impl RocksProvider {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         let db = Arc::new(DB::open(&opts, path)?);
-        Ok(Self { version: RocksVersionStore { db: db.clone() }, db })
+        Ok(Self { version: RocksVersionStore { db: db.clone() }, pruned: RocksPrunedStore { db: db.clone() }, db })
     }
 }
 
@@ -48,6 +49,8 @@ impl StoreProvider for RocksProvider {
 
     type Version = RocksVersionStore;
     fn version(&self) -> &Self::Version { &self.version }
+    type Pruned = RocksPrunedStore;
+    fn pruned(&self) -> &Self::Pruned { &self.pruned }
 }
 
 pub struct RocksVersionStore {
@@ -67,6 +70,32 @@ impl VersionStore<RocksReadTxn, RocksWriteTxn> for RocksVersionStore {
 
     fn set(&self, write: &mut RocksWriteTxn, version: i32) {
         let _ = write.batch.put(META_VERSION_KEY, version.to_be_bytes());
+    }
+}
+
+pub struct RocksPrunedStore { db: Arc<DB> }
+
+const PRUNED_PREFIX: &[u8] = b"pruned:";
+
+impl PrunedStoreApi<RocksReadTxn, RocksWriteTxn> for RocksPrunedStore {
+    fn count(&self, _read: &RocksReadTxn) -> u64 {
+        // Simplified: Rocks doesn't expose count per prefix cheaply; return 0 in MVP (not used in swap yet)
+        0
+    }
+    fn exists(&self, _read: &RocksReadTxn, hash: &rsnano_core::BlockHash) -> bool {
+        let mut key = PRUNED_PREFIX.to_vec();
+        key.extend_from_slice(hash.as_bytes());
+        self.db.get(key).ok().flatten().is_some()
+    }
+    fn put(&self, write: &mut RocksWriteTxn, hash: &rsnano_core::BlockHash) {
+        let mut key = PRUNED_PREFIX.to_vec();
+        key.extend_from_slice(hash.as_bytes());
+        let _ = write.batch.put(key, &[]);
+    }
+    fn del(&self, write: &mut RocksWriteTxn, hash: &rsnano_core::BlockHash) {
+        let mut key = PRUNED_PREFIX.to_vec();
+        key.extend_from_slice(hash.as_bytes());
+        let _ = write.batch.delete(key);
     }
 }
 

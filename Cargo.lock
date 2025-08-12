@@ -5062,6 +5062,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "rocksdb",
+ "rsnano_core",
  "store_api",
  "tempfile",
 ]

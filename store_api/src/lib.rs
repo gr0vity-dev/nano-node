@@ -15,6 +15,7 @@ pub trait StoreProvider {
     type ReadTxn: ReadTxnLike;
     type WriteTxn: WriteTxnLike;
     type Version: VersionStore<Self::ReadTxn, Self::WriteTxn>;
+    type Pruned: PrunedStore<Self::ReadTxn, Self::WriteTxn>;
 
     fn begin_read(&self) -> Self::ReadTxn;
     fn begin_write(&self) -> Self::WriteTxn;
@@ -22,6 +23,7 @@ pub trait StoreProvider {
     fn commit(&self, write: Self::WriteTxn);
 
     fn version(&self) -> &Self::Version;
+    fn pruned(&self) -> &Self::Pruned;
 }
 
 // Minimal RepWeightStore used by RepWeightsUpdater init path
@@ -30,4 +32,11 @@ pub trait RepWeightStore<R: ReadTxnLike, W: WriteTxnLike> {
     fn put(&self, write: &mut W, rep: rsnano_core::PublicKey, weight: rsnano_core::Amount);
     fn del(&self, write: &mut W, rep: &rsnano_core::PublicKey);
     fn count(&self, read: &R) -> u64;
+}
+
+pub trait PrunedStore<R: ReadTxnLike, W: WriteTxnLike> {
+    fn count(&self, read: &R) -> u64;
+    fn exists(&self, read: &R, hash: &rsnano_core::BlockHash) -> bool;
+    fn put(&self, write: &mut W, hash: &rsnano_core::BlockHash);
+    fn del(&self, write: &mut W, hash: &rsnano_core::BlockHash);
 }
