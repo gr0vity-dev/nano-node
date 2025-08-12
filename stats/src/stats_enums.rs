@@ -573,6 +573,8 @@ pub enum Sample {
     RepResponseTime,
     VoteGeneratorFinalHashes,
     VoteGeneratorHashes,
+    LedgerInsertTxnMs,
+    LedgerConfirmTxnMs,
 }
 
 impl Sample {

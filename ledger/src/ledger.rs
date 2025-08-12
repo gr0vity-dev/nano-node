@@ -259,8 +259,16 @@ impl Ledger {
             .is_none()
         {
             let mut txn = self.store.begin_write();
+            let confirm_batch_start = std::time::Instant::now();
             self.add_genesis_block(&mut txn);
             txn.commit();
+            self
+                .stats
+                .sample(
+                    rsnano_stats::Sample::LedgerConfirmTxnMs,
+                    confirm_batch_start.elapsed().as_millis() as i64,
+                    (0, 10_000),
+                );
         }
 
         if generate_cache.reps || generate_cache.account_count || generate_cache.block_count {
@@ -628,6 +636,7 @@ impl Ledger {
         // Insert blocks
         let mut processed = Vec::with_capacity(validation_results.len());
         {
+            let insert_batch_start = std::time::Instant::now();
             let mut txn = self.store.begin_write();
             for (result, block) in validation_results {
                 match result {
@@ -647,6 +656,14 @@ impl Ledger {
                 }
             }
             txn.commit();
+            // Sample write txn duration for insert batch
+            self
+                .stats
+                .sample(
+                    rsnano_stats::Sample::LedgerInsertTxnMs,
+                    insert_batch_start.elapsed().as_millis() as i64,
+                    (0, 10_000),
+                );
         }
 
         BatchProcessResult { processed }
