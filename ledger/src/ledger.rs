@@ -28,7 +28,7 @@ use std::{
         Arc,
     },
     thread,
-    time::SystemTime,
+    time::{SystemTime, Instant},
 };
 use tracing::debug;
 
@@ -637,8 +637,13 @@ impl Ledger {
         // Insert blocks
         let mut processed = Vec::with_capacity(validation_results.len());
         {
-            let insert_batch_start = std::time::Instant::now();
+            let mut insert_batch_start = Instant::now();
             let mut txn = self.store.begin_write();
+            let chunk_size = std::env::var("NANO_INSERT_CHUNK_SIZE")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(64);
+            let mut since_commit: usize = 0;
             for (result, block) in validation_results {
                 match result {
                     Ok(instructions) => {
@@ -646,14 +651,32 @@ impl Ledger {
                             BlockInserter::new(self, &mut txn, block, &instructions).insert()
                         {
                             processed.push((Ok(()), Some(saved_block.clone())));
+                            since_commit += 1;
                         } else {
                             let err = BlockError::Conflict;
                             processed.push((Err(err), None));
+                            since_commit += 1;
                         }
                     }
                     Err(err) => {
                         processed.push((Err(err), None));
+                        since_commit += 1;
                     }
+                }
+
+                if since_commit >= chunk_size {
+                    txn.commit();
+                    self.stats.sample(
+                        rsnano_stats::Sample::LedgerInsertTxnMs,
+                        insert_batch_start.elapsed().as_millis() as i64,
+                        (0, 10_000),
+                    );
+                    // Yield writer to allow cementation
+                    thread::yield_now();
+                    // Start next short writer slice
+                    txn = self.store.begin_write();
+                    insert_batch_start = Instant::now();
+                    since_commit = 0;
                 }
             }
             txn.commit();
@@ -688,6 +711,12 @@ impl Ledger {
         let mut rolled_back = RollbackResults::new();
         {
             let mut txn = self.store.begin_write();
+            let mut slice_start = Instant::now();
+            let slice_budget = std::env::var("NANO_CONFIRM_SLICE_MS")
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .map(|ms| std::time::Duration::from_millis(ms))
+                .unwrap_or(std::time::Duration::from_millis(5));
             for block in blocks {
                 if txn.is_refresh_needed() {
                     txn.commit();
@@ -794,6 +823,12 @@ impl Ledger {
         let mut blocks_confirmed = 0;
         {
             let mut txn = self.store.begin_write();
+            let mut slice_start = Instant::now();
+            let slice_budget = std::env::var("NANO_CONFIRM_SLICE_MS")
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .map(|ms| std::time::Duration::from_millis(ms))
+                .unwrap_or(std::time::Duration::from_millis(5));
 
             for confirmation_root in batch.into_iter() {
                 let mut success = false;
@@ -825,6 +860,7 @@ impl Ledger {
                             }
                         }
                         txn = self.store.env.begin_write();
+                        slice_start = Instant::now();
                     }
 
                     self.stats
@@ -875,6 +911,21 @@ impl Ledger {
 
                     if success {
                         break;
+                    }
+
+                    // Enforce time-based slice to shorten writer holds
+                    if slice_start.elapsed() >= slice_budget {
+                        txn.commit();
+                        if !confirmed.is_empty() {
+                            self.stats
+                                .inc(StatType::ConfirmingSet, DetailType::NotifyIntermediate);
+                            cementing_observer.batch_confirmed(confirmed);
+                            confirmed = Vec::new();
+                        }
+                        blocks_confirmed = 0;
+                        thread::yield_now();
+                        txn = self.store.env.begin_write();
+                        slice_start = Instant::now();
                     }
                 }
 
