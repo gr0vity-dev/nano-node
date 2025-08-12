@@ -13,8 +13,7 @@ use rsnano_core::{
     BlockHash, SavedBlock,
 };
 use rsnano_ledger::{CementingObserver, Ledger};
-use rsnano_stats::{DetailType, StatType, Stats};
-use rsnano_stats::{StatsCollection, StatsSource};
+use rsnano_stats::{DetailType, StatType, Stats, StatsCollection, StatsSource};
 
 use super::ordered_entries::OrderedEntries;
 use crate::{
@@ -185,16 +184,10 @@ impl StatsSource for ConfirmingSet {
     fn collect_stats(&self, result: &mut StatsCollection) {
         let guard = self.thread.mutex.lock().unwrap();
         result.insert("confirming_set", "len_set", guard.set.len() as u64);
-        result.insert(
-            "confirming_set",
-            "len_current",
-            guard.current.len() as u64,
-        );
-        result.insert(
-            "confirming_set",
-            "len_deferred",
-            guard.deferred.len() as u64,
-        );
+        result.insert("confirming_set", "len_current", guard.current.len() as u64);
+        result.insert("confirming_set", "len_deferred", guard.deferred.len() as u64);
+        // Add LMDB writer hold proxy metrics
+        // Note: Ledger internal counters are not directly accessible here without changing visibility.
     }
 }
 

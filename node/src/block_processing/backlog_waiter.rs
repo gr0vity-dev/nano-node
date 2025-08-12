@@ -13,7 +13,7 @@ use rsnano_ledger::Ledger;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 
 use super::BlockProcessorQueue;
-use rsnano_stats::{StatsCollection, StatsSource};
+use rsnano_stats::{DetailType, Direction, StatType, Stats, StatsCollection, StatsSource};
 
 /// Waits for the backlog to fall below the backlog limit
 pub(crate) struct BacklogWaiter {
@@ -24,6 +24,7 @@ pub(crate) struct BacklogWaiter {
     cooldown_count: AtomicUsize,
     last_log: Mutex<Option<Timestamp>>,
     clock: Arc<SteadyClock>,
+    stats: Arc<Stats>,
 }
 
 impl BacklogWaiter {
@@ -41,6 +42,7 @@ impl BacklogWaiter {
             cooldown_count: AtomicUsize::new(0),
             last_log: Mutex::new(None),
             clock,
+            stats: Arc::new(Stats::default()),
         }
     }
 
@@ -70,6 +72,13 @@ impl BacklogWaiter {
         }
 
         self.cooldown_count.fetch_add(1, Relaxed);
+        // sample throttle duration for visibility
+        self.stats.add_dir(
+            StatType::Backlog,
+            DetailType::LoopScan,
+            Direction::In,
+            throttle_wait.as_millis() as u64,
+        );
         self.queue.wait(throttle_wait);
     }
 
