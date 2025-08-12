@@ -22,7 +22,7 @@ mod upgrades;
 mod vacuum;
 mod version_store;
 mod wallet_store;
-mod adapter;
+pub mod adapter;
 
 use primitive_types::U256;
 

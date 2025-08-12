@@ -1,6 +1,6 @@
 {
-  "current_phase": "iteration-01",
+  "current_phase": "iteration-02",
   "current_step": 1,
-  "last_success": "Created store_api with minimal traits; tests compile",
-  "notes": "Implement LMDB adapters per iteration-01.md"
+  "last_success": "VersionStore: LMDB adapter + RocksDB MVP with commit semantics; ledger feature-gated for version",
+  "notes": "Add RepWeightStore trait; LMDB adapter; swap ledger init path"
 }

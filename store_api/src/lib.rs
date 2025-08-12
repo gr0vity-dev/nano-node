@@ -23,3 +23,11 @@ pub trait StoreProvider {
 
     fn version(&self) -> &Self::Version;
 }
+
+// Minimal RepWeightStore used by RepWeightsUpdater init path
+pub trait RepWeightStore<R: ReadTxnLike, W: WriteTxnLike> {
+    fn get(&self, read: &R, rep: &rsnano_core::PublicKey) -> Option<rsnano_core::Amount>;
+    fn put(&self, write: &mut W, rep: rsnano_core::PublicKey, weight: rsnano_core::Amount);
+    fn del(&self, write: &mut W, rep: &rsnano_core::PublicKey);
+    fn count(&self, read: &R) -> u64;
+}

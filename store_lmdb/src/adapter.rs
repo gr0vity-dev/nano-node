@@ -1,6 +1,8 @@
 use crate::{store::LmdbStore, version_store::LmdbVersionStore};
 use rsnano_nullable_lmdb::{ReadTransaction, WriteTransaction};
-use store_api::{ReadTxnLike, StoreProvider, TransactionLike, VersionStore, WriteTxnLike};
+use store_api::{ReadTxnLike, RepWeightStore as RepWeightStoreApi, StoreProvider, TransactionLike, VersionStore, WriteTxnLike};
+use rsnano_core::{PublicKey, Amount};
+use crate::LmdbRepWeightStore;
 
 pub struct ReadTxnPub(pub ReadTransaction);
 pub struct WriteTxnPub(pub WriteTransaction);
@@ -36,6 +38,13 @@ impl StoreProvider for LmdbStore {
 
     type Version = LmdbVersionStore;
     fn version(&self) -> &Self::Version { &self.version }
+}
+
+impl RepWeightStoreApi<ReadTxnPub, WriteTxnPub> for LmdbRepWeightStore {
+    fn get(&self, read: &ReadTxnPub, rep: &PublicKey) -> Option<Amount> { self.get(&read.0, rep) }
+    fn put(&self, write: &mut WriteTxnPub, rep: PublicKey, weight: Amount) { self.put(&mut write.0, rep, weight) }
+    fn del(&self, write: &mut WriteTxnPub, rep: &PublicKey) { self.del(&mut write.0, rep) }
+    fn count(&self, read: &ReadTxnPub) -> u64 { self.count(&read.0) }
 }
 
 #[cfg(test)]
