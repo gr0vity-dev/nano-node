@@ -667,6 +667,14 @@ impl Ledger {
                 );
             // Allow other writer contenders (e.g. cementation) to acquire LMDB writer
             thread::yield_now();
+            // Optional fairness sleep after insert commit (config via env)
+            if let Ok(ms) = std::env::var("NANO_WRITER_INSERT_MS") {
+                if let Ok(ms) = ms.parse::<u64>() {
+                    if ms > 0 {
+                        thread::sleep(std::time::Duration::from_millis(ms));
+                    }
+                }
+            }
         }
 
         BatchProcessResult { processed }
@@ -808,6 +816,14 @@ impl Ledger {
                             .inc(StatType::ConfirmingSet, DetailType::NotifyIntermediate);
                         cementing_observer.batch_confirmed(confirmed);
                         confirmed = Vec::new();
+                        // Fairness sleep to let inserts proceed (config via env)
+                        if let Ok(ms) = std::env::var("NANO_WRITER_CONFIRM_MS") {
+                            if let Ok(ms) = ms.parse::<u64>() {
+                                if ms > 0 {
+                                    std::thread::sleep(std::time::Duration::from_millis(ms));
+                                }
+                            }
+                        }
                         txn = self.store.env.begin_write();
                     }
 
