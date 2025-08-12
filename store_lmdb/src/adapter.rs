@@ -51,17 +51,9 @@ impl WriteTxnLike for WriteTxnPub {
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any { &mut self.0 }
 }
 
-impl VersionStore for LmdbVersionStore {
-    fn get(&self, read: &dyn ReadTxnLike) -> Option<i32> {
-        // Downcast: our ReadTxnLike is backed by ReadTransaction
-        let read = read.as_any().downcast_ref::<ReadTransaction>().expect("Expected ReadTransaction");
-        self.get(read)
-    }
-
-    fn set(&self, write: &mut dyn WriteTxnLike, version: i32) {
-        let write = write.as_any_mut().downcast_mut::<WriteTransaction>().expect("Expected WriteTransaction");
-        self.put(write, version)
-    }
+impl VersionStore<ReadTxnPub, WriteTxnPub> for LmdbVersionStore {
+    fn get(&self, read: &ReadTxnPub) -> Option<i32> { self.get(&read.0) }
+    fn set(&self, write: &mut WriteTxnPub, version: i32) { self.put(&mut write.0, version) }
 }
 
 impl StoreProvider for LmdbStore {
@@ -76,6 +68,7 @@ impl StoreProvider for LmdbStore {
 
     fn commit(&self, write: Self::WriteTxn) { write.0.commit(); }
 
-    fn version(&self) -> &dyn VersionStore { &self.version }
+    type Version = LmdbVersionStore;
+    fn version(&self) -> &Self::Version { &self.version }
 }
 

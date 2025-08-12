@@ -17,33 +17,37 @@ impl RocksProvider {
     }
 }
 
+use rocksdb::WriteBatch;
+
 pub struct RocksReadTxn;
-pub struct RocksWriteTxn;
+pub struct RocksWriteTxn {
+    batch: WriteBatch,
+}
 
 impl TransactionLike for RocksReadTxn {
     fn is_refresh_needed(&self) -> bool { false }
-    fn as_any(&self) -> &dyn std::any::Any { self }
 }
 impl ReadTxnLike for RocksReadTxn {}
 
 impl TransactionLike for RocksWriteTxn {
     fn is_refresh_needed(&self) -> bool { false }
-    fn as_any(&self) -> &dyn std::any::Any { self }
 }
-impl WriteTxnLike for RocksWriteTxn {
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any { self }
-}
+impl WriteTxnLike for RocksWriteTxn {}
 
 impl StoreProvider for RocksProvider {
     type ReadTxn = RocksReadTxn;
     type WriteTxn = RocksWriteTxn;
 
     fn begin_read(&self) -> Self::ReadTxn { RocksReadTxn }
-    fn begin_write(&self) -> Self::WriteTxn { RocksWriteTxn }
+    fn begin_write(&self) -> Self::WriteTxn { RocksWriteTxn { batch: WriteBatch::default() } }
     fn refresh(&self, write: Self::WriteTxn) -> Self::WriteTxn { write }
-    fn commit(&self, _write: Self::WriteTxn) {}
+    fn commit(&self, write: Self::WriteTxn) {
+        let _ = self.db.write(write.batch);
+        let _ = self.db.flush();
+    }
 
-    fn version(&self) -> &dyn VersionStore { &self.version }
+    type Version = RocksVersionStore;
+    fn version(&self) -> &Self::Version { &self.version }
 }
 
 pub struct RocksVersionStore {
@@ -52,8 +56,8 @@ pub struct RocksVersionStore {
 
 const META_VERSION_KEY: &[u8] = b"meta:version";
 
-impl VersionStore for RocksVersionStore {
-    fn get(&self, _read: &dyn ReadTxnLike) -> Option<i32> {
+impl VersionStore<RocksReadTxn, RocksWriteTxn> for RocksVersionStore {
+    fn get(&self, _read: &RocksReadTxn) -> Option<i32> {
         self.db.get(META_VERSION_KEY).ok().flatten().map(|v| {
             let mut arr = [0u8; 4];
             arr.copy_from_slice(&v);
@@ -61,9 +65,8 @@ impl VersionStore for RocksVersionStore {
         })
     }
 
-    fn set(&self, _write: &mut dyn WriteTxnLike, version: i32) {
-        let _ = self.db.put(META_VERSION_KEY, version.to_be_bytes());
-        let _ = self.db.flush();
+    fn set(&self, write: &mut RocksWriteTxn, version: i32) {
+        let _ = write.batch.put(META_VERSION_KEY, version.to_be_bytes());
     }
 }
 
@@ -79,6 +82,11 @@ mod tests {
 
         let mut w = provider.begin_write();
         provider.version().set(&mut w, 777);
+
+        // Not visible until commit
+        let r = provider.begin_read();
+        assert_eq!(provider.version().get(&r), None);
+
         provider.commit(w);
 
         let r = provider.begin_read();
