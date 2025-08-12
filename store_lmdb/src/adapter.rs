@@ -1,8 +1,8 @@
 use crate::{store::LmdbStore, version_store::LmdbVersionStore};
 use rsnano_nullable_lmdb::{ReadTransaction, WriteTransaction};
-use store_api::{ReadTxnLike, RepWeightStore as RepWeightStoreApi, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi};
+use store_api::{ReadTxnLike, RepWeightStore as RepWeightStoreApi, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi};
 use rsnano_core::{PublicKey, Amount};
-use crate::{LmdbRepWeightStore, LmdbPrunedStore};
+use crate::{LmdbRepWeightStore, LmdbPrunedStore, LmdbBlockStore};
 
 pub struct ReadTxnPub(pub ReadTransaction);
 pub struct WriteTxnPub(pub WriteTransaction);
@@ -53,6 +53,12 @@ impl PrunedStoreApi<ReadTxnPub, WriteTxnPub> for LmdbPrunedStore {
     fn count(&self, read: &ReadTxnPub) -> u64 { self.count(&read.0) }
     fn exists(&self, read: &ReadTxnPub, hash: &rsnano_core::BlockHash) -> bool { self.exists(&read.0, hash) }
     fn put(&self, write: &mut WriteTxnPub, hash: &rsnano_core::BlockHash) { self.put(&mut write.0, hash) }
+    fn del(&self, write: &mut WriteTxnPub, hash: &rsnano_core::BlockHash) { self.del(&mut write.0, hash) }
+}
+
+impl BlockStoreApi<ReadTxnPub, WriteTxnPub> for LmdbBlockStore {
+    fn exists(&self, read: &ReadTxnPub, hash: &rsnano_core::BlockHash) -> bool { self.exists(&read.0, hash) }
+    fn get(&self, read: &ReadTxnPub, hash: &rsnano_core::BlockHash) -> Option<rsnano_core::SavedBlock> { self.get(&read.0, hash) }
     fn del(&self, write: &mut WriteTxnPub, hash: &rsnano_core::BlockHash) { self.del(&mut write.0, hash) }
 }
 

@@ -40,3 +40,9 @@ pub trait PrunedStore<R: ReadTxnLike, W: WriteTxnLike> {
     fn put(&self, write: &mut W, hash: &rsnano_core::BlockHash);
     fn del(&self, write: &mut W, hash: &rsnano_core::BlockHash);
 }
+
+pub trait BlockStore<R: ReadTxnLike, W: WriteTxnLike> {
+    fn exists(&self, read: &R, hash: &rsnano_core::BlockHash) -> bool;
+    fn get(&self, read: &R, hash: &rsnano_core::BlockHash) -> Option<rsnano_core::SavedBlock>;
+    fn del(&self, write: &mut W, hash: &rsnano_core::BlockHash);
+}
