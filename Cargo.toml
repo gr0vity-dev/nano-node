@@ -32,7 +32,7 @@ members = [
 	"tools/xtask",
 	"tools/test_helpers", 
 	"tools/signature-checker", 
-	"tools/insight", "store_api", 
+	"tools/insight", "store_api", "store_rocksdb", 
 	]
 
 resolver = "2"

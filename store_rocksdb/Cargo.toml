@@ -1,0 +1,10 @@
+[package]
+name = "store_rocksdb"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+store_api = { path = "../store_api" }
+rocksdb = { version = "0.21", default-features = false, features = ["multi-threaded-cf"] }
+anyhow = "1"
+tempfile = "3"

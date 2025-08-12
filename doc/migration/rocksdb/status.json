@@ -1,6 +1,6 @@
 {
-  "current_phase": "phase-01-core-traits",
-  "current_step": 2,
+  "current_phase": "iteration-01",
+  "current_step": 1,
   "last_success": "Created store_api with minimal traits; tests compile",
-  "notes": "Next: LMDB adapters for VersionStore"
+  "notes": "Implement LMDB adapters per iteration-01.md"
 }

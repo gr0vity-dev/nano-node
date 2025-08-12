@@ -1,11 +1,12 @@
 pub trait TransactionLike {
     fn is_refresh_needed(&self) -> bool;
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 pub trait ReadTxnLike: TransactionLike {}
 
 pub trait WriteTxnLike: TransactionLike {
-    fn commit(&mut self);
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any;
 }
 
 pub trait VersionStore {
@@ -20,6 +21,7 @@ pub trait StoreProvider {
     fn begin_read(&self) -> Self::ReadTxn;
     fn begin_write(&self) -> Self::WriteTxn;
     fn refresh(&self, write: Self::WriteTxn) -> Self::WriteTxn;
+    fn commit(&self, write: Self::WriteTxn);
 
     fn version(&self) -> &dyn VersionStore;
 }
