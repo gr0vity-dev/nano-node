@@ -5054,6 +5054,7 @@ name = "store_api"
 version = "0.1.0"
 dependencies = [
  "rsnano_core",
+ "rsnano_nullable_lmdb",
 ]
 
 [[package]]

@@ -488,7 +488,14 @@ impl Ledger {
                     store: &self.store,
                     tx: &txn,
                 };
-            } else if self.store.pruned.exists(&txn, &hash) {
+            } else if {
+                use store_api::{PrunedStore, StoreProvider};
+                let rtx = StoreProvider::begin_read(&self.store);
+                <rsnano_store_lmdb::LmdbPrunedStore as PrunedStore<
+                    rsnano_store_lmdb::adapter::ReadTxnPub,
+                    rsnano_store_lmdb::adapter::WriteTxnPub,
+                >>::exists(StoreProvider::pruned(&self.store), &rtx, &hash)
+            } {
                 hash = BlockHash::zero();
             } else {
                 panic!("Error finding block for pruning");
