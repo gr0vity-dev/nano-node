@@ -20,6 +20,11 @@ pub trait PendingStore<R: ReadTxnLike, W: WriteTxnLike> {
 pub trait SuccessorStore<R: ReadTxnLike, W: WriteTxnLike> {
     fn get(&self, read: &R, block: &rsnano_core::BlockHash) -> Option<rsnano_core::BlockHash>;
 }
+
+pub trait FinalVoteStore<R: ReadTxnLike, W: WriteTxnLike> {
+    fn get(&self, read: &R, root: &rsnano_core::QualifiedRoot) -> Option<rsnano_core::BlockHash>;
+    fn put(&self, write: &mut W, root: &rsnano_core::QualifiedRoot, hash: &rsnano_core::BlockHash) -> bool;
+}
 pub trait TransactionLike {
     fn is_refresh_needed(&self) -> bool;
 }
@@ -43,6 +48,7 @@ pub trait StoreProvider {
     type ConfirmationHeight: ConfirmationHeightStore<Self::ReadTxn, Self::WriteTxn>;
     type Pending: PendingStore<Self::ReadTxn, Self::WriteTxn>;
     type Successor: SuccessorStore<Self::ReadTxn, Self::WriteTxn>;
+    type FinalVote: FinalVoteStore<Self::ReadTxn, Self::WriteTxn>;
 
     fn begin_read(&self) -> Self::ReadTxn;
     fn begin_write(&self) -> Self::WriteTxn;
@@ -56,6 +62,7 @@ pub trait StoreProvider {
     fn confirmation_height(&self) -> &Self::ConfirmationHeight;
     fn pending(&self) -> &Self::Pending;
     fn successor(&self) -> &Self::Successor;
+    fn final_vote(&self) -> &Self::FinalVote;
 }
 
 // Minimal RepWeightStore used by RepWeightsUpdater init path

@@ -7,7 +7,7 @@ use rsnano_core::{
 };
 use rsnano_nullable_lmdb::{ReadTransaction, Transaction};
 use rsnano_store_lmdb::{LmdbPendingStore, LmdbRangeIterator, LmdbStore};
-use store_api::{BlockStore, PendingStore, PrunedStore, StoreProvider, SuccessorStore};
+use store_api::{BlockStore, FinalVoteStore, PendingStore, PrunedStore, StoreProvider, SuccessorStore};
 
 use super::{BorrowingConfirmedSet, ConfirmedSet, LedgerSet};
 use crate::{DependentBlocksFinder, LedgerConstants, RepresentativeBlockFinder};
@@ -586,7 +586,14 @@ impl<'a> AnySet for BorrowingAnySet<'a> {
     }
 
     fn get_final_vote(&self, root: &QualifiedRoot) -> Option<BlockHash> {
-        self.store.final_vote.get(self.tx, root)
+        <rsnano_store_lmdb::LmdbFinalVoteStore as FinalVoteStore<
+            rsnano_store_lmdb::adapter::ReadTxnPub,
+            rsnano_store_lmdb::adapter::WriteTxnPub,
+        >>::get(
+            StoreProvider::final_vote(self.store),
+            &StoreProvider::begin_read(self.store),
+            root,
+        )
     }
 }
 

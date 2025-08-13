@@ -1,8 +1,8 @@
 use crate::{store::LmdbStore, version_store::LmdbVersionStore};
 use rsnano_nullable_lmdb::{ReadTransaction, WriteTransaction};
-use store_api::{ReadTxnLike, RepWeightStore as RepWeightStoreApi, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi, AccountStore as AccountStoreApi, ConfirmationHeightStore as ConfirmationHeightStoreApi, PendingStore as PendingStoreApi, SuccessorStore as SuccessorStoreApi};
+use store_api::{ReadTxnLike, RepWeightStore as RepWeightStoreApi, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi, AccountStore as AccountStoreApi, ConfirmationHeightStore as ConfirmationHeightStoreApi, PendingStore as PendingStoreApi, SuccessorStore as SuccessorStoreApi, FinalVoteStore as FinalVoteStoreApi};
 use rsnano_core::{PublicKey, Amount};
-use crate::{LmdbRepWeightStore, LmdbPrunedStore, LmdbBlockStore, LmdbAccountStore, LmdbConfirmationHeightStore, LmdbPendingStore};
+use crate::{LmdbRepWeightStore, LmdbPrunedStore, LmdbBlockStore, LmdbAccountStore, LmdbConfirmationHeightStore, LmdbPendingStore, LmdbFinalVoteStore};
 use crate::successor_store::LmdbSuccessorStore;
 
 pub struct ReadTxnPub(pub ReadTransaction);
@@ -51,6 +51,8 @@ impl StoreProvider for LmdbStore {
     fn pending(&self) -> &Self::Pending { &self.pending }
     type Successor = LmdbSuccessorStore;
     fn successor(&self) -> &Self::Successor { &self.successors }
+    type FinalVote = LmdbFinalVoteStore;
+    fn final_vote(&self) -> &Self::FinalVote { &self.final_vote }
 }
 
 impl RepWeightStoreApi<ReadTxnPub, WriteTxnPub> for LmdbRepWeightStore {
@@ -98,6 +100,11 @@ impl SuccessorStoreApi<ReadTxnPub, WriteTxnPub> for LmdbSuccessorStore {
     fn get(&self, read: &ReadTxnPub, block: &rsnano_core::BlockHash) -> Option<rsnano_core::BlockHash> { self.get(&read.0, block) }
 }
 
+impl FinalVoteStoreApi<ReadTxnPub, WriteTxnPub> for LmdbFinalVoteStore {
+    fn get(&self, read: &ReadTxnPub, root: &rsnano_core::QualifiedRoot) -> Option<rsnano_core::BlockHash> { self.get(&read.0, root) }
+    fn put(&self, write: &mut WriteTxnPub, root: &rsnano_core::QualifiedRoot, hash: &rsnano_core::BlockHash) -> bool { self.put(&mut write.0, root, hash) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,6 +131,7 @@ mod tests {
             ConfirmationHeight = LmdbConfirmationHeightStore,
             Pending = LmdbPendingStore,
             Successor = LmdbSuccessorStore,
+            FinalVote = LmdbFinalVoteStore,
         > = &store;
 
         // set via trait
