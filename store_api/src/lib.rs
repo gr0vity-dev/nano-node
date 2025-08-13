@@ -11,6 +11,11 @@ pub trait ConfirmationHeightStore<R: ReadTxnLike, W: WriteTxnLike> {
     fn get(&self, read: &R, account: &Account) -> Option<ConfirmationHeightInfo>;
     fn iter<'a>(&'a self, read: &'a R) -> Box<dyn Iterator<Item = (Account, ConfirmationHeightInfo)> + 'a>;
 }
+
+pub trait PendingStore<R: ReadTxnLike, W: WriteTxnLike> {
+    fn get(&self, read: &R, key: &rsnano_core::PendingKey) -> Option<rsnano_core::PendingInfo>;
+    fn exists(&self, read: &R, key: &rsnano_core::PendingKey) -> bool;
+}
 pub trait TransactionLike {
     fn is_refresh_needed(&self) -> bool;
 }
@@ -32,6 +37,7 @@ pub trait StoreProvider {
     type Block: BlockStore<Self::ReadTxn, Self::WriteTxn>;
     type Account: AccountStore<Self::ReadTxn, Self::WriteTxn>;
     type ConfirmationHeight: ConfirmationHeightStore<Self::ReadTxn, Self::WriteTxn>;
+    type Pending: PendingStore<Self::ReadTxn, Self::WriteTxn>;
 
     fn begin_read(&self) -> Self::ReadTxn;
     fn begin_write(&self) -> Self::WriteTxn;
@@ -43,6 +49,7 @@ pub trait StoreProvider {
     fn block(&self) -> &Self::Block;
     fn account(&self) -> &Self::Account;
     fn confirmation_height(&self) -> &Self::ConfirmationHeight;
+    fn pending(&self) -> &Self::Pending;
 }
 
 // Minimal RepWeightStore used by RepWeightsUpdater init path

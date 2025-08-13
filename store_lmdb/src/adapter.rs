@@ -1,8 +1,8 @@
 use crate::{store::LmdbStore, version_store::LmdbVersionStore};
 use rsnano_nullable_lmdb::{ReadTransaction, WriteTransaction};
-use store_api::{ReadTxnLike, RepWeightStore as RepWeightStoreApi, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi, AccountStore as AccountStoreApi, ConfirmationHeightStore as ConfirmationHeightStoreApi};
+use store_api::{ReadTxnLike, RepWeightStore as RepWeightStoreApi, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi, AccountStore as AccountStoreApi, ConfirmationHeightStore as ConfirmationHeightStoreApi, PendingStore as PendingStoreApi};
 use rsnano_core::{PublicKey, Amount};
-use crate::{LmdbRepWeightStore, LmdbPrunedStore, LmdbBlockStore, LmdbAccountStore, LmdbConfirmationHeightStore};
+use crate::{LmdbRepWeightStore, LmdbPrunedStore, LmdbBlockStore, LmdbAccountStore, LmdbConfirmationHeightStore, LmdbPendingStore};
 
 pub struct ReadTxnPub(pub ReadTransaction);
 pub struct WriteTxnPub(pub WriteTransaction);
@@ -46,6 +46,8 @@ impl StoreProvider for LmdbStore {
     fn account(&self) -> &Self::Account { &self.account }
     type ConfirmationHeight = LmdbConfirmationHeightStore;
     fn confirmation_height(&self) -> &Self::ConfirmationHeight { &self.confirmation_height }
+    type Pending = LmdbPendingStore;
+    fn pending(&self) -> &Self::Pending { &self.pending }
 }
 
 impl RepWeightStoreApi<ReadTxnPub, WriteTxnPub> for LmdbRepWeightStore {
@@ -84,6 +86,11 @@ impl ConfirmationHeightStoreApi<ReadTxnPub, WriteTxnPub> for LmdbConfirmationHei
     }
 }
 
+impl PendingStoreApi<ReadTxnPub, WriteTxnPub> for LmdbPendingStore {
+    fn get(&self, read: &ReadTxnPub, key: &rsnano_core::PendingKey) -> Option<rsnano_core::PendingInfo> { self.get(&read.0, key) }
+    fn exists(&self, read: &ReadTxnPub, key: &rsnano_core::PendingKey) -> bool { self.exists(&read.0, key) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,6 +115,7 @@ mod tests {
             Block = LmdbBlockStore,
             Account = LmdbAccountStore,
             ConfirmationHeight = LmdbConfirmationHeightStore,
+            Pending = LmdbPendingStore,
         > = &store;
 
         // set via trait

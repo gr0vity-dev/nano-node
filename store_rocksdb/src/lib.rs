@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rocksdb::{Options, DB};
 use std::sync::Arc;
-use store_api::{ReadTxnLike, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi, AccountStore as AccountStoreApi, ConfirmationHeightStore as ConfirmationHeightStoreApi};
+use store_api::{ReadTxnLike, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi, AccountStore as AccountStoreApi, ConfirmationHeightStore as ConfirmationHeightStoreApi, PendingStore as PendingStoreApi};
 
 pub struct RocksProvider {
     db: Arc<DB>,
@@ -10,6 +10,7 @@ pub struct RocksProvider {
     block: RocksBlockStore,
     account: RocksAccountStore,
     confirmation_height: RocksConfirmationHeightStore,
+    pending: RocksPendingStore,
 }
 
 impl RocksProvider {
@@ -17,7 +18,7 @@ impl RocksProvider {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         let db = Arc::new(DB::open(&opts, path)?);
-        Ok(Self { version: RocksVersionStore { db: db.clone() }, pruned: RocksPrunedStore { db: db.clone() }, block: RocksBlockStore { db: db.clone() }, account: RocksAccountStore { db: db.clone() }, confirmation_height: RocksConfirmationHeightStore { db: db.clone() }, db })
+        Ok(Self { version: RocksVersionStore { db: db.clone() }, pruned: RocksPrunedStore { db: db.clone() }, block: RocksBlockStore { db: db.clone() }, account: RocksAccountStore { db: db.clone() }, confirmation_height: RocksConfirmationHeightStore { db: db.clone() }, pending: RocksPendingStore { db: db.clone() }, db })
     }
 }
 
@@ -60,6 +61,8 @@ impl StoreProvider for RocksProvider {
     fn account(&self) -> &Self::Account { &self.account }
     type ConfirmationHeight = RocksConfirmationHeightStore;
     fn confirmation_height(&self) -> &Self::ConfirmationHeight { &self.confirmation_height }
+    type Pending = RocksPendingStore;
+    fn pending(&self) -> &Self::Pending { &self.pending }
 }
 
 pub struct RocksVersionStore {
@@ -128,6 +131,7 @@ impl BlockStoreApi<RocksReadTxn, RocksWriteTxn> for RocksBlockStore {
 
 pub struct RocksAccountStore { db: Arc<DB> }
 pub struct RocksConfirmationHeightStore { db: Arc<DB> }
+pub struct RocksPendingStore { db: Arc<DB> }
 
 impl AccountStoreApi<RocksReadTxn, RocksWriteTxn> for RocksAccountStore {
     fn count(&self, _read: &RocksReadTxn) -> u64 { 0 }
@@ -143,6 +147,11 @@ impl ConfirmationHeightStoreApi<RocksReadTxn, RocksWriteTxn> for RocksConfirmati
     fn iter<'a>(&'a self, _read: &'a RocksReadTxn) -> Box<dyn Iterator<Item = (rsnano_core::Account, rsnano_core::ConfirmationHeightInfo)> + 'a> {
         Box::new(std::iter::empty())
     }
+}
+
+impl PendingStoreApi<RocksReadTxn, RocksWriteTxn> for RocksPendingStore {
+    fn get(&self, _read: &RocksReadTxn, _key: &rsnano_core::PendingKey) -> Option<rsnano_core::PendingInfo> { None }
+    fn exists(&self, _read: &RocksReadTxn, _key: &rsnano_core::PendingKey) -> bool { false }
 }
 
 #[cfg(test)]
