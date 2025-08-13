@@ -466,7 +466,7 @@ impl<'a> AnySet for BorrowingAnySet<'a> {
 
     /// Returns the latest block with representative information
     fn representative_block_hash(&self, hash: &BlockHash) -> BlockHash {
-        let hash = RepresentativeBlockFinder::new(self.tx, self.store).find_rep_block(*hash);
+        let hash = RepresentativeBlockFinder::new(self.store).find_rep_block(*hash);
         debug_assert!(hash.is_zero() || self.store.block.exists(self.tx, &hash));
         hash
     }
