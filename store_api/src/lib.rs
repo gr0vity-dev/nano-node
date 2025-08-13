@@ -16,6 +16,10 @@ pub trait PendingStore<R: ReadTxnLike, W: WriteTxnLike> {
     fn get(&self, read: &R, key: &rsnano_core::PendingKey) -> Option<rsnano_core::PendingInfo>;
     fn exists(&self, read: &R, key: &rsnano_core::PendingKey) -> bool;
 }
+
+pub trait SuccessorStore<R: ReadTxnLike, W: WriteTxnLike> {
+    fn get(&self, read: &R, block: &rsnano_core::BlockHash) -> Option<rsnano_core::BlockHash>;
+}
 pub trait TransactionLike {
     fn is_refresh_needed(&self) -> bool;
 }
@@ -38,6 +42,7 @@ pub trait StoreProvider {
     type Account: AccountStore<Self::ReadTxn, Self::WriteTxn>;
     type ConfirmationHeight: ConfirmationHeightStore<Self::ReadTxn, Self::WriteTxn>;
     type Pending: PendingStore<Self::ReadTxn, Self::WriteTxn>;
+    type Successor: SuccessorStore<Self::ReadTxn, Self::WriteTxn>;
 
     fn begin_read(&self) -> Self::ReadTxn;
     fn begin_write(&self) -> Self::WriteTxn;
@@ -50,6 +55,7 @@ pub trait StoreProvider {
     fn account(&self) -> &Self::Account;
     fn confirmation_height(&self) -> &Self::ConfirmationHeight;
     fn pending(&self) -> &Self::Pending;
+    fn successor(&self) -> &Self::Successor;
 }
 
 // Minimal RepWeightStore used by RepWeightsUpdater init path

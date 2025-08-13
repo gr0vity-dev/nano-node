@@ -3,7 +3,6 @@ use rsnano_core::{
     SavedBlock,
 };
 use rsnano_nullable_lmdb::{ReadTransaction, Transaction};
-use store_api::{BlockStore, ConfirmationHeightStore, PrunedStore, StoreProvider};
 use rsnano_store_lmdb::LmdbStore;
 
 use super::{AnyReceivableIterator, LedgerSet};
@@ -174,11 +173,7 @@ impl<'a> ConfirmedSet for BorrowingConfirmedSet<'a> {
         if hash.is_zero() {
             return None;
         }
-        let r = StoreProvider::begin_read(self.store);
-        let block = <rsnano_store_lmdb::LmdbBlockStore as BlockStore<
-            rsnano_store_lmdb::adapter::ReadTxnPub,
-            rsnano_store_lmdb::adapter::WriteTxnPub,
-        >>::get(StoreProvider::block(self.store), &r, hash)?;
+        let block = self.store.block.get(self.tx, hash)?;
 
         let conf_info = self
             .store
@@ -196,10 +191,7 @@ impl<'a> ConfirmedSet for BorrowingConfirmedSet<'a> {
         if hash.is_zero() {
             return false;
         }
-        if <rsnano_store_lmdb::LmdbPrunedStore as PrunedStore<
-            rsnano_store_lmdb::adapter::ReadTxnPub,
-            rsnano_store_lmdb::adapter::WriteTxnPub,
-        >>::exists(StoreProvider::pruned(self.store), &StoreProvider::begin_read(self.store), hash) {
+        if self.store.pruned.exists(self.tx, hash) {
             true
         } else {
             self.block_exists(hash)
@@ -207,10 +199,7 @@ impl<'a> ConfirmedSet for BorrowingConfirmedSet<'a> {
     }
 
     fn get_conf_info(&self, account: &Account) -> Option<ConfirmationHeightInfo> {
-        <rsnano_store_lmdb::LmdbConfirmationHeightStore as ConfirmationHeightStore<
-            rsnano_store_lmdb::adapter::ReadTxnPub,
-            rsnano_store_lmdb::adapter::WriteTxnPub,
-        >>::get(StoreProvider::confirmation_height(self.store), &StoreProvider::begin_read(self.store), account)
+        self.store.confirmation_height.get(self.tx, account)
     }
 }
 

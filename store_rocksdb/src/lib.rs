@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rocksdb::{Options, DB};
 use std::sync::Arc;
-use store_api::{ReadTxnLike, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi, AccountStore as AccountStoreApi, ConfirmationHeightStore as ConfirmationHeightStoreApi, PendingStore as PendingStoreApi};
+use store_api::{ReadTxnLike, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi, AccountStore as AccountStoreApi, ConfirmationHeightStore as ConfirmationHeightStoreApi, PendingStore as PendingStoreApi, SuccessorStore as SuccessorStoreApi};
 
 pub struct RocksProvider {
     db: Arc<DB>,
@@ -11,6 +11,7 @@ pub struct RocksProvider {
     account: RocksAccountStore,
     confirmation_height: RocksConfirmationHeightStore,
     pending: RocksPendingStore,
+    successor: RocksSuccessorStore,
 }
 
 impl RocksProvider {
@@ -18,7 +19,7 @@ impl RocksProvider {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         let db = Arc::new(DB::open(&opts, path)?);
-        Ok(Self { version: RocksVersionStore { db: db.clone() }, pruned: RocksPrunedStore { db: db.clone() }, block: RocksBlockStore { db: db.clone() }, account: RocksAccountStore { db: db.clone() }, confirmation_height: RocksConfirmationHeightStore { db: db.clone() }, pending: RocksPendingStore { db: db.clone() }, db })
+        Ok(Self { version: RocksVersionStore { db: db.clone() }, pruned: RocksPrunedStore { db: db.clone() }, block: RocksBlockStore { db: db.clone() }, account: RocksAccountStore { db: db.clone() }, confirmation_height: RocksConfirmationHeightStore { db: db.clone() }, pending: RocksPendingStore { db: db.clone() }, successor: RocksSuccessorStore { db: db.clone() }, db })
     }
 }
 
@@ -63,6 +64,8 @@ impl StoreProvider for RocksProvider {
     fn confirmation_height(&self) -> &Self::ConfirmationHeight { &self.confirmation_height }
     type Pending = RocksPendingStore;
     fn pending(&self) -> &Self::Pending { &self.pending }
+    type Successor = RocksSuccessorStore;
+    fn successor(&self) -> &Self::Successor { &self.successor }
 }
 
 pub struct RocksVersionStore {
@@ -132,6 +135,7 @@ impl BlockStoreApi<RocksReadTxn, RocksWriteTxn> for RocksBlockStore {
 pub struct RocksAccountStore { db: Arc<DB> }
 pub struct RocksConfirmationHeightStore { db: Arc<DB> }
 pub struct RocksPendingStore { db: Arc<DB> }
+pub struct RocksSuccessorStore { db: Arc<DB> }
 
 impl AccountStoreApi<RocksReadTxn, RocksWriteTxn> for RocksAccountStore {
     fn count(&self, _read: &RocksReadTxn) -> u64 { 0 }
@@ -152,6 +156,10 @@ impl ConfirmationHeightStoreApi<RocksReadTxn, RocksWriteTxn> for RocksConfirmati
 impl PendingStoreApi<RocksReadTxn, RocksWriteTxn> for RocksPendingStore {
     fn get(&self, _read: &RocksReadTxn, _key: &rsnano_core::PendingKey) -> Option<rsnano_core::PendingInfo> { None }
     fn exists(&self, _read: &RocksReadTxn, _key: &rsnano_core::PendingKey) -> bool { false }
+}
+
+impl SuccessorStoreApi<RocksReadTxn, RocksWriteTxn> for RocksSuccessorStore {
+    fn get(&self, _read: &RocksReadTxn, _block: &rsnano_core::BlockHash) -> Option<rsnano_core::BlockHash> { None }
 }
 
 #[cfg(test)]

@@ -7,6 +7,7 @@ use rsnano_core::{
 };
 use rsnano_nullable_lmdb::{ReadTransaction, Transaction};
 use rsnano_store_lmdb::{LmdbPendingStore, LmdbRangeIterator, LmdbStore};
+use store_api::{BlockStore, PendingStore, PrunedStore, StoreProvider, SuccessorStore};
 
 use super::{BorrowingConfirmedSet, ConfirmedSet, LedgerSet};
 use crate::{DependentBlocksFinder, LedgerConstants, RepresentativeBlockFinder};
@@ -433,7 +434,14 @@ impl<'a> AnySet for BorrowingAnySet<'a> {
 
     fn block_successor_by_qualified_root(&self, root: &QualifiedRoot) -> Option<BlockHash> {
         if !root.previous.is_zero() {
-            self.store.successors.get(self.tx, &root.previous)
+            <rsnano_store_lmdb::successor_store::LmdbSuccessorStore as SuccessorStore<
+                rsnano_store_lmdb::adapter::ReadTxnPub,
+                rsnano_store_lmdb::adapter::WriteTxnPub,
+            >>::get(
+                StoreProvider::successor(self.store),
+                &StoreProvider::begin_read(self.store),
+                &root.previous,
+            )
         } else {
             self.get_account(&root.root.into()).map(|i| i.open_block)
         }

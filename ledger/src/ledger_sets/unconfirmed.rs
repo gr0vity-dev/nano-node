@@ -1,5 +1,6 @@
 use rsnano_core::{Account, AccountInfo, Amount, BlockHash};
 use rsnano_nullable_lmdb::ReadTransaction;
+use store_api::{BlockStore, ConfirmationHeightStore, StoreProvider};
 use rsnano_store_lmdb::LmdbStore;
 
 use super::LedgerSet;

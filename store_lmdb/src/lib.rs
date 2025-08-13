@@ -17,7 +17,7 @@ mod pending_store;
 mod pruned_store;
 mod rep_weight_store;
 mod store;
-mod successor_store;
+pub mod successor_store;
 mod upgrades;
 mod vacuum;
 mod version_store;
