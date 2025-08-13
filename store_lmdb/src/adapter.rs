@@ -71,11 +71,17 @@ impl BlockStoreApi<ReadTxnPub, WriteTxnPub> for LmdbBlockStore {
 impl AccountStoreApi<ReadTxnPub, WriteTxnPub> for LmdbAccountStore {
     fn count(&self, read: &ReadTxnPub) -> u64 { self.count(&read.0) }
     fn get(&self, read: &ReadTxnPub, account: &rsnano_core::Account) -> Option<rsnano_core::AccountInfo> { self.get(&read.0, account) }
+    fn iter<'a>(&'a self, read: &'a ReadTxnPub) -> Box<dyn Iterator<Item = (rsnano_core::Account, rsnano_core::AccountInfo)> + 'a> {
+        Box::new(LmdbAccountStore::iter(self, &read.0))
+    }
 }
 
 impl ConfirmationHeightStoreApi<ReadTxnPub, WriteTxnPub> for LmdbConfirmationHeightStore {
     fn count(&self, read: &ReadTxnPub) -> u64 { self.count(&read.0) }
     fn get(&self, read: &ReadTxnPub, account: &rsnano_core::Account) -> Option<rsnano_core::ConfirmationHeightInfo> { self.get(&read.0, account) }
+    fn iter<'a>(&'a self, read: &'a ReadTxnPub) -> Box<dyn Iterator<Item = (rsnano_core::Account, rsnano_core::ConfirmationHeightInfo)> + 'a> {
+        Box::new(LmdbConfirmationHeightStore::iter(self, &read.0))
+    }
 }
 
 #[cfg(test)]

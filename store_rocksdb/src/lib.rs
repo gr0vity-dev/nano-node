@@ -132,11 +132,17 @@ pub struct RocksConfirmationHeightStore { db: Arc<DB> }
 impl AccountStoreApi<RocksReadTxn, RocksWriteTxn> for RocksAccountStore {
     fn count(&self, _read: &RocksReadTxn) -> u64 { 0 }
     fn get(&self, _read: &RocksReadTxn, _account: &rsnano_core::Account) -> Option<rsnano_core::AccountInfo> { None }
+    fn iter<'a>(&'a self, _read: &'a RocksReadTxn) -> Box<dyn Iterator<Item = (rsnano_core::Account, rsnano_core::AccountInfo)> + 'a> {
+        Box::new(std::iter::empty())
+    }
 }
 
 impl ConfirmationHeightStoreApi<RocksReadTxn, RocksWriteTxn> for RocksConfirmationHeightStore {
     fn count(&self, _read: &RocksReadTxn) -> u64 { 0 }
     fn get(&self, _read: &RocksReadTxn, _account: &rsnano_core::Account) -> Option<rsnano_core::ConfirmationHeightInfo> { None }
+    fn iter<'a>(&'a self, _read: &'a RocksReadTxn) -> Box<dyn Iterator<Item = (rsnano_core::Account, rsnano_core::ConfirmationHeightInfo)> + 'a> {
+        Box::new(std::iter::empty())
+    }
 }
 
 #[cfg(test)]

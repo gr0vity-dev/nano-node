@@ -3,11 +3,13 @@ use rsnano_core::{Account, AccountInfo, ConfirmationHeightInfo};
 pub trait AccountStore<R: ReadTxnLike, W: WriteTxnLike> {
     fn count(&self, read: &R) -> u64;
     fn get(&self, read: &R, account: &Account) -> Option<AccountInfo>;
+    fn iter<'a>(&'a self, read: &'a R) -> Box<dyn Iterator<Item = (Account, AccountInfo)> + 'a>;
 }
 
 pub trait ConfirmationHeightStore<R: ReadTxnLike, W: WriteTxnLike> {
     fn count(&self, read: &R) -> u64;
     fn get(&self, read: &R, account: &Account) -> Option<ConfirmationHeightInfo>;
+    fn iter<'a>(&'a self, read: &'a R) -> Box<dyn Iterator<Item = (Account, ConfirmationHeightInfo)> + 'a>;
 }
 pub trait TransactionLike {
     fn is_refresh_needed(&self) -> bool;
