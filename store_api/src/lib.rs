@@ -1,15 +1,13 @@
+use rsnano_core::{Account, AccountInfo, ConfirmationHeightInfo};
+
 pub trait AccountStore<R: ReadTxnLike, W: WriteTxnLike> {
     fn count(&self, read: &R) -> u64;
-    fn get(&self, read: &R, account: &rsnano_core::Account) -> Option<rsnano_core::AccountInfo>;
+    fn get(&self, read: &R, account: &Account) -> Option<AccountInfo>;
 }
 
 pub trait ConfirmationHeightStore<R: ReadTxnLike, W: WriteTxnLike> {
-    fn for_each_par(
-        &self,
-        env: &rsnano_nullable_lmdb::LmdbEnvironment,
-        thread_count: usize,
-        action: impl Fn(&mut dyn Iterator<Item = (rsnano_core::Account, rsnano_core::ConfirmationHeightInfo)>) + Send + Sync,
-    );
+    fn count(&self, read: &R) -> u64;
+    fn get(&self, read: &R, account: &Account) -> Option<ConfirmationHeightInfo>;
 }
 pub trait TransactionLike {
     fn is_refresh_needed(&self) -> bool;
