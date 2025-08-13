@@ -28,6 +28,8 @@ pub trait StoreProvider {
     type Version: VersionStore<Self::ReadTxn, Self::WriteTxn>;
     type Pruned: PrunedStore<Self::ReadTxn, Self::WriteTxn>;
     type Block: BlockStore<Self::ReadTxn, Self::WriteTxn>;
+    type Account: AccountStore<Self::ReadTxn, Self::WriteTxn>;
+    type ConfirmationHeight: ConfirmationHeightStore<Self::ReadTxn, Self::WriteTxn>;
 
     fn begin_read(&self) -> Self::ReadTxn;
     fn begin_write(&self) -> Self::WriteTxn;
@@ -37,6 +39,8 @@ pub trait StoreProvider {
     fn version(&self) -> &Self::Version;
     fn pruned(&self) -> &Self::Pruned;
     fn block(&self) -> &Self::Block;
+    fn account(&self) -> &Self::Account;
+    fn confirmation_height(&self) -> &Self::ConfirmationHeight;
 }
 
 // Minimal RepWeightStore used by RepWeightsUpdater init path

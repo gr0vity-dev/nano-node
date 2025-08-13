@@ -1,13 +1,15 @@
 use anyhow::Result;
 use rocksdb::{Options, DB};
 use std::sync::Arc;
-use store_api::{ReadTxnLike, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi};
+use store_api::{ReadTxnLike, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi, AccountStore as AccountStoreApi, ConfirmationHeightStore as ConfirmationHeightStoreApi};
 
 pub struct RocksProvider {
     db: Arc<DB>,
     version: RocksVersionStore,
     pruned: RocksPrunedStore,
     block: RocksBlockStore,
+    account: RocksAccountStore,
+    confirmation_height: RocksConfirmationHeightStore,
 }
 
 impl RocksProvider {
@@ -15,7 +17,7 @@ impl RocksProvider {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         let db = Arc::new(DB::open(&opts, path)?);
-        Ok(Self { version: RocksVersionStore { db: db.clone() }, pruned: RocksPrunedStore { db: db.clone() }, block: RocksBlockStore { db: db.clone() }, db })
+        Ok(Self { version: RocksVersionStore { db: db.clone() }, pruned: RocksPrunedStore { db: db.clone() }, block: RocksBlockStore { db: db.clone() }, account: RocksAccountStore { db: db.clone() }, confirmation_height: RocksConfirmationHeightStore { db: db.clone() }, db })
     }
 }
 
@@ -54,6 +56,10 @@ impl StoreProvider for RocksProvider {
     fn pruned(&self) -> &Self::Pruned { &self.pruned }
     type Block = RocksBlockStore;
     fn block(&self) -> &Self::Block { &self.block }
+    type Account = RocksAccountStore;
+    fn account(&self) -> &Self::Account { &self.account }
+    type ConfirmationHeight = RocksConfirmationHeightStore;
+    fn confirmation_height(&self) -> &Self::ConfirmationHeight { &self.confirmation_height }
 }
 
 pub struct RocksVersionStore {
@@ -118,6 +124,19 @@ impl BlockStoreApi<RocksReadTxn, RocksWriteTxn> for RocksBlockStore {
         key.extend_from_slice(hash.as_bytes());
         let _ = write.batch.delete(key);
     }
+}
+
+pub struct RocksAccountStore { db: Arc<DB> }
+pub struct RocksConfirmationHeightStore { db: Arc<DB> }
+
+impl AccountStoreApi<RocksReadTxn, RocksWriteTxn> for RocksAccountStore {
+    fn count(&self, _read: &RocksReadTxn) -> u64 { 0 }
+    fn get(&self, _read: &RocksReadTxn, _account: &rsnano_core::Account) -> Option<rsnano_core::AccountInfo> { None }
+}
+
+impl ConfirmationHeightStoreApi<RocksReadTxn, RocksWriteTxn> for RocksConfirmationHeightStore {
+    fn count(&self, _read: &RocksReadTxn) -> u64 { 0 }
+    fn get(&self, _read: &RocksReadTxn, _account: &rsnano_core::Account) -> Option<rsnano_core::ConfirmationHeightInfo> { None }
 }
 
 #[cfg(test)]

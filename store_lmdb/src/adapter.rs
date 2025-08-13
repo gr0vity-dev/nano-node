@@ -1,8 +1,8 @@
 use crate::{store::LmdbStore, version_store::LmdbVersionStore};
 use rsnano_nullable_lmdb::{ReadTransaction, WriteTransaction};
-use store_api::{ReadTxnLike, RepWeightStore as RepWeightStoreApi, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi};
+use store_api::{ReadTxnLike, RepWeightStore as RepWeightStoreApi, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi, AccountStore as AccountStoreApi, ConfirmationHeightStore as ConfirmationHeightStoreApi};
 use rsnano_core::{PublicKey, Amount};
-use crate::{LmdbRepWeightStore, LmdbPrunedStore, LmdbBlockStore};
+use crate::{LmdbRepWeightStore, LmdbPrunedStore, LmdbBlockStore, LmdbAccountStore, LmdbConfirmationHeightStore};
 
 pub struct ReadTxnPub(pub ReadTransaction);
 pub struct WriteTxnPub(pub WriteTransaction);
@@ -42,6 +42,10 @@ impl StoreProvider for LmdbStore {
     fn pruned(&self) -> &Self::Pruned { &self.pruned }
     type Block = LmdbBlockStore;
     fn block(&self) -> &Self::Block { &self.block }
+    type Account = LmdbAccountStore;
+    fn account(&self) -> &Self::Account { &self.account }
+    type ConfirmationHeight = LmdbConfirmationHeightStore;
+    fn confirmation_height(&self) -> &Self::ConfirmationHeight { &self.confirmation_height }
 }
 
 impl RepWeightStoreApi<ReadTxnPub, WriteTxnPub> for LmdbRepWeightStore {
@@ -64,6 +68,16 @@ impl BlockStoreApi<ReadTxnPub, WriteTxnPub> for LmdbBlockStore {
     fn del(&self, write: &mut WriteTxnPub, hash: &rsnano_core::BlockHash) { self.del(&mut write.0, hash) }
 }
 
+impl AccountStoreApi<ReadTxnPub, WriteTxnPub> for LmdbAccountStore {
+    fn count(&self, read: &ReadTxnPub) -> u64 { self.count(&read.0) }
+    fn get(&self, read: &ReadTxnPub, account: &rsnano_core::Account) -> Option<rsnano_core::AccountInfo> { self.get(&read.0, account) }
+}
+
+impl ConfirmationHeightStoreApi<ReadTxnPub, WriteTxnPub> for LmdbConfirmationHeightStore {
+    fn count(&self, read: &ReadTxnPub) -> u64 { self.count(&read.0) }
+    fn get(&self, read: &ReadTxnPub, account: &rsnano_core::Account) -> Option<rsnano_core::ConfirmationHeightInfo> { self.get(&read.0, account) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,7 +94,15 @@ mod tests {
         let env = LmdbEnvironmentFactory::new_null().create(options)?;
         let store = LmdbStore::new(env)?;
 
-        let provider: &dyn StoreProvider<ReadTxn = ReadTxnPub, WriteTxn = WriteTxnPub, Version = LmdbVersionStore, Pruned = LmdbPrunedStore, Block = LmdbBlockStore> = &store;
+        let provider: &dyn StoreProvider<
+            ReadTxn = ReadTxnPub,
+            WriteTxn = WriteTxnPub,
+            Version = LmdbVersionStore,
+            Pruned = LmdbPrunedStore,
+            Block = LmdbBlockStore,
+            Account = LmdbAccountStore,
+            ConfirmationHeight = LmdbConfirmationHeightStore,
+        > = &store;
 
         // set via trait
         let mut w = provider.begin_write();
