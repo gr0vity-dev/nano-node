@@ -3,23 +3,25 @@
 Objective: Transition `ledger` off LMDB types in tiny increments by swapping individual callsites to trait-based access. Keep LMDB as the concrete provider until the minimal surface is complete. Do not mix core stores across backends in production.
 ALWAYS RUN cargo test on the WHOLE codebase! tests are fast
 
-
 Order of swaps (each is a separate micro-step):
-1. `Ledger::version()` → use `VersionStore` trait (LMDB provider)
-2. Rep weights initialization → accept trait-backed store in `RepWeightsUpdater` (LMDB provider)
-3. Pruning paths → `PrunedStore` + minimal `BlockStore` trait (exists/get/del) used only in pruning (LMDB provider)
-4. Cache initializations (account/confirmed counts) → trait iteration wrappers for `AccountStore`/`ConfirmationHeightStore`
-5. Remaining sub-stores: `ConfirmationHeightStore`, `AccountStore`, `PendingStore`, `SuccessorStore`, `PeerStore`
+1. `Ledger::version()` → use `VersionStore`
+2. Pruning (safe subset) → `PrunedStore` + minimal `BlockStore` (exists/get/del) in non-hot code
+3. Cache initialization → `AccountStore::iter` and `ConfirmationHeightStore::iter`
+4. Helpers/sets (read-only) → `BlockStore` reads in representative finder and sets; `SuccessorStore::get`
+5. Pending (read-only) → `PendingStore::get/exists` in non-iterator paths
+6. Writes (safe subset) → Genesis path: `BlockStore::put`, `AccountStore::put`, `ConfirmationHeightStore::put`; simple account updates
+7. Remaining reads/writes → gradual migration in cementation/rollback once surface is complete and stable
+8. Add missing stores and wire as needed → `RepWeightStore`, `PeerStore`, `FinalVoteStore`, `OnlineWeightStore`
 
 Per micro-step checklist:
- - Add/extend trait in `store_api`
- - Implement LMDB adapter + unit tests
-  - Implement RocksDB adapter + unit tests in parallel (not wired into runtime yet)
- - Switch exactly one method in `ledger` to use the trait
- - Run: `cargo test -p rsnano_ledger` and then `cargo test`
+- Add/extend trait in `store_api` (backend-agnostic)
+- Implement LMDB adapter + unit tests
+- Implement RocksDB adapter stub (optional) to keep repo building
+- Switch exactly one method in `ledger` to use the trait
+- Run: `cargo test -p rsnano_ledger` and then `cargo test`
 
 Exit criteria:
- - All ledger interactions go through `store_api` traits
+- All ledger interactions go through `store_api` traits
 
 Rollback:
- - Revert the last method change in `ledger` and keep adapters/tests
+- Revert the last method change in `ledger` and keep adapters/tests

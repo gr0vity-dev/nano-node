@@ -1,6 +1,6 @@
 {
-  "current_phase": "iteration-02",
-  "current_step": 1,
-  "last_success": "VersionStore: LMDB adapter + RocksDB MVP with commit semantics; ledger feature-gated for version",
-  "notes": "Add RepWeightStore trait; LMDB adapter; swap ledger init path"
+  "current_phase": "phase-04-ledger-integration",
+  "current_step": 4,
+  "last_success": "Traits added: AccountStore, ConfirmationHeightStore (with iter), PendingStore, SuccessorStore; LMDB adapters wired; ledger using traits in initialize(), representative finder, and successor lookup; tests green",
+  "notes": "Next: add FinalVoteStore and PeerStore traits + adapters; migrate one callsite each; then move safe writes (genesis) to traits"
 }
