@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rocksdb::{Options, DB};
 use std::sync::Arc;
-use store_api::{ReadTxnLike, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi, AccountStore as AccountStoreApi, ConfirmationHeightStore as ConfirmationHeightStoreApi, PendingStore as PendingStoreApi, SuccessorStore as SuccessorStoreApi, FinalVoteStore as FinalVoteStoreApi};
+use store_api::{ReadTxnLike, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi, AccountStore as AccountStoreApi, ConfirmationHeightStore as ConfirmationHeightStoreApi, PendingStore as PendingStoreApi, SuccessorStore as SuccessorStoreApi, FinalVoteStore as FinalVoteStoreApi, PeerStore as PeerStoreApi};
 
 pub struct RocksProvider {
     db: Arc<DB>,
@@ -13,6 +13,7 @@ pub struct RocksProvider {
     pending: RocksPendingStore,
     successor: RocksSuccessorStore,
     final_vote: RocksFinalVoteStore,
+    peer: RocksPeerStore,
 }
 
 impl RocksProvider {
@@ -20,7 +21,7 @@ impl RocksProvider {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         let db = Arc::new(DB::open(&opts, path)?);
-        Ok(Self { version: RocksVersionStore { db: db.clone() }, pruned: RocksPrunedStore { db: db.clone() }, block: RocksBlockStore { db: db.clone() }, account: RocksAccountStore { db: db.clone() }, confirmation_height: RocksConfirmationHeightStore { db: db.clone() }, pending: RocksPendingStore { db: db.clone() }, successor: RocksSuccessorStore { db: db.clone() }, final_vote: RocksFinalVoteStore { db: db.clone() }, db })
+        Ok(Self { version: RocksVersionStore { db: db.clone() }, pruned: RocksPrunedStore { db: db.clone() }, block: RocksBlockStore { db: db.clone() }, account: RocksAccountStore { db: db.clone() }, confirmation_height: RocksConfirmationHeightStore { db: db.clone() }, pending: RocksPendingStore { db: db.clone() }, successor: RocksSuccessorStore { db: db.clone() }, final_vote: RocksFinalVoteStore { db: db.clone() }, peer: RocksPeerStore { db: db.clone() }, db })
     }
 }
 
@@ -69,6 +70,8 @@ impl StoreProvider for RocksProvider {
     fn successor(&self) -> &Self::Successor { &self.successor }
     type FinalVote = RocksFinalVoteStore;
     fn final_vote(&self) -> &Self::FinalVote { &self.final_vote }
+    type Peer = RocksPeerStore;
+    fn peer(&self) -> &Self::Peer { &self.peer }
 }
 
 pub struct RocksVersionStore {
@@ -140,6 +143,7 @@ pub struct RocksConfirmationHeightStore { db: Arc<DB> }
 pub struct RocksPendingStore { db: Arc<DB> }
 pub struct RocksSuccessorStore { db: Arc<DB> }
 pub struct RocksFinalVoteStore { db: Arc<DB> }
+pub struct RocksPeerStore { db: Arc<DB> }
 
 impl AccountStoreApi<RocksReadTxn, RocksWriteTxn> for RocksAccountStore {
     fn count(&self, _read: &RocksReadTxn) -> u64 { 0 }
@@ -169,6 +173,11 @@ impl SuccessorStoreApi<RocksReadTxn, RocksWriteTxn> for RocksSuccessorStore {
 impl FinalVoteStoreApi<RocksReadTxn, RocksWriteTxn> for RocksFinalVoteStore {
     fn get(&self, _read: &RocksReadTxn, _root: &rsnano_core::QualifiedRoot) -> Option<rsnano_core::BlockHash> { None }
     fn put(&self, _write: &mut RocksWriteTxn, _root: &rsnano_core::QualifiedRoot, _hash: &rsnano_core::BlockHash) -> bool { false }
+}
+
+impl PeerStoreApi<RocksReadTxn, RocksWriteTxn> for RocksPeerStore {
+    fn exists(&self, _read: &RocksReadTxn, _endpoint: std::net::SocketAddrV6) -> bool { false }
+    fn put(&self, _write: &mut RocksWriteTxn, _endpoint: std::net::SocketAddrV6, _time: std::time::SystemTime) {}
 }
 
 #[cfg(test)]

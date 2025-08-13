@@ -1,8 +1,8 @@
 use crate::{store::LmdbStore, version_store::LmdbVersionStore};
 use rsnano_nullable_lmdb::{ReadTransaction, WriteTransaction};
-use store_api::{ReadTxnLike, RepWeightStore as RepWeightStoreApi, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi, AccountStore as AccountStoreApi, ConfirmationHeightStore as ConfirmationHeightStoreApi, PendingStore as PendingStoreApi, SuccessorStore as SuccessorStoreApi, FinalVoteStore as FinalVoteStoreApi};
+use store_api::{ReadTxnLike, RepWeightStore as RepWeightStoreApi, StoreProvider, TransactionLike, VersionStore, WriteTxnLike, PrunedStore as PrunedStoreApi, BlockStore as BlockStoreApi, AccountStore as AccountStoreApi, ConfirmationHeightStore as ConfirmationHeightStoreApi, PendingStore as PendingStoreApi, SuccessorStore as SuccessorStoreApi, FinalVoteStore as FinalVoteStoreApi, PeerStore as PeerStoreApi};
 use rsnano_core::{PublicKey, Amount};
-use crate::{LmdbRepWeightStore, LmdbPrunedStore, LmdbBlockStore, LmdbAccountStore, LmdbConfirmationHeightStore, LmdbPendingStore, LmdbFinalVoteStore};
+use crate::{LmdbRepWeightStore, LmdbPrunedStore, LmdbBlockStore, LmdbAccountStore, LmdbConfirmationHeightStore, LmdbPendingStore, LmdbFinalVoteStore, LmdbPeerStore};
 use crate::successor_store::LmdbSuccessorStore;
 
 pub struct ReadTxnPub(pub ReadTransaction);
@@ -53,6 +53,8 @@ impl StoreProvider for LmdbStore {
     fn successor(&self) -> &Self::Successor { &self.successors }
     type FinalVote = LmdbFinalVoteStore;
     fn final_vote(&self) -> &Self::FinalVote { &self.final_vote }
+    type Peer = LmdbPeerStore;
+    fn peer(&self) -> &Self::Peer { &self.peer }
 }
 
 impl RepWeightStoreApi<ReadTxnPub, WriteTxnPub> for LmdbRepWeightStore {
@@ -105,6 +107,11 @@ impl FinalVoteStoreApi<ReadTxnPub, WriteTxnPub> for LmdbFinalVoteStore {
     fn put(&self, write: &mut WriteTxnPub, root: &rsnano_core::QualifiedRoot, hash: &rsnano_core::BlockHash) -> bool { self.put(&mut write.0, root, hash) }
 }
 
+impl PeerStoreApi<ReadTxnPub, WriteTxnPub> for LmdbPeerStore {
+    fn exists(&self, read: &ReadTxnPub, endpoint: std::net::SocketAddrV6) -> bool { self.exists(&read.0, endpoint) }
+    fn put(&self, write: &mut WriteTxnPub, endpoint: std::net::SocketAddrV6, time: std::time::SystemTime) { self.put(&mut write.0, endpoint, time) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,6 +139,7 @@ mod tests {
             Pending = LmdbPendingStore,
             Successor = LmdbSuccessorStore,
             FinalVote = LmdbFinalVoteStore,
+            Peer = LmdbPeerStore,
         > = &store;
 
         // set via trait

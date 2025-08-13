@@ -25,6 +25,11 @@ pub trait FinalVoteStore<R: ReadTxnLike, W: WriteTxnLike> {
     fn get(&self, read: &R, root: &rsnano_core::QualifiedRoot) -> Option<rsnano_core::BlockHash>;
     fn put(&self, write: &mut W, root: &rsnano_core::QualifiedRoot, hash: &rsnano_core::BlockHash) -> bool;
 }
+
+pub trait PeerStore<R: ReadTxnLike, W: WriteTxnLike> {
+    fn exists(&self, read: &R, endpoint: std::net::SocketAddrV6) -> bool;
+    fn put(&self, write: &mut W, endpoint: std::net::SocketAddrV6, time: std::time::SystemTime);
+}
 pub trait TransactionLike {
     fn is_refresh_needed(&self) -> bool;
 }
@@ -49,6 +54,7 @@ pub trait StoreProvider {
     type Pending: PendingStore<Self::ReadTxn, Self::WriteTxn>;
     type Successor: SuccessorStore<Self::ReadTxn, Self::WriteTxn>;
     type FinalVote: FinalVoteStore<Self::ReadTxn, Self::WriteTxn>;
+    type Peer: PeerStore<Self::ReadTxn, Self::WriteTxn>;
 
     fn begin_read(&self) -> Self::ReadTxn;
     fn begin_write(&self) -> Self::WriteTxn;
@@ -63,6 +69,7 @@ pub trait StoreProvider {
     fn pending(&self) -> &Self::Pending;
     fn successor(&self) -> &Self::Successor;
     fn final_vote(&self) -> &Self::FinalVote;
+    fn peer(&self) -> &Self::Peer;
 }
 
 // Minimal RepWeightStore used by RepWeightsUpdater init path
