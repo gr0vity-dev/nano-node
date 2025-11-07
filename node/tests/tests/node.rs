@@ -1467,7 +1467,8 @@ fn fork_open() {
     let send1 = lattice.genesis().send(&key1, Amount::MAX);
     let mut fork_lattice = lattice.clone();
 
-    let channel = make_fake_channel(&node);
+    let network_services = node.network_services();
+    let channel = make_fake_channel(&network_services);
 
     node.network_services().inbound_message_queue.put(
         Message::Publish(Publish::new_forward(send1.clone())),
@@ -1548,7 +1549,8 @@ fn online_reps_rep_crawler() {
     let node = system.build_node().flags(flags).finish();
 
     // Without rep crawler
-    let channel = make_fake_channel(&node);
+    let network_services = node.network_services();
+    let channel = make_fake_channel(&network_services);
 
     let vote: FilteredVote = ReceivedVote::new(
         Arc::new(Vote::new(
@@ -1616,7 +1618,8 @@ fn online_reps_election() {
         node.services().online_reps.lock().unwrap().online_weight()
     );
 
-    let channel = make_fake_channel(&node);
+    let network_services = node.network_services();
+    let channel = make_fake_channel(&network_services);
     let _ = node
         .services()
         .vote_processor
@@ -1736,7 +1739,8 @@ fn fork_election_invalid_block_signature() {
     let mut send3 = send2.clone();
     send3.set_signature(Signature::new()); // Invalid signature
 
-    let channel = make_fake_channel(&node1);
+    let network_services = node1.network_services();
+    let channel = make_fake_channel(&network_services);
     node1.network_services().inbound_message_queue.put(
         Message::Publish(Publish::new_forward(send1.clone())),
         channel.clone(),
@@ -1837,7 +1841,7 @@ fn rep_crawler_rep_remove() {
     searching_node.process(receive_rep2);
 
     // Create channel for Rep1
-    let channel_rep1 = make_fake_channel(&searching_node);
+    let channel_rep1 = make_fake_channel(&searching_node.network_services());
 
     // Ensure Rep1 is found by the rep_crawler after receiving a vote from it
     let vote_rep1 = ReceivedVote::new(

@@ -37,7 +37,8 @@ pub type WsMessage = rsnano_websocket_client::Message;
 fn started_election() {
     let mut system = System::new();
     let (node1, websocket) = create_node_with_websocket(&mut system);
-    let channel1 = make_fake_channel(&node1);
+    let network_services = node1.network_services();
+    let channel1 = make_fake_channel(&network_services);
     node1.runtime.block_on(async {
         let mut ws_client = connect_websocket(&node1).await;
         ws_client
@@ -78,7 +79,8 @@ fn started_election() {
 fn stopped_election() {
     let mut system = System::new();
     let (node1, websocket) = create_node_with_websocket(&mut system);
-    let channel1 = make_fake_channel(&node1);
+    let network_services = node1.network_services();
+    let channel1 = make_fake_channel(&network_services);
     node1.runtime.block_on(async {
         let mut ws_client = connect_websocket(&node1).await;
         ws_client

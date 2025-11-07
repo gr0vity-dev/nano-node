@@ -28,7 +28,7 @@ fn check_signature() {
     let send1 = lattice.genesis().send(&key1, 100);
     node.process(send1.clone());
     start_election(&node, &send1.hash());
-    let channel = make_fake_channel(&node);
+    let channel = make_fake_channel(&node.network_services());
     let mut vote1 = Vote::new(&DEV_GENESIS_KEY, Vote::TIMESTAMP_MIN, 0, vec![send1.hash()]);
     let good_signature = vote1.signature;
     vote1.signature = Signature::new();
@@ -80,7 +80,7 @@ fn add_cooldown() {
         0,
         vec![send1.hash()],
     ));
-    let channel = make_fake_channel(&node);
+    let channel = make_fake_channel(&node.network_services());
     let _ = node
         .services()
         .vote_processor

@@ -365,12 +365,7 @@ pub fn establish_tcp(node: &Node, peer: &Node) -> Arc<Channel> {
         .clone()
 }
 
-pub fn make_fake_channel(node: &Node) -> Arc<Channel> {
-    let network_services = node.network_services();
-    make_fake_channel_with_network(&network_services)
-}
-
-pub fn make_fake_channel_with_network(network_services: &NetworkServices) -> Arc<Channel> {
+pub fn make_fake_channel(network_services: &NetworkServices) -> Arc<Channel> {
     network_services
         .network
         .write()

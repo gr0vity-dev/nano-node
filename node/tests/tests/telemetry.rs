@@ -16,7 +16,7 @@ fn invalid_signature() {
     let node_id = telemetry.node_id;
     let message = Message::TelemetryAck(TelemetryAck(Some(telemetry)));
 
-    let channel = make_fake_channel(&node);
+    let channel = make_fake_channel(&node.network_services());
     node.services()
         .network
         .read()
@@ -147,7 +147,7 @@ fn mismatched_node_id() {
     let telemetry = node.services().telemetry.local_telemetry();
 
     let message = Message::TelemetryAck(TelemetryAck(Some(telemetry)));
-    let channel = make_fake_channel(&node);
+    let channel = make_fake_channel(&node.network_services());
     node.network_services()
         .inbound_message_queue
         .put(message, channel);

@@ -13,8 +13,7 @@ use rsnano_node::{Node, bootstrap::BootstrapServer};
 use rsnano_types::{Account, Block, BlockHash, DEV_GENESIS_KEY, HashOrAccount, SavedBlock};
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{
-    System, assert_always_eq, assert_timely_eq, assert_timely_eq2, make_fake_channel,
-    make_fake_channel_with_network, setup_chains,
+    System, assert_always_eq, assert_timely_eq, assert_timely_eq2, make_fake_channel, setup_chains,
 };
 
 #[test]
@@ -39,7 +38,7 @@ fn serve_account_blocks() {
         }),
     });
 
-    let channel = make_fake_channel_with_network(&network_services);
+    let channel = make_fake_channel(&network_services);
     node.network_services()
         .inbound_message_queue
         .put(request, channel);
@@ -85,7 +84,7 @@ fn serve_hash() {
         }),
     });
 
-    let channel = make_fake_channel_with_network(&network_services);
+    let channel = make_fake_channel(&network_services);
     node.network_services()
         .inbound_message_queue
         .put(request, channel);
@@ -131,7 +130,7 @@ fn serve_hash_one() {
         }),
     });
 
-    let channel = make_fake_channel_with_network(&network_services);
+    let channel = make_fake_channel(&network_services);
     node.network_services()
         .inbound_message_queue
         .put(request, channel);
@@ -171,7 +170,7 @@ fn serve_end_of_chain() {
         }),
     });
 
-    let channel = make_fake_channel(&node);
+    let channel = make_fake_channel(&node.network_services());
     node.network_services()
         .inbound_message_queue
         .put(request, channel);
@@ -213,7 +212,7 @@ fn serve_missing() {
         }),
     });
 
-    let channel = make_fake_channel(&node);
+    let channel = make_fake_channel(&node.network_services());
     node.network_services()
         .inbound_message_queue
         .put(request, channel);
@@ -255,7 +254,7 @@ fn serve_multiple() {
             });
             next_id += 1;
 
-            let channel = make_fake_channel(&node);
+            let channel = make_fake_channel(&node.network_services());
             node.network_services()
                 .inbound_message_queue
                 .put(request, channel);
@@ -305,7 +304,7 @@ fn serve_account_info() {
         }),
     });
 
-    let channel = make_fake_channel(&node);
+    let channel = make_fake_channel(&node.network_services());
     node.network_services()
         .inbound_message_queue
         .put(request, channel);
@@ -352,7 +351,7 @@ fn serve_account_info_missing() {
         }),
     });
 
-    let channel = make_fake_channel(&node);
+    let channel = make_fake_channel(&node.network_services());
     node.network_services()
         .inbound_message_queue
         .put(request, channel);
@@ -396,7 +395,7 @@ fn serve_frontiers() {
         }),
     });
 
-    let channel = make_fake_channel(&node);
+            let channel = make_fake_channel(&node.network_services());
     node.network_services()
         .inbound_message_queue
         .put(request, channel);
@@ -446,7 +445,7 @@ fn serve_frontiers_invalid_count() {
             }),
         });
 
-        let channel = make_fake_channel(&node);
+        let channel = make_fake_channel(&node.network_services());
         node.network_services()
             .inbound_message_queue
             .put(request, channel);
@@ -474,7 +473,7 @@ fn serve_frontiers_invalid_count() {
             }),
         });
 
-        let channel = make_fake_channel(&node);
+        let channel = make_fake_channel(&node.network_services());
         node.network_services()
             .inbound_message_queue
             .put(request, channel);
@@ -502,7 +501,7 @@ fn serve_frontiers_invalid_count() {
             }),
         });
 
-        let channel = make_fake_channel(&node);
+        let channel = make_fake_channel(&node.network_services());
         node.network_services()
             .inbound_message_queue
             .put(request, channel);
