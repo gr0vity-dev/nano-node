@@ -229,6 +229,7 @@ impl NodeServices {
             self.vote_processor_queue.clone(),
             self.confirming_set.clone(),
             self.block_processor.clone(),
+            self.block_processor_queue.clone(),
         )
     }
 
@@ -267,6 +268,7 @@ pub struct ConsensusServices {
     pub vote_processor_queue: Arc<VoteProcessorQueue>,
     pub confirming_set: Arc<ConfirmingSet>,
     pub block_processor: Arc<BlockProcessor>,
+    pub block_processor_queue: Arc<BlockProcessorQueue>,
 }
 
 impl ConsensusServices {
@@ -286,6 +288,7 @@ impl ConsensusServices {
         vote_processor_queue: Arc<VoteProcessorQueue>,
         confirming_set: Arc<ConfirmingSet>,
         block_processor: Arc<BlockProcessor>,
+        block_processor_queue: Arc<BlockProcessorQueue>,
     ) -> Self {
         Self {
             active,
@@ -303,6 +306,7 @@ impl ConsensusServices {
             vote_processor_queue,
             confirming_set,
             block_processor,
+            block_processor_queue,
         }
     }
 

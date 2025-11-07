@@ -1413,7 +1413,7 @@ impl Node {
     }
 
     pub fn process_local(&self, block: Block) -> Result<(), BlockError> {
-        self.services
+        self.consensus_services()
             .block_processor_queue
             .push_blocking(Arc::new(block), BlockSource::Local)
             .map_err(|_| BlockError::BadSignature)?
@@ -1421,7 +1421,7 @@ impl Node {
     }
 
     pub fn try_process(&self, block: Block) -> Result<SavedBlock, BlockError> {
-        self.services.ledger.process_one(&block)
+        self.ledger_query_services().ledger.process_one(&block)
     }
 
     pub fn process(&self, block: Block) -> SavedBlock {
@@ -1437,7 +1437,7 @@ impl Node {
 
     pub fn process_multi(&self, blocks: &[Block]) {
         for (i, block) in blocks.iter().enumerate() {
-            match self.services.ledger.process_one(block) {
+            match self.ledger_query_services().ledger.process_one(block) {
                 Ok(_) | Err(BlockError::Old) | Err(BlockError::Conflict) => {}
                 Err(e) => {
                     panic!("Could not multi-process block index {}: {:?}", i, e);
@@ -1452,19 +1452,22 @@ impl Node {
     }
 
     pub fn insert_into_wallet(&self, keys: &PrivateKey) {
-        let wallet_id = self.services.wallets.wallet_ids()[0];
-        self.services
+        let wallet_services = self.wallet_services();
+        let wallet_id = wallet_services.wallets.wallet_ids()[0];
+        wallet_services
             .wallets
             .insert_adhoc2(&wallet_id, &keys.raw_key(), true)
             .unwrap();
     }
 
     pub fn process_active(&self, block: Block) {
-        self.services.block_processor_queue.push(BlockContext::new(
-            block,
-            BlockSource::Live,
-            ChannelId::LOOPBACK,
-        ));
+        self.consensus_services()
+            .block_processor_queue
+            .push(BlockContext::new(
+                block,
+                BlockSource::Live,
+                ChannelId::LOOPBACK,
+            ));
     }
 
     pub fn process_local_multi(&self, blocks: &[Block]) {
@@ -1477,11 +1480,11 @@ impl Node {
     }
 
     pub fn block(&self, hash: &BlockHash) -> Option<SavedBlock> {
-        self.services.ledger.any().get_block(hash)
+        self.ledger_query_services().ledger.any().get_block(hash)
     }
 
     pub fn latest(&self, account: &Account) -> BlockHash {
-        self.services
+        self.ledger_query_services()
             .ledger
             .any()
             .account_head(account)
@@ -1494,14 +1497,14 @@ impl Node {
 
     pub fn work_generate_dev(&self, root: impl Into<Root>) -> WorkNonce {
         let difficulty = self.network_params.work.threshold_base();
-        self.services
+        self.bootstrap_work_services()
             .work_factory
             .generate_work(WorkRequest::new(root.into(), difficulty))
             .unwrap()
     }
 
     pub fn block_exists(&self, hash: &BlockHash) -> bool {
-        self.services.ledger.any().block_exists(hash)
+        self.ledger_query_services().ledger.any().block_exists(hash)
     }
 
     pub fn blocks_exist(&self, hashes: &[Block]) -> bool {
@@ -1509,12 +1512,14 @@ impl Node {
     }
 
     pub fn block_hashes_exist(&self, hashes: impl IntoIterator<Item = BlockHash>) -> bool {
-        let any = self.services.ledger.any();
+        let ledger_services = self.ledger_query_services();
+        let any = ledger_services.ledger.any();
         hashes.into_iter().all(|h| any.block_exists(&h))
     }
 
     pub fn balance(&self, account: &Account) -> Amount {
-        self.services.ledger.any().account_balance(account)
+        let ledger_services = self.ledger_query_services();
+        ledger_services.ledger.any().account_balance(account)
     }
 
     pub fn confirm_multi(&self, blocks: &[Block]) {
@@ -1524,29 +1529,42 @@ impl Node {
     }
 
     pub fn confirm(&self, hash: BlockHash) {
-        self.services.ledger.confirm(hash);
+        self.ledger_query_services().ledger.confirm(hash);
     }
 
     pub fn block_confirmed(&self, hash: &BlockHash) -> bool {
-        self.services.ledger.confirmed().block_exists(hash)
+        self.ledger_query_services()
+            .ledger
+            .confirmed()
+            .block_exists(hash)
     }
 
     pub fn block_hashes_confirmed(&self, blocks: &[BlockHash]) -> bool {
-        let confirmed = self.services.ledger.confirmed();
+        let ledger_services = self.ledger_query_services();
+        let confirmed = ledger_services.ledger.confirmed();
         blocks.iter().all(|b| confirmed.block_exists(b))
     }
 
     pub fn blocks_confirmed(&self, blocks: &[Block]) -> bool {
-        let confirmed = self.services.ledger.confirmed();
+        let ledger_services = self.ledger_query_services();
+        let confirmed = ledger_services.ledger.confirmed();
         blocks.iter().all(|b| confirmed.block_exists(&b.hash()))
     }
 
     pub fn is_active_root(&self, root: &QualifiedRoot) -> bool {
-        self.services.active.read().unwrap().is_active_root(root)
+        self.consensus_services()
+            .active
+            .read()
+            .unwrap()
+            .is_active_root(root)
     }
 
     pub fn is_active_hash(&self, hash: &BlockHash) -> bool {
-        self.services.active.read().unwrap().is_active_hash(hash)
+        self.consensus_services()
+            .active
+            .read()
+            .unwrap()
+            .is_active_hash(hash)
     }
 
     pub fn force_confirm(&self, hash: &BlockHash) {
@@ -1554,11 +1572,12 @@ impl Node {
             self.network_params.network.current_network,
             Networks::NanoDevNetwork
         );
-        self.services
+        let now = self.network_services().steady_clock.now();
+        self.consensus_services()
             .active
             .write()
             .unwrap()
-            .force_confirm(hash, self.services.steady_clock.now());
+            .force_confirm(hash, now);
     }
 
     pub fn get_stat(&self, stat: &'static str, detail: &'static str, dir: Direction) -> u64 {
@@ -1609,7 +1628,7 @@ impl Node {
         }
         self.backlog_scan.start();
         bootstrap_work_services.start(self.config.enable_bootstrap_responder);
-        self.services.telemetry.start();
+        self.telemetry_services().telemetry.start();
 
         if self.config.enable_vote_rebroadcast {
             self.vote_rebroadcaster.start();
@@ -1641,8 +1660,8 @@ impl Node {
         self.vote_cache_processor.stop();
         self.aec_ticker.stop();
         consensus_services.stop();
-        self.services.telemetry.stop();
-        self.services.wallets.stop();
+        self.telemetry_services().telemetry.stop();
+        self.wallet_services().wallets.stop();
         self.message_processor.lock().unwrap().stop();
         network_services.stop_threads(); // Stop network last to avoid killing in-use sockets
         self.vote_rebroadcaster.stop();

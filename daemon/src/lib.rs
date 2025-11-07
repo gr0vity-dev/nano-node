@@ -84,7 +84,7 @@ impl DaemonBuilder {
             websocket_server = if websocket_enabled {
                 let wallet_services = node.wallet_services();
                 let telemetry_services = node.telemetry_services();
-                let ledger = node.services().ledger.clone();
+                let ledger = node.ledger_query_services().ledger.clone();
                 Some(
                     create_websocket_server(
                         daemon_config.node.websocket_config.clone(),
@@ -108,8 +108,8 @@ impl DaemonBuilder {
                 info!("HTTP callbacks enabled on {:?}", callback_url);
                 let http_callbacks = HttpCallbacks {
                     runtime: node.runtime.clone(),
-                    stats: node.services().stats.clone(),
-                    ledger: node.services().ledger.clone(),
+                    stats: node.ledger_query_services().stats.clone(),
+                    ledger: node.ledger_query_services().ledger.clone(),
                     callback_url,
                 };
                 event_processor.add(http_callbacks);
