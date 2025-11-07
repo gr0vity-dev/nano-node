@@ -11,7 +11,6 @@ ledger_snapshots = ["rsnano_utils/ledger_snapshots"]
 
 [dependencies]
 rsnano_types = { path = "../types" }
-rsnano_work = { path = "../work" }
 rsnano_utils = { path = "../utils" }
 anyhow = "1"
 bitvec = "1"

@@ -4217,7 +4217,6 @@ dependencies = [
  "rand 0.9.2",
  "rsnano_types",
  "rsnano_utils",
- "rsnano_work",
  "serde",
  "serde_derive",
  "serde_json",
@@ -5227,7 +5226,6 @@ dependencies = [
  "rsnano_store_lmdb",
  "rsnano_types",
  "rsnano_websocket_server",
- "rsnano_work",
  "tokio",
  "tracing-test",
 ]
