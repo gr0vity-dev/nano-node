@@ -47,8 +47,8 @@ use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
 use crate::{
-    NetworkServices, NodeCallbacks, NodeServices, OnlineWeightSampler, TelemetryServices,
-    WalletServices,
+    BootstrapWorkServices, ConsensusServices, LedgerQueryServices, NetworkServices, NodeCallbacks,
+    NodeServices, OnlineWeightSampler, TelemetryServices, WalletServices,
     aec_event_processor::AecEventProcessor,
     block_processing::{
         BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue, BlockSource,
@@ -188,6 +188,18 @@ impl Node {
 
     pub fn network_services(&self) -> NetworkServices {
         self.services.network_services()
+    }
+
+    pub fn consensus_services(&self) -> ConsensusServices {
+        self.services.consensus_services()
+    }
+
+    pub fn ledger_query_services(&self) -> LedgerQueryServices {
+        self.services.ledger_query_services()
+    }
+
+    pub fn bootstrap_work_services(&self) -> BootstrapWorkServices {
+        self.services.bootstrap_work_services()
     }
 
     fn new(args: NodeArgs, is_nulled: bool, mut node_id_key_file: NodeIdKeyFile) -> Self {

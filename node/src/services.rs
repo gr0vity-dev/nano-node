@@ -184,4 +184,142 @@ impl NodeServices {
             self.steady_clock.clone(),
         )
     }
+
+    pub fn consensus_services(&self) -> ConsensusServices {
+        ConsensusServices::new(
+            self.active.clone(),
+            self.election_schedulers.clone(),
+            self.vote_processor.clone(),
+            self.vote_generators.clone(),
+            self.request_aggregator.clone(),
+            self.bounded_backlog.clone(),
+            self.bootstrapper.clone(),
+            self.rep_crawler.clone(),
+            self.online_reps.clone(),
+            self.rep_tiers.clone(),
+            self.local_block_broadcaster.clone(),
+            self.winner_block_broadcaster.clone(),
+            self.vote_processor_queue.clone(),
+            self.confirming_set.clone(),
+        )
+    }
+
+    pub fn ledger_query_services(&self) -> LedgerQueryServices {
+        LedgerQueryServices::new(
+            self.ledger.clone(),
+            self.block_rates.clone(),
+            self.confirming_set.clone(),
+            self.recently_cemented.clone(),
+            self.stats.clone(),
+        )
+    }
+
+    pub fn bootstrap_work_services(&self) -> BootstrapWorkServices {
+        BootstrapWorkServices::new(
+            self.bootstrapper.clone(),
+            self.bootstrap_server.clone(),
+            self.work_factory.clone(),
+        )
+    }
+}
+#[derive(Clone)]
+pub struct ConsensusServices {
+    pub active: Arc<RwLock<ActiveElectionsContainer>>,
+    pub election_schedulers: Arc<ElectionSchedulers>,
+    pub vote_processor: Arc<VoteProcessor>,
+    pub vote_generators: Arc<VoteGenerators>,
+    pub request_aggregator: Arc<RequestAggregator>,
+    pub bounded_backlog: Arc<BoundedBacklog>,
+    pub bootstrapper: Arc<Bootstrapper>,
+    pub rep_crawler: Arc<RepCrawler>,
+    pub online_reps: Arc<Mutex<OnlineReps>>,
+    pub rep_tiers: Arc<CurrentRepTiers>,
+    pub local_block_broadcaster: Arc<LocalBlockBroadcaster>,
+    pub winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
+    pub vote_processor_queue: Arc<VoteProcessorQueue>,
+    pub confirming_set: Arc<ConfirmingSet>,
+}
+
+impl ConsensusServices {
+    pub(crate) fn new(
+        active: Arc<RwLock<ActiveElectionsContainer>>,
+        election_schedulers: Arc<ElectionSchedulers>,
+        vote_processor: Arc<VoteProcessor>,
+        vote_generators: Arc<VoteGenerators>,
+        request_aggregator: Arc<RequestAggregator>,
+        bounded_backlog: Arc<BoundedBacklog>,
+        bootstrapper: Arc<Bootstrapper>,
+        rep_crawler: Arc<RepCrawler>,
+        online_reps: Arc<Mutex<OnlineReps>>,
+        rep_tiers: Arc<CurrentRepTiers>,
+        local_block_broadcaster: Arc<LocalBlockBroadcaster>,
+        winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
+        vote_processor_queue: Arc<VoteProcessorQueue>,
+        confirming_set: Arc<ConfirmingSet>,
+    ) -> Self {
+        Self {
+            active,
+            election_schedulers,
+            vote_processor,
+            vote_generators,
+            request_aggregator,
+            bounded_backlog,
+            bootstrapper,
+            rep_crawler,
+            online_reps,
+            rep_tiers,
+            local_block_broadcaster,
+            winner_block_broadcaster,
+            vote_processor_queue,
+            confirming_set,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct LedgerQueryServices {
+    pub ledger: Arc<Ledger>,
+    pub block_rates: Arc<CurrentBlockRates>,
+    pub confirming_set: Arc<ConfirmingSet>,
+    pub recently_cemented: Arc<Mutex<BoundedVecDeque<ConfirmedElection>>>,
+    pub stats: Arc<Stats>,
+}
+
+impl LedgerQueryServices {
+    pub(crate) fn new(
+        ledger: Arc<Ledger>,
+        block_rates: Arc<CurrentBlockRates>,
+        confirming_set: Arc<ConfirmingSet>,
+        recently_cemented: Arc<Mutex<BoundedVecDeque<ConfirmedElection>>>,
+        stats: Arc<Stats>,
+    ) -> Self {
+        Self {
+            ledger,
+            block_rates,
+            confirming_set,
+            recently_cemented,
+            stats,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct BootstrapWorkServices {
+    pub bootstrapper: Arc<Bootstrapper>,
+    pub bootstrap_server: Arc<BootstrapServer>,
+    pub work_factory: Arc<WorkFactory>,
+}
+
+impl BootstrapWorkServices {
+    pub(crate) fn new(
+        bootstrapper: Arc<Bootstrapper>,
+        bootstrap_server: Arc<BootstrapServer>,
+        work_factory: Arc<WorkFactory>,
+    ) -> Self {
+        Self {
+            bootstrapper,
+            bootstrap_server,
+            work_factory,
+        }
+    }
 }
