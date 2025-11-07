@@ -10,10 +10,10 @@ fn wallet_lock() {
 
     let wallet_id: WalletId = 1.into();
 
-    node.services.wallets.create(wallet_id);
+    node.services().wallets.create(wallet_id);
 
     assert_eq!(
-        node.services.wallets.valid_password(&wallet_id).unwrap(),
+        node.services().wallets.valid_password(&wallet_id).unwrap(),
         true
     );
 
@@ -21,7 +21,7 @@ fn wallet_lock() {
         .block_on(async { server.client.wallet_lock(wallet_id).await.unwrap() });
 
     assert_eq!(
-        node.services.wallets.valid_password(&wallet_id).unwrap(),
+        node.services().wallets.valid_password(&wallet_id).unwrap(),
         false
     );
 }
@@ -35,10 +35,10 @@ fn wallet_lock_fails_without_enable_control() {
 
     let wallet_id: WalletId = 1.into();
 
-    node.services.wallets.create(wallet_id);
+    node.services().wallets.create(wallet_id);
 
     assert_eq!(
-        node.services.wallets.valid_password(&wallet_id).unwrap(),
+        node.services().wallets.valid_password(&wallet_id).unwrap(),
         true
     );
 
@@ -52,7 +52,7 @@ fn wallet_lock_fails_without_enable_control() {
     );
 
     assert_eq!(
-        node.services.wallets.valid_password(&wallet_id).unwrap(),
+        node.services().wallets.valid_password(&wallet_id).unwrap(),
         true
     );
 }

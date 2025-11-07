@@ -20,12 +20,12 @@ impl CreateAccountArgs {
             WalletId::decode_hex(&self.wallet).ok_or_else(|| anyhow!("Invalid wallet id"))?;
         let password = self.password.clone().unwrap_or_default();
 
-        node.services
+        node.services()
             .wallets
             .ensure_wallet_is_unlocked(wallet, &password);
 
         let public_key = node
-            .services
+            .services()
             .wallets
             .deterministic_insert2(&wallet, false)
             .map_err(|e| anyhow!("Failed to insert wallet: {:?}", e))?;

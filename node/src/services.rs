@@ -28,6 +28,9 @@ use crate::{
     work::WorkFactory,
 };
 
+#[cfg(feature = "ledger_snapshots")]
+use crate::ledger_snapshots::LedgerSnapshots;
+
 use rsnano_wallet::Wallets;
 
 /// Bundles the core `Arc` collaborators that make up a running node so tests and
@@ -72,4 +75,6 @@ pub struct NodeServices {
     pub block_rates: Arc<CurrentBlockRates>,
     pub wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
+    #[cfg(feature = "ledger_snapshots")]
+    pub ledger_snapshots: Arc<LedgerSnapshots>,
 }

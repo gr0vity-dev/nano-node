@@ -11,9 +11,9 @@ fn work_get() {
     let wallet = WalletId::random();
     let account = Account::ZERO;
 
-    node.services.wallets.create(wallet);
+    node.services().wallets.create(wallet);
 
-    node.services
+    node.services()
         .wallets
         .work_set(&wallet, &account.into(), 1.into())
         .unwrap();

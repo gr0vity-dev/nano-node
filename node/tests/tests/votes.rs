@@ -39,7 +39,7 @@ fn check_signature() {
     );
     assert_eq!(
         Err(VoteError::Invalid),
-        node.services
+        node.services()
             .vote_processor
             .vote_blocking(&received_vote1.into())
     );
@@ -49,14 +49,14 @@ fn check_signature() {
     let received_vote2 =
         ReceivedVote::new(Arc::new(vote1), VoteSource::Live, Some(channel.clone()));
     assert!(
-        node.services
+        node.services()
             .vote_processor
             .vote_blocking(&received_vote2.clone().into())
             .is_ok()
     );
     assert_eq!(
         Err(VoteError::Replay),
-        node.services
+        node.services()
             .vote_processor
             .vote_blocking(&received_vote2.into())
     );
@@ -82,7 +82,7 @@ fn add_cooldown() {
     ));
     let channel = make_fake_channel(&node);
     let _ = node
-        .services
+        .services()
         .vote_processor
         .vote_blocking(&ReceivedVote::new(vote1, VoteSource::Live, Some(channel.clone())).into());
 
@@ -96,11 +96,11 @@ fn add_cooldown() {
     ));
 
     let _ = node
-        .services
+        .services()
         .vote_processor
         .vote_blocking(&ReceivedVote::new(vote2, VoteSource::Live, Some(channel)).into());
 
-    let active = node.services.active.read().unwrap();
+    let active = node.services().active.read().unwrap();
     let election1 = active.election_for_root(&send1.qualified_root()).unwrap();
     assert_eq!(1, election1.vote_count());
     let votes = election1.votes();
@@ -118,27 +118,29 @@ fn vote_generator_cache() {
     let epoch1 = upgrade_epoch(node.clone(), Epoch::Epoch1);
     let wallet_id = WalletId::random();
 
-    node.services.wallets.create(wallet_id);
-    node.services
+    node.services().wallets.create(wallet_id);
+    node.services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
 
-    node.services
-        .vote_generators
-        .generate_vote(&epoch1.root(), &epoch1.hash(), VoteType::NonFinal);
+    node.services().vote_generators.generate_vote(
+        &epoch1.root(),
+        &epoch1.hash(),
+        VoteType::NonFinal,
+    );
 
     // Wait until the votes are available
     assert_timely(Duration::from_secs(1), || {
         !node
-            .services
+            .services()
             .vote_history
             .votes(&epoch1.root(), &epoch1.hash(), false)
             .is_empty()
     });
 
     let votes = node
-        .services
+        .services()
         .vote_history
         .votes(&epoch1.root(), &epoch1.hash(), false);
     assert!(!votes.is_empty());
@@ -152,32 +154,32 @@ fn vote_generator_multiple_representatives() {
     let mut system = System::new();
     let node = system.make_node();
     let wallet_id = WalletId::random();
-    node.services.wallets.create(wallet_id);
+    node.services().wallets.create(wallet_id);
     let key1 = PrivateKey::new();
     let key2 = PrivateKey::new();
     let key3 = PrivateKey::new();
 
     // Insert keys into the wallet
-    node.services
+    node.services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
-    node.services
+    node.services()
         .wallets
         .insert_adhoc2(&wallet_id, &key1.raw_key(), true)
         .unwrap();
-    node.services
+    node.services()
         .wallets
         .insert_adhoc2(&wallet_id, &key2.raw_key(), true)
         .unwrap();
-    node.services
+    node.services()
         .wallets
         .insert_adhoc2(&wallet_id, &key3.raw_key(), true)
         .unwrap();
 
     let amount = Amount::nano(100_000);
 
-    node.services
+    node.services()
         .wallets
         .send(
             wallet_id,
@@ -191,7 +193,7 @@ fn vote_generator_multiple_representatives() {
         .wait()
         .unwrap();
 
-    node.services
+    node.services()
         .wallets
         .send(
             wallet_id,
@@ -205,7 +207,7 @@ fn vote_generator_multiple_representatives() {
         .wait()
         .unwrap();
 
-    node.services
+    node.services()
         .wallets
         .send(
             wallet_id,
@@ -227,7 +229,7 @@ fn vote_generator_multiple_representatives() {
     });
 
     // Change representatives
-    node.services
+    node.services()
         .wallets
         .change(
             &wallet_id,
@@ -239,7 +241,7 @@ fn vote_generator_multiple_representatives() {
         .wait()
         .unwrap();
 
-    node.services
+    node.services()
         .wallets
         .change(
             &wallet_id,
@@ -251,7 +253,7 @@ fn vote_generator_multiple_representatives() {
         .wait()
         .unwrap();
 
-    node.services
+    node.services()
         .wallets
         .change(
             &wallet_id,
@@ -263,15 +265,15 @@ fn vote_generator_multiple_representatives() {
         .wait()
         .unwrap();
 
-    assert_eq!(node.services.ledger.weight(&key1.public_key()), amount);
-    assert_eq!(node.services.ledger.weight(&key2.public_key()), amount);
-    assert_eq!(node.services.ledger.weight(&key3.public_key()), amount);
+    assert_eq!(node.services().ledger.weight(&key1.public_key()), amount);
+    assert_eq!(node.services().ledger.weight(&key2.public_key()), amount);
+    assert_eq!(node.services().ledger.weight(&key3.public_key()), amount);
 
-    node.services.wallet_reps.lock().unwrap().compute_reps();
-    assert_eq!(node.services.wallet_reps.lock().unwrap().voting_reps(), 4);
+    node.services().wallet_reps.lock().unwrap().compute_reps();
+    assert_eq!(node.services().wallet_reps.lock().unwrap().voting_reps(), 4);
 
     let send = node
-        .services
+        .services()
         .wallets
         .send(
             wallet_id,
@@ -287,7 +289,7 @@ fn vote_generator_multiple_representatives() {
 
     // Wait until the votes are available
     assert_timely(Duration::from_secs(5), || {
-        node.services
+        node.services()
             .vote_history
             .votes(&send.root(), &send.hash(), false)
             .len()
@@ -295,7 +297,7 @@ fn vote_generator_multiple_representatives() {
     });
 
     let votes = node
-        .services
+        .services()
         .vote_history
         .votes(&send.root(), &send.hash(), false);
     for account in &[
@@ -335,16 +337,16 @@ fn vote_spacing_vote_generator() {
         .genesis()
         .send(&*DEV_GENESIS_KEY, Amount::nano(1001));
 
-    node.services.ledger.process_one(&send1).unwrap();
+    node.services().ledger.process_one(&send1).unwrap();
     assert_eq!(
-        node.services.stats.count(
+        node.services().stats.count(
             StatType::VoteGenerator,
             DetailType::GeneratorBroadcasts,
             Direction::In
         ),
         0
     );
-    node.services.vote_generators.generate_vote(
+    node.services().vote_generators.generate_vote(
         &(*DEV_GENESIS_HASH).into(),
         &send1.hash().into(),
         VoteType::NonFinal,
@@ -352,7 +354,7 @@ fn vote_spacing_vote_generator() {
 
     assert_timely_eq2(
         || {
-            node.services.stats.count(
+            node.services().stats.count(
                 StatType::VoteGenerator,
                 DetailType::GeneratorBroadcasts,
                 Direction::In,
@@ -361,9 +363,9 @@ fn vote_spacing_vote_generator() {
         1,
     );
 
-    node.services.ledger.roll_back(&send1.hash()).unwrap();
-    node.services.ledger.process_one(&send2).unwrap();
-    node.services.vote_generators.generate_vote(
+    node.services().ledger.roll_back(&send1.hash()).unwrap();
+    node.services().ledger.process_one(&send2).unwrap();
+    node.services().vote_generators.generate_vote(
         &(*DEV_GENESIS_HASH).into(),
         &send2.hash().into(),
         VoteType::NonFinal,
@@ -371,7 +373,7 @@ fn vote_spacing_vote_generator() {
 
     assert_timely_eq2(
         || {
-            node.services.stats.count(
+            node.services().stats.count(
                 StatType::VoteGenerator,
                 DetailType::GeneratorSpacing,
                 Direction::In,
@@ -382,15 +384,15 @@ fn vote_spacing_vote_generator() {
 
     assert_eq!(
         1,
-        node.services.stats.count(
+        node.services().stats.count(
             StatType::VoteGenerator,
             DetailType::GeneratorBroadcasts,
             Direction::In
         )
     );
-    std::thread::sleep(node.services.vote_generators.voting_delay());
+    std::thread::sleep(node.services().vote_generators.voting_delay());
 
-    node.services.vote_generators.generate_vote(
+    node.services().vote_generators.generate_vote(
         &(*DEV_GENESIS_HASH).into(),
         &send2.hash().into(),
         VoteType::NonFinal,
@@ -398,7 +400,7 @@ fn vote_spacing_vote_generator() {
 
     assert_timely_eq2(
         || {
-            node.services.stats.count(
+            node.services().stats.count(
                 StatType::VoteGenerator,
                 DetailType::GeneratorBroadcasts,
                 Direction::In,
@@ -436,7 +438,7 @@ fn vote_spacing_rapid() {
 
     node.process(send1.clone());
 
-    node.services.vote_generators.generate_vote(
+    node.services().vote_generators.generate_vote(
         &(*DEV_GENESIS_HASH).into(),
         &send1.hash().into(),
         VoteType::NonFinal,
@@ -444,7 +446,7 @@ fn vote_spacing_rapid() {
 
     assert_timely_eq2(
         || {
-            node.services.stats.count(
+            node.services().stats.count(
                 StatType::VoteGenerator,
                 DetailType::GeneratorBroadcasts,
                 Direction::In,
@@ -453,9 +455,9 @@ fn vote_spacing_rapid() {
         1,
     );
 
-    node.services.ledger.roll_back(&send1.hash()).unwrap();
-    node.services.ledger.process_one(&send2).unwrap();
-    node.services.vote_generators.generate_vote(
+    node.services().ledger.roll_back(&send1.hash()).unwrap();
+    node.services().ledger.process_one(&send2).unwrap();
+    node.services().vote_generators.generate_vote(
         &(*DEV_GENESIS_HASH).into(),
         &send2.hash().into(),
         VoteType::NonFinal,
@@ -463,7 +465,7 @@ fn vote_spacing_rapid() {
 
     assert_timely_eq2(
         || {
-            node.services.stats.count(
+            node.services().stats.count(
                 StatType::VoteGenerator,
                 DetailType::GeneratorSpacing,
                 Direction::In,
@@ -472,9 +474,9 @@ fn vote_spacing_rapid() {
         1,
     );
 
-    std::thread::sleep(node.services.vote_generators.voting_delay());
+    std::thread::sleep(node.services().vote_generators.voting_delay());
 
-    node.services.vote_generators.generate_vote(
+    node.services().vote_generators.generate_vote(
         &(*DEV_GENESIS_HASH).into(),
         &send2.hash().into(),
         VoteType::NonFinal,
@@ -482,7 +484,7 @@ fn vote_spacing_rapid() {
 
     assert_timely_eq2(
         || {
-            node.services.stats.count(
+            node.services().stats.count(
                 StatType::VoteGenerator,
                 DetailType::GeneratorBroadcasts,
                 Direction::In,

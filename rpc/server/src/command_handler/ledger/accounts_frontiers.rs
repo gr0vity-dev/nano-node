@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 impl RpcCommandHandler {
     pub(crate) fn accounts_frontiers(&self, args: AccountsRpcMessage) -> FrontiersResponse {
-        let any = self.node.services.ledger.any();
+        let any = self.services.ledger.any();
         let mut frontiers = HashMap::new();
         let mut errors = HashMap::new();
 

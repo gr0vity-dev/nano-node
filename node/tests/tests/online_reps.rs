@@ -9,7 +9,7 @@ fn observe() {
     let node = system.make_node();
     assert_eq!(
         Amount::ZERO,
-        node.services.online_reps.lock().unwrap().online_weight()
+        node.services().online_reps.lock().unwrap().online_weight()
     );
 
     // Add genesis representative
@@ -18,7 +18,7 @@ fn observe() {
 
     // The node should see that weight as online
     assert_timely_eq2(
-        || node.services.online_reps.lock().unwrap().online_weight(),
+        || node.services().online_reps.lock().unwrap().online_weight(),
         Amount::MAX,
     );
 }
@@ -30,12 +30,12 @@ fn observe_local() {
     let node = system.make_node();
     node.insert_into_wallet(&DEV_GENESIS_KEY);
     assert_timely_eq2(
-        || node.services.online_reps.lock().unwrap().online_weight(),
+        || node.services().online_reps.lock().unwrap().online_weight(),
         Amount::MAX,
     );
     assert_always_eq(
         Duration::from_secs(1),
-        || node.services.online_reps.lock().unwrap().online_weight(),
+        || node.services().online_reps.lock().unwrap().online_weight(),
         Amount::MAX,
     );
 }

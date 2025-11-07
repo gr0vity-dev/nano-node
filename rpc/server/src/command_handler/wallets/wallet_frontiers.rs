@@ -8,10 +8,10 @@ impl RpcCommandHandler {
         &self,
         args: WalletRpcMessage,
     ) -> anyhow::Result<FrontiersResponse> {
-        let any = self.node.services.ledger.any();
+        let any = self.services.ledger.any();
         let accounts = self
             .node
-            .services
+            .services()
             .wallets
             .get_accounts_of_wallet(&args.wallet)?;
         let mut frontiers = HashMap::new();

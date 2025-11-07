@@ -18,7 +18,7 @@ pub struct PriorityBucketConfig {
     pub reserved_elections: usize,
 
     // TODO remove
-    /// Maximum number of slots per bucket available for election activation if the active election count is below the configured limit. (node.services.active_elections.size)
+    /// Maximum number of slots per bucket available for election activation if the active election count is below the configured limit. (node.services().active_elections.size)
     pub max_elections: usize,
 }
 

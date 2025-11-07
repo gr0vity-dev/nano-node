@@ -11,7 +11,7 @@ fn wallet_add_watch() {
 
     let wallet_id = WalletId::random();
 
-    node.services.wallets.create(wallet_id);
+    node.services().wallets.create(wallet_id);
 
     node.runtime.block_on(async {
         server
@@ -21,7 +21,11 @@ fn wallet_add_watch() {
             .unwrap()
     });
 
-    assert!(node.services.wallets.exists(&(*DEV_GENESIS_ACCOUNT).into()));
+    assert!(
+        node.services()
+            .wallets
+            .exists(&(*DEV_GENESIS_ACCOUNT).into())
+    );
 }
 
 #[test]
@@ -33,7 +37,7 @@ fn wallet_add_watch_without_enable_control() {
 
     let wallet_id = WalletId::random();
 
-    node.services.wallets.create(wallet_id);
+    node.services().wallets.create(wallet_id);
 
     let result = node.runtime.block_on(async {
         server

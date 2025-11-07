@@ -7,11 +7,11 @@ impl RpcCommandHandler {
         &self,
         args: WalletRpcMessage,
     ) -> anyhow::Result<DestroyedResponse> {
-        if !self.node.services.wallets.wallet_exists(&args.wallet) {
+        if !self.services.wallets.wallet_exists(&args.wallet) {
             bail!("Wallet not found");
         }
-        self.node.services.wallets.destroy(&args.wallet);
-        let destroyed = !self.node.services.wallets.wallet_exists(&args.wallet);
+        self.services.wallets.destroy(&args.wallet);
+        let destroyed = !self.services.wallets.wallet_exists(&args.wallet);
         Ok(DestroyedResponse::new(destroyed))
     }
 }

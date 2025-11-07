@@ -3,9 +3,9 @@ use rsnano_rpc_messages::BlockCountResponse;
 
 impl RpcCommandHandler {
     pub(crate) fn block_count(&self) -> BlockCountResponse {
-        let count = self.node.services.ledger.block_count();
+        let count = self.services.ledger.block_count();
         let unchecked = self.node.unchecked.lock().unwrap().len() as u64;
-        let cemented = self.node.services.ledger.confirmed_count();
+        let cemented = self.services.ledger.confirmed_count();
         BlockCountResponse {
             count: count.into(),
             unchecked: unchecked.into(),

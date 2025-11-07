@@ -11,23 +11,23 @@ fn account_move() {
     let wallet = WalletId::random();
     let source = WalletId::random();
 
-    node.services.wallets.create(wallet);
-    node.services.wallets.create(source);
+    node.services().wallets.create(wallet);
+    node.services().wallets.create(source);
 
     let account = node
-        .services
+        .services()
         .wallets
         .deterministic_insert2(&source, false)
         .unwrap()
         .into();
 
     let wallet_accounts = node
-        .services
+        .services()
         .wallets
         .get_accounts_of_wallet(&wallet)
         .unwrap();
     let source_accounts = node
-        .services
+        .services()
         .wallets
         .get_accounts_of_wallet(&source)
         .unwrap();
@@ -46,12 +46,12 @@ fn account_move() {
     assert_eq!(result.moved, true.into());
 
     let new_wallet_accounts = node
-        .services
+        .services()
         .wallets
         .get_accounts_of_wallet(&wallet)
         .unwrap();
     let new_source_accounts = node
-        .services
+        .services()
         .wallets
         .get_accounts_of_wallet(&source)
         .unwrap();
@@ -70,23 +70,23 @@ fn account_remove_fails_without_enable_control() {
     let wallet = WalletId::random();
     let source = WalletId::random();
 
-    node.services.wallets.create(wallet);
-    node.services.wallets.create(source);
+    node.services().wallets.create(wallet);
+    node.services().wallets.create(source);
 
     let account = node
-        .services
+        .services()
         .wallets
         .deterministic_insert2(&source, false)
         .unwrap()
         .into();
 
     let wallet_accounts = node
-        .services
+        .services()
         .wallets
         .get_accounts_of_wallet(&wallet)
         .unwrap();
     let source_accounts = node
-        .services
+        .services()
         .wallets
         .get_accounts_of_wallet(&source)
         .unwrap();
@@ -114,7 +114,7 @@ fn account_move_fails_source_not_found() {
     let wallet = WalletId::random();
     let source = WalletId::random();
 
-    node.services.wallets.create(wallet);
+    node.services().wallets.create(wallet);
 
     let result = node.runtime.block_on(async {
         server
@@ -139,7 +139,7 @@ fn account_move_fails_target_not_found() {
     let wallet = WalletId::random();
     let source = WalletId::random();
 
-    node.services.wallets.create(source);
+    node.services().wallets.create(source);
 
     let result = node.runtime.block_on(async {
         server
@@ -164,10 +164,10 @@ fn account_move_fails_source_locked() {
     let wallet = WalletId::random();
     let source = WalletId::random();
 
-    node.services.wallets.create(wallet);
-    node.services.wallets.create(source);
+    node.services().wallets.create(wallet);
+    node.services().wallets.create(source);
 
-    node.services.wallets.lock(&source).unwrap();
+    node.services().wallets.lock(&source).unwrap();
 
     let result = node.runtime.block_on(async {
         server
@@ -192,10 +192,10 @@ fn account_move_fails_target_locked() {
     let wallet = WalletId::random();
     let source = WalletId::random();
 
-    node.services.wallets.create(wallet);
-    node.services.wallets.create(source);
+    node.services().wallets.create(wallet);
+    node.services().wallets.create(source);
 
-    node.services.wallets.lock(&wallet).unwrap();
+    node.services().wallets.lock(&wallet).unwrap();
 
     let result = node.runtime.block_on(async {
         server
@@ -220,8 +220,8 @@ fn account_move_fails_account_not_found() {
     let wallet = WalletId::random();
     let source = WalletId::random();
 
-    node.services.wallets.create(wallet);
-    node.services.wallets.create(source);
+    node.services().wallets.create(wallet);
+    node.services().wallets.create(source);
 
     let result = node.runtime.block_on(async {
         server

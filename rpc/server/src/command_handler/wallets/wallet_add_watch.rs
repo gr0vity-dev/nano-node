@@ -7,7 +7,7 @@ impl RpcCommandHandler {
         args: WalletAddWatchArgs,
     ) -> anyhow::Result<SuccessResponse> {
         self.node
-            .services
+            .services()
             .wallets
             .insert_watch(&args.wallet, &args.accounts)?;
         Ok(SuccessResponse::new())

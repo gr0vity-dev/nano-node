@@ -24,7 +24,7 @@ fn batches() {
     let node1 = system.build_node().flags(flags.clone()).finish();
     let node2 = system.build_node().flags(flags).finish();
     let channel1 = node2
-        .services
+        .services()
         .network
         .read()
         .unwrap()
@@ -41,7 +41,7 @@ fn batches() {
     let representatives = vec![representative];
 
     let mut solicitor =
-        ConfirmationSolicitor::new(node2.services.message_flooder.lock().unwrap().clone());
+        ConfirmationSolicitor::new(node2.services().message_flooder.lock().unwrap().clone());
     solicitor.prepare(&representatives);
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -53,7 +53,7 @@ fn batches() {
             send.clone(),
             ElectionBehavior::Priority,
             Duration::from_secs(1),
-            node2.services.steady_clock.now(),
+            node2.services().steady_clock.now(),
         );
         assert_eq!(solicitor.add(&election), true);
     }
@@ -63,7 +63,7 @@ fn batches() {
     assert_eq!(
         1,
         node2
-            .services
+            .services()
             .stats
             .count(StatType::Message, DetailType::ConfirmReq, Direction::Out)
     );
@@ -78,7 +78,7 @@ fn different_hashes() {
     let node1 = system.build_node().flags(flags.clone()).finish();
     let node2 = system.build_node().flags(flags).finish();
     let channel1 = node2
-        .services
+        .services()
         .network
         .read()
         .unwrap()
@@ -95,8 +95,8 @@ fn different_hashes() {
 
     let mut solicitor = ConfirmationSolicitor::new(
         //&DEV_NETWORK_PARAMS,
-        //&node2.services.network,
-        node2.services.message_flooder.lock().unwrap().clone(),
+        //&node2.services().network,
+        node2.services().message_flooder.lock().unwrap().clone(),
     );
     solicitor.prepare(&representatives);
 
@@ -108,7 +108,7 @@ fn different_hashes() {
         send.clone(),
         ElectionBehavior::Priority,
         Duration::from_secs(1),
-        node2.services.steady_clock.now(),
+        node2.services().steady_clock.now(),
     );
     // Add a vote for something else, not the winner
     let another_block = Block::new_test_instance();
@@ -117,7 +117,7 @@ fn different_hashes() {
         *DEV_GENESIS_PUB_KEY,
         another_block.hash(),
         UnixMillisTimestamp::new(1),
-        node2.services.steady_clock.now(),
+        node2.services().steady_clock.now(),
     );
     // Ensure the request and broadcast goes through
     assert_eq!(solicitor.add(&election), true);
@@ -125,7 +125,7 @@ fn different_hashes() {
     assert_eq!(
         1,
         node2
-            .services
+            .services()
             .stats
             .count(StatType::Message, DetailType::ConfirmReq, Direction::Out)
     );
@@ -141,7 +141,7 @@ fn bypass_max_requests_cap() {
     let node2 = system.build_node().flags(flags).finish();
 
     let mut solicitor =
-        ConfirmationSolicitor::new(node2.services.message_flooder.lock().unwrap().clone());
+        ConfirmationSolicitor::new(node2.services().message_flooder.lock().unwrap().clone());
 
     let mut representatives = Vec::new();
     const MAX_REPRESENTATIVES: usize = 50;
@@ -165,7 +165,7 @@ fn bypass_max_requests_cap() {
         send.clone(),
         ElectionBehavior::Priority,
         Duration::from_secs(1),
-        node2.services.steady_clock.now(),
+        node2.services().steady_clock.now(),
     );
     // Add a vote for something else, not the winner
     let another_block = Block::new_test_instance();
@@ -175,7 +175,7 @@ fn bypass_max_requests_cap() {
             rep.rep_key,
             another_block.hash(),
             UnixMillisTimestamp::new(1),
-            node2.services.steady_clock.now(),
+            node2.services().steady_clock.now(),
         );
     }
     // Ensure the request and broadcast goes through

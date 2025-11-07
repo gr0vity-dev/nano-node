@@ -108,7 +108,7 @@ fn frontier_scan() {
 
     assert_always_eq(
         Duration::from_millis(100),
-        || node1.services.ledger.block_count() as usize,
+        || node1.services().ledger.block_count() as usize,
         blocks.len() + 1,
     );
 
@@ -116,7 +116,7 @@ fn frontier_scan() {
     assert_timely(Duration::from_secs(10), || {
         updates.iter().all(|block| {
             node1
-                .services
+                .services()
                 .bootstrapper
                 .prioritized(&block.account_field().unwrap())
         })
@@ -170,7 +170,7 @@ fn frontier_scan_pending() {
 
     assert_always_eq(
         Duration::from_millis(100),
-        || node1.services.ledger.block_count() as usize,
+        || node1.services().ledger.block_count() as usize,
         blocks.len() + 1,
     );
 
@@ -178,7 +178,7 @@ fn frontier_scan_pending() {
     assert_timely(Duration::from_secs(10), || {
         opens.iter().all(|block| {
             node1
-                .services
+                .services()
                 .bootstrapper
                 .prioritized(&block.account_field().unwrap())
         })
@@ -242,7 +242,7 @@ fn frontier_scan_cannot_prioritize() {
 
     assert_always_eq(
         Duration::from_millis(100),
-        || node1.services.ledger.block_count() as usize,
+        || node1.services().ledger.block_count() as usize,
         blocks.len() + 1,
     );
     // Frontier scan should not detect the accounts
@@ -251,7 +251,7 @@ fn frontier_scan_cannot_prioritize() {
         || {
             opens2.iter().all(|block| {
                 !node1
-                    .services
+                    .services()
                     .bootstrapper
                     .prioritized(&block.account_field().unwrap())
             })

@@ -2,7 +2,7 @@ use super::WebsocketListener;
 use rsnano_ledger::{AnySet, Ledger};
 use rsnano_messages::TelemetryData;
 use rsnano_node::{
-    CompositeNodeEventHandler, Node, NodeEvent, NodeEventHandler, config::WebsocketConfig,
+    CompositeNodeEventHandler, NodeEvent, NodeEventHandler, NodeServices, config::WebsocketConfig,
 };
 use rsnano_types::{Account, BlockHash, Vote, VoteError};
 use rsnano_websocket_messages::{MessageEnvelope, Topic, new_block_arrived_message};
@@ -12,11 +12,13 @@ use std::{
     sync::Arc,
     time::UNIX_EPOCH,
 };
+use tokio::runtime::Handle;
 use tracing::error;
 
 pub fn create_websocket_server(
     config: WebsocketConfig,
-    node: &Node,
+    services: &NodeServices,
+    runtime: Handle,
     event_handlers: &mut CompositeNodeEventHandler,
 ) -> Option<Arc<WebsocketListener>> {
     if !config.enabled {
@@ -31,18 +33,18 @@ pub fn create_websocket_server(
     let endpoint = SocketAddr::new(address, config.port);
     let server = Arc::new(WebsocketListener::new(
         endpoint,
-        node.services.wallets.clone(),
-        node.services.ledger.clone(),
-        node.runtime.clone(),
+        services.wallets.clone(),
+        services.ledger.clone(),
+        runtime,
     ));
 
     event_handlers.add(NodeEventProcessor {
         server: server.clone(),
-        ledger: node.services.ledger.clone(),
+        ledger: services.ledger.clone(),
     });
 
     let server_w = Arc::downgrade(&server);
-    node.services
+    services
         .telemetry
         .on_telemetry_processed(Box::new(move |data, peer_addr| {
             if let Some(server) = server_w.upgrade()

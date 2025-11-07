@@ -86,12 +86,12 @@ impl System {
 
     fn setup_node(&mut self, node: &Node) {
         for block in &self.initialization_blocks {
-            node.services.ledger.process_one(block).unwrap();
+            node.services().ledger.process_one(block).unwrap();
         }
 
         for block in &self.initialization_blocks_cemented {
-            node.services.ledger.process_one(block).unwrap();
-            node.services.ledger.confirm(block.hash());
+            node.services().ledger.process_one(block).unwrap();
+            node.services().ledger.confirm(block.hash());
         }
     }
 
@@ -107,7 +107,7 @@ impl System {
         self.setup_node(&node);
 
         let wallet_id = WalletId::random();
-        node.services.wallets.create(wallet_id);
+        node.services().wallets.create(wallet_id);
         node.start();
 
         // Check that we don't start more nodes than limit for single IP address
@@ -117,22 +117,22 @@ impl System {
 
         if self.nodes.len() > 1 && !disconnected {
             let other = &self.nodes[0];
-            let node_addr = node.services.tcp_listener.local_address();
-            if let Err(e) = other.services.peer_connector.connect_to(node_addr) {
+            let node_addr = node.services().tcp_listener.local_address();
+            if let Err(e) = other.services().peer_connector.connect_to(node_addr) {
                 panic!("Could not connect to {}. Reason: {:?}", node_addr, e);
             }
 
             let start = Instant::now();
             loop {
                 if node
-                    .services
+                    .services()
                     .network
                     .read()
                     .unwrap()
                     .find_node_id(&other.node_id.public_key().into())
                     .is_some()
                     && other
-                        .services
+                        .services()
                         .network
                         .read()
                         .unwrap()
@@ -334,15 +334,15 @@ pub fn init_tracing() {
 }
 
 pub fn establish_tcp(node: &Node, peer: &Node) -> Arc<Channel> {
-    node.services
+    node.services()
         .peer_connector
-        .connect_to(peer.services.tcp_listener.local_address())
+        .connect_to(peer.services().tcp_listener.local_address())
         .unwrap();
 
     assert_timely_msg(
         Duration::from_secs(2),
         || {
-            node.services
+            node.services()
                 .network
                 .read()
                 .unwrap()
@@ -352,7 +352,7 @@ pub fn establish_tcp(node: &Node, peer: &Node) -> Arc<Channel> {
         "node did not connect",
     );
 
-    node.services
+    node.services()
         .network
         .read()
         .unwrap()
@@ -362,7 +362,7 @@ pub fn establish_tcp(node: &Node, peer: &Node) -> Arc<Channel> {
 }
 
 pub fn make_fake_channel(node: &Node) -> Arc<Channel> {
-    node.services
+    node.services()
         .network
         .write()
         .unwrap()
@@ -370,7 +370,7 @@ pub fn make_fake_channel(node: &Node) -> Arc<Channel> {
             NULL_ENDPOINT,
             TEST_ENDPOINT_1,
             ChannelDirection::Inbound,
-            node.services.steady_clock.now(),
+            node.services().steady_clock.now(),
         )
         .unwrap()
         .0
@@ -380,10 +380,12 @@ pub fn start_election(node: &Node, hash: &BlockHash) {
     assert_timely2(|| node.block_exists(hash));
 
     let block = node.block(hash).unwrap();
-    node.services.election_schedulers.add_manual(block.clone());
+    node.services()
+        .election_schedulers
+        .add_manual(block.clone());
     // wait for the election to appear
     assert_timely2(|| node.is_active_root(&block.qualified_root()));
-    node.services
+    node.services()
         .active
         .write()
         .unwrap()
@@ -402,7 +404,7 @@ pub fn start_elections(node: &Node, hashes: &[BlockHash], forced: bool) {
 pub fn activate_hashes(node: &Node, hashes: &[BlockHash]) {
     for hash in hashes {
         let block = node.block(hash).unwrap();
-        node.services.election_schedulers.add_manual(block);
+        node.services().election_schedulers.add_manual(block);
     }
 }
 
@@ -616,7 +618,7 @@ pub fn send_block(node: Arc<Node>) -> BlockHash {
 }
 
 pub fn send_block_to(node: Arc<Node>, account: Account, amount: Amount) -> Block {
-    let any = node.services.ledger.any();
+    let any = node.services().ledger.any();
 
     let previous = any
         .account_head(&DEV_GENESIS_ACCOUNT)
@@ -641,7 +643,7 @@ pub fn send_block_to(node: Arc<Node>, account: Account, amount: Amount) -> Block
 }
 
 pub fn process_send_block(node: Arc<Node>, account: Account, amount: Amount) -> Block {
-    let any = node.services.ledger.any();
+    let any = node.services().ledger.any();
 
     let previous = any
         .account_head(&DEV_GENESIS_ACCOUNT)
@@ -665,7 +667,7 @@ pub fn process_send_block(node: Arc<Node>, account: Account, amount: Amount) -> 
 }
 
 pub fn process_open_block(node: Arc<Node>, keys: PrivateKey) -> Block {
-    let any = node.services.ledger.any();
+    let any = node.services().ledger.any();
     let account = keys.account();
 
     let (key, info) = any
@@ -689,7 +691,7 @@ pub fn process_open_block(node: Arc<Node>, keys: PrivateKey) -> Block {
 }
 
 pub fn upgrade_epoch(node: Arc<Node>, epoch: Epoch) -> Block {
-    let any = node.services.ledger.any();
+    let any = node.services().ledger.any();
     let account = *DEV_GENESIS_ACCOUNT;
     let latest = any.account_head(&account).unwrap();
     let balance = any.account_balance(&account);
@@ -699,7 +701,7 @@ pub fn upgrade_epoch(node: Arc<Node>, epoch: Epoch) -> Block {
         previous: latest,
         representative: *DEV_GENESIS_PUB_KEY,
         balance,
-        link: node.services.ledger.epoch_link(epoch).unwrap(),
+        link: node.services().ledger.epoch_link(epoch).unwrap(),
         work: node.work_generate_dev(*DEV_GENESIS_HASH),
     }
     .into();

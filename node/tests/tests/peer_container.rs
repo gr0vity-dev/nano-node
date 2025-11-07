@@ -8,11 +8,11 @@ fn no_self_incoming() {
     let mut system = System::new();
     let node = system.make_node();
     let _ = node
-        .services
+        .services()
         .peer_connector
-        .connect_to(node.services.tcp_listener.local_address());
+        .connect_to(node.services().tcp_listener.local_address());
     assert_never(Duration::from_secs(2), || {
-        node.services
+        node.services()
             .network
             .read()
             .unwrap()

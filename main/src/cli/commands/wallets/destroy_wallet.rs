@@ -19,10 +19,10 @@ impl DestroyWalletArgs {
         let wallet_id =
             WalletId::decode_hex(&self.wallet).ok_or_else(|| anyhow!("Invalid wallet id"))?;
         let password = self.password.clone().unwrap_or_default();
-        node.services
+        node.services()
             .wallets
             .ensure_wallet_is_unlocked(wallet_id, &password);
-        node.services.wallets.destroy(&wallet_id);
+        node.services().wallets.destroy(&wallet_id);
         Ok(())
     }
 }

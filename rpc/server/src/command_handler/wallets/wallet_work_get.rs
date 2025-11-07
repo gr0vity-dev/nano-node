@@ -9,7 +9,7 @@ impl RpcCommandHandler {
     ) -> anyhow::Result<AccountsWithWorkResponse> {
         let accounts = self
             .node
-            .services
+            .services()
             .wallets
             .get_accounts_of_wallet(&args.wallet)?;
         let mut works = HashMap::new();
@@ -17,7 +17,7 @@ impl RpcCommandHandler {
         for account in accounts {
             let work = self
                 .node
-                .services
+                .services()
                 .wallets
                 .work_get2(&args.wallet, &account.into())?;
             works.insert(account, work);

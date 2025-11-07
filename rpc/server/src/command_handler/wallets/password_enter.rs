@@ -10,7 +10,7 @@ impl RpcCommandHandler {
     ) -> anyhow::Result<ValidResponse> {
         match self
             .node
-            .services
+            .services()
             .wallets
             .enter_password(args.wallet, &args.password)
         {

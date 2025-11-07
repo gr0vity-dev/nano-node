@@ -13,7 +13,7 @@ impl RpcCommandHandler {
     ) -> anyhow::Result<ConfirmationInfoResponse> {
         let include_representatives = args.representatives.unwrap_or(false.into()).inner();
         let contents = args.contents.unwrap_or(true.into()).inner();
-        let active = self.node.services.active.read().unwrap();
+        let active = self.services.active.read().unwrap();
         let election = active
             .election_for_root(&args.root)
             .ok_or_else(|| anyhow!("Active confirmation not found"))?;
@@ -41,7 +41,7 @@ impl RpcCommandHandler {
                 let mut reps_final = IndexMap::new();
                 for (representative, vote) in election.votes() {
                     if block.hash() == vote.hash {
-                        let amount = self.node.services.ledger.rep_weights.weight(representative);
+                        let amount = self.services.ledger.rep_weights.weight(representative);
 
                         reps.insert(Account::from(representative), amount);
 

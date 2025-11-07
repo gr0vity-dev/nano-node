@@ -10,10 +10,10 @@ fn password_enter() {
 
     let wallet_id: WalletId = 1.into();
 
-    node.services.wallets.create(wallet_id);
-    node.services.wallets.lock(&wallet_id).unwrap();
+    node.services().wallets.create(wallet_id);
+    node.services().wallets.lock(&wallet_id).unwrap();
     assert!(
-        node.services
+        node.services()
             .wallets
             .deterministic_insert2(&wallet_id, false)
             .is_err()
@@ -28,7 +28,7 @@ fn password_enter() {
     });
 
     assert!(
-        node.services
+        node.services()
             .wallets
             .deterministic_insert2(&wallet_id, false)
             .is_ok()
@@ -44,7 +44,7 @@ fn password_enter_fails_with_invalid_password() {
 
     let wallet_id: WalletId = 1.into();
 
-    node.services.wallets.create(wallet_id);
+    node.services().wallets.create(wallet_id);
 
     let result = node
         .runtime

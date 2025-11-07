@@ -20,10 +20,10 @@ impl RpcCommandHandler {
 
         let accounts = self
             .node
-            .services
+            .services()
             .wallets
             .get_accounts_of_wallet(&args.wallet)?;
-        let any = self.node.services.ledger.any();
+        let any = self.services.ledger.any();
 
         let mut pending_source = IndexMap::new();
         let mut pending_threshold = IndexMap::new();

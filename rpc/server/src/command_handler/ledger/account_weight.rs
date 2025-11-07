@@ -5,7 +5,7 @@ impl RpcCommandHandler {
     pub(crate) fn account_weight(&self, args: AccountWeightArgs) -> WeightDto {
         let weight = self
             .node
-            .services
+            .services()
             .ledger
             .any()
             .weight_exact(args.account.into());

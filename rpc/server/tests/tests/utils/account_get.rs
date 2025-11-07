@@ -10,7 +10,7 @@ fn account_get() {
 
     let wallet_id = WalletId::random();
 
-    node.services.wallets.create(wallet_id);
+    node.services().wallets.create(wallet_id);
 
     let result = node
         .runtime

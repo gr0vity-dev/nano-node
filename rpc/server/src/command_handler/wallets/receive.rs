@@ -11,7 +11,7 @@ use crate::command_handler::RpcCommandHandler;
 
 impl RpcCommandHandler {
     pub fn receive(&self, args: ReceiveArgs) -> anyhow::Result<BlockDto> {
-        let any = self.node.services.ledger.any();
+        let any = self.services.ledger.any();
 
         if !any.block_exists(&args.block) {
             bail!(Self::BLOCK_NOT_FOUND);
@@ -37,7 +37,7 @@ impl RpcCommandHandler {
             }
             work
         } else {
-            if !self.node.services.work_factory.work_generation_enabled() {
+            if !self.services.work_factory.work_generation_enabled() {
                 bail!("Work generation is disabled");
             }
             0.into()
@@ -45,14 +45,14 @@ impl RpcCommandHandler {
 
         // Representative is only used by receive_action when opening accounts
         // Set a wallet default representative for new accounts
-        let representative = self.node.services.wallets.get_representative(args.wallet)?;
+        let representative = self.services.wallets.get_representative(args.wallet)?;
 
         // Disable work generation if "work" option is provided
         let generate_work = work.is_zero();
 
         let block = self
             .node
-            .services
+            .services()
             .wallets
             .receive(
                 args.wallet,

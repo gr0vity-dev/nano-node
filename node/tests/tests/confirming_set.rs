@@ -23,15 +23,18 @@ fn confirmed_history() {
     start_election(&node, &send1.hash());
     {
         // Prevent the confirming set doing any writes
-        node.services.confirming_set.set_cooldown(true);
+        node.services().confirming_set.set_cooldown(true);
 
         // Confirm send1
         node.force_confirm(&send1.hash());
-        assert_timely_eq2(|| node.services.active.read().unwrap().len(), 0);
-        assert_eq!(node.services.recently_cemented.lock().unwrap().len(), 0);
-        assert_eq!(node.services.active.read().unwrap().len(), 0);
+        assert_timely_eq2(|| node.services().active.read().unwrap().len(), 0);
+        assert_eq!(node.services().recently_cemented.lock().unwrap().len(), 0);
+        assert_eq!(node.services().active.read().unwrap().len(), 0);
         assert_eq!(
-            node.services.ledger.confirmed().block_exists(&send.hash()),
+            node.services()
+                .ledger
+                .confirmed()
+                .block_exists(&send.hash()),
             false
         );
 
@@ -40,7 +43,7 @@ fn confirmed_history() {
         assert_always_eq(
             Duration::from_millis(50),
             || {
-                node.services.stats.count(
+                node.services().stats.count(
                     StatType::ConfirmationObserver,
                     DetailType::InactiveConfHeight,
                     Direction::Out,
@@ -48,20 +51,28 @@ fn confirmed_history() {
             },
             0,
         );
-        node.services.confirming_set.set_cooldown(false);
+        node.services().confirming_set.set_cooldown(false);
     }
 
-    assert_timely2(|| node.services.ledger.confirmed().block_exists(&send.hash()));
+    assert_timely2(|| {
+        node.services()
+            .ledger
+            .confirmed()
+            .block_exists(&send.hash())
+    });
 
-    assert_timely_eq2(|| node.services.active.read().unwrap().len(), 0);
+    assert_timely_eq2(|| node.services().active.read().unwrap().len(), 0);
     assert_timely_eq2(
         || node.stats().get("confirmation_observer", "active_quorum"),
         1,
     );
 
     // Each block that's confirmed is in the recently_cemented history
-    assert_timely_eq2(|| node.services.recently_cemented.lock().unwrap().len(), 2);
-    assert_eq!(node.services.active.read().unwrap().len(), 0);
+    assert_timely_eq2(
+        || node.services().recently_cemented.lock().unwrap().len(),
+        2,
+    );
+    assert_eq!(node.services().active.read().unwrap().len(), 0);
 
     // Confirm the callback is not called under this circumstance
     assert_timely_eq2(
@@ -71,7 +82,7 @@ fn confirmed_history() {
     assert_timely_eq2(|| node.stats().get("confirmation_observer", "inactive"), 1);
     assert_timely_eq2(
         || {
-            node.services.stats.count(
+            node.services().stats.count(
                 StatType::ConfirmationHeight,
                 DetailType::BlocksConfirmed,
                 Direction::In,
@@ -79,7 +90,7 @@ fn confirmed_history() {
         },
         2,
     );
-    assert_eq!(node.services.ledger.confirmed_count(), 3);
+    assert_eq!(node.services().ledger.confirmed_count(), 3);
 }
 
 #[test]
@@ -104,7 +115,7 @@ fn dependent_election() {
     // Wait for blocks to be confirmed in ledger, callbacks will happen after
     assert_timely_eq2(
         || {
-            node.services.stats.count(
+            node.services().stats.count(
                 StatType::ConfirmationHeight,
                 DetailType::BlocksConfirmed,
                 Direction::In,
@@ -113,7 +124,7 @@ fn dependent_election() {
         3,
     );
     // Once the item added to the confirming set no longer exists, callbacks have completed
-    assert_timely2(|| !node.services.confirming_set.contains(&send2.hash()));
+    assert_timely2(|| !node.services().confirming_set.contains(&send2.hash()));
 
     assert_timely_eq2(
         || node.stats().get("confirmation_observer", "active_quorum"),
@@ -127,5 +138,5 @@ fn dependent_election() {
         1,
     );
     assert_timely_eq2(|| node.stats().get("confirmation_observer", "inactive"), 1);
-    assert_eq!(node.services.ledger.confirmed_count(), 4);
+    assert_eq!(node.services().ledger.confirmed_count(), 4);
 }

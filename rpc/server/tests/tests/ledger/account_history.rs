@@ -10,14 +10,14 @@ fn account_history() {
 
     // Create and process blocks
     let wallet_id = WalletId::random();
-    node.services.wallets.create(wallet_id);
-    node.services
+    node.services().wallets.create(wallet_id);
+    node.services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), false)
         .unwrap();
 
     let change = node
-        .services
+        .services()
         .wallets
         .change(
             &wallet_id,
@@ -30,7 +30,7 @@ fn account_history() {
         .unwrap();
 
     let send = node
-        .services
+        .services()
         .wallets
         .send(
             wallet_id,
@@ -45,7 +45,7 @@ fn account_history() {
         .unwrap();
 
     let receive = node
-        .services
+        .services()
         .wallets
         .receive(
             wallet_id,
@@ -60,7 +60,7 @@ fn account_history() {
         .unwrap();
 
     let usend = node
-        .services
+        .services()
         .wallets
         .send(
             wallet_id,
@@ -75,7 +75,7 @@ fn account_history() {
         .unwrap();
 
     let ureceive = node
-        .services
+        .services()
         .wallets
         .receive(
             wallet_id,
@@ -90,7 +90,7 @@ fn account_history() {
         .unwrap();
 
     let uchange = node
-        .services
+        .services()
         .wallets
         .change(
             &wallet_id,
@@ -149,7 +149,7 @@ fn account_history() {
     assert_eq!(history[4].account, Some(*DEV_GENESIS_ACCOUNT));
     assert_eq!(
         history[4].amount,
-        Some(node.services.ledger.constants.genesis_amount)
+        Some(node.services().ledger.constants.genesis_amount)
     );
     assert_eq!(history[4].height, 1.into());
     assert_eq!(history[4].confirmed, true.into());
@@ -169,13 +169,13 @@ fn account_history() {
 
     // Test filtering
     let account2: Account = node
-        .services
+        .services()
         .wallets
         .deterministic_insert2(&wallet_id, false)
         .unwrap()
         .into();
     let send2 = node
-        .services
+        .services()
         .wallets
         .send(
             wallet_id,
@@ -189,7 +189,7 @@ fn account_history() {
         .wait()
         .unwrap();
 
-    node.services
+    node.services()
         .wallets
         .receive(
             wallet_id,

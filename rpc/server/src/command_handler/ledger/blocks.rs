@@ -11,7 +11,7 @@ impl RpcCommandHandler {
         for hash in args.hashes {
             let block = self
                 .node
-                .services
+                .services()
                 .ledger
                 .any()
                 .get_block(&hash)

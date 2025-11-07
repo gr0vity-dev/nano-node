@@ -11,8 +11,8 @@ fn block_create_state() {
     let node = system.build_node().config(config).finish();
 
     let wallet_id = WalletId::random();
-    node.services.wallets.create(wallet_id);
-    node.services
+    node.services().wallets.create(wallet_id);
+    node.services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), false)
         .unwrap();
@@ -51,7 +51,7 @@ fn block_create_state() {
     node.process(block.clone());
 
     assert_eq!(
-        node.services.ledger.any().block_account(&block.hash()),
+        node.services().ledger.any().block_account(&block.hash()),
         Some(*DEV_GENESIS_ACCOUNT)
     );
 }

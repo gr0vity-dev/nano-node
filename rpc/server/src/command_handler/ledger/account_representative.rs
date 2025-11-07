@@ -6,7 +6,7 @@ impl RpcCommandHandler {
         &self,
         args: AccountArg,
     ) -> anyhow::Result<AccountRepresentativeDto> {
-        let any = self.node.services.ledger.any();
+        let any = self.services.ledger.any();
         let account_info = self.load_account(&any, &args.account)?;
         Ok(AccountRepresentativeDto::new(
             account_info.representative.as_account(),

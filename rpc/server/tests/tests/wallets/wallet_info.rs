@@ -10,12 +10,12 @@ fn wallet_info() {
 
     let wallet = WalletId::random();
 
-    node.services.wallets.create(wallet);
-    node.services
+    node.services().wallets.create(wallet);
+    node.services()
         .wallets
         .insert_adhoc2(&wallet, &DEV_GENESIS_KEY.raw_key(), false)
         .unwrap();
-    node.services
+    node.services()
         .wallets
         .deterministic_insert2(&wallet, false)
         .unwrap();

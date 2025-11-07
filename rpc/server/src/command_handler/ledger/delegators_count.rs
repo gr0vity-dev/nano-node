@@ -8,7 +8,7 @@ impl RpcCommandHandler {
 
         let count = self
             .node
-            .services
+            .services()
             .ledger
             .any()
             .iter_accounts()

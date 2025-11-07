@@ -6,7 +6,7 @@ impl RpcCommandHandler {
         let generate_work = args.work.unwrap_or(true.into()).inner();
         let pub_key =
             self.node
-                .services
+                .services()
                 .wallets
                 .insert_adhoc2(&args.wallet, &args.key, generate_work)?;
         Ok(AccountResponse::new(pub_key.as_account()))

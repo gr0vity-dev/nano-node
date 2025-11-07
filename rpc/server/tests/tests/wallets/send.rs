@@ -10,8 +10,8 @@ fn send() {
     let node = system.make_node();
 
     let wallet = WalletId::random();
-    node.services.wallets.create(wallet);
-    node.services
+    node.services().wallets.create(wallet);
+    node.services()
         .wallets
         .insert_adhoc2(&wallet, &DEV_GENESIS_KEY.raw_key(), false)
         .unwrap();
@@ -37,7 +37,7 @@ fn send() {
             .unwrap()
     });
 
-    let any = node.services.ledger.any();
+    let any = node.services().ledger.any();
 
     assert_timely_msg(
         Duration::from_secs(5),
@@ -57,8 +57,8 @@ fn send_fails_without_enable_control() {
     let node = system.make_node();
 
     let wallet = WalletId::random();
-    node.services.wallets.create(wallet);
-    node.services
+    node.services().wallets.create(wallet);
+    node.services()
         .wallets
         .insert_adhoc2(&wallet, &DEV_GENESIS_KEY.raw_key(), false)
         .unwrap();

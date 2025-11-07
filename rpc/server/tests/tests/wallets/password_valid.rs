@@ -10,9 +10,12 @@ fn password_valid() {
 
     let wallet_id: WalletId = 1.into();
 
-    node.services.wallets.create(wallet_id);
+    node.services().wallets.create(wallet_id);
 
-    let _ = node.services.wallets.enter_password(wallet_id, "password");
+    let _ = node
+        .services()
+        .wallets
+        .enter_password(wallet_id, "password");
 
     let result = node
         .runtime
@@ -20,7 +23,7 @@ fn password_valid() {
 
     assert_eq!(result.valid, false.into());
 
-    let _ = node.services.wallets.enter_password(wallet_id, "");
+    let _ = node.services().wallets.enter_password(wallet_id, "");
 
     let result = node
         .runtime

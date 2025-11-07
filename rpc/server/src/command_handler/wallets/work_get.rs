@@ -5,7 +5,7 @@ impl RpcCommandHandler {
     pub(crate) fn work_get(&self, args: WalletWithAccountArgs) -> anyhow::Result<WorkResponse> {
         let work = self
             .node
-            .services
+            .services()
             .wallets
             .work_get2(&args.wallet, &args.account.into())?;
         Ok(WorkResponse::new(work))

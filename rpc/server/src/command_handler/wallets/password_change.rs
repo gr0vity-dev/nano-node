@@ -7,7 +7,7 @@ impl RpcCommandHandler {
         args: WalletWithPasswordArgs,
     ) -> anyhow::Result<ChangedResponse> {
         self.node
-            .services
+            .services()
             .wallets
             .rekey(&args.wallet, args.password)?;
         Ok(ChangedResponse::new(true))

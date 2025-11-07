@@ -13,7 +13,7 @@ impl RpcCommandHandler {
     ) -> anyhow::Result<ExistsResponse> {
         let include_active = args.include_active.unwrap_or_default().inner();
         let include_only_confirmed = args.include_only_confirmed.unwrap_or(true.into()).inner();
-        let any = self.node.services.ledger.any();
+        let any = self.services.ledger.any();
 
         let Some(block) = any.get_block(&args.hash) else {
             bail!(Self::BLOCK_NOT_FOUND);

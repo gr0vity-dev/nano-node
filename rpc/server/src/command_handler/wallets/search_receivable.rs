@@ -10,7 +10,7 @@ impl RpcCommandHandler {
     ) -> anyhow::Result<StartedResponse> {
         match self
             .node
-            .services
+            .services()
             .wallets
             .search_receivable(&args.wallet)
             .wait()

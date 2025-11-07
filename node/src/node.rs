@@ -110,7 +110,7 @@ pub struct Node {
     pub network_params: NetworkParams,
     workers: Arc<ThreadPool>,
     pub flags: NodeFlags,
-    pub services: NodeServices,
+    services: NodeServices,
     pub unchecked: Arc<Mutex<UncheckedMap>>,
     pub backlog_scan: BacklogScan,
     vote_cache_processor: Arc<VoteCacheProcessor>,
@@ -171,6 +171,10 @@ impl Node {
 
     pub fn node_id(&self) -> NodeId {
         self.node_id.public_key().into()
+    }
+
+    pub fn services(&self) -> &NodeServices {
+        &self.services
     }
 
     fn new(args: NodeArgs, is_nulled: bool, mut node_id_key_file: NodeIdKeyFile) -> Self {
@@ -1349,6 +1353,8 @@ impl Node {
             block_rates: block_rates.clone(),
             wallet_reps: wallet_reps.clone(),
             winner_block_broadcaster: winner_block_broadcaster.clone(),
+            #[cfg(feature = "ledger_snapshots")]
+            ledger_snapshots: ledger_snapshots.clone(),
         };
 
         Self {
@@ -1779,7 +1785,7 @@ mod tests {
     fn connect_winner_block_rebroadcaster() {
         let node = Node::new_null();
         let broadcast_tracker = node
-            .services
+            .services()
             .winner_block_broadcaster
             .lock()
             .unwrap()
@@ -1787,7 +1793,7 @@ mod tests {
         let election = ConfirmedElection::new_test_instance();
         let winner_hash = election.winner.hash();
 
-        node.services
+        node.services()
             .active
             .write()
             .unwrap()

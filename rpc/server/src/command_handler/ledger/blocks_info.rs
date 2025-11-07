@@ -18,7 +18,7 @@ impl RpcCommandHandler {
         let include_not_found = unwrap_bool_or_false(args.include_not_found);
         let include_linked_account = unwrap_bool_or_false(args.include_linked_account);
 
-        let any = self.node.services.ledger.any();
+        let any = self.services.ledger.any();
         let mut blocks: HashMap<BlockHash, BlockInfoResponse> = HashMap::new();
         let mut blocks_not_found = Vec::new();
 

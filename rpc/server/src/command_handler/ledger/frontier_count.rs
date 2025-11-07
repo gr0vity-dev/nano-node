@@ -3,6 +3,6 @@ use rsnano_rpc_messages::CountResponse;
 
 impl RpcCommandHandler {
     pub(crate) fn frontier_count(&self) -> CountResponse {
-        CountResponse::new(self.node.services.ledger.account_count())
+        CountResponse::new(self.services.ledger.account_count())
     }
 }

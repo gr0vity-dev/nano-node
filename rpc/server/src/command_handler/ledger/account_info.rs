@@ -8,7 +8,7 @@ impl RpcCommandHandler {
         &self,
         args: AccountInfoArgs,
     ) -> anyhow::Result<AccountInfoResponse> {
-        let any = self.node.services.ledger.any();
+        let any = self.services.ledger.any();
         let include_confirmed = unwrap_bool_or_false(args.include_confirmed);
         let info = self.load_account(&any, &args.account)?;
 
@@ -86,7 +86,7 @@ impl RpcCommandHandler {
         if unwrap_bool_or_false(args.weight) {
             account_info.weight = Some(
                 self.node
-                    .services
+                    .services()
                     .ledger
                     .any()
                     .weight_exact(args.account.into()),

@@ -9,12 +9,12 @@ impl RpcCommandHandler {
         args: WalletCreateArgs,
     ) -> anyhow::Result<WalletCreateResponse> {
         let wallet = WalletId::random();
-        self.node.services.wallets.create(wallet);
+        self.services.wallets.create(wallet);
 
         let last_restored_account;
         let restored_count;
         if let Some(seed) = args.seed {
-            let (count, last) = self.node.services.wallets.change_seed(wallet, &seed, 0)?;
+            let (count, last) = self.services.wallets.change_seed(wallet, &seed, 0)?;
             last_restored_account = Some(last);
             restored_count = Some(count.into());
         } else {

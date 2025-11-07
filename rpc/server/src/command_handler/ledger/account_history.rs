@@ -14,7 +14,7 @@ impl RpcCommandHandler {
         &self,
         args: AccountHistoryArgs,
     ) -> anyhow::Result<AccountHistoryResponse> {
-        let helper = AccountHistoryHelper::new(&self.node.services.ledger, args);
+        let helper = AccountHistoryHelper::new(&self.services.ledger, args);
         helper.account_history()
     }
 }

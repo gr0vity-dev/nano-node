@@ -19,7 +19,7 @@ impl RpcCommandHandler {
 
         let accounts = self
             .node
-            .services
+            .services()
             .wallets
             .get_accounts_of_wallet(&args.wallet)?;
         let account_dtos = get_accounts_info(
@@ -44,7 +44,7 @@ fn get_accounts_info(
     receivable: bool,
     modified_since: UnixTimestamp,
 ) -> HashMap<Account, AccountInfo> {
-    let any = node.services.ledger.any();
+    let any = node.services().ledger.any();
     let mut account_dtos = HashMap::new();
 
     for account in accounts {

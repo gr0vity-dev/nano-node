@@ -12,11 +12,11 @@ impl RpcCommandHandler {
         let threshold = args.threshold.unwrap_or(Amount::ZERO);
         let accounts = self
             .node
-            .services
+            .services()
             .wallets
             .get_accounts_of_wallet(&args.wallet)?;
         let mut balances = HashMap::new();
-        let any = self.node.services.ledger.any();
+        let any = self.services.ledger.any();
         for account in accounts {
             let balance = any.account_balance(&account);
 

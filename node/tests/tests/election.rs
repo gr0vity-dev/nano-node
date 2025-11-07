@@ -14,9 +14,9 @@ fn quorum_minimum_confirm_fail() {
         ..System::default_config_without_backlog_scan()
     };
     let node1 = system.build_node().config(config).finish();
-    let wallet_id = node1.services.wallets.wallet_ids()[0];
+    let wallet_id = node1.services().wallets.wallet_ids()[0];
     node1
-        .services
+        .services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
@@ -25,7 +25,8 @@ fn quorum_minimum_confirm_fail() {
     let key = PrivateKey::new();
     let send1 = lattice.genesis().send(
         &key,
-        Amount::MAX - (node1.services.online_reps.lock().unwrap().quorum_delta() - Amount::raw(1)),
+        Amount::MAX
+            - (node1.services().online_reps.lock().unwrap().quorum_delta() - Amount::raw(1)),
     );
 
     node1.process_active(send1.clone());
@@ -36,7 +37,7 @@ fn quorum_minimum_confirm_fail() {
         VoteSource::Live,
         None,
     );
-    let _ = node1.services.vote_processor.vote_blocking(&vote.into());
+    let _ = node1.services().vote_processor.vote_blocking(&vote.into());
 
     // Give the election a chance to confirm
     std::thread::sleep(Duration::from_secs(1));
@@ -54,9 +55,9 @@ fn quorum_minimum_confirm_success() {
         ..System::default_config_without_backlog_scan()
     };
     let node1 = system.build_node().config(config).finish();
-    let wallet_id = node1.services.wallets.wallet_ids()[0];
+    let wallet_id = node1.services().wallets.wallet_ids()[0];
     node1
-        .services
+        .services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
@@ -67,7 +68,7 @@ fn quorum_minimum_confirm_success() {
     // Only minimum quorum remains
     let send1 = lattice.genesis().send(
         &key1,
-        Amount::MAX - node1.services.online_reps.lock().unwrap().quorum_delta(),
+        Amount::MAX - node1.services().online_reps.lock().unwrap().quorum_delta(),
     );
 
     node1.process_active(send1.clone());
@@ -78,7 +79,7 @@ fn quorum_minimum_confirm_success() {
         VoteSource::Live,
         None,
     );
-    let _ = node1.services.vote_processor.vote_blocking(&vote.into());
+    let _ = node1.services().vote_processor.vote_blocking(&vote.into());
 
     assert_timely2(|| node1.block_confirmed(&send1.hash()));
 }
@@ -96,14 +97,16 @@ fn quorum_minimum_flip_fail() {
     let key1 = PrivateKey::new();
     let send1 = lattice.genesis().send(
         &key1,
-        Amount::MAX - (node1.services.online_reps.lock().unwrap().quorum_delta() - Amount::raw(1)),
+        Amount::MAX
+            - (node1.services().online_reps.lock().unwrap().quorum_delta() - Amount::raw(1)),
     );
 
     let mut fork_lattice = UnsavedBlockLatticeBuilder::new();
     let key2 = PrivateKey::new();
     let send2 = fork_lattice.genesis().send(
         &key2,
-        Amount::MAX - (node1.services.online_reps.lock().unwrap().quorum_delta() - Amount::raw(1)),
+        Amount::MAX
+            - (node1.services().online_reps.lock().unwrap().quorum_delta() - Amount::raw(1)),
     );
 
     // Process send1 and wait until its election appears
@@ -121,7 +124,7 @@ fn quorum_minimum_flip_fail() {
         VoteSource::Live,
         None,
     );
-    let _ = node1.services.vote_processor.vote_blocking(&vote.into());
+    let _ = node1.services().vote_processor.vote_blocking(&vote.into());
 
     // Give the election some time before asserting it is not confirmed
     std::thread::sleep(Duration::from_secs(1));
@@ -142,14 +145,14 @@ fn quorum_minimum_flip_success() {
     let key1 = PrivateKey::new();
     let send1 = lattice.genesis().send(
         &key1,
-        Amount::MAX - node1.services.online_reps.lock().unwrap().quorum_delta(),
+        Amount::MAX - node1.services().online_reps.lock().unwrap().quorum_delta(),
     );
 
     let mut fork_lattice = UnsavedBlockLatticeBuilder::new();
     let key2 = PrivateKey::new();
     let send2 = fork_lattice.genesis().send(
         &key2,
-        Amount::MAX - node1.services.online_reps.lock().unwrap().quorum_delta(),
+        Amount::MAX - node1.services().online_reps.lock().unwrap().quorum_delta(),
     );
 
     // Process send1 and wait until its election appears
@@ -166,7 +169,7 @@ fn quorum_minimum_flip_success() {
         VoteSource::Live,
         None,
     );
-    let _ = node1.services.vote_processor.vote_blocking(&vote.into());
+    let _ = node1.services().vote_processor.vote_blocking(&vote.into());
 
     // Wait for the election to be confirmed
     assert_timely2(|| node1.block_confirmed(&send2.hash()));

@@ -26,11 +26,11 @@ impl SetWalletRepresentativeArgs {
             .into();
         let password = self.password.clone().unwrap_or_default();
 
-        node.services
+        node.services()
             .wallets
             .ensure_wallet_is_unlocked(wallet_id, &password);
 
-        node.services
+        node.services()
             .wallets
             .set_representative(wallet_id, representative, false)
             .wait()

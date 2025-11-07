@@ -33,7 +33,7 @@ pub fn activate_one() {
     assert_timely2(|| node.is_active_root(&block.qualified_root()));
 
     assert_eq!(
-        node.services
+        node.services()
             .active
             .read()
             .unwrap()
@@ -71,7 +71,7 @@ pub fn activate_one_zero_conf() {
     assert_timely2(|| node.is_active_root(&block.qualified_root()));
 
     assert_eq!(
-        node.services
+        node.services()
             .active
             .read()
             .unwrap()
@@ -106,7 +106,7 @@ pub fn activate_many() {
     assert_timely(Duration::from_secs(20), || {
         chains.iter().all(|(_, blocks)| {
             let block = blocks.last().unwrap();
-            let active = node.services.active.read().unwrap();
+            let active = node.services().active.read().unwrap();
             let Some(election) = active.election_for_root(&block.qualified_root()) else {
                 return false;
             };

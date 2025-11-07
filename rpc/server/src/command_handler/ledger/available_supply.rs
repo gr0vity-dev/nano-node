@@ -27,7 +27,7 @@ impl RpcCommandHandler {
         );
 
         // Burning 0 account
-        let burned_balance = self.node.services.ledger.any().account_receivable(
+        let burned_balance = self.services.ledger.any().account_receivable(
             &Account::parse("nano_1111111111111111111111111111111111111111111111111111hifc8npp")
                 .unwrap(),
         );

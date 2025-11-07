@@ -22,7 +22,7 @@ impl RpcCommandHandler {
             .difficulty
             .unwrap_or_else(|| {
                 self.node
-                    .services
+                    .services()
                     .ledger
                     .constants
                     .work
@@ -43,15 +43,15 @@ impl RpcCommandHandler {
         let mut balance = args.balance.unwrap_or(Amount::ZERO);
         let mut prv_key = PrivateKey::zero();
 
-        if work.is_zero() && !self.node.services.work_factory.work_generation_enabled() {
+        if work.is_zero() && !self.services.work_factory.work_generation_enabled() {
             bail!("Work generation is disabled");
         }
 
-        let any = self.node.services.ledger.any();
+        let any = self.services.ledger.any();
 
         if !wallet_id.is_zero() && !account.is_zero() {
             self.node
-                .services
+                .services()
                 .wallets
                 .fetch(&wallet_id, &account.into())?;
             previous = any.account_head(&account).unwrap_or_default();
@@ -215,7 +215,7 @@ impl RpcCommandHandler {
 
             let work = match self
                 .node
-                .services
+                .services()
                 .work_factory
                 .generate_work(WorkRequest::new(root, difficulty))
             {

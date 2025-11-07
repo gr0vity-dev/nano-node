@@ -77,7 +77,7 @@ impl InsightApp {
 
     pub fn search(&mut self, input: &str) {
         if let Some(node) = self.node_runner.node() {
-            let has_result = self.explorer.search(&node.services.ledger, input);
+            let has_result = self.explorer.search(&node.services().ledger, input);
             if has_result {
                 self.navigator.current = NavItem::Explorer;
             }
@@ -94,22 +94,22 @@ impl InsightApp {
 
         if let Some(node) = self.node_runner.node() {
             self.ledger_stats.update(&node);
-            let channels = node.services.network.read().unwrap().sorted_channels();
-            let telemetries = node.services.telemetry.get_all_telemetries();
+            let channels = node.services().network.read().unwrap().sorted_channels();
+            let telemetries = node.services().telemetry.get_all_telemetries();
             let (peered_reps, min_rep_weight) = {
-                let guard = node.services.online_reps.lock().unwrap();
+                let guard = node.services().online_reps.lock().unwrap();
                 (guard.peered_reps(), guard.minimum_principal_weight())
             };
             self.channels
                 .update(channels, telemetries, peered_reps, min_rep_weight);
-            self.aec_info = node.services.active.read().unwrap().info();
-            self.max_optimistic = node.services.election_schedulers.optimistic.max_elections;
-            self.max_hinted = node.services.election_schedulers.hinted.max_elections;
-            self.confirming_set = node.services.confirming_set.info();
-            self.block_processor_info = node.services.block_processor_queue.info();
-            self.vote_processor_info = node.services.vote_processor_queue.info();
+            self.aec_info = node.services().active.read().unwrap().info();
+            self.max_optimistic = node.services().election_schedulers.optimistic.max_elections;
+            self.max_hinted = node.services().election_schedulers.hinted.max_elections;
+            self.confirming_set = node.services().confirming_set.info();
+            self.block_processor_info = node.services().block_processor_queue.info();
+            self.vote_processor_info = node.services().vote_processor_queue.info();
             {
-                let state = node.services.bootstrapper.state();
+                let state = node.services().bootstrapper.state();
                 self.frontier_scan.update(&state, now);
                 self.bootstrap.update(&state);
             }
@@ -123,7 +123,7 @@ impl InsightApp {
         if let Some(account) = Account::parse(&self.bootstrap.add_account) {
             self.bootstrap.add_account.clear();
             if let Some(node) = self.node_runner.node() {
-                node.services
+                node.services()
                     .bootstrapper
                     .state()
                     .candidate_accounts
@@ -136,7 +136,7 @@ impl InsightApp {
         if let Some(hash) = BlockHash::decode_hex(&self.rollback_hash)
             && let Some(node) = self.node_runner.node()
         {
-            let _ = node.services.ledger.roll_back(&hash);
+            let _ = node.services().ledger.roll_back(&hash);
         }
     }
 }

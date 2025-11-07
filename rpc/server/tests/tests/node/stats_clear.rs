@@ -14,11 +14,11 @@ fn stats_clear() {
         .block_on(async { server.client.stats_clear().await.unwrap() });
 
     assert_eq!(
-        node.services
+        node.services()
             .stats
             .count(StatType::Ledger, DetailType::Fork, Direction::In),
         0
     );
 
-    assert!(node.services.stats.last_reset() <= Duration::from_secs(5));
+    assert!(node.services().stats.last_reset() <= Duration::from_secs(5));
 }

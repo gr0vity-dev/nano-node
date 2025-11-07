@@ -10,10 +10,10 @@ fn wallet_locked_false() {
 
     let wallet_id: WalletId = 1.into();
 
-    node.services.wallets.create(wallet_id);
+    node.services().wallets.create(wallet_id);
 
     assert_eq!(
-        node.services.wallets.valid_password(&wallet_id).unwrap(),
+        node.services().wallets.valid_password(&wallet_id).unwrap(),
         true
     );
 
@@ -33,9 +33,9 @@ fn wallet_locked_true() {
 
     let wallet_id: WalletId = 1.into();
 
-    node.services.wallets.create(wallet_id);
+    node.services().wallets.create(wallet_id);
 
-    node.services.wallets.lock(&wallet_id).unwrap();
+    node.services().wallets.lock(&wallet_id).unwrap();
 
     let result = node
         .runtime

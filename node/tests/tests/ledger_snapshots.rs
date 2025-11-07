@@ -48,7 +48,7 @@ fn ledger_snapshot_integration_test() {
 
 fn assert_peered_principal_reps(node: &Node, expected_rep_count: usize) {
     assert_timely2(|| {
-        node.services
+        node.services()
             .online_reps
             .lock()
             .unwrap()
@@ -61,7 +61,7 @@ fn assert_peered_principal_reps(node: &Node, expected_rep_count: usize) {
 fn assert_message_received(node: &Node, message_type: MessageType, count: usize) {
     assert_timely_eq2(
         || {
-            node.services
+            node.services()
                 .stats
                 .count(StatType::Message, message_type.into(), Direction::In) as usize
         },
