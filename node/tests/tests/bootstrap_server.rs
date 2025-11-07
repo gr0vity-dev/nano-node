@@ -13,13 +13,15 @@ use rsnano_node::{Node, bootstrap::BootstrapServer};
 use rsnano_types::{Account, Block, BlockHash, DEV_GENESIS_KEY, HashOrAccount, SavedBlock};
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{
-    System, assert_always_eq, assert_timely_eq, assert_timely_eq2, make_fake_channel, setup_chains,
+    System, assert_always_eq, assert_timely_eq, assert_timely_eq2, make_fake_channel,
+    make_fake_channel_with_network, setup_chains,
 };
 
 #[test]
 fn serve_account_blocks() {
     let mut system = System::new();
     let node = system.make_node();
+    let network_services = node.network_services();
 
     let responses = ResponseHelper::new();
     responses.connect(&node);
@@ -37,7 +39,7 @@ fn serve_account_blocks() {
         }),
     });
 
-    let channel = make_fake_channel(&node);
+    let channel = make_fake_channel_with_network(&network_services);
     node.network_services()
         .inbound_message_queue
         .put(request, channel);
@@ -62,6 +64,7 @@ fn serve_account_blocks() {
 fn serve_hash() {
     let mut system = System::new();
     let node = system.make_node();
+    let network_services = node.network_services();
 
     let responses = ResponseHelper::new();
     responses.connect(&node);
@@ -82,7 +85,7 @@ fn serve_hash() {
         }),
     });
 
-    let channel = make_fake_channel(&node);
+    let channel = make_fake_channel_with_network(&network_services);
     node.network_services()
         .inbound_message_queue
         .put(request, channel);
@@ -107,6 +110,7 @@ fn serve_hash() {
 fn serve_hash_one() {
     let mut system = System::new();
     let node = system.make_node();
+    let network_services = node.network_services();
 
     let responses = ResponseHelper::new();
     responses.connect(&node);
@@ -127,7 +131,7 @@ fn serve_hash_one() {
         }),
     });
 
-    let channel = make_fake_channel(&node);
+    let channel = make_fake_channel_with_network(&network_services);
     node.network_services()
         .inbound_message_queue
         .put(request, channel);

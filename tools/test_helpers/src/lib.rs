@@ -10,7 +10,7 @@ use rsnano_ledger::{
 };
 use rsnano_network::{Channel, ChannelDirection, NULL_ENDPOINT, TEST_ENDPOINT_1};
 use rsnano_node::{
-    Node, NodeBuilder, NodeEvent,
+    NetworkServices, Node, NodeBuilder, NodeEvent,
     block_processing::BacklogScanConfig,
     config::{NetworkParams, NodeConfig, NodeFlags},
     unique_path,
@@ -366,7 +366,12 @@ pub fn establish_tcp(node: &Node, peer: &Node) -> Arc<Channel> {
 }
 
 pub fn make_fake_channel(node: &Node) -> Arc<Channel> {
-    node.services()
+    let network_services = node.network_services();
+    make_fake_channel_with_network(&network_services)
+}
+
+pub fn make_fake_channel_with_network(network_services: &NetworkServices) -> Arc<Channel> {
+    network_services
         .network
         .write()
         .unwrap()
@@ -374,7 +379,7 @@ pub fn make_fake_channel(node: &Node) -> Arc<Channel> {
             NULL_ENDPOINT,
             TEST_ENDPOINT_1,
             ChannelDirection::Inbound,
-            node.services().steady_clock.now(),
+            network_services.steady_clock.now(),
         )
         .unwrap()
         .0

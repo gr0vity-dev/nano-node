@@ -14,7 +14,8 @@ use rsnano_utils::stats::{DetailType, Direction, StatType};
 
 use test_helpers::{
     System, assert_always_eq, assert_timely, assert_timely_eq, assert_timely_eq2,
-    assert_timely_msg, assert_timely2, establish_tcp, make_fake_channel, start_election,
+    assert_timely_msg, assert_timely2, establish_tcp, make_fake_channel_with_network,
+    start_election,
 };
 
 #[test]
@@ -153,7 +154,8 @@ fn receivable_processor_confirm_insufficient_pos() {
     start_election(&node1, &send1.hash());
     let key1 = PrivateKey::new();
     let vote = Arc::new(Vote::new_final(&key1, vec![send1.hash()]));
-    let channel = make_fake_channel(&node1);
+    let network_services = node1.network_services();
+    let channel = make_fake_channel_with_network(&network_services);
     let con1 = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(
         vote.deref().clone(),
     ));
@@ -198,7 +200,8 @@ fn receivable_processor_confirm_sufficient_pos() {
 
     start_election(&node1, &send1.hash());
     let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]));
-    let channel = make_fake_channel(&node1);
+    let network_services = node1.network_services();
+    let channel = make_fake_channel_with_network(&network_services);
     let con1 = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(
         vote.deref().clone(),
     ));

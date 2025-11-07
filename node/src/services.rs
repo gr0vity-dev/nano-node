@@ -80,6 +80,7 @@ pub struct NetworkServices {
     pub keepalive_publisher: Arc<KeepalivePublisher>,
     pub inbound_message_queue: Arc<InboundMessageQueue>,
     pub network_filter: Arc<NetworkFilter>,
+    pub steady_clock: Arc<SteadyClock>,
 }
 
 impl NetworkServices {
@@ -93,6 +94,7 @@ impl NetworkServices {
         keepalive_publisher: Arc<KeepalivePublisher>,
         inbound_message_queue: Arc<InboundMessageQueue>,
         network_filter: Arc<NetworkFilter>,
+        steady_clock: Arc<SteadyClock>,
     ) -> Self {
         Self {
             network,
@@ -104,6 +106,7 @@ impl NetworkServices {
             keepalive_publisher,
             inbound_message_queue,
             network_filter,
+            steady_clock,
         }
     }
 }
@@ -178,6 +181,7 @@ impl NodeServices {
             self.keepalive_publisher.clone(),
             self.inbound_message_queue.clone(),
             self.network_filter.clone(),
+            self.steady_clock.clone(),
         )
     }
 }
