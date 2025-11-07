@@ -5,7 +5,10 @@ mod wallets;
 
 use anyhow::anyhow;
 use rsnano_ledger::AnySet;
-use rsnano_node::{NetworkServices, Node, NodeServices, TelemetryServices, WalletServices};
+use rsnano_node::{
+    BootstrapWorkServices, LedgerQueryServices, NetworkServices, Node, NodeServices,
+    TelemetryServices, WalletServices,
+};
 use rsnano_rpc_messages::{RpcCommand, RpcError, StatsType};
 use rsnano_types::{Account, AccountInfo, BlockHash, SavedBlock};
 use serde_json::{Value, to_value};
@@ -18,6 +21,8 @@ use utils::*;
 pub(crate) struct RpcCommandHandler {
     node: Arc<Node>,
     services: NodeServices,
+    ledger_services: LedgerQueryServices,
+    bootstrap_work_services: BootstrapWorkServices,
     wallet_services: WalletServices,
     telemetry_services: TelemetryServices,
     network_services: NetworkServices,
@@ -28,12 +33,16 @@ pub(crate) struct RpcCommandHandler {
 impl RpcCommandHandler {
     pub fn new(node: Arc<Node>, enable_control: bool, tx_stop: oneshot::Sender<()>) -> Self {
         let services = node.services().clone();
+        let ledger_services = node.ledger_query_services();
+        let bootstrap_work_services = node.bootstrap_work_services();
         let wallet_services = node.wallet_services();
         let telemetry_services = node.telemetry_services();
         let network_services = node.network_services();
         Self {
             node,
             services,
+            ledger_services,
+            bootstrap_work_services,
             wallet_services,
             telemetry_services,
             network_services,

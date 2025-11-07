@@ -23,7 +23,7 @@ impl RpcCommandHandler {
             .services()
             .wallets
             .get_accounts_of_wallet(&args.wallet)?;
-        let any = self.services.ledger.any();
+        let any = self.ledger_services.ledger.any();
 
         let mut pending_source = IndexMap::new();
         let mut pending_threshold = IndexMap::new();

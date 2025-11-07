@@ -14,7 +14,7 @@ impl RpcCommandHandler {
         let mut cemented_count = 0u64;
         let mut deterministic_count = 0u64;
         let mut adhoc_count = 0u64;
-        let any = self.services.ledger.any();
+        let any = self.ledger_services.ledger.any();
 
         for (account, _priv_key) in accounts {
             let account = account.into();

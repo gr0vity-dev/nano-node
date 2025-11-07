@@ -11,7 +11,7 @@ impl RpcCommandHandler {
         let start = args.account.unwrap_or(Account::from(1)); // exclude burn account by default
         let mut accounts: HashMap<Account, Amount> = HashMap::new();
 
-        let any = self.services.ledger.any();
+        let any = self.ledger_services.ledger.any();
 
         let mut iterator = any.iter_pending_range(PendingKey::new(start, BlockHash::ZERO)..);
 

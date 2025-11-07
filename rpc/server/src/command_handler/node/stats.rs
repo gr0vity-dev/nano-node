@@ -30,20 +30,22 @@ impl RpcCommandHandler {
                 sink.finalize();
                 sink.add(
                     "stat_duration_seconds",
-                    self.services.stats.last_reset().as_secs(),
+                    self.ledger_services.stats.last_reset().as_secs(),
                 );
                 Ok(sink.finish())
             }
             StatsType::Samples => {
                 let mut sink = StatsJsonWriter::new();
-                self.services.stats.log_samples(&mut sink).unwrap();
+                self.ledger_services.stats.log_samples(&mut sink).unwrap();
                 sink.add(
                     "stat_duration_seconds",
-                    self.services.stats.last_reset().as_secs(),
+                    self.ledger_services.stats.last_reset().as_secs(),
                 );
                 Ok(sink.finish())
             }
-            StatsType::Database => Ok(serde_json::to_value(self.services.ledger.memory_stats()?)?),
+            StatsType::Database => Ok(serde_json::to_value(
+                self.ledger_services.ledger.memory_stats()?,
+            )?),
             StatsType::Objects => Ok(ContainerInfo::builder()
                 .node("node", self.node.container_info())
                 .finish()
@@ -52,7 +54,7 @@ impl RpcCommandHandler {
     }
 
     pub(crate) fn stats_clear(&self) -> SuccessResponse {
-        self.services.stats.clear();
+        self.ledger_services.stats.clear();
         SuccessResponse::new()
     }
 }

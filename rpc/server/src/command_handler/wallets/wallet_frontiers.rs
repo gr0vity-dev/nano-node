@@ -8,7 +8,7 @@ impl RpcCommandHandler {
         &self,
         args: WalletRpcMessage,
     ) -> anyhow::Result<FrontiersResponse> {
-        let any = self.services.ledger.any();
+        let any = self.ledger_services.ledger.any();
         let accounts = self
             .node
             .services()

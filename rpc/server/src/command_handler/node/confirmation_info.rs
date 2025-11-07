@@ -41,7 +41,11 @@ impl RpcCommandHandler {
                 let mut reps_final = IndexMap::new();
                 for (representative, vote) in election.votes() {
                     if block.hash() == vote.hash {
-                        let amount = self.services.ledger.rep_weights.weight(representative);
+                        let amount = self
+                            .ledger_services
+                            .ledger
+                            .rep_weights
+                            .weight(representative);
 
                         reps.insert(Account::from(representative), amount);
 

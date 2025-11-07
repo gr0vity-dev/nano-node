@@ -13,7 +13,7 @@ impl RpcCommandHandler {
         let mut offset = unwrap_u64_or_zero(args.offset);
         let mut blocks = Vec::new();
 
-        let any = self.services.ledger.any();
+        let any = self.ledger_services.ledger.any();
 
         while !hash.is_zero() && blocks.len() < count as usize {
             if let Some(block) = any.get_block(&hash) {

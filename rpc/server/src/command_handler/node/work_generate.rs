@@ -8,7 +8,7 @@ use crate::command_handler::RpcCommandHandler;
 
 impl RpcCommandHandler {
     pub(crate) fn work_generate(&self, args: WorkGenerateArgs) -> anyhow::Result<WorkGenerateDto> {
-        let default_difficulty = self.services.ledger.constants.work.threshold_base();
+        let default_difficulty = self.ledger_services.ledger.constants.work.threshold_base();
 
         let mut difficulty = args
             .difficulty
@@ -40,7 +40,7 @@ impl RpcCommandHandler {
             }
             // Recalculate difficulty if not provided
             if args.difficulty.is_none() && args.multiplier.is_none() {
-                let any = self.services.ledger.any();
+                let any = self.ledger_services.ledger.any();
                 difficulty = difficulty_ledger(self.node.clone(), &any, &block);
             }
 
@@ -50,7 +50,11 @@ impl RpcCommandHandler {
             }
         }
 
-        if !self.services.work_factory.work_generation_enabled() {
+        if !self
+            .bootstrap_work_services
+            .work_factory
+            .work_generation_enabled()
+        {
             bail!("Work generation is disabled");
         }
 

@@ -9,7 +9,7 @@ impl RpcCommandHandler {
         &self,
         args: AccountsRpcMessage,
     ) -> AccountsRepresentativesResponse {
-        let any = self.services.ledger.any();
+        let any = self.ledger_services.ledger.any();
         let mut representatives: HashMap<Account, Account> = HashMap::new();
         let mut errors: HashMap<Account, String> = HashMap::new();
 

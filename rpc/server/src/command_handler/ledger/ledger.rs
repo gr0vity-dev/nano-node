@@ -21,7 +21,7 @@ impl RpcCommandHandler {
         let receivable = unwrap_bool_or_false(args.receivable);
 
         let mut accounts: HashMap<Account, LedgerAccountInfo> = HashMap::new();
-        let any = self.services.ledger.any();
+        let any = self.ledger_services.ledger.any();
 
         if !sorting {
             // Simple

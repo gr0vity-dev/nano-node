@@ -20,7 +20,7 @@ impl RpcCommandHandler {
         let include_only_confirmed = unwrap_bool_or_true(args.include_only_confirmed);
         let sorting = unwrap_bool_or_false(args.sorting);
         let simple = threshold.is_zero() && !source && !sorting; // if simple, response is a list of hashes for each account
-        let any = self.services.ledger.any();
+        let any = self.ledger_services.ledger.any();
 
         let mut response_builder = if simple {
             ResponseBuilderEnum::Simple(SimpleBuilder::new())

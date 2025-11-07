@@ -17,7 +17,7 @@ impl RpcCommandHandler {
         if let Block::State(state) = &block
             && let Some(subtype) = args.subtype
         {
-            let any = self.services.ledger.any();
+            let any = self.ledger_services.ledger.any();
             if !state.previous().is_zero() && !any.block_exists(&state.previous()) {
                 bail!("Gap previous block")
             } else {
@@ -50,7 +50,7 @@ impl RpcCommandHandler {
                     BlockSubTypeDto::Epoch => {
                         if balance != state.balance() {
                             bail!("Invalid block balance for given subtype");
-                        } else if !self.services.ledger.is_epoch_link(&state.link()) {
+                        } else if !self.ledger_services.ledger.is_epoch_link(&state.link()) {
                             bail!("Invalid epoch link");
                         }
                     }

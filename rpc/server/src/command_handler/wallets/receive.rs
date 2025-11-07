@@ -11,7 +11,7 @@ use crate::command_handler::RpcCommandHandler;
 
 impl RpcCommandHandler {
     pub fn receive(&self, args: ReceiveArgs) -> anyhow::Result<BlockDto> {
-        let any = self.services.ledger.any();
+        let any = self.ledger_services.ledger.any();
 
         if !any.block_exists(&args.block) {
             bail!(Self::BLOCK_NOT_FOUND);

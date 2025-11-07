@@ -16,7 +16,7 @@ impl RpcCommandHandler {
             .wallets
             .get_accounts_of_wallet(&args.wallet)?;
         let mut entries: Vec<HistoryEntry> = Vec::new();
-        let any = self.services.ledger.any();
+        let any = self.ledger_services.ledger.any();
 
         for account in accounts {
             if let Some(info) = any.get_account(&account) {
@@ -28,7 +28,7 @@ impl RpcCommandHandler {
                         timestamp = block.timestamp().into();
 
                         let helper = AccountHistoryHelper {
-                            ledger: &self.services.ledger,
+                            ledger: &self.ledger_services.ledger,
                             accounts_to_filter: Vec::new(),
                             reverse: false,
                             offset: 0,

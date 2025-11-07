@@ -3,7 +3,9 @@ use rsnano_rpc_messages::{HashRpcMessage, SuccessResponse};
 
 impl RpcCommandHandler {
     pub(crate) fn work_cancel(&self, args: HashRpcMessage) -> SuccessResponse {
-        self.services.work_factory.cancel(args.hash.into());
+        self.bootstrap_work_services
+            .work_factory
+            .cancel(args.hash.into());
         SuccessResponse::new()
     }
 }

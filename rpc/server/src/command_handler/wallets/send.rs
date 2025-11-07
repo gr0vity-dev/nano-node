@@ -18,7 +18,7 @@ impl RpcCommandHandler {
             bail!("Work generation is disabled");
         }
 
-        let any = self.services.ledger.any();
+        let any = self.ledger_services.ledger.any();
         let info = self.load_account(&any, &source)?;
         let balance = info.balance;
 

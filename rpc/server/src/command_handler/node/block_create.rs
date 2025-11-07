@@ -43,11 +43,16 @@ impl RpcCommandHandler {
         let mut balance = args.balance.unwrap_or(Amount::ZERO);
         let mut prv_key = PrivateKey::zero();
 
-        if work.is_zero() && !self.services.work_factory.work_generation_enabled() {
+        if work.is_zero()
+            && !self
+                .bootstrap_work_services
+                .work_factory
+                .work_generation_enabled()
+        {
             bail!("Work generation is disabled");
         }
 
-        let any = self.services.ledger.any();
+        let any = self.ledger_services.ledger.any();
 
         if !wallet_id.is_zero() && !account.is_zero() {
             self.node
