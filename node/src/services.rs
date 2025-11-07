@@ -4,10 +4,11 @@ use bounded_vec_deque::BoundedVecDeque;
 
 use rsnano_ledger::Ledger;
 use rsnano_messages::NetworkFilter;
-use rsnano_network::{Network, PeerConnector, TcpListener};
+use rsnano_network::{Network, PeerConnector, TcpListener, TcpListenerExt};
 use rsnano_network_protocol::InboundMessageQueue;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::stats::Stats;
+use tracing::warn;
 
 use crate::{
     block_processing::{
@@ -108,6 +109,29 @@ impl NetworkServices {
             network_filter,
             steady_clock,
         }
+    }
+
+    pub fn start(&self, max_inbound_connections: usize) {
+        self.network_threads.lock().unwrap().start();
+        if max_inbound_connections > 0 {
+            self.tcp_listener.start();
+        } else {
+            warn!("Peering is disabled");
+        }
+    }
+
+    pub fn stop(&self) {
+        self.stop_listeners();
+        self.stop_threads();
+    }
+
+    pub fn stop_listeners(&self) {
+        self.tcp_listener.stop();
+        self.peer_connector.stop();
+    }
+
+    pub fn stop_threads(&self) {
+        self.network_threads.lock().unwrap().stop();
     }
 }
 
@@ -235,7 +259,7 @@ pub struct ConsensusServices {
     pub online_reps: Arc<Mutex<OnlineReps>>,
     pub rep_tiers: Arc<CurrentRepTiers>,
     pub local_block_broadcaster: Arc<LocalBlockBroadcaster>,
-    pub winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
+    pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
     pub vote_processor_queue: Arc<VoteProcessorQueue>,
     pub confirming_set: Arc<ConfirmingSet>,
 }

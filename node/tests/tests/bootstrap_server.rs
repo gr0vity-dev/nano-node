@@ -395,7 +395,7 @@ fn serve_frontiers() {
         }),
     });
 
-            let channel = make_fake_channel(&node.network_services());
+    let channel = make_fake_channel(&node.network_services());
     node.network_services()
         .inbound_message_queue
         .put(request, channel);

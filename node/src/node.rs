@@ -18,7 +18,7 @@ use rsnano_ledger::{AnySet, BlockError, LedgerBuilder, LedgerSet};
 use rsnano_messages::NetworkFilter;
 use rsnano_network::{
     ChannelId, DeadChannelCleanup, Network, NetworkCleanup, PeerConnector, TcpListener,
-    TcpListenerExt, TcpNetworkAdapter, TrafficType,
+    TcpNetworkAdapter, TrafficType,
 };
 use rsnano_network_protocol::{
     HandshakeStats, InboundMessageQueue, InboundMessageQueueCleanup, LatestKeepalives,
@@ -1601,18 +1601,12 @@ impl Node {
 
         let network_services = self.network_services();
 
-        network_services.network_threads.lock().unwrap().start();
+        network_services.start(self.config.tcp.max_inbound_connections);
         self.message_processor.lock().unwrap().start();
         self.aec_voter.start(Duration::from_millis(20));
 
         if !self.flags.disable_rep_crawler {
             self.services.rep_crawler.start();
-        }
-
-        if self.config.tcp.max_inbound_connections > 0 {
-            network_services.tcp_listener.start();
-        } else {
-            warn!("Peering is disabled");
         }
 
         if self.config.enable_vote_processor {
@@ -1662,9 +1656,8 @@ impl Node {
         let network_services = self.network_services();
 
         self.ticker_pool.stop();
-        network_services.tcp_listener.stop();
+        network_services.stop_listeners();
         self.aec_voter.stop();
-        network_services.peer_connector.stop();
         // Cancels ongoing work generation tasks, which may be blocking other threads
         // No tasks may wait for work generation in I/O threads, or termination signal capturing will be unable to call node::stop()
         self.services.work_factory.stop();
@@ -1686,7 +1679,7 @@ impl Node {
         self.services.wallets.stop();
         self.services.local_block_broadcaster.stop();
         self.message_processor.lock().unwrap().stop();
-        network_services.network_threads.lock().unwrap().stop(); // Stop network last to avoid killing in-use sockets
+        network_services.stop_threads(); // Stop network last to avoid killing in-use sockets
         self.vote_rebroadcaster.stop();
         self.workers.join();
         self.tokio_runner.stop();
