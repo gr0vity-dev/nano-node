@@ -4198,7 +4198,6 @@ dependencies = [
  "rsnano_store_lmdb",
  "rsnano_types",
  "rsnano_utils",
- "rsnano_work",
  "rsnano_work_validation",
  "serde_json",
  "strum 0.27.2",

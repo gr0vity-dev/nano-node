@@ -4,13 +4,13 @@ use rsnano_types::{
     Account, Amount, Block, BlockDetails, BlockHash, BlockSideband, ChangeBlockArgs,
     DEV_GENESIS_BLOCK, DEV_GENESIS_KEY, Epoch, EpochBlockArgs, Link, OpenBlockArgs, PendingInfo,
     PendingKey, PrivateKey, PublicKey, ReceiveBlockArgs, Root, SavedBlock, SendBlockArgs,
-    StateBlockArgs, UnixMillisTimestamp, WorkNonce, WorkRequest, dev_epoch1_signer, epoch_v1_link,
+    StateBlockArgs, UnixMillisTimestamp, WorkNonce, dev_epoch1_signer, epoch_v1_link,
 };
-use rsnano_work::{WorkPool, dev_difficulty};
+use rsnano_work_validation::{WorkThresholds, dev_difficulty};
 
 pub struct SavedBlockLatticeBuilder {
     accounts: HashMap<Account, Frontier>,
-    work_pool: WorkPool,
+    work_generator: WorkGenerator,
     pending_receives: HashMap<PendingKey, PendingInfo>,
     now: UnixMillisTimestamp,
 }
@@ -25,15 +25,14 @@ struct Frontier {
 
 impl SavedBlockLatticeBuilder {
     pub fn new() -> Self {
-        let work_pool = WorkPool::builder().threads(1).finish();
-        Self::with_work_pool(work_pool)
+        Self::with_work_generator(WorkGenerator::dev_network())
     }
 
     pub fn with_stub_work() -> Self {
-        Self::with_work_pool(WorkPool::new_null(WorkNonce::new(42)))
+        Self::with_work_generator(WorkGenerator::stub(WorkNonce::new(42)))
     }
 
-    fn with_work_pool(work_pool: WorkPool) -> Self {
+    fn with_work_generator(work_generator: WorkGenerator) -> Self {
         let mut accounts = HashMap::new();
         accounts.insert(
             DEV_GENESIS_KEY.account(),
@@ -46,7 +45,7 @@ impl SavedBlockLatticeBuilder {
         );
         Self {
             accounts,
-            work_pool,
+            work_generator,
             pending_receives: Default::default(),
             now: UnixMillisTimestamp::new(42000),
         }
@@ -69,9 +68,7 @@ impl SavedBlockLatticeBuilder {
     }
 
     fn create_pow(&self, root: impl Into<Root>) -> WorkNonce {
-        self.work_pool
-            .generate(WorkRequest::new(root.into(), dev_difficulty()))
-            .unwrap()
+        self.work_generator.generate(root.into())
     }
 
     pub fn epoch_open(&mut self, account: impl Into<Account>) -> SavedBlock {
@@ -142,7 +139,7 @@ impl Clone for SavedBlockLatticeBuilder {
     fn clone(&self) -> Self {
         Self {
             accounts: self.accounts.clone(),
-            work_pool: WorkPool::builder().threads(1).finish(),
+            work_generator: self.work_generator.clone(),
             pending_receives: self.pending_receives.clone(),
             now: self.now,
         }
@@ -512,5 +509,52 @@ impl<'a> SavedAccountChainBuilder<'a> {
                 balance: Amount::ZERO,
                 height: 0,
             })
+    }
+}
+
+/// Deterministic, single-threaded PoW generator for tests so ledger users
+/// avoid the heavy `rsnano_work` dependency.
+#[derive(Clone)]
+struct WorkGenerator {
+    mode: WorkGeneratorMode,
+}
+
+#[derive(Clone)]
+enum WorkGeneratorMode {
+    Deterministic(WorkThresholds),
+    Stub(WorkNonce),
+}
+
+impl WorkGenerator {
+    fn dev_network() -> Self {
+        Self {
+            mode: WorkGeneratorMode::Deterministic(WorkThresholds::publish_dev().clone()),
+        }
+    }
+
+    fn stub(work: WorkNonce) -> Self {
+        Self {
+            mode: WorkGeneratorMode::Stub(work),
+        }
+    }
+
+    fn generate(&self, root: Root) -> WorkNonce {
+        match &self.mode {
+            WorkGeneratorMode::Stub(work) => *work,
+            WorkGeneratorMode::Deterministic(thresholds) => {
+                generate_pow(thresholds, root, dev_difficulty())
+            }
+        }
+    }
+}
+
+fn generate_pow(thresholds: &WorkThresholds, root: Root, required: u64) -> WorkNonce {
+    let mut candidate = 0u64;
+    loop {
+        let work = WorkNonce::new(candidate);
+        if thresholds.difficulty(&root, work) >= required {
+            return work;
+        }
+        candidate = candidate.wrapping_add(1);
     }
 }

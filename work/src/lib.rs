@@ -11,6 +11,8 @@ mod work_thread;
 mod xorshift;
 
 pub(crate) use cpu_work_generator::CpuWorkGenerator;
+// Re-export validation-only logic so downstream crates can depend on pure
+// thresholds without pulling in the heavy work generation infrastructure.
 pub use rsnano_work_validation::{WORK_THRESHOLDS_STUB, WorkThresholds, dev_difficulty};
 pub(crate) use work_pool::WorkGenerator;
 pub use work_pool::{WorkPool, WorkPoolBuilder};

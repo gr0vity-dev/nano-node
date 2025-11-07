@@ -1,3 +1,6 @@
+//! Pure PoW difficulty/threshold math that logic-layer crates need without
+//! dragging in the GPU/CPU work generation infrastructure.
+
 use rsnano_types::{
     Block, BlockDetails, BlockType, Difficulty, DifficultyV1, Epoch, Networks, Root,
     StubDifficulty, WorkNonce,
