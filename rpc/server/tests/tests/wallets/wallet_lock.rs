@@ -10,14 +10,20 @@ fn wallet_lock() {
 
     let wallet_id: WalletId = 1.into();
 
-    node.wallets.create(wallet_id);
+    node.services.wallets.create(wallet_id);
 
-    assert_eq!(node.wallets.valid_password(&wallet_id).unwrap(), true);
+    assert_eq!(
+        node.services.wallets.valid_password(&wallet_id).unwrap(),
+        true
+    );
 
     node.runtime
         .block_on(async { server.client.wallet_lock(wallet_id).await.unwrap() });
 
-    assert_eq!(node.wallets.valid_password(&wallet_id).unwrap(), false);
+    assert_eq!(
+        node.services.wallets.valid_password(&wallet_id).unwrap(),
+        false
+    );
 }
 
 #[test]
@@ -29,9 +35,12 @@ fn wallet_lock_fails_without_enable_control() {
 
     let wallet_id: WalletId = 1.into();
 
-    node.wallets.create(wallet_id);
+    node.services.wallets.create(wallet_id);
 
-    assert_eq!(node.wallets.valid_password(&wallet_id).unwrap(), true);
+    assert_eq!(
+        node.services.wallets.valid_password(&wallet_id).unwrap(),
+        true
+    );
 
     let result = node
         .runtime
@@ -42,7 +51,10 @@ fn wallet_lock_fails_without_enable_control() {
         Some("node returned error: \"RPC control is disabled\"".to_string())
     );
 
-    assert_eq!(node.wallets.valid_password(&wallet_id).unwrap(), true);
+    assert_eq!(
+        node.services.wallets.valid_password(&wallet_id).unwrap(),
+        true
+    );
 }
 
 #[test]

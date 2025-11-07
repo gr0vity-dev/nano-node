@@ -26,9 +26,12 @@ impl RemoveAccountArgs {
             .ok_or_else(|| anyhow!("Invalid account"))?
             .into();
 
-        node.wallets.ensure_wallet_is_unlocked(wallet_id, &password);
+        node.services
+            .wallets
+            .ensure_wallet_is_unlocked(wallet_id, &password);
 
-        node.wallets
+        node.services
+            .wallets
             .remove_key(&wallet_id, &account)
             .map_err(|e| anyhow!("Failed to remove account: {:?}", e))?;
 

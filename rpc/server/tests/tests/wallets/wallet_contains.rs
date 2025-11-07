@@ -10,15 +10,16 @@ fn wallet_contains_true() {
 
     let wallet: WalletId = 1.into();
 
-    node.wallets.create(1.into());
+    node.services.wallets.create(1.into());
 
     let account = node
+        .services
         .wallets
         .deterministic_insert2(&wallet, false)
         .unwrap()
         .into();
 
-    assert!(node.wallets.exists(&account));
+    assert!(node.services.wallets.exists(&account));
 
     let result = node.runtime.block_on(async {
         server
@@ -40,7 +41,7 @@ fn wallet_contains_false() {
 
     let wallet: WalletId = 1.into();
 
-    node.wallets.create(1.into());
+    node.services.wallets.create(1.into());
 
     let result = node.runtime.block_on(async {
         server

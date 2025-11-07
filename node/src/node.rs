@@ -14,7 +14,7 @@ use bounded_vec_deque::BoundedVecDeque;
 use num_format::{Locale, ToFormattedString};
 use tracing::{error, info, warn};
 
-use rsnano_ledger::{AnySet, BlockError, Ledger, LedgerBuilder, LedgerSet};
+use rsnano_ledger::{AnySet, BlockError, LedgerBuilder, LedgerSet};
 use rsnano_messages::NetworkFilter;
 use rsnano_network::{
     ChannelId, DeadChannelCleanup, Network, NetworkCleanup, PeerConnector, TcpListener,
@@ -47,7 +47,7 @@ use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
 use crate::{
-    NodeCallbacks, OnlineWeightSampler,
+    NodeCallbacks, NodeServices, OnlineWeightSampler,
     aec_event_processor::AecEventProcessor,
     block_processing::{
         BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue, BlockSource,
@@ -55,7 +55,7 @@ use crate::{
         LocalBlockBroadcasterPlugin, ProcessQueueConfig, ProcessedResult, UncheckedBlockReenqueuer,
         UncheckedMap,
     },
-    block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
+    block_rate_calculator::BlockRateCalculator,
     bootstrap::{
         BootstrapExt, BootstrapResponderCleanup, BootstrapServer, Bootstrapper, BootstrapperCleanup,
     },
@@ -105,60 +105,24 @@ pub struct Node {
     is_nulled: bool,
     pub runtime: tokio::runtime::Handle,
     pub data_path: PathBuf,
-    pub steady_clock: Arc<SteadyClock>,
     pub node_id: PrivateKey,
     pub config: NodeConfig,
     pub network_params: NetworkParams,
-    pub stats: Arc<Stats>,
     workers: Arc<ThreadPool>,
     pub flags: NodeFlags,
-    pub work_factory: Arc<WorkFactory>,
+    pub services: NodeServices,
     pub unchecked: Arc<Mutex<UncheckedMap>>,
-    pub ledger: Arc<Ledger>,
-    pub network: Arc<RwLock<Network>>,
-    pub telemetry: Arc<Telemetry>,
-    pub bootstrap_server: Arc<BootstrapServer>,
-    pub online_reps: Arc<Mutex<OnlineReps>>,
-    pub rep_tiers: Arc<CurrentRepTiers>,
-    pub vote_processor_queue: Arc<VoteProcessorQueue>,
-    pub history: Arc<LocalVoteHistory>,
-    pub confirming_set: Arc<ConfirmingSet>,
-    pub vote_cache: Arc<Mutex<VoteCache>>,
-    pub block_processor: Arc<BlockProcessor>,
-    pub block_processor_queue: Arc<BlockProcessorQueue>,
-    pub wallets: Arc<Wallets>,
-    pub vote_generators: Arc<VoteGenerators>,
-    pub active: Arc<RwLock<ActiveElectionsContainer>>,
-    pub vote_processor: Arc<VoteProcessor>,
-    vote_cache_processor: Arc<VoteCacheProcessor>,
-    pub rep_crawler: Arc<RepCrawler>,
-    pub tcp_listener: Arc<TcpListener>,
-    pub election_schedulers: Arc<ElectionSchedulers>,
-    pub request_aggregator: Arc<RequestAggregator>,
     pub backlog_scan: BacklogScan,
-    bounded_backlog: Arc<BoundedBacklog>,
-    pub bootstrapper: Arc<Bootstrapper>,
-    pub local_block_broadcaster: Arc<LocalBlockBroadcaster>,
+    vote_cache_processor: Arc<VoteCacheProcessor>,
     message_processor: Mutex<MessageProcessor>,
-    network_threads: Arc<Mutex<NetworkThreads>>,
-    pub peer_connector: Arc<PeerConnector>,
-    pub inbound_message_queue: Arc<InboundMessageQueue>,
     stopped: AtomicBool,
-    pub network_filter: Arc<NetworkFilter>,
-    pub message_sender: Arc<Mutex<MessageSender>>, // TODO remove this. It is needed right now
-    pub message_flooder: Arc<Mutex<MessageFlooder>>, // TODO remove this. It is needed right now
-    pub keepalive_publisher: Arc<KeepalivePublisher>,
     start_stop_listener: OutputListenerMt<&'static str>,
     vote_rebroadcaster: VoteRebroadcaster,
     tokio_runner: TokioRunner,
     pub aec_ticker: TimerThread<AecTicker>,
-    pub recently_cemented: Arc<Mutex<BoundedVecDeque<ConfirmedElection>>>,
     pub stats_collector: StatsCollector,
     container_info_factory: ContainerInfoFactory,
-    winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
-    pub block_rates: Arc<CurrentBlockRates>,
     aec_voter: TimerThread<AecVoter>,
-    pub wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     ticker_pool: TickerPool,
     #[cfg(feature = "ledger_snapshots")]
     pub ledger_snapshots: Arc<LedgerSnapshots>,
@@ -1347,64 +1311,68 @@ impl Node {
         container_info.add("fork_cache", fork_cache.clone());
         container_info.add("event_queues", event_queues_info);
 
+        let services = NodeServices {
+            steady_clock: steady_clock.clone(),
+            stats: stats.clone(),
+            work_factory: work_factory.clone(),
+            ledger: ledger.clone(),
+            network: network.clone(),
+            telemetry: telemetry.clone(),
+            bootstrap_server: bootstrap_server.clone(),
+            online_reps: online_reps.clone(),
+            rep_tiers: rep_tiers.clone(),
+            vote_processor_queue: vote_processor_queue.clone(),
+            vote_history: vote_history.clone(),
+            confirming_set: confirming_set.clone(),
+            vote_cache: vote_cache.clone(),
+            block_processor: block_processor.clone(),
+            block_processor_queue: block_processor_queue.clone(),
+            wallets: wallets.clone(),
+            vote_generators: vote_generators.clone(),
+            active: active_elections.clone(),
+            vote_processor: vote_processor.clone(),
+            rep_crawler: rep_crawler.clone(),
+            tcp_listener: tcp_listener.clone(),
+            election_schedulers: election_schedulers.clone(),
+            request_aggregator: request_aggregator.clone(),
+            bounded_backlog: bounded_backlog.clone(),
+            bootstrapper: bootstrapper.clone(),
+            local_block_broadcaster: local_block_broadcaster.clone(),
+            network_threads: network_threads.clone(),
+            peer_connector: peer_connector.clone(),
+            inbound_message_queue: inbound_message_queue.clone(),
+            network_filter: network_filter.clone(),
+            message_sender: message_publisher_l.clone(),
+            message_flooder: message_flooder.clone(),
+            keepalive_publisher: keepalive_publisher.clone(),
+            recently_cemented: recently_cemented.clone(),
+            block_rates: block_rates.clone(),
+            wallet_reps: wallet_reps.clone(),
+            winner_block_broadcaster: winner_block_broadcaster.clone(),
+        };
+
         Self {
             is_nulled,
-            steady_clock,
-            peer_connector,
-            node_id: node_id_key,
-            workers,
-            work_factory,
-            unchecked,
-            telemetry,
-            network,
-            ledger,
-            stats,
-            data_path: application_path,
-            network_params,
-            config,
-            flags,
             runtime,
-            bootstrap_server,
-            online_reps,
-            rep_tiers,
-            vote_processor_queue,
-            history: vote_history,
-            confirming_set,
-            vote_cache,
-            block_processor,
-            block_processor_queue,
-            wallets,
-            vote_generators,
-            active: active_elections,
-            vote_processor,
-            vote_cache_processor,
-            rep_crawler,
-            tcp_listener,
-            election_schedulers,
-            request_aggregator,
+            data_path: application_path,
+            node_id: node_id_key,
+            config,
+            network_params,
+            workers,
+            flags,
+            services,
+            unchecked,
             backlog_scan,
-            bounded_backlog,
-            bootstrapper,
-            local_block_broadcaster,
-            network_threads,
+            vote_cache_processor,
             message_processor,
-            inbound_message_queue,
-            message_sender: message_publisher_l,
-            message_flooder,
-            network_filter,
-            keepalive_publisher,
             stopped: AtomicBool::new(false),
             start_stop_listener: OutputListenerMt::new(),
             vote_rebroadcaster,
             tokio_runner,
             aec_ticker: TimerThread::new("AEC ticker", aec_ticker),
-            recently_cemented,
             stats_collector,
             container_info_factory: container_info,
-            winner_block_broadcaster,
-            block_rates,
             aec_voter: TimerThread::new("AEC voter", aec_voter),
-            wallet_reps,
             ticker_pool,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots,
@@ -1420,14 +1388,15 @@ impl Node {
     }
 
     pub fn process_local(&self, block: Block) -> Result<(), BlockError> {
-        self.block_processor_queue
+        self.services
+            .block_processor_queue
             .push_blocking(Arc::new(block), BlockSource::Local)
             .map_err(|_| BlockError::BadSignature)?
             .map(|_| {})
     }
 
     pub fn try_process(&self, block: Block) -> Result<SavedBlock, BlockError> {
-        self.ledger.process_one(&block)
+        self.services.ledger.process_one(&block)
     }
 
     pub fn process(&self, block: Block) -> SavedBlock {
@@ -1443,7 +1412,7 @@ impl Node {
 
     pub fn process_multi(&self, blocks: &[Block]) {
         for (i, block) in blocks.iter().enumerate() {
-            match self.ledger.process_one(block) {
+            match self.services.ledger.process_one(block) {
                 Ok(_) | Err(BlockError::Old) | Err(BlockError::Conflict) => {}
                 Err(e) => {
                     panic!("Could not multi-process block index {}: {:?}", i, e);
@@ -1458,14 +1427,15 @@ impl Node {
     }
 
     pub fn insert_into_wallet(&self, keys: &PrivateKey) {
-        let wallet_id = self.wallets.wallet_ids()[0];
-        self.wallets
+        let wallet_id = self.services.wallets.wallet_ids()[0];
+        self.services
+            .wallets
             .insert_adhoc2(&wallet_id, &keys.raw_key(), true)
             .unwrap();
     }
 
     pub fn process_active(&self, block: Block) {
-        self.block_processor_queue.push(BlockContext::new(
+        self.services.block_processor_queue.push(BlockContext::new(
             block,
             BlockSource::Live,
             ChannelId::LOOPBACK,
@@ -1482,11 +1452,15 @@ impl Node {
     }
 
     pub fn block(&self, hash: &BlockHash) -> Option<SavedBlock> {
-        self.ledger.any().get_block(hash)
+        self.services.ledger.any().get_block(hash)
     }
 
     pub fn latest(&self, account: &Account) -> BlockHash {
-        self.ledger.any().account_head(account).unwrap_or_default()
+        self.services
+            .ledger
+            .any()
+            .account_head(account)
+            .unwrap_or_default()
     }
 
     pub fn get_node_id(&self) -> NodeId {
@@ -1495,13 +1469,14 @@ impl Node {
 
     pub fn work_generate_dev(&self, root: impl Into<Root>) -> WorkNonce {
         let difficulty = self.network_params.work.threshold_base();
-        self.work_factory
+        self.services
+            .work_factory
             .generate_work(WorkRequest::new(root.into(), difficulty))
             .unwrap()
     }
 
     pub fn block_exists(&self, hash: &BlockHash) -> bool {
-        self.ledger.any().block_exists(hash)
+        self.services.ledger.any().block_exists(hash)
     }
 
     pub fn blocks_exist(&self, hashes: &[Block]) -> bool {
@@ -1509,12 +1484,12 @@ impl Node {
     }
 
     pub fn block_hashes_exist(&self, hashes: impl IntoIterator<Item = BlockHash>) -> bool {
-        let any = self.ledger.any();
+        let any = self.services.ledger.any();
         hashes.into_iter().all(|h| any.block_exists(&h))
     }
 
     pub fn balance(&self, account: &Account) -> Amount {
-        self.ledger.any().account_balance(account)
+        self.services.ledger.any().account_balance(account)
     }
 
     pub fn confirm_multi(&self, blocks: &[Block]) {
@@ -1524,29 +1499,29 @@ impl Node {
     }
 
     pub fn confirm(&self, hash: BlockHash) {
-        self.ledger.confirm(hash);
+        self.services.ledger.confirm(hash);
     }
 
     pub fn block_confirmed(&self, hash: &BlockHash) -> bool {
-        self.ledger.confirmed().block_exists(hash)
+        self.services.ledger.confirmed().block_exists(hash)
     }
 
     pub fn block_hashes_confirmed(&self, blocks: &[BlockHash]) -> bool {
-        let confirmed = self.ledger.confirmed();
+        let confirmed = self.services.ledger.confirmed();
         blocks.iter().all(|b| confirmed.block_exists(b))
     }
 
     pub fn blocks_confirmed(&self, blocks: &[Block]) -> bool {
-        let confirmed = self.ledger.confirmed();
+        let confirmed = self.services.ledger.confirmed();
         blocks.iter().all(|b| confirmed.block_exists(&b.hash()))
     }
 
     pub fn is_active_root(&self, root: &QualifiedRoot) -> bool {
-        self.active.read().unwrap().is_active_root(root)
+        self.services.active.read().unwrap().is_active_root(root)
     }
 
     pub fn is_active_hash(&self, hash: &BlockHash) -> bool {
-        self.active.read().unwrap().is_active_hash(hash)
+        self.services.active.read().unwrap().is_active_hash(hash)
     }
 
     pub fn force_confirm(&self, hash: &BlockHash) {
@@ -1554,10 +1529,11 @@ impl Node {
             self.network_params.network.current_network,
             Networks::NanoDevNetwork
         );
-        self.active
+        self.services
+            .active
             .write()
             .unwrap()
-            .force_confirm(hash, self.steady_clock.now());
+            .force_confirm(hash, self.services.steady_clock.now());
     }
 
     pub fn get_stat(&self, stat: &'static str, detail: &'static str, dir: Direction) -> u64 {
@@ -1576,6 +1552,7 @@ impl Node {
         }
 
         if !self
+            .services
             .ledger
             .any()
             .block_exists(&self.network_params.ledger.genesis_block.hash())
@@ -1591,44 +1568,45 @@ impl Node {
             panic!("Genesis block not found!");
         }
 
-        self.network_threads.lock().unwrap().start();
+        self.services.network_threads.lock().unwrap().start();
         self.message_processor.lock().unwrap().start();
         self.aec_voter.start(Duration::from_millis(20));
 
         if !self.flags.disable_rep_crawler {
-            self.rep_crawler.start();
+            self.services.rep_crawler.start();
         }
 
         if self.config.tcp.max_inbound_connections > 0 {
-            self.tcp_listener.start();
+            self.services.tcp_listener.start();
         } else {
             warn!("Peering is disabled");
         }
 
         if self.config.enable_vote_processor {
-            self.vote_processor.start();
+            self.services.vote_processor.start();
         }
         self.vote_cache_processor.start();
-        self.block_processor
+        self.services
+            .block_processor
             .start(self.config.block_processor_threads);
         if !self.flags.disable_request_loop {
             self.aec_ticker
                 .start(self.network_params.network.aec_loop_interval);
         }
-        self.vote_generators.start();
-        self.request_aggregator.start();
-        self.confirming_set.start();
-        self.election_schedulers.start();
+        self.services.vote_generators.start();
+        self.services.request_aggregator.start();
+        self.services.confirming_set.start();
+        self.services.election_schedulers.start();
         self.backlog_scan.start();
         if self.config.enable_bounded_backlog {
-            self.bounded_backlog.start();
+            self.services.bounded_backlog.start();
         }
         if self.config.enable_bootstrap_responder {
-            self.bootstrap_server.start();
+            self.services.bootstrap_server.start();
         }
-        self.bootstrapper.start();
-        self.telemetry.start();
-        self.local_block_broadcaster.start();
+        self.services.bootstrapper.start();
+        self.services.telemetry.start();
+        self.services.local_block_broadcaster.start();
 
         if self.config.enable_vote_rebroadcast {
             self.vote_rebroadcaster.start();
@@ -1649,31 +1627,31 @@ impl Node {
         info!("Node stopping...");
 
         self.ticker_pool.stop();
-        self.tcp_listener.stop();
+        self.services.tcp_listener.stop();
         self.aec_voter.stop();
-        self.peer_connector.stop();
+        self.services.peer_connector.stop();
         // Cancels ongoing work generation tasks, which may be blocking other threads
         // No tasks may wait for work generation in I/O threads, or termination signal capturing will be unable to call node::stop()
-        self.work_factory.stop();
+        self.services.work_factory.stop();
         self.backlog_scan.stop();
-        self.bootstrapper.stop();
-        self.bounded_backlog.stop();
-        self.rep_crawler.stop();
-        self.block_processor.stop();
-        self.request_aggregator.stop();
+        self.services.bootstrapper.stop();
+        self.services.bounded_backlog.stop();
+        self.services.rep_crawler.stop();
+        self.services.block_processor.stop();
+        self.services.request_aggregator.stop();
         self.vote_cache_processor.stop();
-        self.vote_processor.stop();
-        self.election_schedulers.stop();
+        self.services.vote_processor.stop();
+        self.services.election_schedulers.stop();
         self.aec_ticker.stop();
-        self.active.write().unwrap().stop();
-        self.vote_generators.stop();
-        self.confirming_set.stop();
-        self.telemetry.stop();
-        self.bootstrap_server.stop();
-        self.wallets.stop();
-        self.local_block_broadcaster.stop();
+        self.services.active.write().unwrap().stop();
+        self.services.vote_generators.stop();
+        self.services.confirming_set.stop();
+        self.services.telemetry.stop();
+        self.services.bootstrap_server.stop();
+        self.services.wallets.stop();
+        self.services.local_block_broadcaster.stop();
         self.message_processor.lock().unwrap().stop();
-        self.network_threads.lock().unwrap().stop(); // Stop network last to avoid killing in-use sockets
+        self.services.network_threads.lock().unwrap().stop(); // Stop network last to avoid killing in-use sockets
         self.vote_rebroadcaster.stop();
         self.workers.join();
         self.tokio_runner.stop();
@@ -1800,11 +1778,17 @@ mod tests {
     #[test]
     fn connect_winner_block_rebroadcaster() {
         let node = Node::new_null();
-        let broadcast_tracker = node.winner_block_broadcaster.lock().unwrap().track();
+        let broadcast_tracker = node
+            .services
+            .winner_block_broadcaster
+            .lock()
+            .unwrap()
+            .track();
         let election = ConfirmedElection::new_test_instance();
         let winner_hash = election.winner.hash();
 
-        node.active
+        node.services
+            .active
             .write()
             .unwrap()
             .simulate_event(AecEvent::ElectionConfirmed(election));

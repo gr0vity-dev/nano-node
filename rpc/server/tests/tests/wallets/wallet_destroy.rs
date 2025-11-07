@@ -10,14 +10,14 @@ fn wallet_destroy() {
 
     let wallet_id: WalletId = 1.into();
 
-    node.wallets.create(wallet_id);
+    node.services.wallets.create(wallet_id);
 
-    assert!(node.wallets.wallet_exists(&wallet_id));
+    assert!(node.services.wallets.wallet_exists(&wallet_id));
 
     node.runtime
         .block_on(async { server.client.wallet_destroy(wallet_id).await.unwrap() });
 
-    assert_eq!(node.wallets.wallet_exists(&wallet_id), false);
+    assert_eq!(node.services.wallets.wallet_exists(&wallet_id), false);
 }
 
 #[test]
@@ -29,7 +29,7 @@ fn wallet_destroy_fails_without_enable_control() {
 
     let wallet_id: WalletId = 1.into();
 
-    node.wallets.create(wallet_id);
+    node.services.wallets.create(wallet_id);
 
     let result = node
         .runtime

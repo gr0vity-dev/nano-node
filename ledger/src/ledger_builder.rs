@@ -4,8 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use tracing::info;
-
 use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
 use rsnano_store_lmdb::{
     EnvironmentOptions, LedgerCache, LmdbConfig, create_and_update_lmdb_env, get_lmdb_flags,

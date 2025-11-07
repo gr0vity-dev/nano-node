@@ -11,7 +11,7 @@ use crate::command_handler::RpcCommandHandler;
 impl RpcCommandHandler {
     pub(crate) fn block_info(&self, args: BlockInfoArgs) -> anyhow::Result<BlockInfoResponse> {
         let include_linked_account = unwrap_bool_or_false(args.include_linked_account);
-        let any = self.node.ledger.any();
+        let any = self.node.services.ledger.any();
         let block = any
             .detailed_block(&args.hash)
             .ok_or_else(|| anyhow!(Self::BLOCK_NOT_FOUND))?;

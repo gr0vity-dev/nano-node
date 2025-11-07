@@ -6,10 +6,10 @@ impl RpcCommandHandler {
     pub(crate) fn version(&self) -> VersionResponse {
         VersionResponse {
             rpc_version: 1.into(),
-            store_version: self.node.ledger.version().into(),
+            store_version: self.node.services.ledger.version().into(),
             protocol_version: self.node.network_params.network.protocol_version.into(),
             node_vendor: rsnano_version_string(),
-            store_vendor: self.node.ledger.store_vendor(),
+            store_vendor: self.node.services.ledger.store_vendor(),
             network: self
                 .node
                 .network_params

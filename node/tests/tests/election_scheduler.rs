@@ -25,11 +25,12 @@ mod election_scheduler {
             .genesis()
             .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
 
-        node.ledger.process_one(&send1).unwrap();
+        node.services.ledger.process_one(&send1).unwrap();
 
-        node.election_schedulers
+        node.services
+            .election_schedulers
             .priority
-            .activate(&node.ledger.any(), &*DEV_GENESIS_ACCOUNT);
+            .activate(&node.services.ledger.any(), &*DEV_GENESIS_ACCOUNT);
 
         assert_timely2(|| node.is_active_root(&send1.qualified_root()));
     }
@@ -46,12 +47,13 @@ mod election_scheduler {
             .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
 
         // Process the block
-        node.ledger.process_one(&send1).unwrap();
+        node.services.ledger.process_one(&send1).unwrap();
 
         // Activate the account
-        node.election_schedulers
+        node.services
+            .election_schedulers
             .priority
-            .activate(&node.ledger.any(), &*DEV_GENESIS_ACCOUNT);
+            .activate(&node.services.ledger.any(), &*DEV_GENESIS_ACCOUNT);
 
         // Assert that the election is created within 5 seconds
         assert_timely2(|| node.is_active_root(&send1.qualified_root()));
@@ -92,11 +94,11 @@ mod election_scheduler {
         // Activating accounts depends on confirmed dependencies. First, prepare 2 accounts
         let send = lattice.genesis().send(&key, Amount::nano(1000));
         let send = node.process(send.clone());
-        node.confirming_set.add_block(send.hash());
+        node.services.confirming_set.add_block(send.hash());
 
         let receive = lattice.account(&key).receive(&send);
         let receive = node.process(receive.clone());
-        node.confirming_set.add_block(receive.hash());
+        node.services.confirming_set.add_block(receive.hash());
 
         assert_timely2(|| {
             node.block_confirmed(&send.hash()) && node.block_confirmed(&receive.hash())
@@ -109,25 +111,27 @@ mod election_scheduler {
         node.process(block1.clone());
 
         // There is vacancy so it should be inserted
-        node.election_schedulers
+        node.services
+            .election_schedulers
             .priority
-            .activate(&node.ledger.any(), &DEV_GENESIS_ACCOUNT);
+            .activate(&node.services.ledger.any(), &DEV_GENESIS_ACCOUNT);
         assert_timely2(|| node.is_active_root(&block1.qualified_root()));
 
         let block2 = lattice.account(&key).send(&key, Amount::nano(1000));
         node.process(block2.clone());
 
         // There is no vacancy so it should stay queued
-        node.election_schedulers
+        node.services
+            .election_schedulers
             .priority
-            .activate(&node.ledger.any(), &key.account());
-        assert_timely_eq2(|| node.election_schedulers.priority.len(), 1);
+            .activate(&node.services.ledger.any(), &key.account());
+        assert_timely_eq2(|| node.services.election_schedulers.priority.len(), 1);
         assert_eq!(node.is_active_root(&block2.qualified_root()), false);
 
         // Election confirmed, next in queue should begin
         node.force_confirm(&block1.hash());
         assert_timely2(|| node.is_active_root(&block2.qualified_root()));
-        assert!(node.election_schedulers.priority.is_empty());
+        assert!(node.services.election_schedulers.priority.is_empty());
     }
 
     /*
@@ -177,7 +181,8 @@ mod election_scheduler {
         let block = blocks.last().unwrap();
         assert_timely2(|| node.is_active_hash(&block.hash()));
         assert_eq!(
-            node.active
+            node.services
+                .active
                 .read()
                 .unwrap()
                 .election_for_block(&block.hash())
@@ -190,14 +195,15 @@ mod election_scheduler {
         node.confirm(blocks[howmany_blocks - 1].hash());
 
         // Attempt to start priority election for second block
-        let _ = node.active.write().unwrap().insert(
+        let _ = node.services.active.write().unwrap().insert(
             AecInsertRequest::new_priority(block.clone(), BlockPriority::MIN),
-            node.steady_clock.now(),
+            node.services.steady_clock.now(),
         );
 
         // Verify priority transition
         assert_eq!(
-            node.active
+            node.services
+                .active
                 .read()
                 .unwrap()
                 .election_for_block(&block.hash())

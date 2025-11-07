@@ -12,7 +12,7 @@ impl RpcCommandHandler {
         &self,
         args: RepresentativesOnlineArgs,
     ) -> RepresentativesOnlineResponse {
-        let online_reps = self.node.online_reps.lock().unwrap();
+        let online_reps = self.node.services.online_reps.lock().unwrap();
         ResponseBuilder::new(args).create_response(online_reps.online_reps())
     }
 }

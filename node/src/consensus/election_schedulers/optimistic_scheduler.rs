@@ -216,7 +216,7 @@ impl OptimisticScheduler {
             return;
         };
         if let Some(block) = any.get_block(&head) {
-            let mut forked = false;
+            let forked = false;
 
             #[cfg(feature = "ledger_snapshots")]
             {

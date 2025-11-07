@@ -26,6 +26,7 @@ impl RpcCommandHandler {
             // Retrieving private key from wallet
             if args.wallet.is_some() && args.account.is_some() {
                 self.node
+                    .services
                     .wallets
                     .fetch(&args.wallet.unwrap(), &args.account.unwrap().into())?
                     .into()

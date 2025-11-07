@@ -13,8 +13,9 @@ fn sign() {
     let key = rsnano_types::PrivateKey::new();
 
     let wallet_id = WalletId::random();
-    node.wallets.create(wallet_id);
-    node.wallets
+    node.services.wallets.create(wallet_id);
+    node.services
+        .wallets
         .insert_adhoc2(&wallet_id, &key.raw_key(), false)
         .unwrap();
 

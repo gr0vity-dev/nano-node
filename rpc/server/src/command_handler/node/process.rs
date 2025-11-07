@@ -17,7 +17,7 @@ impl RpcCommandHandler {
         if let Block::State(state) = &block
             && let Some(subtype) = args.subtype
         {
-            let any = self.node.ledger.any();
+            let any = self.node.services.ledger.any();
             if !state.previous().is_zero() && !any.block_exists(&state.previous()) {
                 bail!("Gap previous block")
             } else {
@@ -50,7 +50,7 @@ impl RpcCommandHandler {
                     BlockSubTypeDto::Epoch => {
                         if balance != state.balance() {
                             bail!("Invalid block balance for given subtype");
-                        } else if !self.node.ledger.is_epoch_link(&state.link()) {
+                        } else if !self.node.services.ledger.is_epoch_link(&state.link()) {
                             bail!("Invalid epoch link");
                         }
                     }
@@ -75,15 +75,19 @@ impl RpcCommandHandler {
                 Err(BlockError::Fork) => {
                     if args.force.unwrap_or_default().inner() {
                         self.node
+                            .services
                             .active
                             .write()
                             .unwrap()
                             .erase(&block.qualified_root());
-                        self.node.block_processor_queue.push(BlockContext::new(
-                            block,
-                            BlockSource::Forced,
-                            ChannelId::LOOPBACK,
-                        ));
+                        self.node
+                            .services
+                            .block_processor_queue
+                            .push(BlockContext::new(
+                                block,
+                                BlockSource::Forced,
+                                ChannelId::LOOPBACK,
+                            ));
                         Ok(serde_json::to_value(HashRpcMessage::new(hash))?)
                     } else {
                         Err(anyhow!("Fork"))
@@ -108,11 +112,14 @@ impl RpcCommandHandler {
                 Err(BlockError::Conflict) => Err(anyhow!("Conflict while processing block")),
             }
         } else if block.block_type() == BlockType::State {
-            self.node.block_processor_queue.push(BlockContext::new(
-                block,
-                BlockSource::Local,
-                ChannelId::LOOPBACK,
-            ));
+            self.node
+                .services
+                .block_processor_queue
+                .push(BlockContext::new(
+                    block,
+                    BlockSource::Local,
+                    ChannelId::LOOPBACK,
+                ));
             Ok(serde_json::to_value(StartedResponse::new(true))?)
         } else {
             Err(anyhow!("Must be a state block"))

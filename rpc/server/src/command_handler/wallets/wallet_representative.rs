@@ -6,7 +6,7 @@ impl RpcCommandHandler {
         &self,
         args: WalletRpcMessage,
     ) -> anyhow::Result<WalletRepresentativeResponse> {
-        let representative = self.node.wallets.get_representative(args.wallet)?;
+        let representative = self.node.services.wallets.get_representative(args.wallet)?;
         Ok(WalletRepresentativeResponse::new(representative.into()))
     }
 }

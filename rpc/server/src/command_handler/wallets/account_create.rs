@@ -9,13 +9,14 @@ impl RpcCommandHandler {
         let generate_work = args.work.unwrap_or(true.into()).inner();
 
         let account = match args.index {
-            Some(i) => {
-                self.node
-                    .wallets
-                    .deterministic_insert_at(&args.wallet, i.inner(), generate_work)?
-            }
+            Some(i) => self.node.services.wallets.deterministic_insert_at(
+                &args.wallet,
+                i.inner(),
+                generate_work,
+            )?,
             None => self
                 .node
+                .services
                 .wallets
                 .deterministic_insert2(&args.wallet, generate_work)?,
         };

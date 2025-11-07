@@ -11,13 +11,17 @@ fn accounts_create() {
 
     let wallet = WalletId::random();
 
-    node.wallets.create(wallet);
+    node.services.wallets.create(wallet);
 
     node.runtime
         .block_on(async { server.client.accounts_create(wallet, 8).await.unwrap() });
 
     assert_eq!(
-        node.wallets.get_accounts_of_wallet(&wallet).unwrap().len(),
+        node.services
+            .wallets
+            .get_accounts_of_wallet(&wallet)
+            .unwrap()
+            .len(),
         8
     );
 }
@@ -31,7 +35,7 @@ fn accounts_create_default_with_precomputed_work() {
 
     let wallet_id = WalletId::random();
 
-    node.wallets.create(wallet_id);
+    node.services.wallets.create(wallet_id);
 
     let result = node.runtime.block_on(async {
         server
@@ -45,10 +49,11 @@ fn accounts_create_default_with_precomputed_work() {
             .unwrap()
     });
 
-    assert!(node.wallets.exists(&result.accounts[0].into()));
+    assert!(node.services.wallets.exists(&result.accounts[0].into()));
 
     assert_timely2(|| {
         !node
+            .services
             .wallets
             .work_get2(&wallet_id, &result.accounts[0].into())
             .unwrap()
@@ -65,7 +70,7 @@ fn accounts_create_without_precomputed_work() {
 
     let wallet_id = WalletId::random();
 
-    node.wallets.create(wallet_id);
+    node.services.wallets.create(wallet_id);
 
     let args = AccountsCreateArgs::build(wallet_id, 1)
         .precompute_work(false)
@@ -75,10 +80,11 @@ fn accounts_create_without_precomputed_work() {
         .runtime
         .block_on(async { server.client.accounts_create_args(args).await.unwrap() });
 
-    assert!(node.wallets.exists(&result.accounts[0].into()));
+    assert!(node.services.wallets.exists(&result.accounts[0].into()));
 
     assert_timely2(|| {
-        node.wallets
+        node.services
+            .wallets
             .work_get2(&wallet_id, &result.accounts[0].into())
             .unwrap()
             .is_zero()
@@ -94,9 +100,9 @@ fn accounts_create_fails_wallet_locked() {
 
     let wallet_id = WalletId::random();
 
-    node.wallets.create(wallet_id);
+    node.services.wallets.create(wallet_id);
 
-    node.wallets.lock(&wallet_id).unwrap();
+    node.services.wallets.lock(&wallet_id).unwrap();
 
     let result = node
         .runtime
@@ -136,7 +142,7 @@ fn accounts_create_fails_without_enable_control() {
 
     let wallet = WalletId::random();
 
-    node.wallets.create(wallet);
+    node.services.wallets.create(wallet);
 
     let result = node
         .runtime

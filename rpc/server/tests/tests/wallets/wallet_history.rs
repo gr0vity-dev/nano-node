@@ -25,8 +25,9 @@ fn wallet_history() {
     let open_hash = setup_test_environment(node.clone(), keys.clone(), send_amount);
 
     let wallet_id = WalletId::random();
-    node.wallets.create(wallet_id);
-    node.wallets
+    node.services.wallets.create(wallet_id);
+    node.services
+        .wallets
         .insert_adhoc2(&wallet_id, &keys.raw_key(), true)
         .unwrap();
 

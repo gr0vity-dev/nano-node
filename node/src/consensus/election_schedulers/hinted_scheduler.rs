@@ -165,7 +165,7 @@ impl HintedScheduler {
 
             // Check if block exists
             if let Some(block) = any.get_block(&current_hash) {
-                let mut forked = false;
+                let forked = false;
 
                 #[cfg(feature = "ledger_snapshots")]
                 {

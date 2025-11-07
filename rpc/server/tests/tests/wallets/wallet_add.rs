@@ -11,7 +11,7 @@ fn account_create_index_none() {
 
     let wallet_id = WalletId::random();
 
-    node.wallets.create(wallet_id);
+    node.services.wallets.create(wallet_id);
 
     let private_key = RawKey::random();
     let public_key: PublicKey = private_key.into();
@@ -25,7 +25,8 @@ fn account_create_index_none() {
     });
 
     assert!(
-        node.wallets
+        node.services
+            .wallets
             .get_accounts_of_wallet(&wallet_id)
             .unwrap()
             .contains(&public_key.into())
@@ -41,7 +42,7 @@ fn account_create_fails_without_enable_control() {
 
     let wallet_id = WalletId::random();
 
-    node.wallets.create(wallet_id);
+    node.services.wallets.create(wallet_id);
 
     let private_key = RawKey::random();
 
@@ -87,7 +88,7 @@ fn wallet_add_work_true() {
 
     let wallet_id = WalletId::random();
 
-    node.wallets.create(wallet_id);
+    node.services.wallets.create(wallet_id);
 
     let private_key = RawKey::random();
 
@@ -101,6 +102,7 @@ fn wallet_add_work_true() {
 
     assert_timely2(|| {
         !node
+            .services
             .wallets
             .work_get2(&wallet_id, &result.account.into())
             .unwrap()
@@ -117,7 +119,7 @@ fn wallet_add_work_false() {
 
     let wallet_id = WalletId::random();
 
-    node.wallets.create(wallet_id);
+    node.services.wallets.create(wallet_id);
 
     let private_key = RawKey::random();
 
@@ -130,7 +132,8 @@ fn wallet_add_work_false() {
         .block_on(async { server.client.wallet_add(args).await.unwrap() });
 
     assert_timely2(|| {
-        node.wallets
+        node.services
+            .wallets
             .work_get2(&wallet_id, &result.account.into())
             .unwrap()
             .is_zero()

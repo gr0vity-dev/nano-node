@@ -10,9 +10,13 @@ impl RpcCommandHandler {
         args: WalletHistoryArgs,
     ) -> anyhow::Result<WalletHistoryResponse> {
         let modified_since: UnixTimestamp = args.modified_since.unwrap_or_default().inner().into();
-        let accounts = self.node.wallets.get_accounts_of_wallet(&args.wallet)?;
+        let accounts = self
+            .node
+            .services
+            .wallets
+            .get_accounts_of_wallet(&args.wallet)?;
         let mut entries: Vec<HistoryEntry> = Vec::new();
-        let any = self.node.ledger.any();
+        let any = self.node.services.ledger.any();
 
         for account in accounts {
             if let Some(info) = any.get_account(&account) {
@@ -24,7 +28,7 @@ impl RpcCommandHandler {
                         timestamp = block.timestamp().into();
 
                         let helper = AccountHistoryHelper {
-                            ledger: &self.node.ledger,
+                            ledger: &self.node.services.ledger,
                             accounts_to_filter: Vec::new(),
                             reverse: false,
                             offset: 0,

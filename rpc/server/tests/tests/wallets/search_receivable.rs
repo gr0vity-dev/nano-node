@@ -10,7 +10,7 @@ fn search_receivable() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     // Get the list of wallet IDs already created
-    let all_wallet_ids = node.wallets.wallet_ids();
+    let all_wallet_ids = node.services.wallets.wallet_ids();
     let wallet_id = all_wallet_ids[0];
 
     node.insert_into_wallet(&DEV_GENESIS_KEY);

@@ -8,6 +8,7 @@ impl RpcCommandHandler {
         let mut peers: HashMap<SocketAddrV6, PeerInfo> = HashMap::new();
 
         self.node
+            .services
             .network
             .read()
             .unwrap()

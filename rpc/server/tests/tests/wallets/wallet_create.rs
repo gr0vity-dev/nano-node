@@ -12,7 +12,7 @@ fn wallet_create_seed_none() {
         .runtime
         .block_on(async { server.client.wallet_create(None).await.unwrap() });
 
-    let wallets = node.wallets.wallet_ids();
+    let wallets = node.services.wallets.wallet_ids();
 
     assert!(wallets.contains(&result.wallet));
 }
@@ -30,7 +30,7 @@ fn wallet_create_seed_some() {
         .runtime
         .block_on(async { server.client.wallet_create(Some(seed)).await.unwrap() });
 
-    let wallets = node.wallets.wallet_ids();
+    let wallets = node.services.wallets.wallet_ids();
 
     assert!(wallets.contains(&result.wallet));
 }

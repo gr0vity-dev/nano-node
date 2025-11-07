@@ -9,8 +9,9 @@ fn wallet_representative() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let wallet = WalletId::random();
-    node.wallets.create(wallet);
-    node.wallets
+    node.services.wallets.create(wallet);
+    node.services
+        .wallets
         .set_representative(wallet, PublicKey::ZERO, false)
         .wait()
         .unwrap();

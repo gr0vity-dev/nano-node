@@ -26,7 +26,7 @@ impl RpcCommandHandler {
         let mut peers_simple = Vec::new();
         let mut peers_source: IndexMap<BlockHash, SourceInfo> = IndexMap::new();
         let mut peers_amount: IndexMap<BlockHash, Amount> = IndexMap::new();
-        let any = self.node.ledger.any();
+        let any = self.node.services.ledger.any();
 
         let receivables = any.account_receivable_upper_bound(args.account, BlockHash::ZERO);
 

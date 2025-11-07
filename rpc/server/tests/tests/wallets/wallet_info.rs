@@ -10,11 +10,15 @@ fn wallet_info() {
 
     let wallet = WalletId::random();
 
-    node.wallets.create(wallet);
-    node.wallets
+    node.services.wallets.create(wallet);
+    node.services
+        .wallets
         .insert_adhoc2(&wallet, &DEV_GENESIS_KEY.raw_key(), false)
         .unwrap();
-    node.wallets.deterministic_insert2(&wallet, false).unwrap();
+    node.services
+        .wallets
+        .deterministic_insert2(&wallet, false)
+        .unwrap();
 
     send_block(node.clone());
 

@@ -59,7 +59,7 @@ fn started_election() {
         let key1 = PrivateKey::new();
         let send1 = lattice.genesis().send_max(&key1);
         let publish1 = Message::Publish(Publish::new_forward(send1.clone()));
-        node1.inbound_message_queue.put(publish1, channel1);
+        node1.services.inbound_message_queue.put(publish1, channel1);
         assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
 
         let Ok(response) = timeout(Duration::from_secs(5), ws_client.next()).await else {
@@ -97,9 +97,9 @@ fn stopped_election() {
         let key1 = PrivateKey::new();
         let send1 = lattice.genesis().send_max(&key1);
         let publish1 = Message::Publish(Publish::new_forward(send1.clone()));
-        node1.inbound_message_queue.put(publish1, channel1);
+        node1.services.inbound_message_queue.put(publish1, channel1);
         assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
-        let active = node1.active.clone();
+        let active = node1.services.active.clone();
         spawn_blocking(move || active.write().unwrap().erase(&send1.qualified_root()))
             .await
             .unwrap();
@@ -191,7 +191,8 @@ fn confirmation() {
         let unsaved_block_lattice_builder = UnsavedBlockLatticeBuilder::new();
         let mut lattice = unsaved_block_lattice_builder;
         let key = PrivateKey::new();
-        let send_amount = node1.online_reps.lock().unwrap().quorum_delta() + Amount::raw(1);
+        let send_amount =
+            node1.services.online_reps.lock().unwrap().quorum_delta() + Amount::raw(1);
         // Quick-confirm a block, legacy blocks should work without filtering
         let send = lattice.genesis().legacy_send(&key, send_amount);
         node1.process_active(send);
@@ -241,7 +242,7 @@ fn confirmation_options() {
         let mut lattice = UnsavedBlockLatticeBuilder::new();
         let key = PrivateKey::new();
         let mut balance = Amount::MAX;
-        let send_amount = node1.online_reps.lock().unwrap().quorum_delta() + Amount::raw(1);
+        let send_amount = node1.services.online_reps.lock().unwrap().quorum_delta() + Amount::raw(1);
         balance = balance - send_amount;
         let send = lattice.genesis().send(&key, send_amount);
         node1.process_active(send);
@@ -540,7 +541,7 @@ fn vote_options_representatives() {
 	    // Quick-confirm a block
         let mut lattice = UnsavedBlockLatticeBuilder::new();
         let key = PrivateKey::new();
-        let send_amount = node1.online_reps.lock().unwrap().quorum_delta() + Amount::raw(1);
+        let send_amount = node1.services.online_reps.lock().unwrap().quorum_delta() + Amount::raw(1);
         let send = lattice.genesis().send(&key, send_amount);
         node1.process_active(send);
 
@@ -601,11 +602,16 @@ fn telemetry() {
         let message: TelemetryReceived = serde_json::from_value(response.message.unwrap()).unwrap();
         assert_eq!(
             message.address,
-            node2.tcp_listener.local_address().ip().to_string()
+            node2.services.tcp_listener.local_address().ip().to_string()
         );
         assert_eq!(
             message.port,
-            node2.tcp_listener.local_address().port().to_string()
+            node2
+                .services
+                .tcp_listener
+                .local_address()
+                .port()
+                .to_string()
         );
 
         // Other node should have no subscribers

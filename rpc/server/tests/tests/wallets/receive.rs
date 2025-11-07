@@ -9,19 +9,22 @@ fn receive() {
     let node = system.make_node();
 
     let wallet = WalletId::random();
-    node.wallets.create(wallet);
-    node.wallets
+    node.services.wallets.create(wallet);
+    node.services
+        .wallets
         .insert_adhoc2(&wallet, &DEV_GENESIS_KEY.raw_key(), false)
         .unwrap();
 
     let key1 = rsnano_types::PrivateKey::new();
-    node.wallets
+    node.services
+        .wallets
         .insert_adhoc2(&wallet, &key1.raw_key(), false)
         .unwrap();
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let send1 = node
+        .services
         .wallets
         .send(
             wallet,
@@ -35,10 +38,17 @@ fn receive() {
         .wait()
         .unwrap();
 
-    assert_timely2(|| node.ledger.any().account_balance(&*DEV_GENESIS_ACCOUNT) != Amount::MAX);
+    assert_timely2(|| {
+        node.services
+            .ledger
+            .any()
+            .account_balance(&*DEV_GENESIS_ACCOUNT)
+            != Amount::MAX
+    });
 
     assert_timely2(|| {
         !node
+            .services
             .ledger
             .any()
             .get_account(&key1.public_key().into())
@@ -46,6 +56,7 @@ fn receive() {
     });
 
     let send2 = node
+        .services
         .wallets
         .send(
             wallet,
@@ -66,7 +77,7 @@ fn receive() {
         .block_on(async { server.client.receive(args).await.unwrap() })
         .block;
 
-    let any = node.ledger.any();
+    let any = node.services.ledger.any();
     assert_timely2(|| any.get_block(&block_hash).is_some());
 
     assert_eq!(

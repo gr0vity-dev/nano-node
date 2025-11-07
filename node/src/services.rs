@@ -1,0 +1,75 @@
+use std::sync::{Arc, Mutex, RwLock};
+
+use bounded_vec_deque::BoundedVecDeque;
+
+use rsnano_ledger::Ledger;
+use rsnano_messages::NetworkFilter;
+use rsnano_network::{Network, PeerConnector, TcpListener};
+use rsnano_network_protocol::InboundMessageQueue;
+use rsnano_nullable_clock::SteadyClock;
+use rsnano_utils::stats::Stats;
+
+use crate::{
+    block_processing::{
+        BlockProcessor, BlockProcessorQueue, BoundedBacklog, LocalBlockBroadcaster,
+    },
+    block_rate_calculator::CurrentBlockRates,
+    bootstrap::{BootstrapServer, Bootstrapper},
+    cementation::ConfirmingSet,
+    consensus::{
+        ActiveElectionsContainer, CurrentRepTiers, LocalVoteHistory, RequestAggregator, VoteCache,
+        VoteGenerators, VoteProcessor, VoteProcessorQueue, WinnerBlockBroadcaster,
+        election::ConfirmedElection, election_schedulers::ElectionSchedulers,
+    },
+    representatives::{OnlineReps, RepCrawler},
+    telemetry::Telemetry,
+    transport::{MessageFlooder, MessageSender, NetworkThreads, keepalive::KeepalivePublisher},
+    wallets::WalletRepresentatives,
+    work::WorkFactory,
+};
+
+use rsnano_wallet::Wallets;
+
+/// Bundles the core `Arc` collaborators that make up a running node so tests and
+/// higher layers can grab a focused subset without touching the gigantic
+/// `Node` struct directly.
+#[derive(Clone)]
+pub struct NodeServices {
+    pub steady_clock: Arc<SteadyClock>,
+    pub stats: Arc<Stats>,
+    pub work_factory: Arc<WorkFactory>,
+    pub ledger: Arc<Ledger>,
+    pub network: Arc<RwLock<Network>>,
+    pub telemetry: Arc<Telemetry>,
+    pub bootstrap_server: Arc<BootstrapServer>,
+    pub online_reps: Arc<Mutex<OnlineReps>>,
+    pub rep_tiers: Arc<CurrentRepTiers>,
+    pub vote_processor_queue: Arc<VoteProcessorQueue>,
+    pub vote_history: Arc<LocalVoteHistory>,
+    pub confirming_set: Arc<ConfirmingSet>,
+    pub vote_cache: Arc<Mutex<VoteCache>>,
+    pub block_processor: Arc<BlockProcessor>,
+    pub block_processor_queue: Arc<BlockProcessorQueue>,
+    pub wallets: Arc<Wallets>,
+    pub vote_generators: Arc<VoteGenerators>,
+    pub active: Arc<RwLock<ActiveElectionsContainer>>,
+    pub vote_processor: Arc<VoteProcessor>,
+    pub rep_crawler: Arc<RepCrawler>,
+    pub tcp_listener: Arc<TcpListener>,
+    pub election_schedulers: Arc<ElectionSchedulers>,
+    pub request_aggregator: Arc<RequestAggregator>,
+    pub bounded_backlog: Arc<BoundedBacklog>,
+    pub bootstrapper: Arc<Bootstrapper>,
+    pub local_block_broadcaster: Arc<LocalBlockBroadcaster>,
+    pub(crate) network_threads: Arc<Mutex<NetworkThreads>>,
+    pub peer_connector: Arc<PeerConnector>,
+    pub inbound_message_queue: Arc<InboundMessageQueue>,
+    pub network_filter: Arc<NetworkFilter>,
+    pub message_sender: Arc<Mutex<MessageSender>>,
+    pub message_flooder: Arc<Mutex<MessageFlooder>>,
+    pub keepalive_publisher: Arc<KeepalivePublisher>,
+    pub recently_cemented: Arc<Mutex<BoundedVecDeque<ConfirmedElection>>>,
+    pub block_rates: Arc<CurrentBlockRates>,
+    pub wallet_reps: Arc<Mutex<WalletRepresentatives>>,
+    pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
+}

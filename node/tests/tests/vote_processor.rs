@@ -37,39 +37,40 @@ fn codes() {
     // Invalid signature
     assert_eq!(
         Err(VoteError::Invalid),
-        node.vote_processor.vote_blocking(&vote_invalid)
+        node.services.vote_processor.vote_blocking(&vote_invalid)
     );
 
     // No ongoing election (vote goes to vote cache)
     assert_eq!(
         Err(VoteError::Indeterminate),
-        node.vote_processor.vote_blocking(&vote)
+        node.services.vote_processor.vote_blocking(&vote)
     );
 
-    assert_timely_eq2(|| node.vote_cache.lock().unwrap().size(), 1);
+    assert_timely_eq2(|| node.services.vote_cache.lock().unwrap().size(), 1);
     // Clear vote cache before starting election
-    node.vote_cache.lock().unwrap().clear();
+    node.services.vote_cache.lock().unwrap().clear();
 
     // First vote from an account for an ongoing election
     start_election(&node, &blocks[0].hash());
     assert_timely2(|| node.is_active_root(&blocks[0].qualified_root()));
-    assert_eq!(node.vote_processor.vote_blocking(&vote), Ok(()));
+    assert_eq!(node.services.vote_processor.vote_blocking(&vote), Ok(()));
 
     // Processing the same vote is a replay
     assert_eq!(
         Err(VoteError::Replay),
-        node.vote_processor.vote_blocking(&vote)
+        node.services.vote_processor.vote_blocking(&vote)
     );
 
     // Invalid takes precedence
     assert_eq!(
         Err(VoteError::Invalid),
-        node.vote_processor.vote_blocking(&vote_invalid)
+        node.services.vote_processor.vote_blocking(&vote_invalid)
     );
 
     // Once the election is removed (confirmed / dropped) the vote is again indeterminate
     assert!(
-        node.active
+        node.services
+            .active
             .write()
             .unwrap()
             .erase(&blocks[0].qualified_root())
@@ -77,7 +78,7 @@ fn codes() {
 
     assert_eq!(
         Err(VoteError::Indeterminate),
-        node.vote_processor.vote_blocking(&vote)
+        node.services.vote_processor.vote_blocking(&vote)
     );
 }
 
@@ -94,13 +95,15 @@ fn invalid_signature() {
     let vote_invalid = Arc::new(vote_invalid);
     start_election(&node, &chain[0].hash());
 
-    node.vote_processor_queue
+    node.services
+        .vote_processor_queue
         .enqueue(vote_invalid, None, VoteSource::Live, None);
 
     assert_always_eq(
         Duration::from_millis(500),
         || {
-            node.active
+            node.services
+                .active
                 .read()
                 .unwrap()
                 .election_for_block(&chain[0].hash())
@@ -128,6 +131,7 @@ fn overflow() {
     const TOTAL: usize = 1000;
     for _ in 0..TOTAL {
         if !node
+            .services
             .vote_processor_queue
             .enqueue(vote.clone(), None, VoteSource::Live, None)
         {
@@ -139,7 +143,8 @@ fn overflow() {
     assert!(not_processed < TOTAL);
     assert_eq!(
         not_processed as u64,
-        node.stats
+        node.services
+            .stats
             .count(StatType::VoteProcessor, DetailType::Overfill, Direction::In)
     );
 
@@ -178,10 +183,10 @@ fn weights() {
     let key2 = PrivateKey::new();
     let key3 = PrivateKey::new();
 
-    let wallet_id0 = node0.wallets.wallet_ids()[0];
-    let wallet_id1 = node1.wallets.wallet_ids()[0];
-    let wallet_id2 = node2.wallets.wallet_ids()[0];
-    let wallet_id3 = node3.wallets.wallet_ids()[0];
+    let wallet_id0 = node0.services.wallets.wallet_ids()[0];
+    let wallet_id1 = node1.services.wallets.wallet_ids()[0];
+    let wallet_id2 = node2.services.wallets.wallet_ids()[0];
+    let wallet_id3 = node3.services.wallets.wallet_ids()[0];
 
     node0.insert_into_wallet(&DEV_GENESIS_KEY);
     node1.insert_into_wallet(&key1);
@@ -189,22 +194,26 @@ fn weights() {
     node3.insert_into_wallet(&key3);
 
     node1
+        .services
         .wallets
         .set_representative(wallet_id1, key1.public_key(), false)
         .wait()
         .unwrap();
     node2
+        .services
         .wallets
         .set_representative(wallet_id2, key2.public_key(), false)
         .wait()
         .unwrap();
     node3
+        .services
         .wallets
         .set_representative(wallet_id3, key3.public_key(), false)
         .wait()
         .unwrap();
 
     node0
+        .services
         .wallets
         .send(
             wallet_id0,
@@ -219,6 +228,7 @@ fn weights() {
         .unwrap();
 
     node0
+        .services
         .wallets
         .send(
             wallet_id0,
@@ -233,6 +243,7 @@ fn weights() {
         .unwrap();
 
     node0
+        .services
         .wallets
         .send(
             wallet_id0,
@@ -247,32 +258,66 @@ fn weights() {
         .unwrap();
 
     // Wait for representatives
-    assert_timely2(|| node0.ledger.rep_weights.len() == 4);
-    node0.online_reps.lock().unwrap().set_trended(Amount::MAX);
+    assert_timely2(|| node0.services.ledger.rep_weights.len() == 4);
+    node0
+        .services
+        .online_reps
+        .lock()
+        .unwrap()
+        .set_trended(Amount::MAX);
 
     // Wait for rep tiers to be updated
-    node0.stats.clear();
+    node0.services.stats.clear();
     assert_timely2(|| {
         node0
+            .services
             .stats
             .count(StatType::RepTiers, DetailType::Updated, Direction::In)
             >= 2
     });
 
     assert_timely_eq2(
-        || node0.rep_tiers.lock().unwrap().tier(&key1.public_key()),
+        || {
+            node0
+                .services
+                .rep_tiers
+                .lock()
+                .unwrap()
+                .tier(&key1.public_key())
+        },
         RepTier::None,
     );
     assert_timely_eq2(
-        || node0.rep_tiers.lock().unwrap().tier(&key2.public_key()),
+        || {
+            node0
+                .services
+                .rep_tiers
+                .lock()
+                .unwrap()
+                .tier(&key2.public_key())
+        },
         RepTier::Tier1,
     );
     assert_timely_eq2(
-        || node0.rep_tiers.lock().unwrap().tier(&key3.public_key()),
+        || {
+            node0
+                .services
+                .rep_tiers
+                .lock()
+                .unwrap()
+                .tier(&key3.public_key())
+        },
         RepTier::Tier2,
     );
     assert_timely_eq2(
-        || node0.rep_tiers.lock().unwrap().tier(&DEV_GENESIS_PUB_KEY),
+        || {
+            node0
+                .services
+                .rep_tiers
+                .lock()
+                .unwrap()
+                .tier(&DEV_GENESIS_PUB_KEY)
+        },
         RepTier::Tier3,
     );
 }

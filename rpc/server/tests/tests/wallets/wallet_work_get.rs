@@ -12,13 +12,15 @@ fn wallet_work_get() {
     let private_key = RawKey::ZERO;
     let public_key = PublicKey::from(private_key);
 
-    node.wallets.create(wallet);
+    node.services.wallets.create(wallet);
 
-    node.wallets
+    node.services
+        .wallets
         .insert_adhoc2(&wallet, &private_key, false)
         .unwrap();
 
-    node.wallets
+    node.services
+        .wallets
         .work_set(&wallet, &public_key, 1.into())
         .unwrap();
 

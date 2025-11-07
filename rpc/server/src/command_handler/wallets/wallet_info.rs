@@ -6,7 +6,7 @@ use rsnano_types::Amount;
 
 impl RpcCommandHandler {
     pub(crate) fn wallet_info(&self, args: WalletRpcMessage) -> anyhow::Result<WalletInfoResponse> {
-        let accounts = self.node.wallets.decrypt(args.wallet)?;
+        let accounts = self.node.services.wallets.decrypt(args.wallet)?;
         let mut balance = Amount::ZERO;
         let mut receivable = Amount::ZERO;
         let mut accounts_count = 0u64;
@@ -14,7 +14,7 @@ impl RpcCommandHandler {
         let mut cemented_count = 0u64;
         let mut deterministic_count = 0u64;
         let mut adhoc_count = 0u64;
-        let any = self.node.ledger.any();
+        let any = self.node.services.ledger.any();
 
         for (account, _priv_key) in accounts {
             let account = account.into();
@@ -29,7 +29,12 @@ impl RpcCommandHandler {
 
             receivable += any.account_receivable(&account);
 
-            match self.node.wallets.key_type(args.wallet, &account.into()) {
+            match self
+                .node
+                .services
+                .wallets
+                .key_type(args.wallet, &account.into())
+            {
                 KeyType::Deterministic => deterministic_count += 1,
                 KeyType::Adhoc => adhoc_count += 1,
                 _ => {}
@@ -40,6 +45,7 @@ impl RpcCommandHandler {
 
         let deterministic_index = self
             .node
+            .services
             .wallets
             .deterministic_index_get(&args.wallet)
             .unwrap();

@@ -11,27 +11,29 @@ fn invalid_signature() {
     let mut system = System::new();
     let node = system.make_node();
 
-    let mut telemetry = node.telemetry.local_telemetry();
+    let mut telemetry = node.services.telemetry.local_telemetry();
     telemetry.block_count = 9999; // Change data so signature is no longer valid
     let node_id = telemetry.node_id;
     let message = Message::TelemetryAck(TelemetryAck(Some(telemetry)));
 
     let channel = make_fake_channel(&node);
-    node.network
+    node.services
+        .network
         .read()
         .unwrap()
         .set_node_id(channel.channel_id(), node_id);
-    node.inbound_message_queue.put(message, channel);
+    node.services.inbound_message_queue.put(message, channel);
 
     assert_timely(Duration::from_secs(5), || {
-        node.stats.count(
+        node.services.stats.count(
             StatType::Telemetry,
             DetailType::InvalidSignature,
             Direction::In,
         ) > 0
     });
     assert_never(Duration::from_secs(1), || {
-        node.stats
+        node.services
+            .stats
             .count(StatType::Telemetry, DetailType::Process, Direction::In)
             > 0
     });
@@ -45,6 +47,7 @@ fn basic() {
 
     // Request telemetry metrics
     let channel = node_client
+        .services
         .network
         .read()
         .unwrap()
@@ -54,11 +57,13 @@ fn basic() {
 
     assert_timely2(|| {
         node_client
+            .services
             .telemetry
             .get_telemetry(&channel.peer_addr())
             .is_some()
     });
     let telemetry_data = node_client
+        .services
         .telemetry
         .get_telemetry(&channel.peer_addr())
         .unwrap();
@@ -69,12 +74,14 @@ fn basic() {
 
     // Call again straight away
     let telemetry_data2 = node_client
+        .services
         .telemetry
         .get_telemetry(&channel.peer_addr())
         .unwrap();
 
     // Call again straight away
     let telemetry_data3 = node_client
+        .services
         .telemetry
         .get_telemetry(&channel.peer_addr())
         .unwrap();
@@ -86,6 +93,7 @@ fn basic() {
     sleep(Duration::from_secs(3));
 
     let telemetry_data4 = node_client
+        .services
         .telemetry
         .get_telemetry(&channel.peer_addr())
         .unwrap();
@@ -101,6 +109,7 @@ fn disconnected() {
 
     // Request telemetry metrics
     let channel = node_client
+        .services
         .network
         .read()
         .unwrap()
@@ -111,6 +120,7 @@ fn disconnected() {
     // Ensure telemetry is available before disconnecting
     assert_timely(Duration::from_secs(5), || {
         node_client
+            .services
             .telemetry
             .get_telemetry(&channel.peer_addr())
             .is_some()
@@ -120,6 +130,7 @@ fn disconnected() {
     // Ensure telemetry from disconnected peer is removed
     assert_timely(Duration::from_secs(5), || {
         node_client
+            .services
             .telemetry
             .get_telemetry(&channel.peer_addr())
             .is_none()
@@ -131,14 +142,14 @@ fn mismatched_node_id() {
     let mut system = System::new();
     let node = system.make_node();
 
-    let telemetry = node.telemetry.local_telemetry();
+    let telemetry = node.services.telemetry.local_telemetry();
 
     let message = Message::TelemetryAck(TelemetryAck(Some(telemetry)));
     let channel = make_fake_channel(&node);
-    node.inbound_message_queue.put(message, channel);
+    node.services.inbound_message_queue.put(message, channel);
 
     assert_timely(Duration::from_secs(5), || {
-        node.stats.count(
+        node.services.stats.count(
             StatType::Telemetry,
             DetailType::NodeIdMismatch,
             Direction::In,
@@ -147,7 +158,8 @@ fn mismatched_node_id() {
     assert_always_eq(
         Duration::from_secs(1),
         || {
-            node.stats
+            node.services
+                .stats
                 .count(StatType::Telemetry, DetailType::Process, Direction::In)
         },
         0,
@@ -158,7 +170,7 @@ fn mismatched_node_id() {
 fn no_peers() {
     let mut system = System::new();
     let node = system.make_node();
-    let responses = node.telemetry.get_all_telemetries();
+    let responses = node.services.telemetry.get_all_telemetries();
     assert_eq!(responses.len(), 0);
 }
 
@@ -167,7 +179,7 @@ fn invalid_endpoint() {
     let mut system = System::new();
     let node = system.make_node();
     let endpoint: SocketAddrV6 = "[::ffff:240.0.0.0]:12345".parse().unwrap();
-    assert!(node.telemetry.get_telemetry(&endpoint).is_none());
+    assert!(node.services.telemetry.get_telemetry(&endpoint).is_none());
 }
 
 #[test]
@@ -178,12 +190,14 @@ fn ongoing_broadcasts() {
 
     assert_timely(Duration::from_secs(5), || {
         node1
+            .services
             .stats
             .count(StatType::Telemetry, DetailType::Process, Direction::In)
             >= 3
     });
     assert_timely(Duration::from_secs(5), || {
         node2
+            .services
             .stats
             .count(StatType::Telemetry, DetailType::Process, Direction::In)
             >= 3

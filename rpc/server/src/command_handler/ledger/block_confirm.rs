@@ -5,12 +5,12 @@ use crate::command_handler::RpcCommandHandler;
 
 impl RpcCommandHandler {
     pub(crate) fn block_confirm(&self, args: HashRpcMessage) -> anyhow::Result<StartedResponse> {
-        let any = self.node.ledger.any();
+        let any = self.node.services.ledger.any();
         let block = self.load_block_any(&any, &args.hash)?;
         if !any.confirmed().block_exists(&args.hash) {
             // Start new confirmation for unconfirmed (or not being confirmed) block
-            if !self.node.confirming_set.contains(&args.hash) {
-                self.node.election_schedulers.manual.push(block);
+            if !self.node.services.confirming_set.contains(&args.hash) {
+                self.node.services.election_schedulers.manual.push(block);
             }
         }
         Ok(StartedResponse::new(true))

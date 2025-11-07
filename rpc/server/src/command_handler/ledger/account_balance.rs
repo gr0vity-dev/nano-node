@@ -9,10 +9,10 @@ impl RpcCommandHandler {
     pub(crate) fn account_balance(&self, args: AccountBalanceArgs) -> AccountBalanceResponse {
         let only_confirmed = unwrap_bool_or_true(args.include_only_confirmed);
         if only_confirmed {
-            let set = self.node.ledger.confirmed();
+            let set = self.node.services.ledger.confirmed();
             get_account_balance(set, &args)
         } else {
-            let set = self.node.ledger.any();
+            let set = self.node.services.ledger.any();
             get_account_balance(set, &args)
         }
     }
@@ -21,7 +21,7 @@ impl RpcCommandHandler {
         &self,
         args: AccountArg,
     ) -> anyhow::Result<AccountBlockCountResponse> {
-        let any = self.node.ledger.any();
+        let any = self.node.services.ledger.any();
         let account = self.load_account(&any, &args.account)?;
         Ok(AccountBlockCountResponse::new(account.block_count))
     }

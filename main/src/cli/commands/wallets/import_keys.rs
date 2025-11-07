@@ -36,12 +36,18 @@ impl ImportKeysArgs {
             WalletId::decode_hex(&self.wallet).ok_or_else(|| anyhow!("Invalid wallet id"))?;
         let password = self.password.clone().unwrap_or_default();
 
-        node.wallets.ensure_wallet_is_unlocked(wallet_id, &password);
+        node.services
+            .wallets
+            .ensure_wallet_is_unlocked(wallet_id, &password);
 
-        if node.wallets.wallet_exists(&wallet_id) {
-            let valid = node.wallets.ensure_wallet_is_unlocked(wallet_id, &password);
+        if node.services.wallets.wallet_exists(&wallet_id) {
+            let valid = node
+                .services
+                .wallets
+                .ensure_wallet_is_unlocked(wallet_id, &password);
             if valid {
-                node.wallets
+                node.services
+                    .wallets
                     .import_replace(wallet_id, &contents, &password)?
             } else {
                 eprintln!(
@@ -54,7 +60,7 @@ impl ImportKeysArgs {
             eprintln!("Wallet doesn't exist");
             return Err(anyhow!("Invalid arguments"));
         } else {
-            node.wallets.import(wallet_id, &contents)?
+            node.services.wallets.import(wallet_id, &contents)?
         }
 
         Ok(())

@@ -12,7 +12,7 @@ impl RpcCommandHandler {
         let mut elections = Vec::new();
         let mut running_total = Duration::ZERO;
         let hash = args.hash.unwrap_or_default();
-        for election in self.node.recently_cemented.lock().unwrap().iter() {
+        for election in self.node.services.recently_cemented.lock().unwrap().iter() {
             if hash.is_zero() || election.winner.hash() == hash {
                 elections.push(ConfirmationEntry {
                     hash: election.winner.hash(),

@@ -20,7 +20,15 @@ impl RpcCommandHandler {
     ) -> anyhow::Result<BlockCreateResponse> {
         let difficulty = args
             .difficulty
-            .unwrap_or_else(|| self.node.ledger.constants.work.threshold_base().into())
+            .unwrap_or_else(|| {
+                self.node
+                    .services
+                    .ledger
+                    .constants
+                    .work
+                    .threshold_base()
+                    .into()
+            })
             .inner();
 
         let wallet_id = args.wallet.unwrap_or_default();
@@ -35,14 +43,17 @@ impl RpcCommandHandler {
         let mut balance = args.balance.unwrap_or(Amount::ZERO);
         let mut prv_key = PrivateKey::zero();
 
-        if work.is_zero() && !self.node.work_factory.work_generation_enabled() {
+        if work.is_zero() && !self.node.services.work_factory.work_generation_enabled() {
             bail!("Work generation is disabled");
         }
 
-        let any = self.node.ledger.any();
+        let any = self.node.services.ledger.any();
 
         if !wallet_id.is_zero() && !account.is_zero() {
-            self.node.wallets.fetch(&wallet_id, &account.into())?;
+            self.node
+                .services
+                .wallets
+                .fetch(&wallet_id, &account.into())?;
             previous = any.account_head(&account).unwrap_or_default();
             balance = any.account_balance(&account);
         }
@@ -204,6 +215,7 @@ impl RpcCommandHandler {
 
             let work = match self
                 .node
+                .services
                 .work_factory
                 .generate_work(WorkRequest::new(root, difficulty))
             {

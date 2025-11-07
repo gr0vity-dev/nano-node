@@ -10,7 +10,7 @@ use std::sync::Arc;
 use test_helpers::{System, assert_timely2, setup_rpc_client_and_server};
 
 fn send_block(node: Arc<Node>, account: Account, amount: Amount) -> Block {
-    let any = node.ledger.any();
+    let any = node.services.ledger.any();
 
     let previous = any
         .account_head(&*DEV_GENESIS_ACCOUNT)
@@ -40,10 +40,11 @@ fn receivable_include_only_confirmed() {
     let node = system.make_node();
 
     let wallet = WalletId::random();
-    node.wallets.create(wallet);
+    node.services.wallets.create(wallet);
     let private_key = RawKey::ZERO;
     let public_key: PublicKey = private_key.into();
-    node.wallets
+    node.services
+        .wallets
         .insert_adhoc2(&wallet, &private_key, false)
         .unwrap();
 
@@ -91,15 +92,16 @@ fn receivable_options_none() {
     let node = system.make_node();
 
     let wallet = WalletId::random();
-    node.wallets.create(wallet);
+    node.services.wallets.create(wallet);
     let private_key = RawKey::ZERO;
     let public_key: PublicKey = private_key.into();
-    node.wallets
+    node.services
+        .wallets
         .insert_adhoc2(&wallet, &private_key, false)
         .unwrap();
 
     let send = send_block(node.clone(), public_key.into(), Amount::raw(1));
-    node.ledger.confirm(send.hash());
+    node.services.ledger.confirm(send.hash());
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 
@@ -124,17 +126,18 @@ fn receivable_threshold_some() {
     let node = system.make_node();
 
     let wallet = WalletId::random();
-    node.wallets.create(wallet);
+    node.services.wallets.create(wallet);
     let private_key = RawKey::ZERO;
     let public_key: PublicKey = private_key.into();
-    node.wallets
+    node.services
+        .wallets
         .insert_adhoc2(&wallet, &private_key, false)
         .unwrap();
 
     let send = send_block(node.clone(), public_key.into(), Amount::raw(1));
-    node.ledger.confirm(send.hash());
+    node.services.ledger.confirm(send.hash());
     let send2 = send_block(node.clone(), public_key.into(), Amount::raw(2));
-    node.ledger.confirm(send2.hash());
+    node.services.ledger.confirm(send2.hash());
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 

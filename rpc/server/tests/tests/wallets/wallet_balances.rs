@@ -21,7 +21,7 @@ fn wallet_balances_threshold_none() {
     let server = setup_rpc_client_and_server(node.clone(), false);
 
     let wallet: WalletId = 1.into();
-    node.wallets.create(wallet);
+    node.services.wallets.create(wallet);
 
     let result = node
         .runtime
@@ -46,9 +46,10 @@ fn wallet_balances_threshold_some() {
     let private_key = RawKey::ZERO;
     let public_key: PublicKey = private_key.into();
 
-    node.wallets.create(wallet);
+    node.services.wallets.create(wallet);
 
-    node.wallets
+    node.services
+        .wallets
         .insert_adhoc2(&wallet, &RawKey::ZERO, false)
         .unwrap();
 
@@ -85,9 +86,10 @@ fn wallet_balances_threshold_some_fails() {
     let server = setup_rpc_client_and_server(node.clone(), false);
 
     let wallet = 1.into();
-    node.wallets.create(wallet);
+    node.services.wallets.create(wallet);
 
     let public_key = node
+        .services
         .wallets
         .deterministic_insert2(&1.into(), false)
         .unwrap();

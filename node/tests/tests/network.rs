@@ -36,6 +36,7 @@ fn last_contacted() {
         Duration::from_secs(3),
         || {
             node0
+                .services
                 .network
                 .read()
                 .unwrap()
@@ -46,6 +47,7 @@ fn last_contacted() {
 
     // channel0 is the other side of channel1, same connection different endpoint
     let channel0 = node0
+        .services
         .network
         .read()
         .unwrap()
@@ -61,11 +63,12 @@ fn last_contacted() {
     let timestamp_before_keepalive = channel0.last_activity();
     let keepalive_count =
         node0
+            .services
             .stats
             .count(StatType::Message, DetailType::Keepalive, Direction::In);
     assert_timely_msg(
         Duration::from_secs(3),
-        || node0.steady_clock.now() > timestamp_before_keepalive,
+        || node0.services.steady_clock.now() > timestamp_before_keepalive,
         "clock did not advance",
     );
 
@@ -74,7 +77,7 @@ fn last_contacted() {
     // and we need one more keepalive to handle the possibility that there is a keepalive already in flight when we start the crucial part of the test
     // it is possible that there could be multiple keepalives in flight but we assume here that there will be no more than one in flight for the purposes of this test
     let keepalive = Message::Keepalive(Keepalive::default());
-    let mut publisher = node0.message_sender.lock().unwrap();
+    let mut publisher = node0.services.message_sender.lock().unwrap();
     publisher.try_send(&channel1, &keepalive, TrafficType::Generic);
     publisher.try_send(&channel1, &keepalive, TrafficType::Generic);
     publisher.try_send(&channel1, &keepalive, TrafficType::Generic);
@@ -83,6 +86,7 @@ fn last_contacted() {
         Duration::from_secs(3),
         || {
             node0
+                .services
                 .stats
                 .count(StatType::Message, DetailType::Keepalive, Direction::In)
                 >= keepalive_count + 3
@@ -91,6 +95,7 @@ fn last_contacted() {
     );
     assert_eq!(
         node0
+            .services
             .network
             .read()
             .unwrap()
@@ -117,12 +122,16 @@ fn send_discarded_publish() {
     }
     .into();
 
-    node1.local_block_broadcaster.flood_block_initial(block);
+    node1
+        .services
+        .local_block_broadcaster
+        .flood_block_initial(block);
 
     assert_eq!(node1.latest(&DEV_GENESIS_ACCOUNT), *DEV_GENESIS_HASH);
     assert_eq!(node2.latest(&DEV_GENESIS_ACCOUNT), *DEV_GENESIS_HASH);
     assert_timely2(|| {
         node2
+            .services
             .stats
             .count(StatType::Message, DetailType::Publish, Direction::In)
             != 0
@@ -150,6 +159,7 @@ fn receivable_processor_confirm_insufficient_pos() {
     assert_eq!(
         0,
         node1
+            .services
             .active
             .read()
             .unwrap()
@@ -158,11 +168,12 @@ fn receivable_processor_confirm_insufficient_pos() {
             .vote_count()
     );
 
-    node1.inbound_message_queue.put(con1, channel);
+    node1.services.inbound_message_queue.put(con1, channel);
 
     assert_timely_eq2(
         || {
             node1
+                .services
                 .active
                 .read()
                 .unwrap()
@@ -192,6 +203,7 @@ fn receivable_processor_confirm_sufficient_pos() {
     assert_eq!(
         0,
         node1
+            .services
             .active
             .read()
             .unwrap()
@@ -200,9 +212,15 @@ fn receivable_processor_confirm_sufficient_pos() {
             .vote_count()
     );
 
-    node1.inbound_message_queue.put(con1, channel);
+    node1.services.inbound_message_queue.put(con1, channel);
 
-    assert_timely2(|| node1.ledger.confirmed().block_exists(&send1.hash()));
+    assert_timely2(|| {
+        node1
+            .services
+            .ledger
+            .confirmed()
+            .block_exists(&send1.hash())
+    });
 }
 
 #[test]
@@ -212,6 +230,7 @@ fn multi_keepalive() {
     let _node2 = system.make_node();
     assert_timely(Duration::from_secs(10), || {
         node1
+            .services
             .stats
             .count(StatType::Message, DetailType::Keepalive, Direction::In)
             > 0
@@ -254,6 +273,7 @@ fn send_valid_publish() {
     node2.process_active(block2);
     assert_timely(Duration::from_secs(10), || {
         node1
+            .services
             .stats
             .count(StatType::Message, DetailType::Publish, Direction::In)
             > 0
@@ -300,14 +320,20 @@ fn receive_weight_change() {
     node1.insert_into_wallet(&DEV_GENESIS_KEY);
     node2.insert_into_wallet(&key2);
     node2
+        .services
         .wallets
-        .set_representative(node2.wallets.wallet_ids()[0], key2.public_key(), false)
+        .set_representative(
+            node2.services.wallets.wallet_ids()[0],
+            key2.public_key(),
+            false,
+        )
         .wait()
         .unwrap();
     node1
+        .services
         .wallets
         .send(
-            node1.wallets.wallet_ids()[0],
+            node1.services.wallets.wallet_ids()[0],
             *DEV_GENESIS_ACCOUNT,
             key2.public_key().as_account(),
             node1.config.receive_minimum,
@@ -318,8 +344,9 @@ fn receive_weight_change() {
         .wait()
         .unwrap();
     assert_timely(Duration::from_secs(10), || {
-        node1.ledger.any().weight_exact(key2.public_key()) == node1.config.receive_minimum
-            && node2.ledger.any().weight_exact(key2.public_key()) == node1.config.receive_minimum
+        node1.services.ledger.any().weight_exact(key2.public_key()) == node1.config.receive_minimum
+            && node2.services.ledger.any().weight_exact(key2.public_key())
+                == node1.config.receive_minimum
     });
 }
 
@@ -339,6 +366,7 @@ fn duplicate_vote_detection() {
 
     // Publish duplicate detection through TCP
     let channel = node0
+        .services
         .network
         .read()
         .unwrap()
@@ -346,15 +374,15 @@ fn duplicate_vote_detection() {
         .cloned()
         .unwrap();
 
-    node0
-        .message_sender
-        .lock()
-        .unwrap()
-        .try_send(&channel, &message, TrafficType::Generic);
+    node0.services.message_sender.lock().unwrap().try_send(
+        &channel,
+        &message,
+        TrafficType::Generic,
+    );
     assert_always_eq(
         Duration::from_millis(100),
         || {
-            node1.stats.count(
+            node1.services.stats.count(
                 StatType::Filter,
                 DetailType::DuplicateConfirmAckMessage,
                 Direction::In,
@@ -362,15 +390,15 @@ fn duplicate_vote_detection() {
         },
         0,
     );
-    node0
-        .message_sender
-        .lock()
-        .unwrap()
-        .try_send(&channel, &message, TrafficType::Generic);
+    node0.services.message_sender.lock().unwrap().try_send(
+        &channel,
+        &message,
+        TrafficType::Generic,
+    );
     assert_timely_eq(
         Duration::from_secs(2),
         || {
-            node1.stats.count(
+            node1.services.stats.count(
                 StatType::Filter,
                 DetailType::DuplicateConfirmAckMessage,
                 Direction::In,
@@ -427,6 +455,7 @@ fn duplicate_revert_vote() {
 
     // Publish duplicate detection through TCP
     let channel = node0
+        .services
         .network
         .read()
         .unwrap()
@@ -436,6 +465,7 @@ fn duplicate_revert_vote() {
 
     // First vote should be processed
     node0
+        .services
         .message_sender
         .lock()
         .unwrap()
@@ -443,7 +473,7 @@ fn duplicate_revert_vote() {
     assert_always_eq(
         Duration::from_millis(100),
         || {
-            node1.stats.count(
+            node1.services.stats.count(
                 StatType::Filter,
                 DetailType::DuplicateConfirmAckMessage,
                 Direction::In,
@@ -454,6 +484,7 @@ fn duplicate_revert_vote() {
 
     // Second vote should get dropped from processor queue
     node0
+        .services
         .message_sender
         .lock()
         .unwrap()
@@ -461,7 +492,7 @@ fn duplicate_revert_vote() {
     assert_always_eq(
         Duration::from_millis(100),
         || {
-            node1.stats.count(
+            node1.services.stats.count(
                 StatType::Filter,
                 DetailType::DuplicateConfirmAckMessage,
                 Direction::In,
@@ -476,7 +507,10 @@ fn duplicate_revert_vote() {
         MessageSerializer::new(ProtocolInfo::default_for(Networks::NanoDevNetwork));
     let msg2_bytes = serializer.serialize(&message2);
     let payload_bytes = &msg2_bytes[MessageHeader::SERIALIZED_SIZE..];
-    assert_eq!(node1.network_filter.check_message(payload_bytes), false);
+    assert_eq!(
+        node1.services.network_filter.check_message(payload_bytes),
+        false
+    );
 }
 
 #[test]
@@ -507,6 +541,7 @@ fn expire_duplicate_filter() {
 
     // Publish duplicate detection through TCP
     let channel = node0
+        .services
         .network
         .read()
         .unwrap()
@@ -515,16 +550,16 @@ fn expire_duplicate_filter() {
         .unwrap();
 
     // Send a vote
-    node0
-        .message_sender
-        .lock()
-        .unwrap()
-        .try_send(&channel, &message, TrafficType::Generic);
+    node0.services.message_sender.lock().unwrap().try_send(
+        &channel,
+        &message,
+        TrafficType::Generic,
+    );
 
     assert_always_eq(
         Duration::from_millis(100),
         || {
-            node1.stats.count(
+            node1.services.stats.count(
                 StatType::Filter,
                 DetailType::DuplicateConfirmAckMessage,
                 Direction::In,
@@ -533,16 +568,16 @@ fn expire_duplicate_filter() {
         0,
     );
 
-    node0
-        .message_sender
-        .lock()
-        .unwrap()
-        .try_send(&channel, &message, TrafficType::Generic);
+    node0.services.message_sender.lock().unwrap().try_send(
+        &channel,
+        &message,
+        TrafficType::Generic,
+    );
 
     assert_timely_eq(
         Duration::from_secs(2),
         || {
-            node1.stats.count(
+            node1.services.stats.count(
                 StatType::Filter,
                 DetailType::DuplicateConfirmAckMessage,
                 Direction::In,
@@ -556,8 +591,8 @@ fn expire_duplicate_filter() {
         MessageSerializer::new(ProtocolInfo::default_for(Networks::NanoDevNetwork));
     let msg_bytes = serializer.serialize(&message);
     let payload_bytes = &msg_bytes[MessageHeader::SERIALIZED_SIZE..];
-    assert!(node1.network_filter.check_message(&payload_bytes));
+    assert!(node1.services.network_filter.check_message(&payload_bytes));
     assert_timely(Duration::from_secs(10), || {
-        !node1.network_filter.check_message(&payload_bytes)
+        !node1.services.network_filter.check_message(&payload_bytes)
     });
 }

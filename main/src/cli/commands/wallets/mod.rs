@@ -86,11 +86,12 @@ impl WalletsCommand {}
 
 fn list_wallets(global_args: GlobalArgs) -> Result<()> {
     let node = build_node(&global_args)?;
-    let wallet_ids = node.wallets.get_wallet_ids();
+    let wallet_ids = node.services.wallets.get_wallet_ids();
 
     for wallet_id in wallet_ids {
         println!("{:?}", wallet_id);
         let accounts = node
+            .services
             .wallets
             .get_accounts_of_wallet(&wallet_id)
             .map_err(|e| anyhow!("Failed to get accounts of wallets: {:?}", e))?;
@@ -106,7 +107,7 @@ fn list_wallets(global_args: GlobalArgs) -> Result<()> {
 
 fn clear_send_ids(global_args: GlobalArgs) -> anyhow::Result<()> {
     let node = build_node(&global_args)?;
-    node.wallets.clear_send_ids();
+    node.services.wallets.clear_send_ids();
     println!("Send IDs deleted");
     Ok(())
 }

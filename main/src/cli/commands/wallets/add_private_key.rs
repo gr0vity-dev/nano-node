@@ -24,9 +24,12 @@ impl AddPrivateKeyArgs {
         let private_key =
             RawKey::decode_hex(&self.private_key).ok_or_else(|| anyhow!("Invalid private key"))?;
         let password = self.password.clone().unwrap_or_default();
-        node.wallets.ensure_wallet_is_unlocked(wallet_id, &password);
+        node.services
+            .wallets
+            .ensure_wallet_is_unlocked(wallet_id, &password);
 
-        node.wallets
+        node.services
+            .wallets
             .insert_adhoc2(&wallet_id, &private_key, false)
             .map_err(|e| anyhow!("Failed to insert key: {:?}", e))?;
 

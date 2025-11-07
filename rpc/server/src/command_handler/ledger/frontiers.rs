@@ -5,6 +5,7 @@ impl RpcCommandHandler {
     pub(crate) fn frontiers(&self, args: FrontiersArgs) -> FrontiersResponse {
         let frontiers = self
             .node
+            .services
             .ledger
             .any()
             .iter_account_range(args.account..)

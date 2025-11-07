@@ -8,6 +8,7 @@ impl RpcCommandHandler {
             args.accounts.iter().map(|account| account.into()).collect();
 
         self.node
+            .services
             .wallets
             .move_accounts(&args.source, &args.wallet, &public_keys)?;
 

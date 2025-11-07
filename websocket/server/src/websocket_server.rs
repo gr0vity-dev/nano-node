@@ -31,18 +31,19 @@ pub fn create_websocket_server(
     let endpoint = SocketAddr::new(address, config.port);
     let server = Arc::new(WebsocketListener::new(
         endpoint,
-        node.wallets.clone(),
-        node.ledger.clone(),
+        node.services.wallets.clone(),
+        node.services.ledger.clone(),
         node.runtime.clone(),
     ));
 
     event_handlers.add(NodeEventProcessor {
         server: server.clone(),
-        ledger: node.ledger.clone(),
+        ledger: node.services.ledger.clone(),
     });
 
     let server_w = Arc::downgrade(&server);
-    node.telemetry
+    node.services
+        .telemetry
         .on_telemetry_processed(Box::new(move |data, peer_addr| {
             if let Some(server) = server_w.upgrade()
                 && server.any_subscriber(Topic::Telemetry)

@@ -18,8 +18,12 @@ impl RpcCommandHandler {
         let min_version = args.min_version.unwrap_or_default().inner();
         let include_only_confirmed = args.include_only_confirmed.unwrap_or(true.into()).inner();
 
-        let accounts = self.node.wallets.get_accounts_of_wallet(&args.wallet)?;
-        let any = self.node.ledger.any();
+        let accounts = self
+            .node
+            .services
+            .wallets
+            .get_accounts_of_wallet(&args.wallet)?;
+        let any = self.node.services.ledger.any();
 
         let mut pending_source = IndexMap::new();
         let mut pending_threshold = IndexMap::new();

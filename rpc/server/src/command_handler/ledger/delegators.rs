@@ -11,6 +11,7 @@ impl RpcCommandHandler {
 
         let delegators = self
             .node
+            .services
             .ledger
             .any()
             .iter_account_range(start_account..)
