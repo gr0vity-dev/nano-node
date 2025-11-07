@@ -13,16 +13,19 @@ use tracing::warn;
 use crate::{
     block_processing::{
         BlockProcessor, BlockProcessorQueue, BoundedBacklog, LocalBlockBroadcaster,
+        LocalBlockBroadcasterExt,
     },
     block_rate_calculator::CurrentBlockRates,
-    bootstrap::{BootstrapServer, Bootstrapper},
+    bootstrap::{BootstrapExt, BootstrapServer, Bootstrapper},
     cementation::ConfirmingSet,
+    config::{NodeConfig, NodeFlags},
     consensus::{
         ActiveElectionsContainer, CurrentRepTiers, LocalVoteHistory, RequestAggregator, VoteCache,
-        VoteGenerators, VoteProcessor, VoteProcessorQueue, WinnerBlockBroadcaster,
-        election::ConfirmedElection, election_schedulers::ElectionSchedulers,
+        VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
+        WinnerBlockBroadcaster, election::ConfirmedElection,
+        election_schedulers::ElectionSchedulers,
     },
-    representatives::{OnlineReps, RepCrawler},
+    representatives::{OnlineReps, RepCrawler, RepCrawlerExt},
     telemetry::Telemetry,
     transport::{MessageFlooder, MessageSender, NetworkThreads, keepalive::KeepalivePublisher},
     wallets::WalletRepresentatives,
@@ -225,6 +228,7 @@ impl NodeServices {
             self.winner_block_broadcaster.clone(),
             self.vote_processor_queue.clone(),
             self.confirming_set.clone(),
+            self.block_processor.clone(),
         )
     }
 
@@ -262,6 +266,7 @@ pub struct ConsensusServices {
     pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
     pub vote_processor_queue: Arc<VoteProcessorQueue>,
     pub confirming_set: Arc<ConfirmingSet>,
+    pub block_processor: Arc<BlockProcessor>,
 }
 
 impl ConsensusServices {
@@ -280,6 +285,7 @@ impl ConsensusServices {
         winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
         vote_processor_queue: Arc<VoteProcessorQueue>,
         confirming_set: Arc<ConfirmingSet>,
+        block_processor: Arc<BlockProcessor>,
     ) -> Self {
         Self {
             active,
@@ -296,7 +302,39 @@ impl ConsensusServices {
             winner_block_broadcaster,
             vote_processor_queue,
             confirming_set,
+            block_processor,
         }
+    }
+
+    pub fn start(&self, config: &NodeConfig, flags: &NodeFlags) {
+        if config.enable_vote_processor {
+            self.vote_processor.start();
+        }
+        self.block_processor.start(config.block_processor_threads);
+        if !flags.disable_rep_crawler {
+            self.rep_crawler.start();
+        }
+        self.vote_generators.start();
+        self.request_aggregator.start();
+        self.confirming_set.start();
+        self.election_schedulers.start();
+        if config.enable_bounded_backlog {
+            self.bounded_backlog.start();
+        }
+        self.local_block_broadcaster.start();
+    }
+
+    pub fn stop(&self) {
+        self.local_block_broadcaster.stop();
+        self.request_aggregator.stop();
+        self.vote_processor.stop();
+        self.election_schedulers.stop();
+        self.active.write().unwrap().stop();
+        self.vote_generators.stop();
+        self.confirming_set.stop();
+        self.bounded_backlog.stop();
+        self.rep_crawler.stop();
+        self.block_processor.stop();
     }
 }
 
@@ -345,5 +383,18 @@ impl BootstrapWorkServices {
             bootstrap_server,
             work_factory,
         }
+    }
+
+    pub fn start(&self, enable_bootstrap_responder: bool) {
+        if enable_bootstrap_responder {
+            self.bootstrap_server.start();
+        }
+        self.bootstrapper.start();
+    }
+
+    pub fn stop(&self) {
+        self.bootstrapper.stop();
+        self.bootstrap_server.stop();
+        self.work_factory.stop();
     }
 }

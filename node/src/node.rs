@@ -52,14 +52,11 @@ use crate::{
     aec_event_processor::AecEventProcessor,
     block_processing::{
         BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue, BlockSource,
-        BoundedBacklog, BoundedBacklogPlugin, LocalBlockBroadcaster, LocalBlockBroadcasterExt,
-        LocalBlockBroadcasterPlugin, ProcessQueueConfig, ProcessedResult, UncheckedBlockReenqueuer,
-        UncheckedMap,
+        BoundedBacklog, BoundedBacklogPlugin, LocalBlockBroadcaster, LocalBlockBroadcasterPlugin,
+        ProcessQueueConfig, ProcessedResult, UncheckedBlockReenqueuer, UncheckedMap,
     },
     block_rate_calculator::BlockRateCalculator,
-    bootstrap::{
-        BootstrapExt, BootstrapResponderCleanup, BootstrapServer, Bootstrapper, BootstrapperCleanup,
-    },
+    bootstrap::{BootstrapResponderCleanup, BootstrapServer, Bootstrapper, BootstrapperCleanup},
     cementation::{ConfirmingSet, TrackConfirmationTimes},
     config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},
     consensus::{
@@ -68,9 +65,8 @@ use crate::{
         CurrentRepTiers, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
         LocalVoteHistory, LocalVotesRemover, RepTiersCalculator, RequestAggregator,
         RequestAggregatorCleanup, VoteApplier, VoteBroadcaster, VoteCache, VoteCacheProcessor,
-        VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
-        VoteProcessorQueueCleanup, VoteRebroadcastQueue, VoteRebroadcaster, WalletRepsChecker,
-        WinnerBlockBroadcaster,
+        VoteGenerators, VoteProcessor, VoteProcessorQueue, VoteProcessorQueueCleanup,
+        VoteRebroadcastQueue, VoteRebroadcaster, WalletRepsChecker, WinnerBlockBroadcaster,
         election::ConfirmedElection,
         election_schedulers::{ElectionSchedulers, ElectionSchedulersPlugin},
         get_bootstrap_weights, log_bootstrap_weights,
@@ -79,9 +75,7 @@ use crate::{
     node_id_key_file::NodeIdKeyFile,
     node_monitor::NodeMonitor,
     recently_cemented_inserter::RecentlyCementedInserter,
-    representatives::{
-        OnlineReps, OnlineRepsCleanup, OnlineWeightCalculation, RepCrawler, RepCrawlerExt,
-    },
+    representatives::{OnlineReps, OnlineRepsCleanup, OnlineWeightCalculation, RepCrawler},
     telemetry::{
         TelementryConfig, TelementryExt, Telemetry, TelemetryFactory, rsnano_build_info,
         rsnano_version_string,
@@ -1600,40 +1594,22 @@ impl Node {
         }
 
         let network_services = self.network_services();
+        let consensus_services = self.consensus_services();
+        let bootstrap_work_services = self.bootstrap_work_services();
 
         network_services.start(self.config.tcp.max_inbound_connections);
         self.message_processor.lock().unwrap().start();
         self.aec_voter.start(Duration::from_millis(20));
 
-        if !self.flags.disable_rep_crawler {
-            self.services.rep_crawler.start();
-        }
-
-        if self.config.enable_vote_processor {
-            self.services.vote_processor.start();
-        }
+        consensus_services.start(&self.config, &self.flags);
         self.vote_cache_processor.start();
-        self.services
-            .block_processor
-            .start(self.config.block_processor_threads);
         if !self.flags.disable_request_loop {
             self.aec_ticker
                 .start(self.network_params.network.aec_loop_interval);
         }
-        self.services.vote_generators.start();
-        self.services.request_aggregator.start();
-        self.services.confirming_set.start();
-        self.services.election_schedulers.start();
         self.backlog_scan.start();
-        if self.config.enable_bounded_backlog {
-            self.services.bounded_backlog.start();
-        }
-        if self.config.enable_bootstrap_responder {
-            self.services.bootstrap_server.start();
-        }
-        self.services.bootstrapper.start();
+        bootstrap_work_services.start(self.config.enable_bootstrap_responder);
         self.services.telemetry.start();
-        self.services.local_block_broadcaster.start();
 
         if self.config.enable_vote_rebroadcast {
             self.vote_rebroadcaster.start();
@@ -1654,30 +1630,19 @@ impl Node {
         info!("Node stopping...");
 
         let network_services = self.network_services();
+        let consensus_services = self.consensus_services();
+        let bootstrap_work_services = self.bootstrap_work_services();
 
         self.ticker_pool.stop();
         network_services.stop_listeners();
         self.aec_voter.stop();
-        // Cancels ongoing work generation tasks, which may be blocking other threads
-        // No tasks may wait for work generation in I/O threads, or termination signal capturing will be unable to call node::stop()
-        self.services.work_factory.stop();
+        bootstrap_work_services.stop();
         self.backlog_scan.stop();
-        self.services.bootstrapper.stop();
-        self.services.bounded_backlog.stop();
-        self.services.rep_crawler.stop();
-        self.services.block_processor.stop();
-        self.services.request_aggregator.stop();
         self.vote_cache_processor.stop();
-        self.services.vote_processor.stop();
-        self.services.election_schedulers.stop();
         self.aec_ticker.stop();
-        self.services.active.write().unwrap().stop();
-        self.services.vote_generators.stop();
-        self.services.confirming_set.stop();
+        consensus_services.stop();
         self.services.telemetry.stop();
-        self.services.bootstrap_server.stop();
         self.services.wallets.stop();
-        self.services.local_block_broadcaster.stop();
         self.message_processor.lock().unwrap().stop();
         network_services.stop_threads(); // Stop network last to avoid killing in-use sockets
         self.vote_rebroadcaster.stop();
