@@ -1,6 +1,6 @@
-use crate::cli::{GlobalArgs, build_node};
 use anyhow::anyhow;
 use clap::Parser;
+use rsnano_node::services::WalletServices;
 use rsnano_types::{RawKey, WalletId};
 
 #[derive(Parser, PartialEq, Debug)]
@@ -17,18 +17,18 @@ pub(crate) struct AddPrivateKeyArgs {
 }
 
 impl AddPrivateKeyArgs {
-    pub(crate) fn add_key(&self, global_args: GlobalArgs) -> anyhow::Result<()> {
-        let node = build_node(&global_args)?;
+    pub(crate) fn add_key(&self, wallet_services: &WalletServices) -> anyhow::Result<()> {
         let wallet_id =
             WalletId::decode_hex(&self.wallet).ok_or_else(|| anyhow!("Invalid wallet id"))?;
         let private_key =
             RawKey::decode_hex(&self.private_key).ok_or_else(|| anyhow!("Invalid private key"))?;
         let password = self.password.clone().unwrap_or_default();
-        node.services()
+
+        wallet_services
             .wallets
             .ensure_wallet_is_unlocked(wallet_id, &password);
 
-        node.services()
+        wallet_services
             .wallets
             .insert_adhoc2(&wallet_id, &private_key, false)
             .map_err(|e| anyhow!("Failed to insert key: {:?}", e))?;

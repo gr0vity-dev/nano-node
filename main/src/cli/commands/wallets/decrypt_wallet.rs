@@ -1,6 +1,6 @@
-use crate::cli::{GlobalArgs, build_node};
 use anyhow::anyhow;
 use clap::Parser;
+use rsnano_node::services::WalletServices;
 use rsnano_types::WalletId;
 
 #[derive(Parser, PartialEq, Debug)]
@@ -14,18 +14,16 @@ pub(crate) struct DecryptWalletArgs {
 }
 
 impl DecryptWalletArgs {
-    pub(crate) fn decrypt_wallet(&self, global_args: GlobalArgs) -> anyhow::Result<()> {
-        let node = build_node(&global_args)?;
+    pub(crate) fn decrypt_wallet(&self, wallet_services: &WalletServices) -> anyhow::Result<()> {
         let wallet_id =
             WalletId::decode_hex(&self.wallet).ok_or_else(|| anyhow!("Invalid wallet id"))?;
         let password = self.password.clone().unwrap_or_default();
 
-        node.services()
+        wallet_services
             .wallets
             .ensure_wallet_is_unlocked(wallet_id, &password);
 
-        let seed = node
-            .services()
+        let seed = wallet_services
             .wallets
             .get_seed(wallet_id)
             .map_err(|e| anyhow!("Failed to get wallet seed: {:?}", e))?;

@@ -14,7 +14,7 @@ impl RpcCommandHandler {
         let source = args.source;
         let destination = args.destination;
         let work: WorkNonce = args.work.unwrap_or_default();
-        if work.is_zero() && !self.services.work_factory.work_generation_enabled() {
+        if work.is_zero() && !self.wallet_services.work_factory.work_generation_enabled() {
             bail!("Work generation is disabled");
         }
 
@@ -39,8 +39,7 @@ impl RpcCommandHandler {
         let send_id = args.id;
 
         let block = self
-            .node
-            .services()
+            .wallet_services
             .wallets
             .send(
                 wallet_id,

@@ -5,7 +5,7 @@ mod wallets;
 
 use anyhow::anyhow;
 use rsnano_ledger::AnySet;
-use rsnano_node::{Node, NodeServices};
+use rsnano_node::{Node, NodeServices, TelemetryServices, WalletServices};
 use rsnano_rpc_messages::{RpcCommand, RpcError, StatsType};
 use rsnano_types::{Account, AccountInfo, BlockHash, SavedBlock};
 use serde_json::{Value, to_value};
@@ -18,6 +18,8 @@ use utils::*;
 pub(crate) struct RpcCommandHandler {
     node: Arc<Node>,
     services: NodeServices,
+    wallet_services: WalletServices,
+    telemetry_services: TelemetryServices,
     enable_control: bool,
     stop: Arc<Mutex<Option<oneshot::Sender<()>>>>,
 }
@@ -25,9 +27,13 @@ pub(crate) struct RpcCommandHandler {
 impl RpcCommandHandler {
     pub fn new(node: Arc<Node>, enable_control: bool, tx_stop: oneshot::Sender<()>) -> Self {
         let services = node.services().clone();
+        let wallet_services = node.wallet_services();
+        let telemetry_services = node.telemetry_services();
         Self {
             node,
             services,
+            wallet_services,
+            telemetry_services,
             enable_control,
             stop: Arc::new(Mutex::new(Some(tx_stop))),
         }

@@ -21,6 +21,7 @@ use destroy_wallet::DestroyWalletArgs;
 use get_wallet_representative::GetWalletRepresentativeArgs;
 use import_keys::ImportKeysArgs;
 use remove_account::RemoveAccountArgs;
+use rsnano_node::services::WalletServices;
 use rsnano_types::Account;
 use set_wallet_representative::SetWalletRepresentativeArgs;
 
@@ -60,22 +61,46 @@ pub(crate) enum WalletSubcommands {
 
 pub(crate) fn run_wallets_command(global_args: GlobalArgs, cmd: WalletsCommand) -> Result<()> {
     match cmd.subcommand {
-        Some(WalletSubcommands::List) => list_wallets(global_args)?,
-        Some(WalletSubcommands::CreateWallet(args)) => args.create_wallet(global_args)?,
-        Some(WalletSubcommands::CreateAccount(args)) => args.create_account(global_args)?,
-        Some(WalletSubcommands::Destroy(args)) => args.destroy_wallet(global_args)?,
-        Some(WalletSubcommands::AddPrivateKey(args)) => args.add_key(global_args)?,
-        Some(WalletSubcommands::ChangeWalletSeed(args)) => args.change_wallet_seed(global_args)?,
-        Some(WalletSubcommands::ImportKeys(args)) => args.import_keys(global_args)?,
-        Some(WalletSubcommands::RemoveAccount(args)) => args.remove_account(global_args)?,
-        Some(WalletSubcommands::DecryptWallet(args)) => args.decrypt_wallet(global_args)?,
+        Some(WalletSubcommands::List) => {
+            with_wallet_services(&global_args, |services| list_wallets(services))?
+        }
+        Some(WalletSubcommands::CreateWallet(args)) => {
+            with_wallet_services(&global_args, |services| args.create_wallet(services))?
+        }
+        Some(WalletSubcommands::CreateAccount(args)) => {
+            with_wallet_services(&global_args, |services| args.create_account(services))?
+        }
+        Some(WalletSubcommands::Destroy(args)) => {
+            with_wallet_services(&global_args, |services| args.destroy_wallet(services))?
+        }
+        Some(WalletSubcommands::AddPrivateKey(args)) => {
+            with_wallet_services(&global_args, |services| args.add_key(services))?
+        }
+        Some(WalletSubcommands::ChangeWalletSeed(args)) => {
+            with_wallet_services(&global_args, |services| args.change_wallet_seed(services))?
+        }
+        Some(WalletSubcommands::ImportKeys(args)) => {
+            with_wallet_services(&global_args, |services| args.import_keys(services))?
+        }
+        Some(WalletSubcommands::RemoveAccount(args)) => {
+            with_wallet_services(&global_args, |services| args.remove_account(services))?
+        }
+        Some(WalletSubcommands::DecryptWallet(args)) => {
+            with_wallet_services(&global_args, |services| args.decrypt_wallet(services))?
+        }
         Some(WalletSubcommands::GetWalletRepresentative(args)) => {
-            args.get_wallet_representative(global_args)?
+            with_wallet_services(&global_args, |services| {
+                args.get_wallet_representative(services)
+            })?
         }
         Some(WalletSubcommands::SetWalletRepresentative(args)) => {
-            args.set_representative_wallet(global_args)?
+            with_wallet_services(&global_args, |services| {
+                args.set_representative_wallet(services)
+            })?
         }
-        Some(WalletSubcommands::ClearSendIds) => clear_send_ids(global_args)?,
+        Some(WalletSubcommands::ClearSendIds) => {
+            with_wallet_services(&global_args, |services| clear_send_ids(services))?
+        }
         None => WalletsCommand::command().print_long_help()?,
     }
 
@@ -84,14 +109,12 @@ pub(crate) fn run_wallets_command(global_args: GlobalArgs, cmd: WalletsCommand) 
 
 impl WalletsCommand {}
 
-fn list_wallets(global_args: GlobalArgs) -> Result<()> {
-    let node = build_node(&global_args)?;
-    let wallet_ids = node.services().wallets.get_wallet_ids();
+fn list_wallets(wallet_services: &WalletServices) -> Result<()> {
+    let wallet_ids = wallet_services.wallets.get_wallet_ids();
 
     for wallet_id in wallet_ids {
         println!("{:?}", wallet_id);
-        let accounts = node
-            .services()
+        let accounts = wallet_services
             .wallets
             .get_accounts_of_wallet(&wallet_id)
             .map_err(|e| anyhow!("Failed to get accounts of wallets: {:?}", e))?;
@@ -105,9 +128,18 @@ fn list_wallets(global_args: GlobalArgs) -> Result<()> {
     Ok(())
 }
 
-fn clear_send_ids(global_args: GlobalArgs) -> anyhow::Result<()> {
-    let node = build_node(&global_args)?;
-    node.services().wallets.clear_send_ids();
+fn clear_send_ids(wallet_services: &WalletServices) -> anyhow::Result<()> {
+    wallet_services.wallets.clear_send_ids();
     println!("Send IDs deleted");
     Ok(())
+}
+
+fn with_wallet_services<F>(global_args: &GlobalArgs, f: F) -> anyhow::Result<()>
+where
+    F: FnOnce(&WalletServices) -> anyhow::Result<()>,
+{
+    let node = build_node(global_args)?;
+    let wallet_services = node.wallet_services();
+    drop(node);
+    f(&wallet_services)
 }

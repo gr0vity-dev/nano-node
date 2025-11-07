@@ -33,6 +33,42 @@ use crate::ledger_snapshots::LedgerSnapshots;
 
 use rsnano_wallet::Wallets;
 
+#[derive(Clone)]
+pub struct WalletServices {
+    pub wallets: Arc<Wallets>,
+    pub work_factory: Arc<WorkFactory>,
+    pub wallet_reps: Arc<Mutex<WalletRepresentatives>>,
+}
+
+impl WalletServices {
+    pub(crate) fn new(
+        wallets: Arc<Wallets>,
+        work_factory: Arc<WorkFactory>,
+        wallet_reps: Arc<Mutex<WalletRepresentatives>>,
+    ) -> Self {
+        Self {
+            wallets,
+            work_factory,
+            wallet_reps,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct TelemetryServices {
+    pub telemetry: Arc<Telemetry>,
+    pub tcp_listener: Arc<TcpListener>,
+}
+
+impl TelemetryServices {
+    pub(crate) fn new(telemetry: Arc<Telemetry>, tcp_listener: Arc<TcpListener>) -> Self {
+        Self {
+            telemetry,
+            tcp_listener,
+        }
+    }
+}
+
 /// Bundles the core `Arc` collaborators that make up a running node so tests and
 /// higher layers can grab a focused subset without touching the gigantic
 /// `Node` struct directly.
@@ -77,4 +113,18 @@ pub struct NodeServices {
     pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
     #[cfg(feature = "ledger_snapshots")]
     pub ledger_snapshots: Arc<LedgerSnapshots>,
+}
+
+impl NodeServices {
+    pub fn wallet_services(&self) -> WalletServices {
+        WalletServices::new(
+            self.wallets.clone(),
+            self.work_factory.clone(),
+            self.wallet_reps.clone(),
+        )
+    }
+
+    pub fn telemetry_services(&self) -> TelemetryServices {
+        TelemetryServices::new(self.telemetry.clone(), self.tcp_listener.clone())
+    }
 }

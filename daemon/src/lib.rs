@@ -82,10 +82,15 @@ impl DaemonBuilder {
             let mut event_processor = CompositeNodeEventHandler::new(ev_receiver);
 
             websocket_server = if websocket_enabled {
+                let wallet_services = node.wallet_services();
+                let telemetry_services = node.telemetry_services();
+                let ledger = node.services().ledger.clone();
                 Some(
                     create_websocket_server(
                         daemon_config.node.websocket_config.clone(),
-                        node.services(),
+                        wallet_services,
+                        ledger,
+                        telemetry_services,
                         node.runtime.clone(),
                         &mut event_processor,
                     )

@@ -685,9 +685,14 @@ fn create_node_with_websocket(system: &mut System) -> (Arc<Node>, Arc<WebsocketL
     };
 
     let mut event_handlers = CompositeNodeEventHandler::new(receiver);
+    let wallet_services = node.wallet_services();
+    let telemetry_services = node.telemetry_services();
+    let ledger = node.services().ledger.clone();
     let websocket_server = create_websocket_server(
         ws_config,
-        node.services(),
+        wallet_services,
+        ledger,
+        telemetry_services,
         node.runtime.clone(),
         &mut event_handlers,
     )

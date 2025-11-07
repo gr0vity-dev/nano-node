@@ -37,7 +37,7 @@ impl RpcCommandHandler {
             }
             work
         } else {
-            if !self.services.work_factory.work_generation_enabled() {
+            if !self.wallet_services.work_factory.work_generation_enabled() {
                 bail!("Work generation is disabled");
             }
             0.into()
@@ -45,14 +45,16 @@ impl RpcCommandHandler {
 
         // Representative is only used by receive_action when opening accounts
         // Set a wallet default representative for new accounts
-        let representative = self.services.wallets.get_representative(args.wallet)?;
+        let representative = self
+            .wallet_services
+            .wallets
+            .get_representative(args.wallet)?;
 
         // Disable work generation if "work" option is provided
         let generate_work = work.is_zero();
 
         let block = self
-            .node
-            .services()
+            .wallet_services
             .wallets
             .receive(
                 args.wallet,

@@ -2,7 +2,8 @@ use super::WebsocketListener;
 use rsnano_ledger::{AnySet, Ledger};
 use rsnano_messages::TelemetryData;
 use rsnano_node::{
-    CompositeNodeEventHandler, NodeEvent, NodeEventHandler, NodeServices, config::WebsocketConfig,
+    CompositeNodeEventHandler, NodeEvent, NodeEventHandler, TelemetryServices, WalletServices,
+    config::WebsocketConfig,
 };
 use rsnano_types::{Account, BlockHash, Vote, VoteError};
 use rsnano_websocket_messages::{MessageEnvelope, Topic, new_block_arrived_message};
@@ -17,7 +18,9 @@ use tracing::error;
 
 pub fn create_websocket_server(
     config: WebsocketConfig,
-    services: &NodeServices,
+    wallet_services: WalletServices,
+    ledger: Arc<Ledger>,
+    telemetry_services: TelemetryServices,
     runtime: Handle,
     event_handlers: &mut CompositeNodeEventHandler,
 ) -> Option<Arc<WebsocketListener>> {
@@ -33,18 +36,18 @@ pub fn create_websocket_server(
     let endpoint = SocketAddr::new(address, config.port);
     let server = Arc::new(WebsocketListener::new(
         endpoint,
-        services.wallets.clone(),
-        services.ledger.clone(),
+        wallet_services.wallets.clone(),
+        ledger.clone(),
         runtime,
     ));
 
     event_handlers.add(NodeEventProcessor {
         server: server.clone(),
-        ledger: services.ledger.clone(),
+        ledger: ledger.clone(),
     });
 
     let server_w = Arc::downgrade(&server);
-    services
+    telemetry_services
         .telemetry
         .on_telemetry_processed(Box::new(move |data, peer_addr| {
             if let Some(server) = server_w.upgrade()

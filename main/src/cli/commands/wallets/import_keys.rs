@@ -5,7 +5,7 @@ use clap::Parser;
 
 use rsnano_types::WalletId;
 
-use crate::cli::{GlobalArgs, build_node};
+use rsnano_node::services::WalletServices;
 
 #[derive(Parser, PartialEq, Debug)]
 pub(crate) struct ImportKeysArgs {
@@ -24,29 +24,27 @@ pub(crate) struct ImportKeysArgs {
 }
 
 impl ImportKeysArgs {
-    pub(crate) fn import_keys(&self, global_args: GlobalArgs) -> anyhow::Result<()> {
+    pub(crate) fn import_keys(&self, wallet_services: &WalletServices) -> anyhow::Result<()> {
         let mut file = File::open(PathBuf::from(&self.file))?;
         let mut contents = String::new();
 
         file.read_to_string(&mut contents)
             .context("Unable to read <file> contents")?;
 
-        let node = build_node(&global_args)?;
         let wallet_id =
             WalletId::decode_hex(&self.wallet).ok_or_else(|| anyhow!("Invalid wallet id"))?;
         let password = self.password.clone().unwrap_or_default();
 
-        node.services()
+        wallet_services
             .wallets
             .ensure_wallet_is_unlocked(wallet_id, &password);
 
-        if node.services().wallets.wallet_exists(&wallet_id) {
-            let valid = node
-                .services()
+        if wallet_services.wallets.wallet_exists(&wallet_id) {
+            let valid = wallet_services
                 .wallets
                 .ensure_wallet_is_unlocked(wallet_id, &password);
             if valid {
-                node.services()
+                wallet_services
                     .wallets
                     .import_replace(wallet_id, &contents, &password)?
             } else {
@@ -60,7 +58,7 @@ impl ImportKeysArgs {
             eprintln!("Wallet doesn't exist");
             return Err(anyhow!("Invalid arguments"));
         } else {
-            node.services().wallets.import(wallet_id, &contents)?
+            wallet_services.wallets.import(wallet_id, &contents)?
         }
 
         Ok(())
