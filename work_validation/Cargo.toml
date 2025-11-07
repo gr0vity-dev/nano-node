@@ -1,0 +1,10 @@
+[package]
+name = "rsnano_work_validation"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rsnano_types = { path = "../types" }
+
+[dev-dependencies]
+serde_json = "1"

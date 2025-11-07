@@ -9,7 +9,7 @@ use rsnano_messages::{Message, NetworkFilter};
 use rsnano_network::{Channel, Network};
 use rsnano_types::VoteSource;
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
-use rsnano_work::WorkThresholds;
+use rsnano_work_validation::WorkThresholds;
 
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;

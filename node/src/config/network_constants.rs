@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use rsnano_types::{Networks, ProtocolInfo};
-use rsnano_work::WorkThresholds;
+use rsnano_work_validation::WorkThresholds;
 
 use crate::bootstrap::BootstrapConfig;
 

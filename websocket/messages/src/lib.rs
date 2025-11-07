@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use rsnano_types::{BlockHash, DifficultyV1, SavedBlock, WorkNonce, milliseconds_since_epoch};
-use rsnano_work::WorkThresholds;
+use rsnano_work_validation::WorkThresholds;
 
 #[derive(
     Clone, Copy, FromPrimitive, PartialEq, Eq, Hash, Serialize, Debug, Deserialize, IntoStaticStr,

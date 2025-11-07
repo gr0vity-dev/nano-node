@@ -26,7 +26,7 @@ use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     ticker::Tickable,
 };
-use rsnano_work::WorkThresholds;
+use rsnano_work_validation::WorkThresholds;
 
 use super::{
     BlockPromise, MultiBlockPromise, Wallet, WalletsConfig, WalletsError,

@@ -20,6 +20,7 @@ ledger_snapshots = [
 [dependencies]
 rsnano_types = { path = "../types" }
 rsnano_work = { path = "../work" }
+rsnano_work_validation = { path = "../work_validation" }
 rsnano_utils = { path = "../utils" }
 rsnano_messages = { path = "../messages" }
 rsnano_network = { path = "../network" }

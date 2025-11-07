@@ -5,7 +5,7 @@ use rsnano_types::{
     Account, Amount, Block, BlockDetails, BlockHash, BlockSideband, DEV_GENESIS_KEY, Epoch, Epochs,
     Networks, PublicKey, SavedBlock, UnixMillisTimestamp, epoch_v1_link, epoch_v2_link,
 };
-use rsnano_work::{WORK_THRESHOLDS_STUB, WorkThresholds};
+use rsnano_work_validation::{WORK_THRESHOLDS_STUB, WorkThresholds};
 
 static BETA_PUBLIC_KEY_DATA: &str =
     "259A438A8F9F9226130C84D902C237AF3E57C0981C7D709C288046B110D8C8AC";

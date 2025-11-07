@@ -9,6 +9,7 @@ opencl = ["dep:ocl"]
 [dependencies]
 rsnano_types = { path = "../types" }
 rsnano_utils = { path = "../utils" }
+rsnano_work_validation = { path = "../work_validation" }
 tracing = "0"
 ocl = { version = "0.19", optional = true }
 rand = { version = "0.9" }

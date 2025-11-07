@@ -10,7 +10,7 @@ mod tests;
 use rsnano_types::{
     Account, AccountInfo, Block, Epochs, PendingInfo, SavedBlock, UnixMillisTimestamp,
 };
-use rsnano_work::WorkThresholds;
+use rsnano_work_validation::WorkThresholds;
 
 use super::BlockInsertInstructions;
 use crate::BlockError;

@@ -117,7 +117,7 @@ impl<'a> UnsavedAccountChainBuilder<'a> {
 mod tests {
     use super::*;
     use rsnano_types::{BlockDetails, BlockHash, DEV_GENESIS_BLOCK, Epoch, StateBlockArgs};
-    use rsnano_work::WorkThresholds;
+    use rsnano_work_validation::WorkThresholds;
 
     #[test]
     fn state_send() {

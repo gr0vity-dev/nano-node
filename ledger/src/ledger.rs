@@ -28,7 +28,7 @@ use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
 };
-use rsnano_work::WorkThresholds;
+use rsnano_work_validation::WorkThresholds;
 
 use crate::{
     BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, GenerateCacheFlags,

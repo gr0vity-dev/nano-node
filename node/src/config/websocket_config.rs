@@ -20,7 +20,7 @@ impl WebsocketConfig {
 
 #[cfg(test)]
 mod tests {
-    use rsnano_work::WorkThresholds;
+    use rsnano_work_validation::WorkThresholds;
 
     use super::*;
 

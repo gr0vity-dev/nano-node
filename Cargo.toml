@@ -12,6 +12,7 @@ members = [
 	"nullables/env", 
 	"types",
 	"utils",
+	"work_validation",
 	"work",
 	"messages",
 	"network",

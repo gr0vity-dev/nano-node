@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 rsnano_types = { path = "../types" }
 rsnano_utils = { path = "../utils" }
-rsnano_work = { path = "../work" }
+rsnano_work_validation = { path = "../work_validation" }
 rsnano_store_lmdb = { path = "../store_lmdb" }
 rsnano_ledger = { path = "../ledger" }
 rsnano_nullable_clock = { path = "../nullables/clock" }
