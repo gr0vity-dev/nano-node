@@ -4,8 +4,7 @@ use rsnano_rpc_messages::{HostWithPortArgs, StartedResponse};
 impl RpcCommandHandler {
     pub(crate) fn keepalive(&self, args: HostWithPortArgs) -> anyhow::Result<StartedResponse> {
         self.node.runtime.block_on(async {
-            self.node
-                .services()
+            self.network_services
                 .keepalive_publisher
                 .keepalive_or_connect(args.address, args.port.into())
                 .await
@@ -26,7 +25,10 @@ mod tests {
     #[test]
     fn keepalive() {
         let node = Arc::new(Node::new_null());
-        let keepalive_tracker = node.services().keepalive_publisher.track_keepalives();
+        let keepalive_tracker = node
+            .network_services()
+            .keepalive_publisher
+            .track_keepalives();
         let cmd = RpcCommand::keepalive("foobar.com", 123);
 
         let result: StartedResponse = spawn(move || test_rpc_command_with_node(cmd, node))

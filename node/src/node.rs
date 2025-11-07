@@ -47,7 +47,8 @@ use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
 use crate::{
-    NodeCallbacks, NodeServices, OnlineWeightSampler, TelemetryServices, WalletServices,
+    NetworkServices, NodeCallbacks, NodeServices, OnlineWeightSampler, TelemetryServices,
+    WalletServices,
     aec_event_processor::AecEventProcessor,
     block_processing::{
         BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue, BlockSource,
@@ -183,6 +184,10 @@ impl Node {
 
     pub fn telemetry_services(&self) -> TelemetryServices {
         self.services.telemetry_services()
+    }
+
+    pub fn network_services(&self) -> NetworkServices {
+        self.services.network_services()
     }
 
     fn new(args: NodeArgs, is_nulled: bool, mut node_id_key_file: NodeIdKeyFile) -> Self {
@@ -1582,7 +1587,9 @@ impl Node {
             panic!("Genesis block not found!");
         }
 
-        self.services.network_threads.lock().unwrap().start();
+        let network_services = self.network_services();
+
+        network_services.network_threads.lock().unwrap().start();
         self.message_processor.lock().unwrap().start();
         self.aec_voter.start(Duration::from_millis(20));
 
@@ -1591,7 +1598,7 @@ impl Node {
         }
 
         if self.config.tcp.max_inbound_connections > 0 {
-            self.services.tcp_listener.start();
+            network_services.tcp_listener.start();
         } else {
             warn!("Peering is disabled");
         }
@@ -1640,10 +1647,12 @@ impl Node {
         }
         info!("Node stopping...");
 
+        let network_services = self.network_services();
+
         self.ticker_pool.stop();
-        self.services.tcp_listener.stop();
+        network_services.tcp_listener.stop();
         self.aec_voter.stop();
-        self.services.peer_connector.stop();
+        network_services.peer_connector.stop();
         // Cancels ongoing work generation tasks, which may be blocking other threads
         // No tasks may wait for work generation in I/O threads, or termination signal capturing will be unable to call node::stop()
         self.services.work_factory.stop();
@@ -1665,7 +1674,7 @@ impl Node {
         self.services.wallets.stop();
         self.services.local_block_broadcaster.stop();
         self.message_processor.lock().unwrap().stop();
-        self.services.network_threads.lock().unwrap().stop(); // Stop network last to avoid killing in-use sockets
+        network_services.network_threads.lock().unwrap().stop(); // Stop network last to avoid killing in-use sockets
         self.vote_rebroadcaster.stop();
         self.workers.join();
         self.tokio_runner.stop();

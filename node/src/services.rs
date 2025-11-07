@@ -69,6 +69,45 @@ impl TelemetryServices {
     }
 }
 
+#[derive(Clone)]
+pub struct NetworkServices {
+    pub network: Arc<RwLock<Network>>,
+    pub tcp_listener: Arc<TcpListener>,
+    pub peer_connector: Arc<PeerConnector>,
+    pub(crate) network_threads: Arc<Mutex<NetworkThreads>>,
+    pub message_sender: Arc<Mutex<MessageSender>>,
+    pub message_flooder: Arc<Mutex<MessageFlooder>>,
+    pub keepalive_publisher: Arc<KeepalivePublisher>,
+    pub inbound_message_queue: Arc<InboundMessageQueue>,
+    pub network_filter: Arc<NetworkFilter>,
+}
+
+impl NetworkServices {
+    pub(crate) fn new(
+        network: Arc<RwLock<Network>>,
+        tcp_listener: Arc<TcpListener>,
+        peer_connector: Arc<PeerConnector>,
+        network_threads: Arc<Mutex<NetworkThreads>>,
+        message_sender: Arc<Mutex<MessageSender>>,
+        message_flooder: Arc<Mutex<MessageFlooder>>,
+        keepalive_publisher: Arc<KeepalivePublisher>,
+        inbound_message_queue: Arc<InboundMessageQueue>,
+        network_filter: Arc<NetworkFilter>,
+    ) -> Self {
+        Self {
+            network,
+            tcp_listener,
+            peer_connector,
+            network_threads,
+            message_sender,
+            message_flooder,
+            keepalive_publisher,
+            inbound_message_queue,
+            network_filter,
+        }
+    }
+}
+
 /// Bundles the core `Arc` collaborators that make up a running node so tests and
 /// higher layers can grab a focused subset without touching the gigantic
 /// `Node` struct directly.
@@ -126,5 +165,19 @@ impl NodeServices {
 
     pub fn telemetry_services(&self) -> TelemetryServices {
         TelemetryServices::new(self.telemetry.clone(), self.tcp_listener.clone())
+    }
+
+    pub fn network_services(&self) -> NetworkServices {
+        NetworkServices::new(
+            self.network.clone(),
+            self.tcp_listener.clone(),
+            self.peer_connector.clone(),
+            self.network_threads.clone(),
+            self.message_sender.clone(),
+            self.message_flooder.clone(),
+            self.keepalive_publisher.clone(),
+            self.inbound_message_queue.clone(),
+            self.network_filter.clone(),
+        )
     }
 }

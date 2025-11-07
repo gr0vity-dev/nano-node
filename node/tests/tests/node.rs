@@ -512,7 +512,7 @@ fn fork_bootstrap_flip() {
     assert_timely2(|| node2.block_exists(&send2.hash()));
 
     // Additionally add new peer to confirm & replace bootstrap block
-    //node2.services().network.merge_peer(node1.services().network.endpoint());
+    //node2.network_services().network.merge_peer(node1.network_services().network.endpoint());
     establish_tcp(&node2, &node1);
 
     assert_timely_msg(
@@ -1289,7 +1289,7 @@ fn local_block_broadcast() {
     let _ = node1
         .services()
         .peer_connector
-        .connect_to(node2.services().tcp_listener.local_address());
+        .connect_to(node2.network_services().tcp_listener.local_address());
 
     assert_timely2(|| {
         node1
@@ -1431,11 +1431,12 @@ fn fork_no_vote_quorum() {
         .find_node_id(&node3.node_id())
         .unwrap()
         .clone();
-    node2.services().message_sender.lock().unwrap().try_send(
-        &channel,
-        &confirm,
-        TrafficType::Generic,
-    );
+    node2
+        .network_services()
+        .message_sender
+        .lock()
+        .unwrap()
+        .try_send(&channel, &confirm, TrafficType::Generic);
 
     assert_timely_msg(
         Duration::from_secs(10),
@@ -1468,7 +1469,7 @@ fn fork_open() {
 
     let channel = make_fake_channel(&node);
 
-    node.services().inbound_message_queue.put(
+    node.network_services().inbound_message_queue.put(
         Message::Publish(Publish::new_forward(send1.clone())),
         channel.clone(),
     );
@@ -1486,7 +1487,7 @@ fn fork_open() {
 
     // create the 1st open block to receive send1, which should be regarded as the winner just because it is first
     let open1 = lattice.account(&key1).receive_and_change(&send1, 1);
-    node.services().inbound_message_queue.put(
+    node.network_services().inbound_message_queue.put(
         Message::Publish(Publish::new_forward(open1.clone())),
         channel.clone(),
     );
@@ -1499,7 +1500,7 @@ fn fork_open() {
     // create 2nd open block, which is a fork of open1 block
     // create the 1st open block to receive send1, which should be regarded as the winner just because it is first
     let open2 = fork_lattice.account(&key1).receive_and_change(&send1, 2);
-    node.services().inbound_message_queue.put(
+    node.network_services().inbound_message_queue.put(
         Message::Publish(Publish::new_forward(open2.clone())),
         channel.clone(),
     );
@@ -1700,7 +1701,7 @@ fn vote_by_hash_republish() {
     assert_timely2(|| node2.is_active_root(&send1.qualified_root()));
 
     // give block send2 to node1 and wait until the block is received and processed by node1
-    node1.services().network_filter.clear_all();
+    node1.network_services().network_filter.clear_all();
     node1.process_active(send2.clone());
     assert_timely2(|| node1.is_active_root(&send2.qualified_root()));
 
@@ -1736,17 +1737,17 @@ fn fork_election_invalid_block_signature() {
     send3.set_signature(Signature::new()); // Invalid signature
 
     let channel = make_fake_channel(&node1);
-    node1.services().inbound_message_queue.put(
+    node1.network_services().inbound_message_queue.put(
         Message::Publish(Publish::new_forward(send1.clone())),
         channel.clone(),
     );
     assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
 
-    node1.services().inbound_message_queue.put(
+    node1.network_services().inbound_message_queue.put(
         Message::Publish(Publish::new_forward(send3)),
         channel.clone(),
     );
-    node1.services().inbound_message_queue.put(
+    node1.network_services().inbound_message_queue.put(
         Message::Publish(Publish::new_forward(send2.clone())),
         channel.clone(),
     );
@@ -1949,7 +1950,7 @@ fn rep_crawler_rep_remove() {
     let _ = searching_node
         .services()
         .peer_connector
-        .connect_to(node_rep2.services().tcp_listener.local_address());
+        .connect_to(node_rep2.network_services().tcp_listener.local_address());
 
     assert_timely_msg(
         Duration::from_secs(10),
@@ -2106,7 +2107,7 @@ fn node_receive_quorum() {
     let _ = node2
         .services()
         .peer_connector
-        .connect_to(node1.services().tcp_listener.local_address());
+        .connect_to(node1.network_services().tcp_listener.local_address());
 
     assert_timely_msg(
         Duration::from_secs(10),

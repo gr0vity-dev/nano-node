@@ -10,7 +10,7 @@ fn no_self_incoming() {
     let _ = node
         .services()
         .peer_connector
-        .connect_to(node.services().tcp_listener.local_address());
+        .connect_to(node.network_services().tcp_listener.local_address());
     assert_never(Duration::from_secs(2), || {
         node.services()
             .network

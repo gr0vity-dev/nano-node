@@ -117,8 +117,12 @@ impl System {
 
         if self.nodes.len() > 1 && !disconnected {
             let other = &self.nodes[0];
-            let node_addr = node.services().tcp_listener.local_address();
-            if let Err(e) = other.services().peer_connector.connect_to(node_addr) {
+            let node_addr = node.network_services().tcp_listener.local_address();
+            if let Err(e) = other
+                .network_services()
+                .peer_connector
+                .connect_to(node_addr)
+            {
                 panic!("Could not connect to {}. Reason: {:?}", node_addr, e);
             }
 
@@ -334,15 +338,15 @@ pub fn init_tracing() {
 }
 
 pub fn establish_tcp(node: &Node, peer: &Node) -> Arc<Channel> {
-    node.services()
+    node.network_services()
         .peer_connector
-        .connect_to(peer.services().tcp_listener.local_address())
+        .connect_to(peer.network_services().tcp_listener.local_address())
         .unwrap();
 
     assert_timely_msg(
         Duration::from_secs(2),
         || {
-            node.services()
+            node.network_services()
                 .network
                 .read()
                 .unwrap()
@@ -352,7 +356,7 @@ pub fn establish_tcp(node: &Node, peer: &Node) -> Arc<Channel> {
         "node did not connect",
     );
 
-    node.services()
+    node.network_services()
         .network
         .read()
         .unwrap()

@@ -114,7 +114,13 @@ mod tests {
         let cmd = RpcCommand::Telemetry(TelemetryArgs {
             raw: None,
             address: Some(Ipv6Addr::LOCALHOST),
-            port: Some(node.services().tcp_listener.local_address().port().into()),
+            port: Some(
+                node.telemetry_services()
+                    .tcp_listener
+                    .local_address()
+                    .port()
+                    .into(),
+            ),
         });
 
         let expected = node.services().telemetry.local_telemetry();

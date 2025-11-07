@@ -77,7 +77,8 @@ fn last_contacted() {
     // and we need one more keepalive to handle the possibility that there is a keepalive already in flight when we start the crucial part of the test
     // it is possible that there could be multiple keepalives in flight but we assume here that there will be no more than one in flight for the purposes of this test
     let keepalive = Message::Keepalive(Keepalive::default());
-    let mut publisher = node0.services().message_sender.lock().unwrap();
+    let network_services = node0.network_services();
+    let mut publisher = network_services.message_sender.lock().unwrap();
     publisher.try_send(&channel1, &keepalive, TrafficType::Generic);
     publisher.try_send(&channel1, &keepalive, TrafficType::Generic);
     publisher.try_send(&channel1, &keepalive, TrafficType::Generic);
@@ -168,7 +169,8 @@ fn receivable_processor_confirm_insufficient_pos() {
             .vote_count()
     );
 
-    node1.services().inbound_message_queue.put(con1, channel);
+    let inbound_queue = node1.network_services().inbound_message_queue;
+    inbound_queue.put(con1, channel);
 
     assert_timely_eq2(
         || {
@@ -212,7 +214,8 @@ fn receivable_processor_confirm_sufficient_pos() {
             .vote_count()
     );
 
-    node1.services().inbound_message_queue.put(con1, channel);
+    let inbound_queue = node1.network_services().inbound_message_queue;
+    inbound_queue.put(con1, channel);
 
     assert_timely2(|| {
         node1
@@ -383,11 +386,11 @@ fn duplicate_vote_detection() {
         .cloned()
         .unwrap();
 
-    node0.services().message_sender.lock().unwrap().try_send(
-        &channel,
-        &message,
-        TrafficType::Generic,
-    );
+    let message_sender = node0.network_services().message_sender;
+    message_sender
+        .lock()
+        .unwrap()
+        .try_send(&channel, &message, TrafficType::Generic);
     assert_always_eq(
         Duration::from_millis(100),
         || {
@@ -399,11 +402,10 @@ fn duplicate_vote_detection() {
         },
         0,
     );
-    node0.services().message_sender.lock().unwrap().try_send(
-        &channel,
-        &message,
-        TrafficType::Generic,
-    );
+    message_sender
+        .lock()
+        .unwrap()
+        .try_send(&channel, &message, TrafficType::Generic);
     assert_timely_eq(
         Duration::from_secs(2),
         || {
@@ -473,11 +475,11 @@ fn duplicate_revert_vote() {
         .unwrap();
 
     // First vote should be processed
-    node0.services().message_sender.lock().unwrap().try_send(
-        &channel,
-        &message1,
-        TrafficType::Vote,
-    );
+    let message_sender = node0.network_services().message_sender;
+    message_sender
+        .lock()
+        .unwrap()
+        .try_send(&channel, &message1, TrafficType::Vote);
     assert_always_eq(
         Duration::from_millis(100),
         || {
@@ -491,11 +493,10 @@ fn duplicate_revert_vote() {
     );
 
     // Second vote should get dropped from processor queue
-    node0.services().message_sender.lock().unwrap().try_send(
-        &channel,
-        &message2,
-        TrafficType::Vote,
-    );
+    message_sender
+        .lock()
+        .unwrap()
+        .try_send(&channel, &message2, TrafficType::Vote);
     assert_always_eq(
         Duration::from_millis(100),
         || {
@@ -514,10 +515,8 @@ fn duplicate_revert_vote() {
         MessageSerializer::new(ProtocolInfo::default_for(Networks::NanoDevNetwork));
     let msg2_bytes = serializer.serialize(&message2);
     let payload_bytes = &msg2_bytes[MessageHeader::SERIALIZED_SIZE..];
-    assert_eq!(
-        node1.services().network_filter.check_message(payload_bytes),
-        false
-    );
+    let network_filter = node1.network_services().network_filter;
+    assert_eq!(network_filter.check_message(payload_bytes), false);
 }
 
 #[test]
@@ -557,11 +556,11 @@ fn expire_duplicate_filter() {
         .unwrap();
 
     // Send a vote
-    node0.services().message_sender.lock().unwrap().try_send(
-        &channel,
-        &message,
-        TrafficType::Generic,
-    );
+    let message_sender = node0.network_services().message_sender;
+    message_sender
+        .lock()
+        .unwrap()
+        .try_send(&channel, &message, TrafficType::Generic);
 
     assert_always_eq(
         Duration::from_millis(100),
@@ -575,11 +574,10 @@ fn expire_duplicate_filter() {
         0,
     );
 
-    node0.services().message_sender.lock().unwrap().try_send(
-        &channel,
-        &message,
-        TrafficType::Generic,
-    );
+    message_sender
+        .lock()
+        .unwrap()
+        .try_send(&channel, &message, TrafficType::Generic);
 
     assert_timely_eq(
         Duration::from_secs(2),

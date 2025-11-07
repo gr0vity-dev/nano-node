@@ -63,13 +63,13 @@ fn ignore_rebroadcast() {
         .rep_crawler
         .force_query(*DEV_GENESIS_HASH, channel1to2);
 
+    let message_sender = node2.network_services().message_sender;
     let tick = || {
         let msg = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(vote.clone()));
-        node2.services().message_sender.lock().unwrap().try_send(
-            &channel2to1,
-            &msg,
-            TrafficType::RepCrawler,
-        );
+        message_sender
+            .lock()
+            .unwrap()
+            .try_send(&channel2to1, &msg, TrafficType::RepCrawler);
         false
     };
 
@@ -129,7 +129,8 @@ fn rep_weight() {
     );
 
     let (channel1, channel2, channel3) = {
-        let network = node.services().network.read().unwrap();
+        let network_services = node.network_services();
+        let network = network_services.network.read().unwrap();
         (
             network.find_node_id(&node1.get_node_id()).unwrap().clone(),
             network.find_node_id(&node2.get_node_id()).unwrap().clone(),
