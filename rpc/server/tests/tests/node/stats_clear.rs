@@ -13,12 +13,11 @@ fn stats_clear() {
     node.runtime
         .block_on(async { server.client.stats_clear().await.unwrap() });
 
+    let stats = node.stats_service();
     assert_eq!(
-        node.services()
-            .stats
-            .count(StatType::Ledger, DetailType::Fork, Direction::In),
+        stats.count(StatType::Ledger, DetailType::Fork, Direction::In),
         0
     );
 
-    assert!(node.services().stats.last_reset() <= Duration::from_secs(5));
+    assert!(stats.last_reset() <= Duration::from_secs(5));
 }

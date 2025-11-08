@@ -140,7 +140,8 @@ impl InsightApp {
         if let Some(account) = Account::parse(&self.bootstrap.add_account) {
             self.bootstrap.add_account.clear();
             if let Some(node) = self.node_runner.node() {
-                node.services()
+                let bootstrap_services = node.bootstrap_work_services();
+                bootstrap_services
                     .bootstrapper
                     .state()
                     .candidate_accounts
