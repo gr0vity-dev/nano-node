@@ -429,6 +429,7 @@ fn serve_frontiers() {
 fn serve_frontiers_invalid_count() {
     let mut system = System::new();
     let node = system.make_node();
+    let stats = node.ledger_query_services().stats.clone();
 
     let responses = ResponseHelper::new();
     responses.connect(&node);
@@ -454,11 +455,7 @@ fn serve_frontiers_invalid_count() {
     assert_timely_eq(
         Duration::from_secs(5),
         || {
-            node.services().stats.count(
-                StatType::BootstrapServer,
-                DetailType::Invalid,
-                Direction::In,
-            )
+            stats.count(StatType::BootstrapServer, DetailType::Invalid, Direction::In)
         },
         1,
     );
@@ -482,11 +479,7 @@ fn serve_frontiers_invalid_count() {
     assert_timely_eq(
         Duration::from_secs(5),
         || {
-            node.services().stats.count(
-                StatType::BootstrapServer,
-                DetailType::Invalid,
-                Direction::In,
-            )
+            stats.count(StatType::BootstrapServer, DetailType::Invalid, Direction::In)
         },
         2,
     );
@@ -510,11 +503,7 @@ fn serve_frontiers_invalid_count() {
     assert_timely_eq(
         Duration::from_secs(5),
         || {
-            node.services().stats.count(
-                StatType::BootstrapServer,
-                DetailType::Invalid,
-                Direction::In,
-            )
+            stats.count(StatType::BootstrapServer, DetailType::Invalid, Direction::In)
         },
         3,
     );
@@ -541,7 +530,7 @@ impl ResponseHelper {
 
     fn connect(&self, node: &Node) {
         let responses = self.responses.clone();
-        node.services()
+        node.bootstrap_work_services()
             .bootstrap_server
             .set_response_callback(Box::new(move |response, _channel| {
                 responses.lock().unwrap().push(response.clone());
