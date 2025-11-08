@@ -20,6 +20,10 @@ fn codes() {
     config.enable_optimistic_scheduler = false;
     let node = system.build_node().config(config).finish();
     let blocks = setup_chain(&node, 1, &DEV_GENESIS_KEY, false);
+    let consensus_services = node.consensus_services();
+    let vote_processor = consensus_services.vote_processor.clone();
+    let vote_cache = consensus_services.vote_cache.clone();
+    let active = consensus_services.active.clone();
 
     let vote = Vote::new(
         &DEV_GENESIS_KEY,
@@ -37,48 +41,43 @@ fn codes() {
     // Invalid signature
     assert_eq!(
         Err(VoteError::Invalid),
-        node.services().vote_processor.vote_blocking(&vote_invalid)
+        vote_processor.vote_blocking(&vote_invalid)
     );
 
     // No ongoing election (vote goes to vote cache)
     assert_eq!(
         Err(VoteError::Indeterminate),
-        node.services().vote_processor.vote_blocking(&vote)
+        vote_processor.vote_blocking(&vote)
     );
 
-    assert_timely_eq2(|| node.services().vote_cache.lock().unwrap().size(), 1);
+    let vote_cache_for_assert = vote_cache.clone();
+    assert_timely_eq2(|| vote_cache_for_assert.lock().unwrap().size(), 1);
     // Clear vote cache before starting election
-    node.services().vote_cache.lock().unwrap().clear();
+    vote_cache.lock().unwrap().clear();
 
     // First vote from an account for an ongoing election
     start_election(&node, &blocks[0].hash());
     assert_timely2(|| node.is_active_root(&blocks[0].qualified_root()));
-    assert_eq!(node.services().vote_processor.vote_blocking(&vote), Ok(()));
+    assert_eq!(vote_processor.vote_blocking(&vote), Ok(()));
 
     // Processing the same vote is a replay
     assert_eq!(
         Err(VoteError::Replay),
-        node.services().vote_processor.vote_blocking(&vote)
+        vote_processor.vote_blocking(&vote)
     );
 
     // Invalid takes precedence
     assert_eq!(
         Err(VoteError::Invalid),
-        node.services().vote_processor.vote_blocking(&vote_invalid)
+        vote_processor.vote_blocking(&vote_invalid)
     );
 
     // Once the election is removed (confirmed / dropped) the vote is again indeterminate
-    assert!(
-        node.services()
-            .active
-            .write()
-            .unwrap()
-            .erase(&blocks[0].qualified_root())
-    );
+    assert!(active.write().unwrap().erase(&blocks[0].qualified_root()));
 
     assert_eq!(
         Err(VoteError::Indeterminate),
-        node.services().vote_processor.vote_blocking(&vote)
+        vote_processor.vote_blocking(&vote)
     );
 }
 
@@ -87,6 +86,9 @@ fn invalid_signature() {
     let mut system = System::new();
     let node = system.make_node();
     let chain = setup_chain(&node, 1, &DEV_GENESIS_KEY, false);
+    let consensus_services = node.consensus_services();
+    let vote_processor_queue = consensus_services.vote_processor_queue.clone();
+    let active = consensus_services.active.clone();
     let key = PrivateKey::new();
     let vote = Vote::new(&key, Vote::TIMESTAMP_MIN, 0, vec![chain[0].hash()]);
     let mut vote_invalid = vote.clone();
@@ -95,15 +97,12 @@ fn invalid_signature() {
     let vote_invalid = Arc::new(vote_invalid);
     start_election(&node, &chain[0].hash());
 
-    node.services()
-        .vote_processor_queue
-        .enqueue(vote_invalid, None, VoteSource::Live, None);
+    vote_processor_queue.enqueue(vote_invalid, None, VoteSource::Live, None);
 
     assert_always_eq(
         Duration::from_millis(500),
         || {
-            node.services()
-                .active
+            active
                 .read()
                 .unwrap()
                 .election_for_block(&chain[0].hash())
@@ -119,6 +118,9 @@ fn overflow() {
     let mut system = System::new();
     let node = system.make_node();
     let key = PrivateKey::new();
+    let consensus_services = node.consensus_services();
+    let vote_processor_queue = consensus_services.vote_processor_queue.clone();
+    let stats = node.ledger_query_services().stats.clone();
     let vote = Arc::new(Vote::new(
         &key,
         Vote::TIMESTAMP_MIN,
@@ -130,11 +132,7 @@ fn overflow() {
     let mut not_processed = 0;
     const TOTAL: usize = 1000;
     for _ in 0..TOTAL {
-        if !node
-            .services()
-            .vote_processor_queue
-            .enqueue(vote.clone(), None, VoteSource::Live, None)
-        {
+        if !vote_processor_queue.enqueue(vote.clone(), None, VoteSource::Live, None) {
             not_processed += 1;
         }
     }
@@ -143,9 +141,7 @@ fn overflow() {
     assert!(not_processed < TOTAL);
     assert_eq!(
         not_processed as u64,
-        node.services()
-            .stats
-            .count(StatType::VoteProcessor, DetailType::Overfill, Direction::In)
+        stats.count(StatType::VoteProcessor, DetailType::Overfill, Direction::In)
     );
 
     // check that it did not timeout
@@ -173,6 +169,13 @@ fn weights() {
     let node2 = system.make_node();
     let node3 = system.make_node();
 
+    let node0_wallets = node0.wallet_services();
+    let node1_wallets = node1.wallet_services();
+    let node2_wallets = node2.wallet_services();
+    let node3_wallets = node3.wallet_services();
+    let node0_consensus = node0.consensus_services();
+    let node0_ledger = node0.ledger_query_services();
+
     // Create representatives of different weight levels
     let stake = Amount::MAX;
     let level0 = stake / 5000; // 0.02%
@@ -183,37 +186,33 @@ fn weights() {
     let key2 = PrivateKey::new();
     let key3 = PrivateKey::new();
 
-    let wallet_id0 = node0.services().wallets.wallet_ids()[0];
-    let wallet_id1 = node1.services().wallets.wallet_ids()[0];
-    let wallet_id2 = node2.services().wallets.wallet_ids()[0];
-    let wallet_id3 = node3.services().wallets.wallet_ids()[0];
+    let wallet_id0 = node0_wallets.wallets.wallet_ids()[0];
+    let wallet_id1 = node1_wallets.wallets.wallet_ids()[0];
+    let wallet_id2 = node2_wallets.wallets.wallet_ids()[0];
+    let wallet_id3 = node3_wallets.wallets.wallet_ids()[0];
 
     node0.insert_into_wallet(&DEV_GENESIS_KEY);
     node1.insert_into_wallet(&key1);
     node2.insert_into_wallet(&key2);
     node3.insert_into_wallet(&key3);
 
-    node1
-        .services()
+    node1_wallets
         .wallets
         .set_representative(wallet_id1, key1.public_key(), false)
         .wait()
         .unwrap();
-    node2
-        .services()
+    node2_wallets
         .wallets
         .set_representative(wallet_id2, key2.public_key(), false)
         .wait()
         .unwrap();
-    node3
-        .services()
+    node3_wallets
         .wallets
         .set_representative(wallet_id3, key3.public_key(), false)
         .wait()
         .unwrap();
 
-    node0
-        .services()
+    node0_wallets
         .wallets
         .send(
             wallet_id0,
@@ -227,8 +226,7 @@ fn weights() {
         .wait()
         .unwrap();
 
-    node0
-        .services()
+    node0_wallets
         .wallets
         .send(
             wallet_id0,
@@ -242,8 +240,7 @@ fn weights() {
         .wait()
         .unwrap();
 
-    node0
-        .services()
+    node0_wallets
         .wallets
         .send(
             wallet_id0,
@@ -258,29 +255,22 @@ fn weights() {
         .unwrap();
 
     // Wait for representatives
-    assert_timely2(|| node0.services().ledger.rep_weights.len() == 4);
-    node0
-        .services()
-        .online_reps
-        .lock()
-        .unwrap()
-        .set_trended(Amount::MAX);
+    let ledger = node0_ledger.ledger.clone();
+    assert_timely2(|| ledger.rep_weights.len() == 4);
+    let online_reps = node0_consensus.online_reps.clone();
+    online_reps.lock().unwrap().set_trended(Amount::MAX);
 
     // Wait for rep tiers to be updated
-    node0.services().stats.clear();
+    let stats = node0_ledger.stats.clone();
+    stats.clear();
     assert_timely2(|| {
-        node0
-            .services()
-            .stats
-            .count(StatType::RepTiers, DetailType::Updated, Direction::In)
-            >= 2
+        stats.count(StatType::RepTiers, DetailType::Updated, Direction::In) >= 2
     });
 
+    let rep_tiers = node0_consensus.rep_tiers.clone();
     assert_timely_eq2(
         || {
-            node0
-                .services()
-                .rep_tiers
+            rep_tiers
                 .lock()
                 .unwrap()
                 .tier(&key1.public_key())
@@ -289,9 +279,7 @@ fn weights() {
     );
     assert_timely_eq2(
         || {
-            node0
-                .services()
-                .rep_tiers
+            rep_tiers
                 .lock()
                 .unwrap()
                 .tier(&key2.public_key())
@@ -300,9 +288,7 @@ fn weights() {
     );
     assert_timely_eq2(
         || {
-            node0
-                .services()
-                .rep_tiers
+            rep_tiers
                 .lock()
                 .unwrap()
                 .tier(&key3.public_key())
@@ -311,9 +297,7 @@ fn weights() {
     );
     assert_timely_eq2(
         || {
-            node0
-                .services()
-                .rep_tiers
+            rep_tiers
                 .lock()
                 .unwrap()
                 .tier(&DEV_GENESIS_PUB_KEY)
