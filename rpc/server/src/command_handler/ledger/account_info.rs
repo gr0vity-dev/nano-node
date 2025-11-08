@@ -85,9 +85,7 @@ impl RpcCommandHandler {
 
         if unwrap_bool_or_false(args.weight) {
             account_info.weight = Some(
-                self.node
-                    .services()
-                    .ledger
+                self.ledger_services.ledger
                     .any()
                     .weight_exact(args.account.into()),
             );

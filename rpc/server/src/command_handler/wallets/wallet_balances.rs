@@ -11,8 +11,7 @@ impl RpcCommandHandler {
     ) -> anyhow::Result<AccountsBalancesResponse> {
         let threshold = args.threshold.unwrap_or(Amount::ZERO);
         let accounts = self
-            .node
-            .services()
+            .wallet_services
             .wallets
             .get_accounts_of_wallet(&args.wallet)?;
         let mut balances = HashMap::new();

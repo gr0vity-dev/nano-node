@@ -19,8 +19,7 @@ impl RpcCommandHandler {
         let include_only_confirmed = args.include_only_confirmed.unwrap_or(true.into()).inner();
 
         let accounts = self
-            .node
-            .services()
+            .wallet_services
             .wallets
             .get_accounts_of_wallet(&args.wallet)?;
         let any = self.ledger_services.ledger.any();

@@ -7,8 +7,7 @@ impl RpcCommandHandler {
         args: WalletChangeSeedArgs,
     ) -> WalletChangeSeedResponse {
         let (restored_count, last_restored_account) = self
-            .node
-            .services()
+            .wallet_services
             .wallets
             .change_seed(
                 args.wallet,

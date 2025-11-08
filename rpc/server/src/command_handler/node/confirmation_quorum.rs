@@ -7,7 +7,7 @@ impl RpcCommandHandler {
         &self,
         args: ConfirmationQuorumArgs,
     ) -> ConfirmationQuorumResponse {
-        let online_reps = self.services.online_reps.lock().unwrap();
+        let online_reps = self.consensus_services.online_reps.lock().unwrap();
         create_response(args, &online_reps)
     }
 }

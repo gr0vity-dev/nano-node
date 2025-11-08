@@ -11,8 +11,7 @@ impl RpcCommandHandler {
         let sorting = unwrap_bool_or_false(args.sorting);
         let representatives = if sorting {
             let mut representatives: IndexMap<Account, Amount> = self
-                .node
-                .services()
+                .ledger_services
                 .ledger
                 .rep_weights
                 .read()
@@ -24,9 +23,7 @@ impl RpcCommandHandler {
             representatives.truncate(count);
             representatives
         } else {
-            self.node
-                .services()
-                .ledger
+            self.ledger_services.ledger
                 .rep_weights
                 .read()
                 .iter()

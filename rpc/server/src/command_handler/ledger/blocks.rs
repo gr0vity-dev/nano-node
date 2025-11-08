@@ -10,8 +10,7 @@ impl RpcCommandHandler {
         let mut blocks: HashMap<BlockHash, JsonBlock> = HashMap::new();
         for hash in args.hashes {
             let block = self
-                .node
-                .services()
+                .ledger_services
                 .ledger
                 .any()
                 .get_block(&hash)

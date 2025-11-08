@@ -21,9 +21,7 @@ impl RpcCommandHandler {
         let difficulty = args
             .difficulty
             .unwrap_or_else(|| {
-                self.node
-                    .services()
-                    .ledger
+                self.ledger_services.ledger
                     .constants
                     .work
                     .threshold_base()
@@ -55,8 +53,7 @@ impl RpcCommandHandler {
         let any = self.ledger_services.ledger.any();
 
         if !wallet_id.is_zero() && !account.is_zero() {
-            self.node
-                .services()
+            self.wallet_services
                 .wallets
                 .fetch(&wallet_id, &account.into())?;
             previous = any.account_head(&account).unwrap_or_default();
@@ -219,8 +216,7 @@ impl RpcCommandHandler {
             };
 
             let work = match self
-                .node
-                .services()
+                .bootstrap_work_services
                 .work_factory
                 .generate_work(WorkRequest::new(root, difficulty))
             {

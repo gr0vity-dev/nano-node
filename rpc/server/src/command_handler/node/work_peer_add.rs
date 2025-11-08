@@ -4,9 +4,7 @@ use rsnano_types::Peer;
 
 impl RpcCommandHandler {
     pub(crate) fn work_peer_add(&self, args: AddressWithPortArgs) -> SuccessResponse {
-        self.node
-            .services()
-            .work_factory
+        self.bootstrap_work_services.work_factory
             .add_peer(Peer::new(args.address, args.port.into()));
         SuccessResponse::new()
     }

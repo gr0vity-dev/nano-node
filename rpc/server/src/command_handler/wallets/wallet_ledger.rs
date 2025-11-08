@@ -1,7 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use rsnano_ledger::{AnySet, LedgerSet};
-use rsnano_node::Node;
+use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_rpc_messages::{AccountInfo, WalletLedgerArgs, WalletLedgerResponse};
 use rsnano_types::{Account, UnixTimestamp};
 
@@ -18,12 +17,11 @@ impl RpcCommandHandler {
         let modified_since = args.modified_since.unwrap_or_default().inner();
 
         let accounts = self
-            .node
-            .services()
+            .wallet_services
             .wallets
             .get_accounts_of_wallet(&args.wallet)?;
         let account_dtos = get_accounts_info(
-            self.node.clone(),
+            self.ledger_services.ledger.clone(),
             accounts,
             representative,
             weight,
@@ -37,14 +35,14 @@ impl RpcCommandHandler {
 }
 
 fn get_accounts_info(
-    node: Arc<Node>,
+    ledger: Arc<Ledger>,
     accounts: Vec<Account>,
     representative: bool,
     weight: bool,
     receivable: bool,
     modified_since: UnixTimestamp,
 ) -> HashMap<Account, AccountInfo> {
-    let any = node.services().ledger.any();
+    let any = ledger.any();
     let mut account_dtos = HashMap::new();
 
     for account in accounts {

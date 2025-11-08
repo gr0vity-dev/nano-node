@@ -15,8 +15,7 @@ impl RpcCommandHandler {
                 generate_work,
             )?,
             None => self
-                .node
-                .services()
+                .wallet_services
                 .wallets
                 .deterministic_insert2(&args.wallet, generate_work)?,
         };

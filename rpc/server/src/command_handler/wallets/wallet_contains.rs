@@ -7,8 +7,7 @@ impl RpcCommandHandler {
         args: WalletWithAccountArgs,
     ) -> anyhow::Result<ExistsResponse> {
         let wallet_accounts = self
-            .node
-            .services()
+            .wallet_services
             .wallets
             .get_accounts_of_wallet(&args.wallet)?;
         let exists = wallet_accounts.contains(&args.account);

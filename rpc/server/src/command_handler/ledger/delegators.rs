@@ -10,8 +10,7 @@ impl RpcCommandHandler {
         let start_account = args.start.unwrap_or(Account::ZERO).inc_or_max();
 
         let delegators = self
-            .node
-            .services()
+            .ledger_services
             .ledger
             .any()
             .iter_account_range(start_account..)

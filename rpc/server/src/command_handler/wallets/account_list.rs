@@ -7,8 +7,7 @@ impl RpcCommandHandler {
         args: WalletRpcMessage,
     ) -> anyhow::Result<AccountsRpcMessage> {
         let accounts = self
-            .node
-            .services()
+            .wallet_services
             .wallets
             .get_accounts_of_wallet(&args.wallet)?;
         Ok(AccountsRpcMessage::new(accounts))

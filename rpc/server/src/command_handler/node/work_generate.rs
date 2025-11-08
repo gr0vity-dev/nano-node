@@ -60,8 +60,7 @@ impl RpcCommandHandler {
 
         let work_request = WorkRequest::new(args.hash.into(), difficulty);
         let work = self
-            .node
-            .services()
+            .bootstrap_work_services
             .work_factory
             .generate_work(work_request.clone());
 

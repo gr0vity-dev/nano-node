@@ -7,8 +7,7 @@ impl RpcCommandHandler {
         let representative: PublicKey = args.account.into();
 
         let count = self
-            .node
-            .services()
+            .ledger_services
             .ledger
             .any()
             .iter_accounts()

@@ -30,8 +30,7 @@ impl RpcCommandHandler {
             receivable += any.account_receivable(&account);
 
             match self
-                .node
-                .services()
+                .wallet_services
                 .wallets
                 .key_type(args.wallet, &account.into())
             {
@@ -44,8 +43,7 @@ impl RpcCommandHandler {
         }
 
         let deterministic_index = self
-            .node
-            .services()
+            .wallet_services
             .wallets
             .deterministic_index_get(&args.wallet)
             .unwrap();

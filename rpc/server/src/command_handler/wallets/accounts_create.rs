@@ -13,9 +13,7 @@ impl RpcCommandHandler {
 
         let accounts: Result<Vec<Account>, _> = (0..count)
             .map(|_| {
-                self.node
-                    .services()
-                    .wallets
+                self.wallet_services.wallets
                     .deterministic_insert2(wallet, generate_work)
                     .map(Account::from)
             })
