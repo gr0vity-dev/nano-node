@@ -224,9 +224,9 @@ fn insufficient_spend_one() {
     let node = system.make_node();
     let key1 = PrivateKey::new();
     node.insert_into_wallet(&DEV_GENESIS_KEY);
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
 
-    node.services()
+    node.wallet_services()
         .wallets
         .send(
             wallet_id,
@@ -241,7 +241,7 @@ fn insufficient_spend_one() {
         .unwrap();
 
     let error = node
-        .services()
+        .wallet_services()
         .wallets
         .send(
             wallet_id,
@@ -262,9 +262,9 @@ fn spend_all_one() {
     let mut system = System::new();
     let node = system.make_node();
     node.insert_into_wallet(&DEV_GENESIS_KEY);
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
-    node.services()
+    node.wallet_services()
         .wallets
         .send(
             wallet_id,
@@ -278,7 +278,8 @@ fn spend_all_one() {
         .wait()
         .unwrap();
 
-    let any = node.services().ledger.any();
+    let ledger = node.ledger_query_services().ledger;
+    let any = ledger.any();
     let info2 = any.get_account(&DEV_GENESIS_ACCOUNT).unwrap();
     assert_ne!(info2.head, *DEV_GENESIS_HASH);
     let block = any.get_block(&info2.head).unwrap();
@@ -291,9 +292,9 @@ fn send_async() {
     let mut system = System::new();
     let node = system.make_node();
     node.insert_into_wallet(&DEV_GENESIS_KEY);
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
-    let block = node.services().wallets.send(
+    let block = node.wallet_services().wallets.send(
         wallet_id,
         *DEV_GENESIS_ACCOUNT,
         key2.account(),
@@ -312,12 +313,12 @@ fn spend() {
     let mut system = System::new();
     let node = system.make_node();
     node.insert_into_wallet(&DEV_GENESIS_KEY);
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
     // Sending from empty accounts should always be an error.
     // Accounts need to be opened with an open block, not a send block.
     assert!(
-        node.services()
+        node.wallet_services()
             .wallets
             .send(
                 wallet_id,
@@ -332,7 +333,7 @@ fn spend() {
             .is_err()
     );
 
-    node.services()
+    node.wallet_services()
         .wallets
         .send(
             wallet_id,
@@ -353,9 +354,9 @@ fn partial_spend() {
     let mut system = System::new();
     let node = system.make_node();
     node.insert_into_wallet(&DEV_GENESIS_KEY);
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
-    node.services()
+    node.wallet_services()
         .wallets
         .send(
             wallet_id,
@@ -379,19 +380,19 @@ fn partial_spend() {
 fn spend_no_previous() {
     let mut system = System::new();
     let node = system.make_node();
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     {
         node.insert_into_wallet(&DEV_GENESIS_KEY);
         for _ in 0..50 {
             let key = PrivateKey::new();
-            node.services()
+            node.wallet_services()
                 .wallets
                 .insert_adhoc2(&wallet_id, &key.raw_key(), false)
                 .unwrap();
         }
     }
     let key2 = PrivateKey::new();
-    node.services()
+    node.wallet_services()
         .wallets
         .send(
             wallet_id,
@@ -729,21 +730,21 @@ fn wallet_store_import() {
     let mut system = System::new();
     let node1 = system.make_node();
     let node2 = system.make_node();
-    let wallet_id1 = node1.services().wallets.wallet_ids()[0];
-    let wallet_id2 = node2.services().wallets.wallet_ids()[0];
+    let wallet_id1 = node1.wallet_services().wallets.wallet_ids()[0];
+    let wallet_id2 = node2.wallet_services().wallets.wallet_ids()[0];
     let key1 = PrivateKey::new();
     node1
-        .services()
+        .wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id1, &key1.raw_key(), false)
         .unwrap();
-    let json = node1.services().wallets.serialize(wallet_id1).unwrap();
+    let json = node1.wallet_services().wallets.serialize(wallet_id1).unwrap();
     node2
-        .services()
+        .wallet_services()
         .wallets
         .import_replace(wallet_id2, &json, "")
         .unwrap();
-    assert!(node2.services().wallets.exists(&key1.public_key()));
+    assert!(node2.wallet_services().wallets.exists(&key1.public_key()));
 }
 
 #[test]
@@ -751,17 +752,17 @@ fn wallet_store_fail_import_bad_password() {
     let mut system = System::new();
     let node1 = system.make_node();
     let node2 = system.make_node();
-    let wallet_id1 = node1.services().wallets.wallet_ids()[0];
-    let wallet_id2 = node2.services().wallets.wallet_ids()[0];
+    let wallet_id1 = node1.wallet_services().wallets.wallet_ids()[0];
+    let wallet_id2 = node2.wallet_services().wallets.wallet_ids()[0];
     let key1 = PrivateKey::new();
     node1
-        .services()
+        .wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id1, &key1.raw_key(), false)
         .unwrap();
-    let json = node1.services().wallets.serialize(wallet_id1).unwrap();
+    let json = node1.wallet_services().wallets.serialize(wallet_id1).unwrap();
     node2
-        .services()
+        .wallet_services()
         .wallets
         .import_replace(wallet_id2, &json, "1")
         .unwrap_err();
@@ -771,9 +772,9 @@ fn wallet_store_fail_import_bad_password() {
 fn wallet_store_fail_import_corrupt() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let wallet_id1 = node1.services().wallets.wallet_ids()[0];
+    let wallet_id1 = node1.wallet_services().wallets.wallet_ids()[0];
     node1
-        .services()
+        .wallet_services()
         .wallets
         .import_replace(wallet_id1, "", "1")
         .unwrap_err();
@@ -784,14 +785,14 @@ fn wallet_store_fail_import_corrupt() {
 fn work() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let wallet_id1 = node1.services().wallets.wallet_ids()[0];
+    let wallet_id1 = node1.wallet_services().wallets.wallet_ids()[0];
     node1
-        .services()
+        .wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id1, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
     node1
-        .services()
+        .wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id1, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
@@ -799,7 +800,7 @@ fn work() {
     let start = Instant::now();
     loop {
         let work = node1
-            .services()
+            .wallet_services()
             .wallets
             .work_get(&wallet_id1, &DEV_GENESIS_PUB_KEY);
         if DEV_NETWORK_PARAMS
@@ -819,16 +820,16 @@ fn work() {
 fn work_generate() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let wallet_id = node1.services().wallets.wallet_ids()[0];
+    let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
     node1
-        .services()
+        .wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
-    let account1 = node1.services().wallets.get_accounts(1)[0];
+    let account1 = node1.wallet_services().wallets.get_accounts(1)[0];
     let key = PrivateKey::new();
     let _block = node1
-        .services()
+        .wallet_services()
         .wallets
         .send(
             wallet_id,
@@ -842,10 +843,9 @@ fn work_generate() {
         .wait()
         .unwrap();
 
+    let ledger = node1.ledger_query_services().ledger;
     assert_timely2(|| {
-        node1
-            .services()
-            .ledger
+        ledger
             .any()
             .account_balance(&DEV_GENESIS_ACCOUNT)
             != Amount::MAX
@@ -854,10 +854,10 @@ fn work_generate() {
     let start = Instant::now();
     loop {
         let work1 = node1
-            .services()
+            .wallet_services()
             .wallets
             .work_get(&wallet_id, &account1.into());
-        let root = node1.services().ledger.any().latest_root(&account1);
+        let root = ledger.any().latest_root(&account1);
         if DEV_NETWORK_PARAMS.work.difficulty(&root, work1)
             >= DEV_NETWORK_PARAMS.work.threshold_base()
         {
@@ -873,16 +873,16 @@ fn work_generate() {
 fn work_cache_delayed() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let wallet_id = node1.services().wallets.wallet_ids()[0];
+    let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
     node1
-        .services()
+        .wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
-    let account1 = node1.services().wallets.get_accounts(1)[0];
+    let account1 = node1.wallet_services().wallets.get_accounts(1)[0];
     let key = PrivateKey::new();
     let _block1 = node1
-        .services()
+        .wallet_services()
         .wallets
         .send(
             wallet_id,
@@ -897,7 +897,7 @@ fn work_cache_delayed() {
         .unwrap();
 
     let block2 = node1
-        .services()
+        .wallet_services()
         .wallets
         .send(
             wallet_id,
@@ -911,12 +911,12 @@ fn work_cache_delayed() {
         .wait()
         .unwrap();
 
-    assert_eq!(node1.services().wallets.delayed_work_count(), 1);
+    assert_eq!(node1.wallet_services().wallets.delayed_work_count(), 1);
     let threshold = node1.network_params.work.threshold_base();
     let start = Instant::now();
     loop {
         let work1 = node1
-            .services()
+            .wallet_services()
             .wallets
             .work_get(&wallet_id, &account1.into());
 
@@ -938,12 +938,12 @@ fn work_cache_delayed() {
 fn insert_locked() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let wallet_id = node1.services().wallets.wallet_ids()[0];
+    let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
     {
-        node1.services().wallets.rekey(&wallet_id, "1").unwrap();
+        node1.wallet_services().wallets.rekey(&wallet_id, "1").unwrap();
         assert_eq!(
             node1
-                .services()
+                .wallet_services()
                 .wallets
                 .enter_password(wallet_id, "")
                 .unwrap_err(),
@@ -951,7 +951,7 @@ fn insert_locked() {
         );
     }
     let err = node1
-        .services()
+        .wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id, &RawKey::from(42), true)
         .unwrap_err();
@@ -1041,12 +1041,12 @@ fn reseed() {
 fn insert_deterministic_locked() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let wallet_id = node1.services().wallets.wallet_ids()[0];
+    let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
     {
-        node1.services().wallets.rekey(&wallet_id, "1").unwrap();
+        node1.wallet_services().wallets.rekey(&wallet_id, "1").unwrap();
         assert_eq!(
             node1
-                .services()
+                .wallet_services()
                 .wallets
                 .enter_password(wallet_id, "")
                 .unwrap_err(),
@@ -1054,7 +1054,7 @@ fn insert_deterministic_locked() {
         );
     }
     let err = node1
-        .services()
+        .wallet_services()
         .wallets
         .deterministic_insert2(&wallet_id, true)
         .unwrap_err();
@@ -1065,15 +1065,15 @@ fn insert_deterministic_locked() {
 fn no_work() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let wallet_id = node1.services().wallets.wallet_ids()[0];
+    let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
     node1
-        .services()
+        .wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), false)
         .unwrap();
     let key2 = PrivateKey::new();
     let block = node1
-        .services()
+        .wallet_services()
         .wallets
         .send(
             wallet_id,
@@ -1093,7 +1093,7 @@ fn no_work() {
             >= DEV_NETWORK_PARAMS.work.threshold(block.details())
     );
     let cached_work = node1
-        .services()
+        .wallet_services()
         .wallets
         .work_get(&wallet_id, &DEV_GENESIS_PUB_KEY);
     assert_eq!(cached_work, 0.into());
@@ -1103,16 +1103,16 @@ fn no_work() {
 fn send_race() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let wallet_id = node1.services().wallets.wallet_ids()[0];
+    let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
     node1
-        .services()
+        .wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
     let key2 = PrivateKey::new();
     for i in 1..60 {
         node1
-            .services()
+            .wallet_services()
             .wallets
             .send(
                 wallet_id,
@@ -1136,12 +1136,12 @@ fn send_race() {
 fn password_race() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let wallet_id = node1.services().wallets.wallet_ids()[0];
+    let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
     std::thread::scope(|s| {
         s.spawn(|| {
             for i in 0..100 {
                 node1
-                    .services()
+                    .wallet_services()
                     .wallets
                     .rekey(&wallet_id, i.to_string())
                     .unwrap();
@@ -1149,7 +1149,7 @@ fn password_race() {
         });
         s.spawn(|| {
             // Password should always be valid, the rekey operation should be atomic.
-            assert!(node1.services().wallets.valid_password(&wallet_id).is_ok());
+            assert!(node1.wallet_services().wallets.valid_password(&wallet_id).is_ok());
         });
     });
 }
@@ -1158,12 +1158,12 @@ fn password_race() {
 fn password_race_corrupted_seed() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let wallet_id = node1.services().wallets.wallet_ids()[0];
-    node1.services().wallets.rekey(&wallet_id, "4567").unwrap();
-    let seed = node1.services().wallets.get_seed(wallet_id).unwrap();
+    let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
+    node1.wallet_services().wallets.rekey(&wallet_id, "4567").unwrap();
+    let seed = node1.wallet_services().wallets.get_seed(wallet_id).unwrap();
     assert!(
         node1
-            .services()
+            .wallet_services()
             .wallets
             .attempt_password(&wallet_id, "4567")
             .is_ok()
@@ -1171,18 +1171,18 @@ fn password_race_corrupted_seed() {
     std::thread::scope(|s| {
         s.spawn(|| {
             for _ in 0..10 {
-                let _ = node1.services().wallets.rekey(&wallet_id, "0000");
+                let _ = node1.wallet_services().wallets.rekey(&wallet_id, "0000");
             }
         });
         s.spawn(|| {
             for _ in 0..10 {
-                let _ = node1.services().wallets.rekey(&wallet_id, "1234");
+                let _ = node1.wallet_services().wallets.rekey(&wallet_id, "1234");
             }
         });
         s.spawn(|| {
             for _ in 0..10 {
                 let _ = node1
-                    .services()
+                    .wallet_services()
                     .wallets
                     .attempt_password(&wallet_id, "1234");
             }
@@ -1190,26 +1190,26 @@ fn password_race_corrupted_seed() {
     });
 
     if node1
-        .services()
+        .wallet_services()
         .wallets
         .attempt_password(&wallet_id, "1234")
         .is_ok()
     {
-        assert_eq!(node1.services().wallets.get_seed(wallet_id).unwrap(), seed);
+        assert_eq!(node1.wallet_services().wallets.get_seed(wallet_id).unwrap(), seed);
     } else if node1
-        .services()
+        .wallet_services()
         .wallets
         .attempt_password(&wallet_id, "0000")
         .is_ok()
     {
-        assert_eq!(node1.services().wallets.get_seed(wallet_id).unwrap(), seed);
+        assert_eq!(node1.wallet_services().wallets.get_seed(wallet_id).unwrap(), seed);
     } else if node1
-        .services()
+        .wallet_services()
         .wallets
         .attempt_password(&wallet_id, "4567")
         .is_ok()
     {
-        assert_eq!(node1.services().wallets.get_seed(wallet_id).unwrap(), seed);
+        assert_eq!(node1.wallet_services().wallets.get_seed(wallet_id).unwrap(), seed);
     } else {
         unreachable!()
     }
@@ -1219,21 +1219,21 @@ fn password_race_corrupted_seed() {
 fn change_seed() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let wallet_id = node1.services().wallets.wallet_ids()[0];
-    let wallet = node1.services().wallets.get_wallet(&wallet_id).unwrap();
-    node1.services().wallets.enter_initial_password(&wallet);
+    let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
+    let wallet = node1.wallet_services().wallets.get_wallet(&wallet_id).unwrap();
+    node1.wallet_services().wallets.enter_initial_password(&wallet);
     let seed1 = RawKey::from(1);
     let index = 4;
     let prv = deterministic_key(&seed1, index);
     let pub_key = PublicKey::from(prv);
     node1
-        .services()
+        .wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), false)
         .unwrap();
 
     let block = node1
-        .services()
+        .wallet_services()
         .wallets
         .send(
             wallet_id,
@@ -1249,25 +1249,25 @@ fn change_seed() {
 
     assert_timely2(|| node1.block_exists(&block.hash()));
     node1
-        .services()
+        .wallet_services()
         .wallets
         .change_seed(wallet_id, &seed1, 0)
         .unwrap();
-    assert_eq!(node1.services().wallets.get_seed(wallet_id).unwrap(), seed1);
-    assert!(node1.services().wallets.exists(&pub_key));
+    assert_eq!(node1.wallet_services().wallets.get_seed(wallet_id).unwrap(), seed1);
+    assert!(node1.wallet_services().wallets.exists(&pub_key));
 }
 
 #[test]
 fn epoch_2_validation() {
     let mut system = System::new();
     let node = system.make_node();
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
 
     // Upgrade the genesis account to epoch 2
     upgrade_genesis_epoch(&node, Epoch::Epoch1);
     upgrade_genesis_epoch(&node, Epoch::Epoch2);
 
-    node.services()
+    node.wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), false)
         .unwrap();
@@ -1280,7 +1280,7 @@ fn epoch_2_validation() {
     while tries < max_tries {
         tries += 1;
         let send = node
-            .services()
+            .wallet_services()
             .wallets
             .send(
                 wallet_id,
@@ -1298,7 +1298,7 @@ fn epoch_2_validation() {
         assert_eq!(send.source_epoch(), Epoch::Epoch0); // Not used for send state blocks
 
         let receive = node
-            .services()
+            .wallet_services()
             .wallets
             .receive(
                 wallet_id,
@@ -1325,7 +1325,7 @@ fn epoch_2_validation() {
     assert!(tries < max_tries);
 
     // Test a change block
-    node.services()
+    node.wallet_services()
         .wallets
         .change(
             &wallet_id,
@@ -1353,7 +1353,7 @@ fn epoch_2_receive_propagation() {
                 ..Default::default()
             })
             .finish();
-        let wallet_id = node.services().wallets.wallet_ids()[0];
+        let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
 
         // Upgrade the genesis account to epoch 1
         upgrade_genesis_epoch(&node, Epoch::Epoch1);
@@ -1361,17 +1361,17 @@ fn epoch_2_receive_propagation() {
         let key = PrivateKey::new();
 
         // Send and open the account
-        node.services()
+        node.wallet_services()
             .wallets
             .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), false)
             .unwrap();
-        node.services()
+        node.wallet_services()
             .wallets
             .insert_adhoc2(&wallet_id, &key.raw_key(), false)
             .unwrap();
         let amount = node.config.receive_minimum;
         let send1 = node
-            .services()
+            .wallet_services()
             .wallets
             .send(
                 wallet_id,
@@ -1385,7 +1385,7 @@ fn epoch_2_receive_propagation() {
             .wait()
             .unwrap();
 
-        node.services()
+        node.wallet_services()
             .wallets
             .receive(
                 wallet_id,
@@ -1404,7 +1404,7 @@ fn epoch_2_receive_propagation() {
 
         // Send a block
         let send2 = node
-            .services()
+            .wallet_services()
             .wallets
             .send(
                 wallet_id,
@@ -1419,7 +1419,7 @@ fn epoch_2_receive_propagation() {
             .unwrap();
 
         let receive2 = node
-            .services()
+            .wallet_services()
             .wallets
             .receive(
                 wallet_id,
@@ -1438,7 +1438,7 @@ fn epoch_2_receive_propagation() {
                     >= DEV_NETWORK_PARAMS.work.epoch_2_receive
             );
             assert_eq!(
-                node.services()
+                node.ledger_query_services()
                     .ledger
                     .any()
                     .get_block(&receive2.hash())
@@ -1469,7 +1469,7 @@ fn epoch_2_receive_unopened() {
                 ..Default::default()
             })
             .finish();
-        let wallet_id = node.services().wallets.wallet_ids()[0];
+        let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
 
         // Upgrade the genesis account to epoch 1
         upgrade_genesis_epoch(&node, Epoch::Epoch1);
@@ -1477,14 +1477,14 @@ fn epoch_2_receive_unopened() {
         let key = PrivateKey::new();
 
         // Send
-        node.services()
+        node.wallet_services()
             .wallets
             .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), false)
             .unwrap();
         let amount = node.config.receive_minimum;
 
         let send1 = node
-            .services()
+            .wallet_services()
             .wallets
             .send(
                 wallet_id,
@@ -1516,13 +1516,13 @@ fn epoch_2_receive_unopened() {
         .into();
         node.process(epoch2_unopened);
 
-        node.services()
+        node.wallet_services()
             .wallets
             .insert_adhoc2(&wallet_id, &key.raw_key(), false)
             .unwrap();
 
         let receive1 = node
-            .services()
+            .wallet_services()
             .wallets
             .receive(
                 wallet_id,
@@ -1542,7 +1542,7 @@ fn epoch_2_receive_unopened() {
                     >= DEV_NETWORK_PARAMS.work.epoch_2_receive
             );
             assert_eq!(
-                node.services()
+                node.ledger_query_services()
                     .ledger
                     .any()
                     .get_block(&receive1.hash())
@@ -1572,8 +1572,8 @@ fn search_receivable() {
         })
         .finish();
 
-    let wallet_id = node.services().wallets.wallet_ids()[0];
-    node.services()
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
+    node.wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), false)
         .unwrap();
@@ -1583,27 +1583,26 @@ fn search_receivable() {
         .genesis()
         .send(&*DEV_GENESIS_KEY, node.config.receive_minimum);
     node.process(send.clone());
-    node.services()
+    node.wallet_services()
         .wallets
         .search_receivable(&wallet_id)
         .wait()
         .unwrap();
+    let ledger = node.ledger_query_services().ledger;
     assert_always_eq(
         Duration::from_millis(300),
-        || node.services().ledger.block_count(),
+        || ledger.block_count(),
         2,
     );
 
     node.confirm(send.hash());
-    node.services()
+    node.wallet_services()
         .wallets
         .search_receivable(&wallet_id)
         .wait()
         .unwrap();
     assert_timely_eq2(|| node.balance(&DEV_GENESIS_ACCOUNT), Amount::MAX);
-    let receive_hash = node
-        .services()
-        .ledger
+    let receive_hash = ledger
         .any()
         .account_head(&DEV_GENESIS_ACCOUNT)
         .unwrap();
@@ -1613,7 +1612,8 @@ fn search_receivable() {
 }
 
 fn upgrade_genesis_epoch(node: &Node, epoch: Epoch) {
-    let any = node.services().ledger.any();
+    let ledger = node.ledger_query_services().ledger;
+    let any = ledger.any();
     let latest = any.account_head(&DEV_GENESIS_ACCOUNT).unwrap();
     let balance = any.account_balance(&DEV_GENESIS_ACCOUNT);
 
@@ -1623,9 +1623,9 @@ fn upgrade_genesis_epoch(node: &Node, epoch: Epoch) {
         previous: latest,
         representative: *DEV_GENESIS_PUB_KEY,
         balance,
-        link: node.services().ledger.epoch_link(epoch).unwrap(),
+        link: ledger.epoch_link(epoch).unwrap(),
         work: node.work_generate_dev(latest),
     }
     .into();
-    node.services().ledger.process_one(&epoch).unwrap();
+    ledger.process_one(&epoch).unwrap();
 }
