@@ -50,8 +50,7 @@ fn rollback_gap_source() {
     node.process_local(fork1a.clone()).unwrap();
 
     assert!(!node.block_exists(&send2.hash()));
-    node.services()
-        .block_processor_queue
+    node.consensus_services().block_processor_queue
         .push(BlockContext::new(
             fork1b.clone(),
             BlockSource::Forced,
@@ -62,8 +61,7 @@ fn rollback_gap_source() {
 
     assert_timely_eq2(
         || {
-            node.services()
-                .stats
+            node.stats_service()
                 .count(StatType::Rollback, DetailType::Open, Direction::In)
         },
         1,
@@ -75,8 +73,7 @@ fn rollback_gap_source() {
     assert_timely2(|| node.block_exists(&fork1a.hash()));
 
     node.process_local(send2.clone()).unwrap();
-    node.services()
-        .block_processor_queue
+    node.consensus_services().block_processor_queue
         .push(BlockContext::new(
             fork1b.clone(),
             BlockSource::Forced,
@@ -85,8 +82,7 @@ fn rollback_gap_source() {
 
     assert_timely_eq2(
         || {
-            node.services()
-                .stats
+            node.stats_service()
                 .count(StatType::Rollback, DetailType::Open, Direction::In)
         },
         2,
@@ -121,13 +117,11 @@ fn vote_by_hash_bundle() {
     }
 
     // Confirm the last block to confirm the entire chain
-    node.services()
-        .ledger
+    node.ledger_query_services().ledger
         .confirm(blocks.last().unwrap().hash());
 
     // Insert the genesis key and a new key into the wallet
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), false)
         .unwrap();
 
@@ -229,12 +223,10 @@ fn send_callback() {
     let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
 
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &key2.raw_key(), true)
         .unwrap();
 
@@ -647,8 +639,7 @@ fn fork_publish_inactive() {
 
     assert_timely_eq2(
         || {
-            node.services()
-                .active
+            node.consensus_services().active
                 .read()
                 .unwrap()
                 .election_for_root(&send1.qualified_root())
@@ -659,8 +650,7 @@ fn fork_publish_inactive() {
     );
 
     assert_eq!(
-        node.services()
-            .active
+        node.consensus_services().active
             .read()
             .unwrap()
             .election_for_root(&send1.qualified_root())
@@ -680,13 +670,11 @@ fn unlock_search() {
     let balance = node.balance(&DEV_GENESIS_ACCOUNT);
 
     node.wallet_services().wallets.rekey(&wallet_id, "").unwrap();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
 
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .send(
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
@@ -707,15 +695,13 @@ fn unlock_search() {
         0,
     );
 
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &key2.raw_key(), true)
         .unwrap();
     //node.wallet_services().wallets
     //    .set_password(&wallet_id, &KeyPair::new().private_key())
     //    .unwrap();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .enter_password(wallet_id, "")
         .unwrap();
 
@@ -733,8 +719,7 @@ fn search_receivable_confirmed() {
     let node = system.build_node().config(config).finish();
     let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
 
@@ -770,13 +755,11 @@ fn search_receivable_confirmed() {
         .unwrap();
     assert_timely2(|| node.block_hashes_confirmed(&[send2.hash()]));
 
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .remove_key(&wallet_id, &*DEV_GENESIS_PUB_KEY)
         .unwrap();
 
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &key2.raw_key(), true)
         .unwrap();
 
@@ -797,12 +780,10 @@ fn search_receivable() {
     let node = system.make_node();
     let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .send(
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
@@ -815,13 +796,11 @@ fn search_receivable() {
         .wait()
         .unwrap();
 
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &key2.raw_key(), true)
         .unwrap();
 
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .search_receivable(&wallet_id)
         .wait()
         .unwrap();
@@ -872,8 +851,7 @@ fn search_receivable_same() {
     assert!(send_result2.is_ok());
 
     node.insert_into_wallet(&key2);
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .search_receivable(&wallet_id)
         .wait_timeout(Duration::from_secs(5))
         .unwrap();
@@ -888,16 +866,13 @@ fn search_receivable_multiple() {
     let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
     let key3 = PrivateKey::new();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &key3.raw_key(), true)
         .unwrap();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .send(
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
@@ -911,8 +886,7 @@ fn search_receivable_multiple() {
         .unwrap();
 
     assert_timely2(|| !node.balance(&key3.account()).is_zero());
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .send(
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
@@ -924,8 +898,7 @@ fn search_receivable_multiple() {
         )
         .wait_timeout(Duration::from_secs(5))
         .unwrap();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .send(
             wallet_id,
             key3.account(),
@@ -937,12 +910,10 @@ fn search_receivable_multiple() {
         )
         .wait_timeout(Duration::from_secs(5))
         .unwrap();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &key2.raw_key(), true)
         .unwrap();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .search_receivable(&wallet_id)
         .wait_timeout(Duration::from_secs(5))
         .unwrap();
@@ -1146,17 +1117,14 @@ fn send_self() {
     let key2 = PrivateKey::new();
     let node = system.make_node();
     let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &key2.raw_key(), true)
         .unwrap();
 
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .send(
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
@@ -1187,8 +1155,7 @@ fn balance() {
     let node = system.make_node();
 
     let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
 
@@ -1481,8 +1448,7 @@ fn fork_open() {
 
     // register key for genesis account, not sure why we do this, it seems needless,
     // since the genesis account at this stage has zero voting weight
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
 
@@ -1510,8 +1476,7 @@ fn fork_open() {
     // we expect to find 2 blocks in the election and we expect the first block to be the winner just because it was first
     assert_timely_eq2(
         || {
-            node.services()
-                .active
+            node.consensus_services().active
                 .read()
                 .unwrap()
                 .election_for_root(&open2.qualified_root())
@@ -1522,8 +1487,7 @@ fn fork_open() {
     );
     assert_eq!(
         open1.hash(),
-        node.services()
-            .active
+        node.consensus_services().active
             .read()
             .unwrap()
             .election_for_root(&open2.qualified_root())
@@ -1576,8 +1540,7 @@ fn online_reps_rep_crawler() {
     );
 
     // After inserting to rep crawler
-    node.services()
-        .rep_crawler
+    node.consensus_services().rep_crawler
         .force_query(*DEV_GENESIS_HASH, channel.channel_id());
     let _ = node.consensus_services().vote_processor.vote_blocking(&vote);
 
@@ -1803,8 +1766,7 @@ fn confirm_back() {
     assert_eq!(node.consensus_services().active.read().unwrap().len(), 3);
     let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send2.hash()]));
 
-    node.services()
-        .vote_processor_queue
+    node.consensus_services().vote_processor_queue
         .enqueue(vote, None, VoteSource::Live, None);
 
     assert_timely_eq2(|| node.consensus_services().active.read().unwrap().len(), 0);
@@ -2322,8 +2284,7 @@ fn block_processor_signatures() {
 
     // Insert the genesis key into the wallet for signing operations
     let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
 
