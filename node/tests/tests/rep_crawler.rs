@@ -16,7 +16,7 @@ fn ignore_rebroadcast() {
     let node2 = system.make_node();
 
     let channel1to2 = node1
-        .services()
+        .network_services()
         .network
         .read()
         .unwrap()
@@ -25,7 +25,7 @@ fn ignore_rebroadcast() {
         .channel_id();
 
     let channel2to1 = node2
-        .services()
+        .network_services()
         .network
         .read()
         .unwrap()
@@ -34,7 +34,7 @@ fn ignore_rebroadcast() {
         .expect("channel not found 2 to 1");
 
     node1
-        .services()
+        .consensus_services()
         .rep_crawler
         .force_query(*DEV_GENESIS_HASH, channel1to2);
 
@@ -42,7 +42,7 @@ fn ignore_rebroadcast() {
         Duration::from_millis(100),
         || {
             node1
-                .services()
+                .consensus_services()
                 .online_reps
                 .lock()
                 .unwrap()
@@ -59,7 +59,7 @@ fn ignore_rebroadcast() {
         vec![*DEV_GENESIS_HASH],
     );
     node1
-        .services()
+        .consensus_services()
         .rep_crawler
         .force_query(*DEV_GENESIS_HASH, channel1to2);
 
@@ -76,7 +76,7 @@ fn ignore_rebroadcast() {
     assert_never(Duration::from_secs(1), || {
         tick()
             || node1
-                .services()
+                .consensus_services()
                 .online_reps
                 .lock()
                 .unwrap()
@@ -108,7 +108,7 @@ fn rep_weight() {
     node2.process_multi(&blocks);
     node3.process_multi(&blocks);
     assert_eq!(
-        node.services()
+        node.consensus_services()
             .online_reps
             .lock()
             .unwrap()
@@ -119,7 +119,7 @@ fn rep_weight() {
 
     assert_timely_eq2(
         || {
-            node.services()
+            node.network_services()
                 .network
                 .read()
                 .unwrap()
@@ -171,13 +171,13 @@ fn rep_weight() {
         Some(channel3.clone()),
     );
 
-    node.services().rep_crawler.force_process2(vote0);
-    node.services().rep_crawler.force_process2(vote1);
-    node.services().rep_crawler.force_process2(vote2);
+    node.consensus_services().rep_crawler.force_process2(vote0);
+    node.consensus_services().rep_crawler.force_process2(vote1);
+    node.consensus_services().rep_crawler.force_process2(vote2);
 
     assert_timely_eq2(
         || {
-            node.services()
+            node.consensus_services()
                 .online_reps
                 .lock()
                 .unwrap()
@@ -186,14 +186,14 @@ fn rep_weight() {
         2,
     );
     // Make sure we get the rep with the most weight first
-    let rep = node.services().online_reps.lock().unwrap().peered_reps()[0].clone();
+    let rep = node.consensus_services().online_reps.lock().unwrap().peered_reps()[0].clone();
     assert_eq!(
         node.balance(&DEV_GENESIS_ACCOUNT),
-        node.services().ledger.weight(&rep.rep_key)
+        node.ledger_query_services().ledger.weight(&rep.rep_key)
     );
     assert_eq!(channel1, rep.channel);
     assert_eq!(
-        node.services()
+        node.consensus_services()
             .online_reps
             .lock()
             .unwrap()
@@ -201,7 +201,7 @@ fn rep_weight() {
         true
     );
     assert_eq!(
-        node.services()
+        node.consensus_services()
             .online_reps
             .lock()
             .unwrap()
@@ -209,7 +209,7 @@ fn rep_weight() {
         false
     );
     assert_eq!(
-        node.services()
+        node.consensus_services()
             .online_reps
             .lock()
             .unwrap()
@@ -227,7 +227,7 @@ fn rep_list() {
     assert_eq!(
         0,
         node2
-            .services()
+            .consensus_services()
             .online_reps
             .lock()
             .unwrap()
@@ -239,7 +239,7 @@ fn rep_list() {
         Duration::from_secs(5),
         || {
             node2
-                .services()
+                .consensus_services()
                 .online_reps
                 .lock()
                 .unwrap()
@@ -249,7 +249,7 @@ fn rep_list() {
     );
     assert_eq!(
         *DEV_GENESIS_PUB_KEY,
-        node2.services().online_reps.lock().unwrap().peered_reps()[0].rep_key
+        node2.consensus_services().online_reps.lock().unwrap().peered_reps()[0].rep_key
     );
 }
 
@@ -264,7 +264,7 @@ fn rep_connection_close() {
         Duration::from_secs(10),
         || {
             node1
-                .services()
+                .consensus_services()
                 .online_reps
                 .lock()
                 .unwrap()
@@ -277,7 +277,7 @@ fn rep_connection_close() {
         Duration::from_secs(10),
         || {
             node1
-                .services()
+                .consensus_services()
                 .online_reps
                 .lock()
                 .unwrap()
@@ -294,7 +294,7 @@ fn rep_local() {
     node.insert_into_wallet(&DEV_GENESIS_KEY);
     assert_timely_eq2(
         || {
-            node.services()
+            node.consensus_services()
                 .online_reps
                 .lock()
                 .unwrap()
