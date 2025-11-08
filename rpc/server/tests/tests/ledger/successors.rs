@@ -11,8 +11,8 @@ fn successors() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let wallet_id = WalletId::random();
-    node.services().wallets.create(wallet_id);
-    node.services()
+    node.wallet_services().wallets.create(wallet_id);
+    node.wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
