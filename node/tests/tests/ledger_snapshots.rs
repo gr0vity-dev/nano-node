@@ -47,23 +47,17 @@ fn ledger_snapshot_integration_test() {
 // -----------------------------------------------------------------------------
 
 fn assert_peered_principal_reps(node: &Node, expected_rep_count: usize) {
+    let online_reps = node.consensus_services().online_reps.clone();
     assert_timely2(|| {
-        node.services()
-            .online_reps
-            .lock()
-            .unwrap()
-            .peered_principal_reps()
-            .len()
-            == expected_rep_count
+        online_reps.lock().unwrap().peered_principal_reps().len() == expected_rep_count
     });
 }
 
 fn assert_message_received(node: &Node, message_type: MessageType, count: usize) {
+    let stats = node.ledger_query_services().stats.clone();
     assert_timely_eq2(
         || {
-            node.services()
-                .stats
-                .count(StatType::Message, message_type.into(), Direction::In) as usize
+            stats.count(StatType::Message, message_type.into(), Direction::In) as usize
         },
         count,
     );

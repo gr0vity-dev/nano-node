@@ -7,12 +7,12 @@ use test_helpers::{System, assert_never};
 fn no_self_incoming() {
     let mut system = System::new();
     let node = system.make_node();
-    let _ = node
-        .services()
+    let network_services = node.network_services();
+    let _ = network_services
         .peer_connector
-        .connect_to(node.network_services().tcp_listener.local_address());
+        .connect_to(network_services.tcp_listener.local_address());
     assert_never(Duration::from_secs(2), || {
-        node.services()
+        network_services
             .network
             .read()
             .unwrap()

@@ -433,14 +433,9 @@ fn two() {
         0,
     );
     // Make sure the cached vote is for both hashes
-    let vote1 = node
-        .services()
-        .vote_history
-        .votes(&send2.root(), &send2.hash(), false);
-    let vote2 = node
-        .services()
-        .vote_history
-        .votes(&receive1.root(), &receive1.hash(), false);
+    let vote_history = node.consensus_services().vote_history.clone();
+    let vote1 = vote_history.votes(&send2.root(), &send2.hash(), false);
+    let vote2 = vote_history.votes(&receive1.root(), &receive1.hash(), false);
     assert_eq!(vote1.len(), 1);
     assert_eq!(vote2.len(), 1);
     assert!(Arc::ptr_eq(&vote1[0], &vote2[0]));

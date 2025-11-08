@@ -11,13 +11,14 @@ use test_helpers::{System, assert_timely, assert_timely2, start_election, start_
 fn start_stop() {
     let mut system = System::new();
     let node1 = system.make_node();
+    let consensus_services = node1.consensus_services();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
     let send1 = lattice.genesis().send(&key1, Amount::MAX);
     node1.process(send1.clone());
-    assert_eq!(node1.services().active.read().unwrap().len(), 0);
+    assert_eq!(consensus_services.active.read().unwrap().len(), 0);
     start_election(&node1, &send1.hash());
-    assert_eq!(node1.services().active.read().unwrap().len(), 1);
+    assert_eq!(consensus_services.active.read().unwrap().len(), 1);
 }
 
 #[test]
@@ -47,14 +48,11 @@ fn add_existing() {
 
     // the block processor will notice that the block is a fork and it will try to publish it
     // which will update the election object
-    node1
-        .services()
-        .block_processor_queue
-        .push(BlockContext::new(
-            send2.clone().into(),
-            BlockSource::Live,
-            ChannelId::LOOPBACK,
-        ));
+    consensus_services.block_processor_queue.push(BlockContext::new(
+        send2.clone().into(),
+        BlockSource::Live,
+        ChannelId::LOOPBACK,
+    ));
 
     assert!(node1.is_active_root(&send1.qualified_root()));
     assert_timely(Duration::from_secs(5), || {
