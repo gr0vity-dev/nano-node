@@ -186,7 +186,13 @@ fn rep_weight() {
         2,
     );
     // Make sure we get the rep with the most weight first
-    let rep = node.consensus_services().online_reps.lock().unwrap().peered_reps()[0].clone();
+    let rep = node
+        .consensus_services()
+        .online_reps
+        .lock()
+        .unwrap()
+        .peered_reps()[0]
+        .clone();
     assert_eq!(
         node.balance(&DEV_GENESIS_ACCOUNT),
         node.ledger_query_services().ledger.weight(&rep.rep_key)
@@ -249,7 +255,13 @@ fn rep_list() {
     );
     assert_eq!(
         *DEV_GENESIS_PUB_KEY,
-        node2.consensus_services().online_reps.lock().unwrap().peered_reps()[0].rep_key
+        node2
+            .consensus_services()
+            .online_reps
+            .lock()
+            .unwrap()
+            .peered_reps()[0]
+            .rep_key
     );
 }
 

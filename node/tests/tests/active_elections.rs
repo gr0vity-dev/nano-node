@@ -156,11 +156,11 @@ fn fork_replacement_tally() {
         .local_block_broadcaster
         .flood_block_initial(send_last.clone());
     assert_timely2(|| {
-        node1
-            .ledger_query_services()
-            .stats
-            .count(StatType::Message, DetailType::Publish, Direction::In)
-            > 0
+        node1.ledger_query_services().stats.count(
+            StatType::Message,
+            DetailType::Publish,
+            Direction::In,
+        ) > 0
     });
 
     assert_timely2(|| {
@@ -215,11 +215,11 @@ fn fork_replacement_tally() {
         .local_block_broadcaster
         .flood_block_initial(send_last.clone());
     assert_timely2(|| {
-        node1
-            .ledger_query_services()
-            .stats
-            .count(StatType::Message, DetailType::Publish, Direction::In)
-            > 1
+        node1.ledger_query_services().stats.count(
+            StatType::Message,
+            DetailType::Publish,
+            Direction::In,
+        ) > 1
     });
 
     // the send_last block should replace one of the existing block of the election because it has higher vote weight
@@ -269,7 +269,10 @@ fn inactive_votes_cache_basic() {
     node.consensus_services()
         .vote_processor_queue
         .enqueue(vote, None, VoteSource::Live, None);
-    assert_timely_eq2(|| node.consensus_services().vote_cache.lock().unwrap().size(), 1);
+    assert_timely_eq2(
+        || node.consensus_services().vote_cache.lock().unwrap().size(),
+        1,
+    );
     node.process_active(send.clone());
     assert_timely2(|| node.block_confirmed(&send.hash()));
     assert_timely_eq2(|| node.get_stat("election_vote", "cache", Direction::In), 1);
@@ -314,7 +317,12 @@ fn non_final() {
 
     assert_timely_eq2(|| node.get_stat("election_vote", "cache", Direction::In), 1);
 
-    let _quorum_delta = node.consensus_services().online_reps.lock().unwrap().quorum_delta();
+    let _quorum_delta = node
+        .consensus_services()
+        .online_reps
+        .lock()
+        .unwrap()
+        .quorum_delta();
     assert_timely_eq2(
         || {
             let consensus_services = node.consensus_services();
@@ -386,7 +394,9 @@ fn inactive_votes_cache_existing_vote() {
 
     start_election(&node, &send.hash());
     assert!(
-        node.ledger_query_services().ledger.weight(&key.public_key())
+        node.ledger_query_services()
+            .ledger
+            .weight(&key.public_key())
             > node
                 .consensus_services()
                 .online_reps
@@ -402,9 +412,12 @@ fn inactive_votes_cache_existing_vote() {
         0,
         vec![send.hash()],
     ));
-    node.consensus_services()
-        .vote_processor_queue
-        .enqueue(vote1.clone(), None, VoteSource::Live, None);
+    node.consensus_services().vote_processor_queue.enqueue(
+        vote1.clone(),
+        None,
+        VoteSource::Live,
+        None,
+    );
 
     assert_timely_eq2(
         || {
@@ -436,11 +449,11 @@ fn inactive_votes_cache_existing_vote() {
     assert_eq!(send.hash(), last_vote1.hash);
 
     // Attempt to change vote with inactive_votes_cache
-    node.consensus_services()
-        .vote_cache
-        .lock()
-        .unwrap()
-        .insert(&vote1, rep_weight, &HashMap::new());
+    node.consensus_services().vote_cache.lock().unwrap().insert(
+        &vote1,
+        rep_weight,
+        &HashMap::new(),
+    );
 
     let cached = node
         .consensus_services()
@@ -514,7 +527,10 @@ fn inactive_votes_cache_multiple_votes() {
         },
         2,
     );
-    assert_eq!(1, node.consensus_services().vote_cache.lock().unwrap().size());
+    assert_eq!(
+        1,
+        node.consensus_services().vote_cache.lock().unwrap().size()
+    );
     start_election(&node, &send1.hash());
     assert_timely_eq2(
         || {
@@ -578,7 +594,10 @@ fn inactive_votes_cache_election_start() {
     node.consensus_services()
         .vote_processor_queue
         .enqueue(vote1, None, VoteSource::Live, None);
-    assert_timely_eq2(|| node.consensus_services().vote_cache.lock().unwrap().size(), 3);
+    assert_timely_eq2(
+        || node.consensus_services().vote_cache.lock().unwrap().size(),
+        3,
+    );
     assert_eq!(node.consensus_services().active.read().unwrap().len(), 0);
     assert_eq!(1, node.ledger_query_services().ledger.confirmed_count());
 
@@ -630,7 +649,9 @@ fn inactive_votes_cache_election_start() {
         false
     );
     assert_eq!(
-        node.consensus_services().confirming_set.contains(&send3.hash()),
+        node.consensus_services()
+            .confirming_set
+            .contains(&send3.hash()),
         false
     );
     // send7 cannot be voted on but an election should be started from inactive votes
@@ -655,10 +676,11 @@ fn republish_winner() {
 
     assert_timely_eq2(
         || {
-            node2
-                .ledger_query_services()
-                .stats
-                .count(StatType::Message, DetailType::Publish, Direction::In)
+            node2.ledger_query_services().stats.count(
+                StatType::Message,
+                DetailType::Publish,
+                Direction::In,
+            )
         },
         1,
     );
@@ -674,10 +696,11 @@ fn republish_winner() {
     assert_timely2(|| node1.consensus_services().active.read().unwrap().len() > 0);
     assert_eq!(
         1,
-        node2
-            .ledger_query_services()
-            .stats
-            .count(StatType::Message, DetailType::Publish, Direction::In)
+        node2.ledger_query_services().stats.count(
+            StatType::Message,
+            DetailType::Publish,
+            Direction::In
+        )
     );
 
     // Process new fork with vote to change winner
@@ -873,7 +896,10 @@ fn confirm_frontier() {
 
     assert_timely2(|| node2.block_confirmed(&send.hash()));
     assert_timely_eq2(|| node2.ledger_query_services().ledger.confirmed_count(), 2);
-    assert_timely_eq2(|| node2.consensus_services().active.read().unwrap().len(), 0);
+    assert_timely_eq2(
+        || node2.consensus_services().active.read().unwrap().len(),
+        0,
+    );
 }
 
 /// Ensures that election winners set won't grow without bounds when cementing
@@ -975,7 +1001,11 @@ fn dropped_cleanup() {
     assert!(node.is_active_root(&qual_root));
 
     // Now simulate dropping the election
-    node.consensus_services().active.write().unwrap().erase(&qual_root);
+    node.consensus_services()
+        .active
+        .write()
+        .unwrap()
+        .erase(&qual_root);
     // An election was recently dropped
     assert_timely_eq2(
         || node.get_stat("active_elections_dropped", "manual", Direction::In),
@@ -990,8 +1020,17 @@ fn dropped_cleanup() {
 
     start_election(&node, &hash);
     node.force_confirm(&hash);
-    assert_timely2(|| node.ledger_query_services().ledger.confirmed().block_exists(&hash));
-    node.consensus_services().active.write().unwrap().erase(&qual_root);
+    assert_timely2(|| {
+        node.ledger_query_services()
+            .ledger
+            .confirmed()
+            .block_exists(&hash)
+    });
+    node.consensus_services()
+        .active
+        .write()
+        .unwrap()
+        .erase(&qual_root);
 
     // The filter should not have been cleared
     assert!(node.network_services().network_filter.apply(&block_bytes).1);
@@ -1248,12 +1287,18 @@ fn vote_replays() {
         .vote_processor
         .vote_blocking(&vote_send1)
         .unwrap();
-    let res = node.consensus_services().vote_processor.vote_blocking(&vote_send1);
+    let res = node
+        .consensus_services()
+        .vote_processor
+        .vote_blocking(&vote_send1);
     assert!(matches!(res, Err(VoteError::Replay) | Err(VoteError::Late)));
 
     // Wait until the election is removed, at which point the vote is considered late since it's been recently confirmed
     assert_timely_eq2(|| node.consensus_services().active.read().unwrap().len(), 1);
-    let res = node.consensus_services().vote_processor.vote_blocking(&vote_send1);
+    let res = node
+        .consensus_services()
+        .vote_processor
+        .vote_blocking(&vote_send1);
     assert_eq!(res, Err(VoteError::Late));
 
     // Open new account
@@ -1267,17 +1312,24 @@ fn vote_replays() {
         .vote_processor
         .vote_blocking(&vote_open1)
         .unwrap();
-    let res = node.consensus_services().vote_processor.vote_blocking(&vote_open1);
+    let res = node
+        .consensus_services()
+        .vote_processor
+        .vote_blocking(&vote_open1);
     assert!(matches!(res, Err(VoteError::Replay) | Err(VoteError::Late)));
 
     assert_timely_eq2(|| node.consensus_services().active.read().unwrap().len(), 0);
 
     assert_eq!(
-        node.consensus_services().vote_processor.vote_blocking(&vote_open1),
+        node.consensus_services()
+            .vote_processor
+            .vote_blocking(&vote_open1),
         Err(VoteError::Late)
     );
     assert_eq!(
-        node.ledger_query_services().ledger.weight(&key.public_key()),
+        node.ledger_query_services()
+            .ledger
+            .weight(&key.public_key()),
         Amount::nano(1000)
     );
 
@@ -1321,15 +1373,22 @@ fn vote_replays() {
         .unwrap();
 
     // This should still return replay or late, either because the election is still in the AEC or because it is recently confirmed
-    let res = node.consensus_services().vote_processor.vote_blocking(&vote1_send2);
+    let res = node
+        .consensus_services()
+        .vote_processor
+        .vote_blocking(&vote1_send2);
     assert!(matches!(res, Err(VoteError::Replay) | Err(VoteError::Late)));
     assert_timely_eq2(|| node.consensus_services().active.read().unwrap().len(), 0);
     assert_eq!(
-        node.consensus_services().vote_processor.vote_blocking(&vote1_send2),
+        node.consensus_services()
+            .vote_processor
+            .vote_blocking(&vote1_send2),
         Err(VoteError::Late)
     );
     assert_eq!(
-        node.consensus_services().vote_processor.vote_blocking(&vote2_send2),
+        node.consensus_services()
+            .vote_processor
+            .vote_blocking(&vote2_send2),
         Err(VoteError::Late)
     );
 
@@ -1341,19 +1400,27 @@ fn vote_replays() {
         .clear_recently_confirmed();
 
     assert_eq!(
-        node.consensus_services().vote_processor.vote_blocking(&vote_send1),
+        node.consensus_services()
+            .vote_processor
+            .vote_blocking(&vote_send1),
         Err(VoteError::Indeterminate)
     );
     assert_eq!(
-        node.consensus_services().vote_processor.vote_blocking(&vote_open1),
+        node.consensus_services()
+            .vote_processor
+            .vote_blocking(&vote_open1),
         Err(VoteError::Indeterminate)
     );
     assert_eq!(
-        node.consensus_services().vote_processor.vote_blocking(&vote1_send2),
+        node.consensus_services()
+            .vote_processor
+            .vote_blocking(&vote1_send2),
         Err(VoteError::Indeterminate)
     );
     assert_eq!(
-        node.consensus_services().vote_processor.vote_blocking(&vote2_send2),
+        node.consensus_services()
+            .vote_processor
+            .vote_blocking(&vote2_send2),
         Err(VoteError::Indeterminate)
     );
 }
@@ -1365,7 +1432,10 @@ fn confirm_new() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send = lattice.genesis().send(Account::from(1), 100);
     node1.process_active(send.clone());
-    assert_timely_eq2(|| node1.consensus_services().active.read().unwrap().len(), 1);
+    assert_timely_eq2(
+        || node1.consensus_services().active.read().unwrap().len(),
+        1,
+    );
     let node2 = system.make_node();
     // Add key to node2
     node2.insert_into_wallet(&DEV_GENESIS_KEY);
@@ -1405,7 +1475,12 @@ fn active_inactive() {
     start_election(&node, &send2.hash());
     node.force_confirm(&send2.hash());
 
-    assert_timely2(|| !node.consensus_services().confirming_set.contains(&send2.hash()));
+    assert_timely2(|| {
+        !node
+            .consensus_services()
+            .confirming_set
+            .contains(&send2.hash())
+    });
     assert_timely2(|| node.block_confirmed(&send2.hash()));
     assert_timely2(|| node.block_confirmed(&send.hash()));
 
@@ -1442,7 +1517,12 @@ fn activate_inactive() {
 
     start_elections(&node, &[send2.hash()], true);
 
-    assert_timely2(|| !node.consensus_services().confirming_set.contains(&send2.hash()));
+    assert_timely2(|| {
+        !node
+            .consensus_services()
+            .confirming_set
+            .contains(&send2.hash())
+    });
     assert_timely2(|| node.block_confirmed(&send2.hash()));
     assert_timely2(|| node.block_confirmed(&send.hash()));
 

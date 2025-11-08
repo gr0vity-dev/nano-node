@@ -199,14 +199,13 @@ fn confirmation() {
         let unsaved_block_lattice_builder = UnsavedBlockLatticeBuilder::new();
         let mut lattice = unsaved_block_lattice_builder;
         let key = PrivateKey::new();
-        let send_amount =
-            node1
-                .consensus_services()
-                .online_reps
-                .lock()
-                .unwrap()
-                .quorum_delta()
-                + Amount::raw(1);
+        let send_amount = node1
+            .consensus_services()
+            .online_reps
+            .lock()
+            .unwrap()
+            .quorum_delta()
+            + Amount::raw(1);
         // Quick-confirm a block, legacy blocks should work without filtering
         let send = lattice.genesis().legacy_send(&key, send_amount);
         node1.process_active(send);
@@ -627,14 +626,8 @@ fn telemetry() {
         // Check the bootstrap notification message
         let message: TelemetryReceived = serde_json::from_value(response.message.unwrap()).unwrap();
         let node2_tcp = node2.network_services().tcp_listener;
-        assert_eq!(
-            message.address,
-            node2_tcp.local_address().ip().to_string()
-        );
-        assert_eq!(
-            message.port,
-            node2_tcp.local_address().port().to_string()
-        );
+        assert_eq!(message.address, node2_tcp.local_address().ip().to_string());
+        assert_eq!(message.port, node2_tcp.local_address().port().to_string());
 
         // Other node should have no subscribers
         assert_eq!(websocket2.subscriber_count(Topic::Telemetry), 0);

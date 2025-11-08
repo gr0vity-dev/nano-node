@@ -27,7 +27,8 @@ mod votes {
         let send1 = lattice.genesis().legacy_send(&key1, 100);
         let send1 = node1.process(send1);
         node1
-            .consensus_services().election_schedulers
+            .consensus_services()
+            .election_schedulers
             .manual
             .push(send1.clone().into());
 
@@ -41,7 +42,8 @@ mod votes {
         ));
 
         node1
-            .consensus_services().vote_processor
+            .consensus_services()
+            .vote_processor
             .vote_blocking(&ReceivedVote::new(vote1.into(), VoteSource::Live, None).into())
             .unwrap();
 
@@ -58,13 +60,17 @@ mod votes {
 
         // Ignored due to vote cooldown
         assert_eq!(
-            node1.consensus_services().vote_processor.vote_blocking(&vote2.into()),
+            node1
+                .consensus_services()
+                .vote_processor
+                .vote_blocking(&vote2.into()),
             Err(VoteError::Ignored)
         );
 
         assert_eq!(
             node1
-                .consensus_services().active
+                .consensus_services()
+                .active
                 .read()
                 .unwrap()
                 .election_for_block(&send1.hash())
@@ -74,7 +80,8 @@ mod votes {
         );
         assert_eq!(
             node1
-                .consensus_services().active
+                .consensus_services()
+                .active
                 .read()
                 .unwrap()
                 .election_for_block(&send1.hash())
@@ -105,7 +112,8 @@ fn epoch_open_pending() {
     node1.process(send1);
 
     node1
-        .consensus_services().block_processor_queue
+        .consensus_services()
+        .block_processor_queue
         .push(BlockContext::new(
             epoch_open.clone().into(),
             BlockSource::Live,
@@ -164,7 +172,8 @@ fn block_hash_account_conflict() {
 
     let winner_for = |root: &QualifiedRoot| {
         node1
-            .consensus_services().active
+            .consensus_services()
+            .active
             .read()
             .unwrap()
             .election_for_root(root)
@@ -195,7 +204,8 @@ fn unchecked_epoch() {
     let epoch1 = lattice.account(&destination).epoch1();
 
     node1
-        .consensus_services().block_processor_queue
+        .consensus_services()
+        .block_processor_queue
         .push(BlockContext::new(
             epoch1.clone().into(),
             BlockSource::Live,
@@ -205,25 +215,34 @@ fn unchecked_epoch() {
     // Waits for the epoch1 block to pass through block_processor and unchecked.put queues
     assert_timely_eq2(|| node1.unchecked.lock().unwrap().len(), 1);
     node1
-        .consensus_services().block_processor_queue
+        .consensus_services()
+        .block_processor_queue
         .push(BlockContext::new(
             send1.into(),
             BlockSource::Live,
             ChannelId::LOOPBACK,
         ));
     node1
-        .consensus_services().block_processor_queue
+        .consensus_services()
+        .block_processor_queue
         .push(BlockContext::new(
             open1.into(),
             BlockSource::Live,
             ChannelId::LOOPBACK,
         ));
-    assert_timely2(|| node1.ledger_query_services().ledger.any().block_exists(&epoch1.hash()));
+    assert_timely2(|| {
+        node1
+            .ledger_query_services()
+            .ledger
+            .any()
+            .block_exists(&epoch1.hash())
+    });
 
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
     assert_timely_eq2(|| node1.unchecked.lock().unwrap().len(), 0);
     let info = node1
-        .ledger_query_services().ledger
+        .ledger_query_services()
+        .ledger
         .any()
         .get_account(&destination.account())
         .unwrap();
@@ -250,7 +269,11 @@ fn unchecked_epoch_invalid() {
         previous: open1.hash(),
         representative: destination.public_key(),
         balance: Amount::nano(1000),
-        link: node1.ledger_query_services().ledger.epoch_link(Epoch::Epoch1).unwrap(),
+        link: node1
+            .ledger_query_services()
+            .ledger
+            .epoch_link(Epoch::Epoch1)
+            .unwrap(),
         work: node1.work_generate_dev(open1.hash()),
     }
     .into();
@@ -261,20 +284,26 @@ fn unchecked_epoch_invalid() {
         previous: open1.hash(),
         representative: destination.public_key(),
         balance: Amount::nano(999),
-        link: node1.ledger_query_services().ledger.epoch_link(Epoch::Epoch1).unwrap(),
+        link: node1
+            .ledger_query_services()
+            .ledger
+            .epoch_link(Epoch::Epoch1)
+            .unwrap(),
         work: node1.work_generate_dev(open1.hash()),
     }
     .into();
 
     node1
-        .consensus_services().block_processor_queue
+        .consensus_services()
+        .block_processor_queue
         .push(BlockContext::new(
             epoch1.clone().into(),
             BlockSource::Live,
             ChannelId::LOOPBACK,
         ));
     node1
-        .consensus_services().block_processor_queue
+        .consensus_services()
+        .block_processor_queue
         .push(BlockContext::new(
             epoch2.clone().into(),
             BlockSource::Live,
@@ -284,14 +313,16 @@ fn unchecked_epoch_invalid() {
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
     assert_timely_eq2(|| node1.unchecked.lock().unwrap().len(), 2);
     node1
-        .consensus_services().block_processor_queue
+        .consensus_services()
+        .block_processor_queue
         .push(BlockContext::new(
             send1.into(),
             BlockSource::Live,
             ChannelId::LOOPBACK,
         ));
     node1
-        .consensus_services().block_processor_queue
+        .consensus_services()
+        .block_processor_queue
         .push(BlockContext::new(
             open1.into(),
             BlockSource::Live,
@@ -299,7 +330,13 @@ fn unchecked_epoch_invalid() {
         ));
 
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
-    assert_timely2(|| node1.ledger_query_services().ledger.any().block_exists(&epoch2.hash()));
+    assert_timely2(|| {
+        node1
+            .ledger_query_services()
+            .ledger
+            .any()
+            .block_exists(&epoch2.hash())
+    });
 
     let ledger = node1.ledger_query_services().ledger;
     let any = ledger.any();
@@ -328,14 +365,16 @@ fn unchecked_open() {
 
     // Insert open2 in to the queue before open1
     node1
-        .consensus_services().block_processor_queue
+        .consensus_services()
+        .block_processor_queue
         .push(BlockContext::new(
             open2.into(),
             BlockSource::Live,
             ChannelId::LOOPBACK,
         ));
     node1
-        .consensus_services().block_processor_queue
+        .consensus_services()
+        .block_processor_queue
         .push(BlockContext::new(
             open1.clone().into(),
             BlockSource::Live,
@@ -346,7 +385,8 @@ fn unchecked_open() {
     assert_timely_eq2(|| node1.unchecked.lock().unwrap().len(), 1);
     // When open1 existists in unchecked, we know open2 has been processed.
     node1
-        .consensus_services().block_processor_queue
+        .consensus_services()
+        .block_processor_queue
         .push(BlockContext::new(
             send1.into(),
             BlockSource::Live,
@@ -369,14 +409,16 @@ fn unchecked_receive() {
     let open1 = lattice.account(&destination).receive(&send1);
     let receive1 = lattice.account(&destination).receive(&send2);
     node1
-        .consensus_services().block_processor_queue
+        .consensus_services()
+        .block_processor_queue
         .push(BlockContext::new(
             send1.into(),
             BlockSource::Live,
             ChannelId::LOOPBACK,
         ));
     node1
-        .consensus_services().block_processor_queue
+        .consensus_services()
+        .block_processor_queue
         .push(BlockContext::new(
             receive1.clone().into(),
             BlockSource::Live,
@@ -400,7 +442,8 @@ fn unchecked_receive() {
 
     // Waits for the open1 block to pass through block_processor and unchecked.put queues
     node1
-        .consensus_services().block_processor_queue
+        .consensus_services()
+        .block_processor_queue
         .push(BlockContext::new(
             open1.clone().into(),
             BlockSource::Live,
@@ -418,7 +461,8 @@ fn unchecked_receive() {
         1
     );
     node1
-        .consensus_services().block_processor_queue
+        .consensus_services()
+        .block_processor_queue
         .push(BlockContext::new(
             send2.clone().into(),
             BlockSource::Live,

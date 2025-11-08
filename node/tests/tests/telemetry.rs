@@ -36,8 +36,7 @@ fn invalid_signature() {
         ) > 0
     });
     assert_never(Duration::from_secs(1), || {
-        stats.count(StatType::Telemetry, DetailType::Process, Direction::In)
-            > 0
+        stats.count(StatType::Telemetry, DetailType::Process, Direction::In) > 0
     });
 }
 
@@ -180,11 +179,12 @@ fn invalid_endpoint() {
     let mut system = System::new();
     let node = system.make_node();
     let endpoint: SocketAddrV6 = "[::ffff:240.0.0.0]:12345".parse().unwrap();
-    assert!(node
-        .telemetry_services()
-        .telemetry
-        .get_telemetry(&endpoint)
-        .is_none());
+    assert!(
+        node.telemetry_services()
+            .telemetry
+            .get_telemetry(&endpoint)
+            .is_none()
+    );
 }
 
 #[test]

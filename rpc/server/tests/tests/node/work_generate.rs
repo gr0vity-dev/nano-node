@@ -23,7 +23,11 @@ fn work_generate() {
 
     let expected_multiplier = DifficultyV1::to_multiplier(
         result_difficulty,
-        node.ledger_query_services().ledger.constants.work.threshold_base(),
+        node.ledger_query_services()
+            .ledger
+            .constants
+            .work
+            .threshold_base(),
     );
     assert!((expected_multiplier - work_generate_dto.multiplier.unwrap().inner()).abs() < 1e-6);
 }

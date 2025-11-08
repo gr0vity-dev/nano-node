@@ -45,8 +45,18 @@ fn single() {
     assert_eq!(conf_info.frontier, send1.hash());
 
     // Rollbacks should fail as these blocks have been confirmed
-    assert!(node.ledger_query_services().ledger.roll_back(&latest1).is_err());
-    assert!(node.ledger_query_services().ledger.roll_back(&send1.hash()).is_err());
+    assert!(
+        node.ledger_query_services()
+            .ledger
+            .roll_back(&latest1)
+            .is_err()
+    );
+    assert!(
+        node.ledger_query_services()
+            .ledger
+            .roll_back(&send1.hash())
+            .is_err()
+    );
     assert_eq!(
         node.stats_service().count(
             StatType::ConfirmationHeight,
@@ -68,7 +78,12 @@ fn multiple_accounts() {
     let key2 = PrivateKey::new();
     let key3 = PrivateKey::new();
 
-    let quorum_delta = node.consensus_services().online_reps.lock().unwrap().quorum_delta();
+    let quorum_delta = node
+        .consensus_services()
+        .online_reps
+        .lock()
+        .unwrap()
+        .quorum_delta();
 
     // Send to all accounts
     let send1 = lattice
@@ -138,7 +153,10 @@ fn multiple_accounts() {
 
     // The nodes process a live receive which propagates across to all accounts
     let receive3 = lattice.account(&key3).receive(&send6);
-    node.ledger_query_services().ledger.process_one(&receive3).unwrap();
+    node.ledger_query_services()
+        .ledger
+        .process_one(&receive3)
+        .unwrap();
 
     let confirmed = node.ledger_query_services().ledger.confirm(receive3.hash());
 
@@ -189,18 +207,58 @@ fn multiple_accounts() {
 
     // The accounts for key1 and key2 have 1 more block in the chain than is confirmed.
     // So this can be rolled back, but the one before that cannot. Check that this is the case
-    assert!(node.ledger_query_services().ledger.roll_back(&receive2.hash()).is_ok());
-    assert!(node.ledger_query_services().ledger.roll_back(&send5.hash()).is_ok());
-    assert!(node.ledger_query_services().ledger.roll_back(&send4.hash()).is_err());
-    assert!(node.ledger_query_services().ledger.roll_back(&send6.hash()).is_err());
+    assert!(
+        node.ledger_query_services()
+            .ledger
+            .roll_back(&receive2.hash())
+            .is_ok()
+    );
+    assert!(
+        node.ledger_query_services()
+            .ledger
+            .roll_back(&send5.hash())
+            .is_ok()
+    );
+    assert!(
+        node.ledger_query_services()
+            .ledger
+            .roll_back(&send4.hash())
+            .is_err()
+    );
+    assert!(
+        node.ledger_query_services()
+            .ledger
+            .roll_back(&send6.hash())
+            .is_err()
+    );
 
     // Confirm the other latest can't be rolled back either
-    assert!(node.ledger_query_services().ledger.roll_back(&receive3.hash()).is_err());
-    assert!(node.ledger_query_services().ledger.roll_back(&send3.hash()).is_err());
+    assert!(
+        node.ledger_query_services()
+            .ledger
+            .roll_back(&receive3.hash())
+            .is_err()
+    );
+    assert!(
+        node.ledger_query_services()
+            .ledger
+            .roll_back(&send3.hash())
+            .is_err()
+    );
 
     // Attempt some others which have been confirmed
-    assert!(node.ledger_query_services().ledger.roll_back(&open1.hash()).is_err());
-    assert!(node.ledger_query_services().ledger.roll_back(&send2.hash()).is_err());
+    assert!(
+        node.ledger_query_services()
+            .ledger
+            .roll_back(&open1.hash())
+            .is_err()
+    );
+    assert!(
+        node.ledger_query_services()
+            .ledger
+            .roll_back(&send2.hash())
+            .is_err()
+    );
 }
 
 #[test]
@@ -212,7 +270,12 @@ fn send_receive_between_2_accounts() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
 
-    let quorum_delta = node.consensus_services().online_reps.lock().unwrap().quorum_delta();
+    let quorum_delta = node
+        .consensus_services()
+        .online_reps
+        .lock()
+        .unwrap()
+        .quorum_delta();
 
     let send1 = lattice
         .genesis()
@@ -281,7 +344,11 @@ fn send_receive_self() {
     let key1 = PrivateKey::new();
     let send4 = lattice.genesis().send_all_except(
         &key1,
-        node.consensus_services().online_reps.lock().unwrap().quorum_delta(),
+        node.consensus_services()
+            .online_reps
+            .lock()
+            .unwrap()
+            .quorum_delta(),
     );
 
     node.process_multi(&[
@@ -358,7 +425,10 @@ fn all_block_types() {
         state_send4,
         state_receive3,
     ]);
-    let confirmed = node.ledger_query_services().ledger.confirm(state_send2.hash());
+    let confirmed = node
+        .ledger_query_services()
+        .ledger
+        .confirm(state_send2.hash());
     assert_eq!(confirmed.len(), 15);
     assert_eq!(node.ledger_query_services().ledger.confirmed_count(), 16);
 }
@@ -393,11 +463,9 @@ fn conflict_rollback_confirmed() {
     // and node2 should print an error message on the log that it cannot rollback send2 because it is already confirmed
     assert_timely_eq2(
         || {
-            node1.stats_service().count(
-                StatType::Ledger,
-                DetailType::RollbackFailed,
-                Direction::In,
-            )
+            node1
+                .stats_service()
+                .count(StatType::Ledger, DetailType::RollbackFailed, Direction::In)
         },
         1,
     );

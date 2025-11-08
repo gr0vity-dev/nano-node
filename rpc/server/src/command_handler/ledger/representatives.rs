@@ -23,7 +23,8 @@ impl RpcCommandHandler {
             representatives.truncate(count);
             representatives
         } else {
-            self.ledger_services.ledger
+            self.ledger_services
+                .ledger
                 .rep_weights
                 .read()
                 .iter()

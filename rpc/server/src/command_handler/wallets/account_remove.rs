@@ -3,7 +3,8 @@ use rsnano_rpc_messages::{RemovedDto, WalletWithAccountArgs};
 
 impl RpcCommandHandler {
     pub(crate) fn account_remove(&self, args: WalletWithAccountArgs) -> anyhow::Result<RemovedDto> {
-        self.wallet_services.wallets
+        self.wallet_services
+            .wallets
             .remove_key(&args.wallet, &args.account.into())?;
         Ok(RemovedDto::new(true))
     }

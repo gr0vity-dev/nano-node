@@ -266,12 +266,38 @@ fn vote_generator_multiple_representatives() {
         .wait()
         .unwrap();
 
-    assert_eq!(node.ledger_query_services().ledger.weight(&key1.public_key()), amount);
-    assert_eq!(node.ledger_query_services().ledger.weight(&key2.public_key()), amount);
-    assert_eq!(node.ledger_query_services().ledger.weight(&key3.public_key()), amount);
+    assert_eq!(
+        node.ledger_query_services()
+            .ledger
+            .weight(&key1.public_key()),
+        amount
+    );
+    assert_eq!(
+        node.ledger_query_services()
+            .ledger
+            .weight(&key2.public_key()),
+        amount
+    );
+    assert_eq!(
+        node.ledger_query_services()
+            .ledger
+            .weight(&key3.public_key()),
+        amount
+    );
 
-    node.wallet_services().wallet_reps.lock().unwrap().compute_reps();
-    assert_eq!(node.wallet_services().wallet_reps.lock().unwrap().voting_reps(), 4);
+    node.wallet_services()
+        .wallet_reps
+        .lock()
+        .unwrap()
+        .compute_reps();
+    assert_eq!(
+        node.wallet_services()
+            .wallet_reps
+            .lock()
+            .unwrap()
+            .voting_reps(),
+        4
+    );
 
     let send = node
         .wallet_services()
@@ -338,7 +364,10 @@ fn vote_spacing_vote_generator() {
         .genesis()
         .send(&*DEV_GENESIS_KEY, Amount::nano(1001));
 
-    node.ledger_query_services().ledger.process_one(&send1).unwrap();
+    node.ledger_query_services()
+        .ledger
+        .process_one(&send1)
+        .unwrap();
     assert_eq!(
         node.stats_service().count(
             StatType::VoteGenerator,
@@ -364,8 +393,14 @@ fn vote_spacing_vote_generator() {
         1,
     );
 
-    node.ledger_query_services().ledger.roll_back(&send1.hash()).unwrap();
-    node.ledger_query_services().ledger.process_one(&send2).unwrap();
+    node.ledger_query_services()
+        .ledger
+        .roll_back(&send1.hash())
+        .unwrap();
+    node.ledger_query_services()
+        .ledger
+        .process_one(&send2)
+        .unwrap();
     node.consensus_services().vote_generators.generate_vote(
         &(*DEV_GENESIS_HASH).into(),
         &send2.hash().into(),
@@ -456,8 +491,14 @@ fn vote_spacing_rapid() {
         1,
     );
 
-    node.ledger_query_services().ledger.roll_back(&send1.hash()).unwrap();
-    node.ledger_query_services().ledger.process_one(&send2).unwrap();
+    node.ledger_query_services()
+        .ledger
+        .roll_back(&send1.hash())
+        .unwrap();
+    node.ledger_query_services()
+        .ledger
+        .process_one(&send2)
+        .unwrap();
     node.consensus_services().vote_generators.generate_vote(
         &(*DEV_GENESIS_HASH).into(),
         &send2.hash().into(),

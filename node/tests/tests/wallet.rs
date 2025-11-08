@@ -738,7 +738,11 @@ fn wallet_store_import() {
         .wallets
         .insert_adhoc2(&wallet_id1, &key1.raw_key(), false)
         .unwrap();
-    let json = node1.wallet_services().wallets.serialize(wallet_id1).unwrap();
+    let json = node1
+        .wallet_services()
+        .wallets
+        .serialize(wallet_id1)
+        .unwrap();
     node2
         .wallet_services()
         .wallets
@@ -760,7 +764,11 @@ fn wallet_store_fail_import_bad_password() {
         .wallets
         .insert_adhoc2(&wallet_id1, &key1.raw_key(), false)
         .unwrap();
-    let json = node1.wallet_services().wallets.serialize(wallet_id1).unwrap();
+    let json = node1
+        .wallet_services()
+        .wallets
+        .serialize(wallet_id1)
+        .unwrap();
     node2
         .wallet_services()
         .wallets
@@ -844,12 +852,7 @@ fn work_generate() {
         .unwrap();
 
     let ledger = node1.ledger_query_services().ledger;
-    assert_timely2(|| {
-        ledger
-            .any()
-            .account_balance(&DEV_GENESIS_ACCOUNT)
-            != Amount::MAX
-    });
+    assert_timely2(|| ledger.any().account_balance(&DEV_GENESIS_ACCOUNT) != Amount::MAX);
 
     let start = Instant::now();
     loop {
@@ -940,7 +943,11 @@ fn insert_locked() {
     let node1 = system.make_node();
     let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
     {
-        node1.wallet_services().wallets.rekey(&wallet_id, "1").unwrap();
+        node1
+            .wallet_services()
+            .wallets
+            .rekey(&wallet_id, "1")
+            .unwrap();
         assert_eq!(
             node1
                 .wallet_services()
@@ -1043,7 +1050,11 @@ fn insert_deterministic_locked() {
     let node1 = system.make_node();
     let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
     {
-        node1.wallet_services().wallets.rekey(&wallet_id, "1").unwrap();
+        node1
+            .wallet_services()
+            .wallets
+            .rekey(&wallet_id, "1")
+            .unwrap();
         assert_eq!(
             node1
                 .wallet_services()
@@ -1149,7 +1160,13 @@ fn password_race() {
         });
         s.spawn(|| {
             // Password should always be valid, the rekey operation should be atomic.
-            assert!(node1.wallet_services().wallets.valid_password(&wallet_id).is_ok());
+            assert!(
+                node1
+                    .wallet_services()
+                    .wallets
+                    .valid_password(&wallet_id)
+                    .is_ok()
+            );
         });
     });
 }
@@ -1159,7 +1176,11 @@ fn password_race_corrupted_seed() {
     let mut system = System::new();
     let node1 = system.make_node();
     let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
-    node1.wallet_services().wallets.rekey(&wallet_id, "4567").unwrap();
+    node1
+        .wallet_services()
+        .wallets
+        .rekey(&wallet_id, "4567")
+        .unwrap();
     let seed = node1.wallet_services().wallets.get_seed(wallet_id).unwrap();
     assert!(
         node1
@@ -1195,21 +1216,30 @@ fn password_race_corrupted_seed() {
         .attempt_password(&wallet_id, "1234")
         .is_ok()
     {
-        assert_eq!(node1.wallet_services().wallets.get_seed(wallet_id).unwrap(), seed);
+        assert_eq!(
+            node1.wallet_services().wallets.get_seed(wallet_id).unwrap(),
+            seed
+        );
     } else if node1
         .wallet_services()
         .wallets
         .attempt_password(&wallet_id, "0000")
         .is_ok()
     {
-        assert_eq!(node1.wallet_services().wallets.get_seed(wallet_id).unwrap(), seed);
+        assert_eq!(
+            node1.wallet_services().wallets.get_seed(wallet_id).unwrap(),
+            seed
+        );
     } else if node1
         .wallet_services()
         .wallets
         .attempt_password(&wallet_id, "4567")
         .is_ok()
     {
-        assert_eq!(node1.wallet_services().wallets.get_seed(wallet_id).unwrap(), seed);
+        assert_eq!(
+            node1.wallet_services().wallets.get_seed(wallet_id).unwrap(),
+            seed
+        );
     } else {
         unreachable!()
     }
@@ -1220,8 +1250,15 @@ fn change_seed() {
     let mut system = System::new();
     let node1 = system.make_node();
     let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
-    let wallet = node1.wallet_services().wallets.get_wallet(&wallet_id).unwrap();
-    node1.wallet_services().wallets.enter_initial_password(&wallet);
+    let wallet = node1
+        .wallet_services()
+        .wallets
+        .get_wallet(&wallet_id)
+        .unwrap();
+    node1
+        .wallet_services()
+        .wallets
+        .enter_initial_password(&wallet);
     let seed1 = RawKey::from(1);
     let index = 4;
     let prv = deterministic_key(&seed1, index);
@@ -1253,7 +1290,10 @@ fn change_seed() {
         .wallets
         .change_seed(wallet_id, &seed1, 0)
         .unwrap();
-    assert_eq!(node1.wallet_services().wallets.get_seed(wallet_id).unwrap(), seed1);
+    assert_eq!(
+        node1.wallet_services().wallets.get_seed(wallet_id).unwrap(),
+        seed1
+    );
     assert!(node1.wallet_services().wallets.exists(&pub_key));
 }
 
@@ -1589,11 +1629,7 @@ fn search_receivable() {
         .wait()
         .unwrap();
     let ledger = node.ledger_query_services().ledger;
-    assert_always_eq(
-        Duration::from_millis(300),
-        || ledger.block_count(),
-        2,
-    );
+    assert_always_eq(Duration::from_millis(300), || ledger.block_count(), 2);
 
     node.confirm(send.hash());
     node.wallet_services()
@@ -1602,10 +1638,7 @@ fn search_receivable() {
         .wait()
         .unwrap();
     assert_timely_eq2(|| node.balance(&DEV_GENESIS_ACCOUNT), Amount::MAX);
-    let receive_hash = ledger
-        .any()
-        .account_head(&DEV_GENESIS_ACCOUNT)
-        .unwrap();
+    let receive_hash = ledger.any().account_head(&DEV_GENESIS_ACCOUNT).unwrap();
     let receive = node.block(&receive_hash).unwrap();
     assert_eq!(receive.height(), 3);
     assert_eq!(receive.source().unwrap(), send.hash());

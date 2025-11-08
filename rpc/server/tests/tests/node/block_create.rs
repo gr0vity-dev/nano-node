@@ -51,8 +51,7 @@ fn block_create_state() {
     node.process(block.clone());
 
     assert_eq!(
-        node
-            .ledger_query_services()
+        node.ledger_query_services()
             .ledger
             .any()
             .block_account(&block.hash()),
