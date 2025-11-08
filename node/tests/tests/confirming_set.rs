@@ -95,9 +95,11 @@ fn confirmed_history() {
     assert_timely_eq2(|| node.stats().get("confirmation_observer", "inactive"), 1);
     assert_timely_eq2(
         || {
-            node
-                .stats_service()
-                .count(StatType::ConfirmationHeight, DetailType::BlocksConfirmed, Direction::In)
+            node.stats_service().count(
+                StatType::ConfirmationHeight,
+                DetailType::BlocksConfirmed,
+                Direction::In,
+            )
         },
         2,
     );
@@ -126,14 +128,21 @@ fn dependent_election() {
     // Wait for blocks to be confirmed in ledger, callbacks will happen after
     assert_timely_eq2(
         || {
-            node
-                .stats_service()
-                .count(StatType::ConfirmationHeight, DetailType::BlocksConfirmed, Direction::In)
+            node.stats_service().count(
+                StatType::ConfirmationHeight,
+                DetailType::BlocksConfirmed,
+                Direction::In,
+            )
         },
         3,
     );
     // Once the item added to the confirming set no longer exists, callbacks have completed
-    assert_timely2(|| !node.consensus_services().confirming_set.contains(&send2.hash()));
+    assert_timely2(|| {
+        !node
+            .consensus_services()
+            .confirming_set
+            .contains(&send2.hash())
+    });
 
     assert_timely_eq2(
         || node.stats().get("confirmation_observer", "active_quorum"),

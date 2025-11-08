@@ -133,16 +133,16 @@ impl System {
             }
 
             let start = Instant::now();
+            let node_network_services = node.network_services();
+            let other_network_services = other.network_services();
             loop {
-                if node
-                    .services()
+                if node_network_services
                     .network
                     .read()
                     .unwrap()
                     .find_node_id(&other.node_id.public_key().into())
                     .is_some()
-                    && other
-                        .services()
+                    && other_network_services
                         .network
                         .read()
                         .unwrap()

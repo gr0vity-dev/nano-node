@@ -106,19 +106,18 @@ fn frontier_scan() {
     config2.network.listening_port = System::default_config().network.listening_port;
     let node1 = system.build_node().config(config2).finish();
 
+    let node1_ledger = node1.ledger_query_services();
     assert_always_eq(
         Duration::from_millis(100),
-        || node1.services().ledger.block_count() as usize,
+        || node1_ledger.ledger.block_count() as usize,
         blocks.len() + 1,
     );
 
     // Frontier scan should detect all the accounts with missing blocks
+    let node1_bootstrapper = node1.consensus_services().bootstrapper;
     assert_timely(Duration::from_secs(10), || {
         updates.iter().all(|block| {
-            node1
-                .services()
-                .bootstrapper
-                .prioritized(&block.account_field().unwrap())
+            node1_bootstrapper.prioritized(&block.account_field().unwrap())
         })
     });
 }
@@ -168,19 +167,18 @@ fn frontier_scan_pending() {
     config2.network.listening_port = System::default_config().network.listening_port;
     let node1 = system.build_node().config(config2).finish();
 
+    let node1_ledger = node1.ledger_query_services();
     assert_always_eq(
         Duration::from_millis(100),
-        || node1.services().ledger.block_count() as usize,
+        || node1_ledger.ledger.block_count() as usize,
         blocks.len() + 1,
     );
 
     // Frontier scan should detect all the accounts with missing blocks
+    let node1_bootstrapper = node1.consensus_services().bootstrapper;
     assert_timely(Duration::from_secs(10), || {
         opens.iter().all(|block| {
-            node1
-                .services()
-                .bootstrapper
-                .prioritized(&block.account_field().unwrap())
+            node1_bootstrapper.prioritized(&block.account_field().unwrap())
         })
     });
 }
@@ -240,20 +238,19 @@ fn frontier_scan_cannot_prioritize() {
     config2.network.listening_port = get_available_port();
     let node1 = system.build_node().config(config2).finish();
 
+    let node1_ledger = node1.ledger_query_services();
     assert_always_eq(
         Duration::from_millis(100),
-        || node1.services().ledger.block_count() as usize,
+        || node1_ledger.ledger.block_count() as usize,
         blocks.len() + 1,
     );
     // Frontier scan should not detect the accounts
+    let node1_bootstrapper = node1.consensus_services().bootstrapper;
     assert_always_eq(
         Duration::from_secs(1),
         || {
             opens2.iter().all(|block| {
-                !node1
-                    .services()
-                    .bootstrapper
-                    .prioritized(&block.account_field().unwrap())
+                !node1_bootstrapper.prioritized(&block.account_field().unwrap())
             })
         },
         true,

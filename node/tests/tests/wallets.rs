@@ -9,11 +9,11 @@ use test_helpers::{System, assert_timely_eq2};
 fn open_create() {
     let mut system = System::new();
     let node = system.make_node();
-    assert_eq!(node.services().wallets.wallet_count(), 1); // it starts out with a default wallet
+    assert_eq!(node.wallet_services().wallets.wallet_count(), 1); // it starts out with a default wallet
     let id = WalletId::random();
-    assert_eq!(node.services().wallets.wallet_exists(&id), false);
-    node.services().wallets.create(id);
-    assert_eq!(node.services().wallets.wallet_exists(&id), true);
+    assert_eq!(node.wallet_services().wallets.wallet_exists(&id), false);
+    node.wallet_services().wallets.create(id);
+    assert_eq!(node.wallet_services().wallets.wallet_exists(&id), true);
 }
 
 #[test]
@@ -38,23 +38,41 @@ fn vote_minimum() {
     let open2 = lattice.account(&key2).receive(&send2);
     node.process(open2.clone());
 
-    let wallet_id = node.services().wallets.wallet_ids()[0];
-    assert_eq!(node.services().wallet_reps.lock().unwrap().voting_reps(), 0);
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
+    assert_eq!(
+        node.wallet_services()
+            .wallet_reps
+            .lock()
+            .unwrap()
+            .voting_reps(),
+        0
+    );
 
-    node.services()
+    node.wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), false)
         .unwrap();
-    node.services()
+    node.wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id, &key1.raw_key(), false)
         .unwrap();
-    node.services()
+    node.wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id, &key2.raw_key(), false)
         .unwrap();
-    node.services().wallet_reps.lock().unwrap().compute_reps();
-    assert_eq!(node.services().wallet_reps.lock().unwrap().voting_reps(), 2);
+    node.wallet_services()
+        .wallet_reps
+        .lock()
+        .unwrap()
+        .compute_reps();
+    assert_eq!(
+        node.wallet_services()
+            .wallet_reps
+            .lock()
+            .unwrap()
+            .voting_reps(),
+        2
+    );
 }
 
 #[test]
@@ -63,24 +81,42 @@ fn exists() {
     let node = system.make_node();
     let key1 = PrivateKey::new();
     let key2 = PrivateKey::new();
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
 
-    assert_eq!(node.services().wallets.exists(&key1.public_key()), false);
-    assert_eq!(node.services().wallets.exists(&key2.public_key()), false);
+    assert_eq!(
+        node.wallet_services().wallets.exists(&key1.public_key()),
+        false
+    );
+    assert_eq!(
+        node.wallet_services().wallets.exists(&key2.public_key()),
+        false
+    );
 
-    node.services()
+    node.wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id, &key1.raw_key(), false)
         .unwrap();
-    assert_eq!(node.services().wallets.exists(&key1.public_key()), true);
-    assert_eq!(node.services().wallets.exists(&key2.public_key()), false);
+    assert_eq!(
+        node.wallet_services().wallets.exists(&key1.public_key()),
+        true
+    );
+    assert_eq!(
+        node.wallet_services().wallets.exists(&key2.public_key()),
+        false
+    );
 
-    node.services()
+    node.wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id, &key2.raw_key(), false)
         .unwrap();
-    assert_eq!(node.services().wallets.exists(&key1.public_key()), true);
-    assert_eq!(node.services().wallets.exists(&key2.public_key()), true);
+    assert_eq!(
+        node.wallet_services().wallets.exists(&key1.public_key()),
+        true
+    );
+    assert_eq!(
+        node.wallet_services().wallets.exists(&key2.public_key()),
+        true
+    );
 }
 
 #[test]
@@ -98,9 +134,9 @@ fn search_receivable() {
                 ..Default::default()
             })
             .finish();
-        let wallet_id = node.services().wallets.wallet_ids()[0];
+        let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
 
-        node.services()
+        node.wallet_services()
             .wallets
             .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), false)
             .unwrap();
@@ -112,20 +148,20 @@ fn search_receivable() {
         node.process(send.clone());
 
         if search_all {
-            node.services()
+            node.wallet_services()
                 .wallets
                 .search_receivable_all()
                 .wait()
                 .unwrap();
         } else {
-            node.services()
+            node.wallet_services()
                 .wallets
                 .search_receivable(&wallet_id)
                 .wait()
                 .unwrap();
         }
         // Erase the key so the confirmation does not trigger an automatic receive
-        node.services()
+        node.wallet_services()
             .wallets
             .remove_key(&wallet_id, &DEV_GENESIS_PUB_KEY)
             .unwrap();
@@ -134,21 +170,21 @@ fn search_receivable() {
         node.confirm(send.hash());
 
         // Re-insert the key
-        node.services()
+        node.wallet_services()
             .wallets
             .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), false)
             .unwrap();
 
         // Pending search should create the receive block
-        assert_eq!(node.services().ledger.block_count(), 2);
+        assert_eq!(node.ledger_query_services().ledger.block_count(), 2);
         if search_all {
-            node.services()
+            node.wallet_services()
                 .wallets
                 .search_receivable_all()
                 .wait()
                 .unwrap();
         } else {
-            node.services()
+            node.wallet_services()
                 .wallets
                 .search_receivable(&wallet_id)
                 .wait()
@@ -156,8 +192,7 @@ fn search_receivable() {
         }
         assert_timely_eq2(|| node.balance(&DEV_GENESIS_ACCOUNT), Amount::MAX);
         let receive_hash = node
-            .services()
-            .ledger
+            .ledger_query_services().ledger
             .any()
             .account_head(&DEV_GENESIS_ACCOUNT)
             .unwrap();
