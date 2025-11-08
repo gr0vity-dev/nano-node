@@ -196,6 +196,10 @@ impl Node {
         self.services.bootstrap_work_services()
     }
 
+    pub fn stats_service(&self) -> Arc<Stats> {
+        self.services.stats.clone()
+    }
+
     fn new(args: NodeArgs, is_nulled: bool, mut node_id_key_file: NodeIdKeyFile) -> Self {
         let mut tokio_runner = TokioRunner::new(args.config.io_threads);
         tokio_runner.start();

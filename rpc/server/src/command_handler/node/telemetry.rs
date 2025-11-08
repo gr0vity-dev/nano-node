@@ -103,7 +103,7 @@ mod tests {
         });
 
         let node = Arc::new(Node::new_null());
-        let expected = node.services().telemetry.local_telemetry();
+        let expected = node.telemetry_services().telemetry.local_telemetry();
         let result: TelemetryDto = test_rpc_command_with_node(cmd, node);
         assert_result(expected, result);
     }
@@ -123,7 +123,7 @@ mod tests {
             ),
         });
 
-        let expected = node.services().telemetry.local_telemetry();
+        let expected = node.telemetry_services().telemetry.local_telemetry();
         let result: TelemetryDto = test_rpc_command_with_node(cmd, node);
         assert_result(expected, result);
     }

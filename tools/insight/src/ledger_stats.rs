@@ -18,10 +18,10 @@ impl LedgerStats {
     }
 
     pub(crate) fn update(&mut self, node: &Node) {
-        self.total_blocks = node.services().ledger.block_count();
-        self.confirmed_blocks = node.services().ledger.confirmed_count();
-        self.bps = node.services().block_rates.bps();
-        self.cps = node.services().block_rates.cps();
+        self.total_blocks = node.ledger_query_services().ledger.block_count();
+        self.confirmed_blocks = node.ledger_query_services().ledger.confirmed_count();
+        self.bps = node.ledger_query_services().block_rates.bps();
+        self.cps = node.ledger_query_services().block_rates.cps();
     }
 
     pub(crate) fn blocks_per_second(&self) -> i64 {

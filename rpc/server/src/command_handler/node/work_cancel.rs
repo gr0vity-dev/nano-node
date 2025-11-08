@@ -28,7 +28,10 @@ mod tests {
     #[test]
     fn handle_work_cancel_command() {
         let node = Arc::new(Node::new_null());
-        let cancel_tracker = node.services().work_factory.track_cancellations();
+        let cancel_tracker = node
+            .bootstrap_work_services()
+            .work_factory
+            .track_cancellations();
         let root = Root::from(42);
 
         let _result: SuccessResponse = test_rpc_command_with_node(

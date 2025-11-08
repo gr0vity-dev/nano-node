@@ -30,10 +30,9 @@ fn one() {
             ..Default::default()
         })
         .finish();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(
-            &node.services().wallets.wallet_ids()[0],
+            &node.wallet_services().wallets.wallet_ids()[0],
             &DEV_GENESIS_KEY.raw_key(),
             true,
         )
@@ -51,16 +50,16 @@ fn one() {
         roots_hashes: vec![(send1.hash(), send1.root())],
     };
 
-    node.services().request_aggregator.request(request.clone());
+    node.consensus_services().request_aggregator.request(request.clone());
     assert_timely_msg(
         Duration::from_secs(3),
-        || node.services().request_aggregator.is_empty(),
+        || node.consensus_services().request_aggregator.is_empty(),
         "aggregator not empty",
     );
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsUnknown,
                 Direction::In,
@@ -70,20 +69,20 @@ fn one() {
     );
 
     // Process and confirm
-    node.services().ledger.process_one(&send1).unwrap();
+    node.ledger_query_services().ledger.process_one(&send1).unwrap();
     node.confirm(send1.hash());
 
     // In the ledger but no vote generated yet
-    node.services().request_aggregator.request(request.clone());
+    node.consensus_services().request_aggregator.request(request.clone());
     assert_timely_msg(
         Duration::from_secs(3),
-        || node.services().request_aggregator.is_empty(),
+        || node.consensus_services().request_aggregator.is_empty(),
         "aggregator not empty",
     );
     assert_timely_msg(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsGeneratedVotes,
                 Direction::In,
@@ -94,16 +93,16 @@ fn one() {
 
     // Already cached
     // TODO: This is outdated, aggregator should not be using cache
-    node.services().request_aggregator.request(request);
+    node.consensus_services().request_aggregator.request(request);
     assert_timely_msg(
         Duration::from_secs(3),
-        || node.services().request_aggregator.is_empty(),
+        || node.consensus_services().request_aggregator.is_empty(),
         "aggregator not empty",
     );
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Aggregator,
                 DetailType::AggregatorAccepted,
                 Direction::In,
@@ -114,7 +113,7 @@ fn one() {
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Aggregator,
                 DetailType::AggregatorDropped,
                 Direction::In,
@@ -125,7 +124,7 @@ fn one() {
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsUnknown,
                 Direction::In,
@@ -136,7 +135,7 @@ fn one() {
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsGeneratedVotes,
                 Direction::In,
@@ -147,7 +146,7 @@ fn one() {
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsCannotVote,
                 Direction::In,
@@ -169,10 +168,9 @@ fn one_update() {
             ..Default::default()
         })
         .finish();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(
-            &node.services().wallets.wallet_ids()[0],
+            &node.wallet_services().wallets.wallet_ids()[0],
             &DEV_GENESIS_KEY.raw_key(),
             true,
         )
@@ -201,20 +199,20 @@ fn one_update() {
         channel: dummy_channel.clone(),
         roots_hashes: vec![(send2.hash(), send2.root())],
     };
-    node.services().request_aggregator.request(request1);
+    node.consensus_services().request_aggregator.request(request1);
 
     // Update the pool of requests with another hash
     let request2 = AggregatorRequest {
         channel: dummy_channel.clone(),
         roots_hashes: vec![(receive1.hash(), receive1.root())],
     };
-    node.services().request_aggregator.request(request2);
+    node.consensus_services().request_aggregator.request(request2);
 
     // In the ledger but no vote generated yet
     assert_timely_msg(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsGeneratedVotes,
                 Direction::In,
@@ -224,13 +222,13 @@ fn one_update() {
     );
     assert_timely_msg(
         Duration::from_secs(3),
-        || node.services().request_aggregator.is_empty(),
+        || node.consensus_services().request_aggregator.is_empty(),
         "aggregator empty",
     );
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Aggregator,
                 DetailType::AggregatorAccepted,
                 Direction::In,
@@ -241,7 +239,7 @@ fn one_update() {
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsGeneratedHashes,
                 Direction::In,
@@ -250,7 +248,7 @@ fn one_update() {
         2,
     );
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Aggregator,
             DetailType::AggregatorDropped,
             Direction::In,
@@ -258,7 +256,7 @@ fn one_update() {
         0
     );
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Requests,
             DetailType::RequestsUnknown,
             Direction::In,
@@ -266,7 +264,7 @@ fn one_update() {
         0
     );
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Requests,
             DetailType::RequestsCachedHashes,
             Direction::In,
@@ -274,7 +272,7 @@ fn one_update() {
         0
     );
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Requests,
             DetailType::RequestsCachedVotes,
             Direction::In,
@@ -282,7 +280,7 @@ fn one_update() {
         0
     );
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Requests,
             DetailType::RequestsCannotVote,
             Direction::In,
@@ -303,10 +301,9 @@ fn two() {
             ..Default::default()
         })
         .finish();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(
-            &node.services().wallets.wallet_ids()[0],
+            &node.wallet_services().wallets.wallet_ids()[0],
             &DEV_GENESIS_KEY.raw_key(),
             true,
         )
@@ -330,12 +327,12 @@ fn two() {
     };
 
     // Process both blocks
-    node.services().request_aggregator.request(request.clone());
+    node.consensus_services().request_aggregator.request(request.clone());
     // One vote should be generated for both blocks
     assert_timely_msg(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsGeneratedVotes,
                 Direction::In,
@@ -345,18 +342,18 @@ fn two() {
     );
     assert_timely_msg(
         Duration::from_secs(3),
-        || node.services().request_aggregator.is_empty(),
+        || node.consensus_services().request_aggregator.is_empty(),
         "aggregator empty",
     );
     // The same request should now send the cached vote
-    node.services().request_aggregator.request(request.clone());
+    node.consensus_services().request_aggregator.request(request.clone());
     assert_timely_msg(
         Duration::from_secs(3),
-        || node.services().request_aggregator.is_empty(),
+        || node.consensus_services().request_aggregator.is_empty(),
         "aggregator empty",
     );
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Aggregator,
             DetailType::AggregatorAccepted,
             Direction::In,
@@ -364,7 +361,7 @@ fn two() {
         2
     );
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Aggregator,
             DetailType::AggregatorDropped,
             Direction::In,
@@ -374,7 +371,7 @@ fn two() {
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsUnknown,
                 Direction::In,
@@ -385,7 +382,7 @@ fn two() {
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsGeneratedHashes,
                 Direction::In,
@@ -396,7 +393,7 @@ fn two() {
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsGeneratedVotes,
                 Direction::In,
@@ -407,7 +404,7 @@ fn two() {
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsCannotVote,
                 Direction::In,
@@ -442,10 +439,9 @@ fn split() {
             ..Default::default()
         })
         .finish();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(
-            &node.services().wallets.wallet_ids()[0],
+            &node.wallet_services().wallets.wallet_ids()[0],
             &DEV_GENESIS_KEY.raw_key(),
             true,
         )
@@ -463,7 +459,7 @@ fn split() {
     }
     // Confirm all blocks
     node.confirm(blocks.last().unwrap().hash());
-    assert_eq!(node.services().ledger.confirmed_count(), MAX_VBH as u64 + 2);
+    assert_eq!(node.ledger_query_services().ledger.confirmed_count(), MAX_VBH as u64 + 2);
     assert_eq!(MAX_VBH + 1, roots_hashes.len());
 
     let dummy_channel = make_fake_channel(&node.network_services());
@@ -471,12 +467,12 @@ fn split() {
         channel: dummy_channel.clone(),
         roots_hashes,
     };
-    node.services().request_aggregator.request(request);
+    node.consensus_services().request_aggregator.request(request);
     // In the ledger but no vote generated yet
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsGeneratedVotes,
                 Direction::In,
@@ -484,10 +480,10 @@ fn split() {
         },
         2,
     );
-    assert!(node.services().request_aggregator.is_empty());
+    assert!(node.consensus_services().request_aggregator.is_empty());
     // Two votes were sent, the first one for 12 hashes and the second one for 1 hash
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Aggregator,
             DetailType::AggregatorAccepted,
             Direction::In,
@@ -495,7 +491,7 @@ fn split() {
         1
     );
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Aggregator,
             DetailType::AggregatorDropped,
             Direction::In,
@@ -505,7 +501,7 @@ fn split() {
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsGeneratedHashes,
                 Direction::In,
@@ -516,7 +512,7 @@ fn split() {
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsGeneratedVotes,
                 Direction::In,
@@ -539,10 +535,9 @@ fn channel_max_queue() {
             ..Default::default()
         })
         .finish();
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(
-            &node.services().wallets.wallet_ids()[0],
+            &node.wallet_services().wallets.wallet_ids()[0],
             &DEV_GENESIS_KEY.raw_key(),
             true,
         )
@@ -559,11 +554,11 @@ fn channel_max_queue() {
         channel: channel.clone(),
         roots_hashes: vec![(send1.hash(), send1.root())],
     };
-    node.services().request_aggregator.request(request.clone());
-    node.services().request_aggregator.request(request.clone());
+    node.consensus_services().request_aggregator.request(request.clone());
+    node.consensus_services().request_aggregator.request(request.clone());
 
     assert!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Aggregator,
             DetailType::AggregatorDropped,
             Direction::In
@@ -585,17 +580,16 @@ fn cannot_vote() {
     node.process(send1.clone());
     let send2 = node.process(send2.clone());
 
-    node.services()
-        .wallets
+    node.wallet_services().wallets
         .insert_adhoc2(
-            &node.services().wallets.wallet_ids()[0],
+            &node.wallet_services().wallets.wallet_ids()[0],
             &DEV_GENESIS_KEY.raw_key(),
             true,
         )
         .unwrap();
 
     assert_eq!(
-        node.services().ledger.any().dependents_confirmed(&send2),
+        node.ledger_query_services().ledger.any().dependents_confirmed(&send2),
         false
     );
 
@@ -605,15 +599,15 @@ fn cannot_vote() {
         channel: dummy_channel.clone(),
         roots_hashes: vec![(send2.hash(), send2.root()), (1.into(), send2.root())],
     };
-    node.services().request_aggregator.request(request.clone());
+    node.consensus_services().request_aggregator.request(request.clone());
 
     assert_timely_msg(
         Duration::from_secs(3),
-        || node.services().request_aggregator.is_empty(),
+        || node.consensus_services().request_aggregator.is_empty(),
         "aggregator empty",
     );
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Aggregator,
             DetailType::AggregatorAccepted,
             Direction::In,
@@ -621,7 +615,7 @@ fn cannot_vote() {
         1
     );
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Aggregator,
             DetailType::AggregatorDropped,
             Direction::In,
@@ -631,7 +625,7 @@ fn cannot_vote() {
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsNonFinal,
                 Direction::In,
@@ -640,7 +634,7 @@ fn cannot_vote() {
         2,
     );
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Requests,
             DetailType::RequestsGeneratedVotes,
             Direction::In,
@@ -648,7 +642,7 @@ fn cannot_vote() {
         0
     );
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Requests,
             DetailType::RequestsUnknown,
             Direction::In,
@@ -657,16 +651,16 @@ fn cannot_vote() {
     );
 
     // With an ongoing election
-    node.services()
+    node.consensus_services()
         .election_schedulers
         .add_manual(send2.clone());
     assert_timely2(|| node.is_active_root(&send2.qualified_root()));
 
-    node.services().request_aggregator.request(request.clone());
+    node.consensus_services().request_aggregator.request(request.clone());
 
-    assert_timely2(|| node.services().request_aggregator.is_empty());
+    assert_timely2(|| node.consensus_services().request_aggregator.is_empty());
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Aggregator,
             DetailType::AggregatorAccepted,
             Direction::In,
@@ -674,7 +668,7 @@ fn cannot_vote() {
         2
     );
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Aggregator,
             DetailType::AggregatorDropped,
             Direction::In,
@@ -683,7 +677,7 @@ fn cannot_vote() {
     );
     assert_timely_eq2(
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsNonFinal,
                 Direction::In,
@@ -692,7 +686,7 @@ fn cannot_vote() {
         4,
     );
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Requests,
             DetailType::RequestsGeneratedVotes,
             Direction::In,
@@ -700,7 +694,7 @@ fn cannot_vote() {
         0
     );
     assert_eq!(
-        node.services().stats.count(
+        node.stats_service().count(
             StatType::Requests,
             DetailType::RequestsUnknown,
             Direction::In,
@@ -712,18 +706,18 @@ fn cannot_vote() {
     node.confirm(send1.hash());
     node.confirm(send2.hash());
 
-    node.services().request_aggregator.request(request.clone());
+    node.consensus_services().request_aggregator.request(request.clone());
 
     assert_timely_msg(
         Duration::from_secs(3),
-        || node.services().request_aggregator.is_empty(),
+        || node.consensus_services().request_aggregator.is_empty(),
         "aggregator empty",
     );
 
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsGeneratedHashes,
                 Direction::In,
@@ -734,7 +728,7 @@ fn cannot_vote() {
     assert_timely_eq(
         Duration::from_secs(3),
         || {
-            node.services().stats.count(
+            node.stats_service().count(
                 StatType::Requests,
                 DetailType::RequestsGeneratedVotes,
                 Direction::In,
@@ -765,7 +759,7 @@ fn forked_open() {
     node.process(open0.clone());
     node.confirm(open0.hash());
 
-    let vote_tracker = node.services().vote_generators.track();
+    let vote_tracker = node.consensus_services().vote_generators.track();
 
     let channel = make_fake_channel(&node.network_services());
 
@@ -774,7 +768,7 @@ fn forked_open() {
         channel: channel.clone(),
         roots_hashes: vec![(open1.hash(), open1.root())],
     };
-    node.services().request_aggregator.request(request);
+    node.consensus_services().request_aggregator.request(request);
 
     let vote_event = wait_vote_event(&vote_tracker);
 
@@ -819,7 +813,7 @@ fn epoch_conflict() {
     node.confirm(change.hash());
     assert_timely2(|| node.block_confirmed(&change.hash()));
 
-    let vote_tracker = node.services().vote_generators.track();
+    let vote_tracker = node.consensus_services().vote_generators.track();
     let channel = make_fake_channel(&node.network_services());
 
     // Request vote for conflicting epoch block
@@ -827,7 +821,7 @@ fn epoch_conflict() {
         channel: channel.clone(),
         roots_hashes: vec![(epoch_open.hash(), epoch_open.root())],
     };
-    node.services().request_aggregator.request(request.clone());
+    node.consensus_services().request_aggregator.request(request.clone());
 
     let vote_event = wait_vote_event(&vote_tracker);
 
@@ -847,7 +841,7 @@ fn epoch_conflict() {
     let request = AggregatorRequest { channel, ..request };
 
     // Request vote for the conflicting epoch block again
-    node.services().request_aggregator.request(request);
+    node.consensus_services().request_aggregator.request(request);
 
     let vote_event = wait_vote_event(&vote_tracker);
     assert_eq!(vote_event.blocks.len(), 1);
@@ -874,7 +868,7 @@ fn cemented_no_spacing() {
     node.process_multi(&[send1.clone(), send2.clone(), send3.clone()]);
     node.confirm_multi(&[send1.clone(), send2.clone(), send3.clone()]);
 
-    let vote_tracker = node.services().vote_generators.track();
+    let vote_tracker = node.consensus_services().vote_generators.track();
     let channel = make_fake_channel(&node.network_services());
 
     // Request votes for blocks at different positions in the chain
@@ -888,7 +882,7 @@ fn cemented_no_spacing() {
     };
 
     // Request votes for all blocks
-    node.services().request_aggregator.request(request);
+    node.consensus_services().request_aggregator.request(request);
 
     let vote_event = wait_vote_event(&vote_tracker);
 
