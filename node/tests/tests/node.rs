@@ -101,7 +101,7 @@ fn vote_by_hash_bundle() {
     // Initialize the test system with one node
     let mut system = System::new();
     let node = system.make_node();
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
 
     // Prepare a vector to hold the blocks
     let mut blocks = Vec::new();
@@ -132,17 +132,17 @@ fn vote_by_hash_bundle() {
         .unwrap();
 
     assert_timely_eq2(
-        || node.services().wallet_reps.lock().unwrap().voting_reps(),
+        || node.wallet_services().wallet_reps.lock().unwrap().voting_reps(),
         1,
     );
 
     // Set up an observer to track the maximum number of hashes in a vote
     let (tx, rx) = backpressure_channel::channel(128);
-    node.services().vote_processor.add_observer(tx);
+    node.consensus_services().vote_processor.add_observer(tx);
 
     // Enqueue vote requests for all the blocks
     for block in &blocks {
-        node.services().vote_generators.generate_vote(
+        node.consensus_services().vote_generators.generate_vote(
             &block.root(),
             &block.hash(),
             VoteType::NonFinal,
@@ -178,7 +178,7 @@ fn vote_by_hash_bundle() {
 fn confirm_quorum() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let wallet_id = node1.services().wallets.wallet_ids()[0];
+    let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
     node1
         .services()
         .wallets
@@ -186,7 +186,7 @@ fn confirm_quorum() {
         .unwrap();
 
     // Put greater than node.delta() in pending so quorum can't be reached
-    let new_balance = node1.services().online_reps.lock().unwrap().quorum_delta() - Amount::raw(1);
+    let new_balance = node1.consensus_services().online_reps.lock().unwrap().quorum_delta() - Amount::raw(1);
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send1 = lattice
         .genesis()
@@ -226,7 +226,7 @@ fn confirm_quorum() {
 fn send_callback() {
     let mut system = System::new();
     let node = system.make_node();
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
 
     node.services()
@@ -271,7 +271,7 @@ fn no_voting() {
     config.enable_voting = false;
     let node1 = system.build_node().config(config).finish();
 
-    let wallet_id1 = node1.services().wallets.wallet_ids()[0];
+    let wallet_id1 = node1.wallet_services().wallets.wallet_ids()[0];
 
     // Node1 has a rep
     node1
@@ -301,7 +301,7 @@ fn no_voting() {
         .wait()
         .unwrap();
 
-    assert_timely_eq2(|| node0.services().active.read().unwrap().len(), 0);
+    assert_timely_eq2(|| node0.consensus_services().active.read().unwrap().len(), 0);
     assert_eq!(
         node0
             .services()
@@ -378,7 +378,7 @@ fn bootstrap_fork_open() {
     node0.process(open0.clone());
     node1.process(open1.clone());
 
-    node0.services().confirming_set.add_block(open0.hash());
+    node0.consensus_services().confirming_set.add_block(open0.hash());
     assert_timely2(|| node0.block_confirmed(&open0.hash()));
 
     // Start election for open block which is necessary to resolve the fork
@@ -437,7 +437,7 @@ fn rep_self_vote() {
     node0.insert_into_wallet(&rep_big);
     node0.insert_into_wallet(&DEV_GENESIS_KEY);
     assert_timely_eq2(
-        || node0.services().wallet_reps.lock().unwrap().voting_reps(),
+        || node0.wallet_services().wallet_reps.lock().unwrap().voting_reps(),
         2,
     );
 
@@ -476,7 +476,7 @@ fn fork_bootstrap_flip() {
     let config1 = System::default_config_without_backlog_scan();
 
     let node1 = system.build_node().config(config1).finish();
-    let wallet_id1 = node1.services().wallets.wallet_ids()[0];
+    let wallet_id1 = node1.wallet_services().wallets.wallet_ids()[0];
     node1
         .services()
         .wallets
@@ -570,9 +570,9 @@ fn fork_multi_flip() {
     });
 
     node1.confirm(send1.hash());
-    assert_timely2(|| node2.services().ledger.any().block_exists(&send1.hash()));
-    assert!(!node2.services().ledger.any().block_exists(&send2.hash()));
-    assert!(!node2.services().ledger.any().block_exists(&send3.hash()));
+    assert_timely2(|| node2.ledger_query_services().ledger.any().block_exists(&send1.hash()));
+    assert!(!node2.ledger_query_services().ledger.any().block_exists(&send2.hash()));
+    assert!(!node2.ledger_query_services().ledger.any().block_exists(&send3.hash()));
 }
 
 // This test is racy, there is no guarantee that the election won't be confirmed until all forks are fully processed
@@ -589,7 +589,7 @@ fn fork_publish() {
     let send2 = fork_lattice.genesis().send(&key2, 100);
     node1.process_active(send1.clone());
     node1.process_active(send2.clone());
-    assert_timely_eq2(|| node1.services().active.read().unwrap().len(), 1);
+    assert_timely_eq2(|| node1.consensus_services().active.read().unwrap().len(), 1);
     assert_timely2(|| node1.is_active_root(&send2.qualified_root()));
     // Wait until the genesis rep activated & makes vote
     assert_timely_eq2(
@@ -675,11 +675,11 @@ fn fork_publish_inactive() {
 fn unlock_search() {
     let mut system = System::new();
     let node = system.make_node();
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
     let balance = node.balance(&DEV_GENESIS_ACCOUNT);
 
-    node.services().wallets.rekey(&wallet_id, "").unwrap();
+    node.wallet_services().wallets.rekey(&wallet_id, "").unwrap();
     node.services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
@@ -703,7 +703,7 @@ fn unlock_search() {
 
     assert_timely_eq(
         Duration::from_secs(10),
-        || node.services().active.read().unwrap().len(),
+        || node.consensus_services().active.read().unwrap().len(),
         0,
     );
 
@@ -711,7 +711,7 @@ fn unlock_search() {
         .wallets
         .insert_adhoc2(&wallet_id, &key2.raw_key(), true)
         .unwrap();
-    //node.services().wallets
+    //node.wallet_services().wallets
     //    .set_password(&wallet_id, &KeyPair::new().private_key())
     //    .unwrap();
     node.services()
@@ -731,7 +731,7 @@ fn search_receivable_confirmed() {
     let mut system = System::new();
     let config = System::default_config_without_backlog_scan();
     let node = system.build_node().config(config).finish();
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
     node.services()
         .wallets
@@ -780,7 +780,7 @@ fn search_receivable_confirmed() {
         .insert_adhoc2(&wallet_id, &key2.raw_key(), true)
         .unwrap();
 
-    node.services().wallets.search_receivable(&wallet_id);
+    node.wallet_services().wallets.search_receivable(&wallet_id);
 
     assert_timely2(|| !node.is_active_root(&send1.qualified_root()));
     assert_timely2(|| !node.is_active_root(&send2.qualified_root()));
@@ -795,7 +795,7 @@ fn search_receivable_confirmed() {
 fn search_receivable() {
     let mut system = System::new();
     let node = system.make_node();
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
     node.services()
         .wallets
@@ -838,7 +838,7 @@ fn search_receivable_same() {
     let mut system = System::new();
     let node = system.make_node();
     node.insert_into_wallet(&DEV_GENESIS_KEY);
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
 
     let send_result1 = node
@@ -885,7 +885,7 @@ fn search_receivable_same() {
 fn search_receivable_multiple() {
     let mut system = System::new();
     let node = system.make_node();
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
     let key3 = PrivateKey::new();
     node.services()
@@ -971,7 +971,7 @@ fn auto_bootstrap() {
 fn quick_confirm() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let wallet_id = node1.services().wallets.wallet_ids()[0];
+    let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
     let key = PrivateKey::new();
 
     node1
@@ -988,7 +988,7 @@ fn quick_confirm() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send = lattice.genesis().send_all_except(
         &key,
-        node1.services().online_reps.lock().unwrap().quorum_delta() + Amount::raw(1),
+        node1.consensus_services().online_reps.lock().unwrap().quorum_delta() + Amount::raw(1),
     );
 
     node1.process_active(send.clone());
@@ -1001,13 +1001,13 @@ fn quick_confirm() {
 
     assert_eq!(
         node1.balance(&DEV_GENESIS_ACCOUNT),
-        node1.services().online_reps.lock().unwrap().quorum_delta() + Amount::raw(1)
+        node1.consensus_services().online_reps.lock().unwrap().quorum_delta() + Amount::raw(1)
     );
 
     assert_eq!(
         node1.balance(&key.account()),
         Amount::MAX
-            - (node1.services().online_reps.lock().unwrap().quorum_delta() + Amount::raw(1))
+            - (node1.consensus_services().online_reps.lock().unwrap().quorum_delta() + Amount::raw(1))
     );
 }
 
@@ -1043,8 +1043,8 @@ fn send_single_observing_peer() {
     let key2 = PrivateKey::new();
     let node1 = system.make_node();
     let node2 = system.make_node();
-    let wallet_id1 = node1.services().wallets.wallet_ids()[0];
-    let wallet_id2 = node2.services().wallets.wallet_ids()[0];
+    let wallet_id1 = node1.wallet_services().wallets.wallet_ids()[0];
+    let wallet_id2 = node2.wallet_services().wallets.wallet_ids()[0];
 
     node1
         .services()
@@ -1097,8 +1097,8 @@ fn send_single() {
     let key2 = PrivateKey::new();
     let node1 = system.make_node();
     let node2 = system.make_node();
-    let wallet_id1 = node1.services().wallets.wallet_ids()[0];
-    let wallet_id2 = node2.services().wallets.wallet_ids()[0];
+    let wallet_id1 = node1.wallet_services().wallets.wallet_ids()[0];
+    let wallet_id2 = node2.wallet_services().wallets.wallet_ids()[0];
 
     node1
         .services()
@@ -1145,7 +1145,7 @@ fn send_self() {
     let mut system = System::new();
     let key2 = PrivateKey::new();
     let node = system.make_node();
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     node.services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
@@ -1186,7 +1186,7 @@ fn balance() {
     let mut system = System::new();
     let node = system.make_node();
 
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     node.services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
@@ -1271,9 +1271,9 @@ fn local_block_broadcast() {
     });
 
     // Wait until a broadcast is attempted
-    assert_timely_eq2(|| node1.services().local_block_broadcaster.len(), 1);
+    assert_timely_eq2(|| node1.consensus_services().local_block_broadcaster.len(), 1);
     assert_timely2(|| {
-        node1.services().stats.count(
+        node1.stats_service().count(
             StatType::LocalBlockBroadcaster,
             DetailType::Broadcast,
             Direction::Out,
@@ -1309,9 +1309,9 @@ fn fork_no_vote_quorum() {
     let node1 = system.make_node();
     let node2 = system.make_node();
     let node3 = system.make_node();
-    let wallet_id1 = node1.services().wallets.wallet_ids()[0];
-    let wallet_id2 = node2.services().wallets.wallet_ids()[0];
-    let wallet_id3 = node3.services().wallets.wallet_ids()[0];
+    let wallet_id1 = node1.wallet_services().wallets.wallet_ids()[0];
+    let wallet_id2 = node2.wallet_services().wallets.wallet_ids()[0];
+    let wallet_id3 = node3.wallet_services().wallets.wallet_ids()[0];
 
     node1.insert_into_wallet(&DEV_GENESIS_KEY);
 
@@ -1375,15 +1375,15 @@ fn fork_no_vote_quorum() {
     );
     assert_eq!(
         node1.config.receive_minimum,
-        node1.services().ledger.weight(&key1)
+        node1.ledger_query_services().ledger.weight(&key1)
     );
     assert_eq!(
         node1.config.receive_minimum,
-        node2.services().ledger.weight(&key1)
+        node2.ledger_query_services().ledger.weight(&key1)
     );
     assert_eq!(
         node1.config.receive_minimum,
-        node3.services().ledger.weight(&key1)
+        node3.ledger_query_services().ledger.weight(&key1)
     );
 
     let send1: Block = StateBlockArgs {
@@ -1458,7 +1458,7 @@ fn fork_no_vote_quorum() {
 fn fork_open() {
     let mut system = System::new();
     let node = system.make_node();
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
 
     // create block send1, to send all the balance from genesis to key1
     // this is done to ensure that the open block(s) cannot be voted on and confirmed
@@ -1477,7 +1477,7 @@ fn fork_open() {
 
     assert_timely2(|| node.is_active_root(&send1.qualified_root()));
     node.force_confirm(&send1.hash());
-    assert_timely_eq2(|| node.services().active.read().unwrap().len(), 0);
+    assert_timely_eq2(|| node.consensus_services().active.read().unwrap().len(), 0);
 
     // register key for genesis account, not sure why we do this, it seems needless,
     // since the genesis account at this stage has zero voting weight
@@ -1494,7 +1494,7 @@ fn fork_open() {
     );
     assert_timely_eq(
         Duration::from_secs(5),
-        || node.services().active.read().unwrap().len(),
+        || node.consensus_services().active.read().unwrap().len(),
         1,
     );
 
@@ -1566,23 +1566,23 @@ fn online_reps_rep_crawler() {
 
     assert_eq!(
         Amount::ZERO,
-        node.services().online_reps.lock().unwrap().online_weight()
+        node.consensus_services().online_reps.lock().unwrap().online_weight()
     );
 
-    let _ = node.services().vote_processor.vote_blocking(&vote);
+    let _ = node.consensus_services().vote_processor.vote_blocking(&vote);
     assert_eq!(
         Amount::ZERO,
-        node.services().online_reps.lock().unwrap().online_weight()
+        node.consensus_services().online_reps.lock().unwrap().online_weight()
     );
 
     // After inserting to rep crawler
     node.services()
         .rep_crawler
         .force_query(*DEV_GENESIS_HASH, channel.channel_id());
-    let _ = node.services().vote_processor.vote_blocking(&vote);
+    let _ = node.consensus_services().vote_processor.vote_blocking(&vote);
 
     assert_timely_eq2(
-        || node.services().online_reps.lock().unwrap().online_weight(),
+        || node.consensus_services().online_reps.lock().unwrap().online_weight(),
         Amount::MAX,
     );
 }
@@ -1602,7 +1602,7 @@ fn online_reps_election() {
     node.process_active(send1.clone());
     assert_timely_eq(
         Duration::from_secs(5),
-        || node.services().active.read().unwrap().len(),
+        || node.consensus_services().active.read().unwrap().len(),
         1,
     );
 
@@ -1615,7 +1615,7 @@ fn online_reps_election() {
     ));
     assert_eq!(
         Amount::ZERO,
-        node.services().online_reps.lock().unwrap().online_weight()
+        node.consensus_services().online_reps.lock().unwrap().online_weight()
     );
 
     let network_services = node.network_services();
@@ -1627,7 +1627,7 @@ fn online_reps_election() {
 
     assert_eq!(
         Amount::MAX - Amount::nano(1000),
-        node.services().online_reps.lock().unwrap().online_weight()
+        node.consensus_services().online_reps.lock().unwrap().online_weight()
     );
 }
 
@@ -1800,14 +1800,14 @@ fn confirm_back() {
     start_election(&node, &send1.hash());
     start_election(&node, &open.hash());
     start_election(&node, &send2.hash());
-    assert_eq!(node.services().active.read().unwrap().len(), 3);
+    assert_eq!(node.consensus_services().active.read().unwrap().len(), 3);
     let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send2.hash()]));
 
     node.services()
         .vote_processor_queue
         .enqueue(vote, None, VoteSource::Live, None);
 
-    assert_timely_eq2(|| node.services().active.read().unwrap().len(), 0);
+    assert_timely_eq2(|| node.consensus_services().active.read().unwrap().len(), 0);
 }
 
 // Test that rep_crawler removes unreachable reps from its search results.
@@ -1882,7 +1882,7 @@ fn rep_crawler_rep_remove() {
     assert_eq!(1, reps.len());
     assert_eq!(
         rep_weight,
-        searching_node.services().ledger.weight(&reps[0].rep_key)
+        searching_node.ledger_query_services().ledger.weight(&reps[0].rep_key)
     );
     assert_eq!(key_rep1.public_key(), reps[0].rep_key);
     assert_eq!(channel_rep1.channel_id(), reps[0].channel_id());
@@ -1904,7 +1904,7 @@ fn rep_crawler_rep_remove() {
 
     // Add working node for genesis representative
     let node_genesis_rep = system.make_node();
-    let wallet_id = node_genesis_rep.services().wallets.wallet_ids()[0];
+    let wallet_id = node_genesis_rep.wallet_services().wallets.wallet_ids()[0];
     node_genesis_rep
         .services()
         .wallets
@@ -2073,7 +2073,7 @@ fn node_receive_quorum() {
     let mut system = System::new();
     let node1 = system.make_node();
 
-    let wallet_id = node1.services().wallets.wallet_ids()[0];
+    let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
     let key = PrivateKey::new();
 
     node1
@@ -2099,7 +2099,7 @@ fn node_receive_quorum() {
     );
 
     let node2 = system.make_disconnected_node();
-    let wallet_id2 = node2.services().wallets.wallet_ids()[0];
+    let wallet_id2 = node2.wallet_services().wallets.wallet_ids()[0];
 
     node2
         .services()
@@ -2124,7 +2124,7 @@ fn node_receive_quorum() {
 fn fork_open_flip() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let wallet_id = node1.services().wallets.wallet_ids()[0];
+    let wallet_id = node1.wallet_services().wallets.wallet_ids()[0];
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
@@ -2183,8 +2183,8 @@ fn fork_open_flip() {
         .unwrap()
         .transition_active(&open2.hash());
 
-    assert_timely_eq2(|| node1.services().active.read().unwrap().len(), 2);
-    assert_timely_eq2(|| node2.services().active.read().unwrap().len(), 2);
+    assert_timely_eq2(|| node1.consensus_services().active.read().unwrap().len(), 2);
+    assert_timely_eq2(|| node2.consensus_services().active.read().unwrap().len(), 2);
 
     // allow node1 to vote and wait for open1 to be confirmed on node1
     node1
@@ -2221,7 +2221,7 @@ fn unconfirmed_send() {
     let mut system = System::new();
 
     let node1 = system.make_node();
-    let wallet_id1 = node1.services().wallets.wallet_ids()[0];
+    let wallet_id1 = node1.wallet_services().wallets.wallet_ids()[0];
     node1
         .services()
         .wallets
@@ -2230,7 +2230,7 @@ fn unconfirmed_send() {
 
     let key2 = PrivateKey::new();
     let node2 = system.make_node();
-    let wallet_id2 = node2.services().wallets.wallet_ids()[0];
+    let wallet_id2 = node2.wallet_services().wallets.wallet_ids()[0];
     node2
         .services()
         .wallets
@@ -2311,7 +2311,7 @@ fn unconfirmed_send() {
     assert_timely2(|| node1.block_confirmed(&send2.hash()));
     assert_timely2(|| node2.block_confirmed(&send3.hash()));
     assert_timely2(|| node1.block_confirmed(&send3.hash()));
-    assert_timely_eq2(|| node2.services().ledger.confirmed_count(), 7);
+    assert_timely_eq2(|| node2.ledger_query_services().ledger.confirmed_count(), 7);
     assert_timely_eq2(|| node1.balance(&DEV_GENESIS_ACCOUNT), Amount::MAX);
 }
 
@@ -2321,7 +2321,7 @@ fn block_processor_signatures() {
     let node = system.make_node();
 
     // Insert the genesis key into the wallet for signing operations
-    let wallet_id = node.services().wallets.wallet_ids()[0];
+    let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     node.services()
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
@@ -2352,7 +2352,7 @@ fn block_processor_signatures() {
     node.unchecked.lock().unwrap().put(
         send5.previous(),
         send5.clone(),
-        node.services().steady_clock.now(),
+        node.network_services().steady_clock.now(),
     );
 
     // Create a valid receive block
@@ -2387,7 +2387,7 @@ fn block_confirm() {
     let mut system = System::new();
     let node1 = system.make_node();
     let node2 = system.make_node();
-    let wallet_id2 = node2.services().wallets.wallet_ids()[0];
+    let wallet_id2 = node2.wallet_services().wallets.wallet_ids()[0];
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key = PrivateKey::new();
 
@@ -2418,12 +2418,12 @@ fn block_confirm() {
     );
 
     assert_timely2(|| {
-        node1.services().ledger.any().block_exists(&hash1)
-            && node2.services().ledger.any().block_exists(&hash1)
+        node1.ledger_query_services().ledger.any().block_exists(&hash1)
+            && node2.ledger_query_services().ledger.any().block_exists(&hash1)
     });
 
-    assert!(node1.services().ledger.any().block_exists(&hash1));
-    assert!(node2.services().ledger.any().block_exists(&hash1));
+    assert!(node1.ledger_query_services().ledger.any().block_exists(&hash1));
+    assert!(node2.ledger_query_services().ledger.any().block_exists(&hash1));
 
     // Confirm send1 on node2 so it can vote for send2
     start_election(&node2, &hash1);
@@ -2439,7 +2439,7 @@ fn block_confirm() {
 
     assert_timely_eq(
         Duration::from_secs(10),
-        || node1.services().recently_cemented.lock().unwrap().len(),
+        || node1.ledger_query_services().recently_cemented.lock().unwrap().len(),
         1,
     );
 }
@@ -2514,13 +2514,13 @@ fn dependency_graph_frontier() {
     start_election(&node1, &gen_send1.hash());
     assert_timely_eq(
         Duration::from_secs(15),
-        || node1.services().ledger.confirmed_count(),
-        node1.services().ledger.block_count(),
+        || node1.ledger_query_services().ledger.confirmed_count(),
+        node1.ledger_query_services().ledger.block_count(),
     );
     assert_timely_eq(
         Duration::from_secs(15),
-        || node2.services().ledger.confirmed_count(),
-        node2.services().ledger.block_count(),
+        || node2.ledger_query_services().ledger.confirmed_count(),
+        node2.ledger_query_services().ledger.block_count(),
     );
 }
 
@@ -2607,7 +2607,7 @@ fn dependency_graph() {
     ]
     .into();
     assert_eq!(
-        node.services().ledger.block_count() - 2,
+        node.ledger_query_services().ledger.block_count() - 2,
         dependency_graph.len() as u64
     );
 
@@ -2616,7 +2616,7 @@ fn dependency_graph() {
     start_election(&node, &gen_send1.hash());
     assert_timely(Duration::from_secs(15), || {
         // Not many blocks should be active simultaneously
-        assert!(node.services().active.read().unwrap().len() < 6);
+        assert!(node.consensus_services().active.read().unwrap().len() < 6);
 
         // Ensure that active blocks have their ancestors confirmed
         let error = dependency_graph.iter().any(|entry| {
@@ -2630,14 +2630,14 @@ fn dependency_graph() {
             false
         });
         assert!(!error);
-        error || node.services().ledger.confirmed_count() == node.services().ledger.block_count()
+        error || node.ledger_query_services().ledger.confirmed_count() == node.ledger_query_services().ledger.block_count()
     });
     assert_eq!(
-        node.services().ledger.confirmed_count(),
-        node.services().ledger.block_count()
+        node.ledger_query_services().ledger.confirmed_count(),
+        node.ledger_query_services().ledger.block_count()
     );
     assert_timely(Duration::from_secs(5), || {
-        node.services().active.read().unwrap().len() == 0
+        node.consensus_services().active.read().unwrap().len() == 0
     });
 }
 
@@ -2656,8 +2656,8 @@ fn fork_keep() {
     let send2 = fork_lattice.genesis().send(&key2, 100);
     node1.process_active(send1.clone());
     node2.process_active(send1.clone());
-    assert_timely_eq2(|| node1.services().active.read().unwrap().len(), 1);
-    assert_timely_eq2(|| node2.services().active.read().unwrap().len(), 1);
+    assert_timely_eq2(|| node1.consensus_services().active.read().unwrap().len(), 1);
+    assert_timely_eq2(|| node2.consensus_services().active.read().unwrap().len(), 1);
     node1.insert_into_wallet(&DEV_GENESIS_KEY);
     // Fill node with forked blocks
     node1.process_active(send2.clone());
@@ -2702,7 +2702,7 @@ fn bounded_backlog() {
 
     assert_timely_eq(
         Duration::from_secs(20),
-        || node.services().ledger.block_count(),
+        || node.ledger_query_services().ledger.block_count(),
         11,
     );
     // 10 + genesis
@@ -2717,5 +2717,5 @@ fn backlog_scan_election_activation() {
 
     node.process(send);
 
-    assert_timely_eq2(|| node.services().active.read().unwrap().len(), 1);
+    assert_timely_eq2(|| node.consensus_services().active.read().unwrap().len(), 1);
 }
