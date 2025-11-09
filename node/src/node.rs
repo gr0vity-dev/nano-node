@@ -21,14 +21,14 @@ use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoFactory, ContainerInfoProvider},
     stats::{Direction, Stats, StatsCollection, StatsCollector},
     thread_pool::ThreadPool,
-    ticker::{TickerPool, TimerThread},
+    ticker::TimerThread,
 };
 
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
     BootstrapWorkServices, ConsensusServices, LedgerQueryServices, NetworkServices, NodeCallbacks,
-    NodeServices, TelemetryServices, WalletServices,
+    NodeServices, TelemetryServices, TickerServices, WalletServices,
     block_processing::{BacklogScan, BlockContext, BlockSource, ProcessedResult, UncheckedMap},
     config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{AecTicker, AecVoter, election::ConfirmedElection},
@@ -57,7 +57,7 @@ pub struct Node {
     pub stats_collector: StatsCollector,
     container_info_factory: ContainerInfoFactory,
     aec_voter: TimerThread<AecVoter>,
-    ticker_pool: TickerPool,
+    ticker_services: TickerServices,
     #[cfg(feature = "ledger_snapshots")]
     pub ledger_snapshots: Arc<LedgerSnapshots>,
 }
@@ -139,6 +139,14 @@ impl Node {
         self.services.stats.clone()
     }
 
+    pub fn ticker_services(&self) -> &TickerServices {
+        &self.ticker_services
+    }
+
+    pub fn ticker_services_mut(&mut self) -> &mut TickerServices {
+        &mut self.ticker_services
+    }
+
     fn new(args: NodeArgs, is_nulled: bool, node_id_key_file: NodeIdKeyFile) -> Self {
         let parts = crate::node_builder::build_node_parts(args, is_nulled, node_id_key_file);
         Self::from_parts(parts)
@@ -164,7 +172,7 @@ impl Node {
             stats_collector: parts.stats_collector,
             container_info_factory: parts.container_info_factory,
             aec_voter: parts.aec_voter,
-            ticker_pool: parts.ticker_pool,
+            ticker_services: parts.ticker_services,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots: parts.ledger_snapshots,
         }
@@ -386,7 +394,7 @@ impl Node {
         bootstrap_work_services.start(self.config.enable_bootstrap_responder);
         telemetry_services.start();
 
-        self.ticker_pool.start();
+        self.ticker_services_mut().start();
     }
 
     pub fn stop(&mut self) {
@@ -407,7 +415,7 @@ impl Node {
         let telemetry_services = self.telemetry_services();
         let wallet_services = self.wallet_services();
 
-        self.ticker_pool.stop();
+        self.ticker_services_mut().stop();
         network_services.stop_listeners();
         self.aec_voter.stop();
         bootstrap_work_services.stop();
@@ -498,7 +506,7 @@ mod tests {
 
         // helper:
         fn assert_ticker<T: Tickable + 'static>(node: &Node, expected: Duration) {
-            let Some(interval) = node.ticker_pool.get::<T>() else {
+            let Some(interval) = node.ticker_services().ticker_pool().get::<T>() else {
                 panic!("Should schedule ticker of type: {}", type_name::<T>());
             };
             assert_eq!(interval, expected, "interval for {}", type_name::<T>());

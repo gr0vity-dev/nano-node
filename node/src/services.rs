@@ -7,7 +7,7 @@ use rsnano_messages::NetworkFilter;
 use rsnano_network::{Network, PeerConnector, TcpListener, TcpListenerExt};
 use rsnano_network_protocol::InboundMessageQueue;
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_utils::stats::Stats;
+use rsnano_utils::{stats::Stats, ticker::TickerPool};
 use tracing::warn;
 
 use crate::{
@@ -40,6 +40,28 @@ use crate::ledger_snapshots::LedgerSnapshots;
 
 use rsnano_types::PrivateKey;
 use rsnano_wallet::Wallets;
+
+pub struct TickerServices {
+    ticker_pool: TickerPool,
+}
+
+impl TickerServices {
+    pub(crate) fn new(ticker_pool: TickerPool) -> Self {
+        Self { ticker_pool }
+    }
+
+    pub fn start(&mut self) {
+        self.ticker_pool.start();
+    }
+
+    pub fn stop(&mut self) {
+        self.ticker_pool.stop();
+    }
+
+    pub fn ticker_pool(&self) -> &TickerPool {
+        &self.ticker_pool
+    }
+}
 
 #[derive(Clone)]
 pub struct WalletServices {

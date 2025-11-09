@@ -43,7 +43,7 @@ use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
 use crate::{
-    Node, NodeArgs, NodeEvent, NodeServices, OnlineWeightSampler,
+    Node, NodeArgs, NodeEvent, NodeServices, OnlineWeightSampler, TickerServices,
     aec_event_processor::AecEventProcessor,
     block_processing::{
         BacklogScan, BacklogWaiter, BlockProcessor, BlockProcessorQueue, BoundedBacklog,
@@ -168,7 +168,7 @@ pub(crate) struct NodeParts {
     pub(crate) stats_collector: StatsCollector,
     pub(crate) container_info_factory: ContainerInfoFactory,
     pub(crate) aec_voter: TimerThread<AecVoter>,
-    pub(crate) ticker_pool: TickerPool,
+    pub(crate) ticker_services: TickerServices,
     #[cfg(feature = "ledger_snapshots")]
     pub(crate) ledger_snapshots: Arc<LedgerSnapshots>,
 }
@@ -1248,6 +1248,9 @@ pub(crate) fn build_node_parts(
             Duration::from_secs(10)
         },
     );
+
+    let ticker_services = TickerServices::new(ticker_pool);
+
     let message_flooder = Arc::new(Mutex::new(message_flooder.clone()));
 
     let recently_cemented_inserter = RecentlyCementedInserter {
@@ -1462,7 +1465,7 @@ pub(crate) fn build_node_parts(
         stats_collector,
         container_info_factory: container_info,
         aec_voter: TimerThread::new("AEC voter", aec_voter),
-        ticker_pool,
+        ticker_services,
         #[cfg(feature = "ledger_snapshots")]
         ledger_snapshots,
     }
