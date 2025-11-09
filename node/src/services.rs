@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex, RwLock};
+use std::{
+    ops::{Deref, DerefMut},
+    sync::{Arc, Mutex, RwLock},
+};
 
 use bounded_vec_deque::BoundedVecDeque;
 
@@ -12,7 +15,7 @@ use tracing::warn;
 
 use crate::{
     block_processing::{
-        BlockProcessor, BlockProcessorQueue, BoundedBacklog, LocalBlockBroadcaster,
+        BacklogScan, BlockProcessor, BlockProcessorQueue, BoundedBacklog, LocalBlockBroadcaster,
         LocalBlockBroadcasterExt,
     },
     block_rate_calculator::CurrentBlockRates,
@@ -92,6 +95,38 @@ impl WalletServices {
 
     pub fn stop(&self) {
         self.wallets.stop();
+    }
+}
+
+pub struct BacklogServices {
+    backlog_scan: BacklogScan,
+}
+
+impl BacklogServices {
+    pub(crate) fn new(backlog_scan: BacklogScan) -> Self {
+        Self { backlog_scan }
+    }
+
+    pub fn start(&mut self) {
+        self.backlog_scan.start();
+    }
+
+    pub fn stop(&mut self) {
+        self.backlog_scan.stop();
+    }
+}
+
+impl Deref for BacklogServices {
+    type Target = BacklogScan;
+
+    fn deref(&self) -> &Self::Target {
+        &self.backlog_scan
+    }
+}
+
+impl DerefMut for BacklogServices {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.backlog_scan
     }
 }
 

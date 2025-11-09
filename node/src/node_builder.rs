@@ -43,7 +43,7 @@ use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
 use crate::{
-    Node, NodeArgs, NodeEvent, NodeServices, OnlineWeightSampler, TickerServices,
+    BacklogServices, Node, NodeArgs, NodeEvent, NodeServices, OnlineWeightSampler, TickerServices,
     aec_event_processor::AecEventProcessor,
     block_processing::{
         BacklogScan, BacklogWaiter, BlockProcessor, BlockProcessorQueue, BoundedBacklog,
@@ -162,7 +162,7 @@ pub(crate) struct NodeParts {
     pub(crate) flags: NodeFlags,
     pub(crate) services: NodeServices,
     pub(crate) unchecked: Arc<Mutex<UncheckedMap>>,
-    pub(crate) backlog_scan: BacklogScan,
+    pub(crate) backlog_scan: BacklogServices,
     pub(crate) tokio_runner: TokioRunner,
     pub(crate) aec_ticker: TimerThread<AecTicker>,
     pub(crate) stats_collector: StatsCollector,
@@ -1373,6 +1373,8 @@ pub(crate) fn build_node_parts(
     stats_collector.add_source(bootstrapper.clone());
     stats_collector.add_source(unchecked.clone());
     stats_collector.add_source(unchecked_reenqueuer.stats().clone());
+
+    let backlog_scan = BacklogServices::new(backlog_scan);
 
     let mut container_info = ContainerInfoFactory::new();
     container_info.add("work", work_factory.clone());

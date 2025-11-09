@@ -27,9 +27,10 @@ use rsnano_utils::{
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
-    BootstrapWorkServices, ConsensusServices, LedgerQueryServices, NetworkServices, NodeCallbacks,
-    NodeServices, TelemetryServices, TickerServices, WalletServices,
-    block_processing::{BacklogScan, BlockContext, BlockSource, ProcessedResult, UncheckedMap},
+    BacklogServices, BootstrapWorkServices, ConsensusServices, LedgerQueryServices,
+    NetworkServices, NodeCallbacks, NodeServices, TelemetryServices, TickerServices,
+    WalletServices,
+    block_processing::{BlockContext, BlockSource, ProcessedResult, UncheckedMap},
     config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{AecTicker, AecVoter, election::ConfirmedElection},
     node_builder::NodeParts,
@@ -49,7 +50,7 @@ pub struct Node {
     pub flags: NodeFlags,
     services: NodeServices,
     pub unchecked: Arc<Mutex<UncheckedMap>>,
-    pub backlog_scan: BacklogScan,
+    pub backlog_scan: BacklogServices,
     stopped: AtomicBool,
     start_stop_listener: OutputListenerMt<&'static str>,
     tokio_runner: TokioRunner,
