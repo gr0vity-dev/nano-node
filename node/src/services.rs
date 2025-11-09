@@ -1,6 +1,7 @@
 use std::{
     ops::{Deref, DerefMut},
     sync::{Arc, Mutex, RwLock},
+    time::Duration,
 };
 
 use bounded_vec_deque::BoundedVecDeque;
@@ -10,7 +11,10 @@ use rsnano_messages::NetworkFilter;
 use rsnano_network::{Network, PeerConnector, TcpListener, TcpListenerExt};
 use rsnano_network_protocol::InboundMessageQueue;
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_utils::{stats::Stats, ticker::TickerPool};
+use rsnano_utils::{
+    stats::Stats,
+    ticker::{TickerPool, TimerThread},
+};
 use tracing::warn;
 
 use crate::{
@@ -21,12 +25,12 @@ use crate::{
     block_rate_calculator::CurrentBlockRates,
     bootstrap::{BootstrapExt, BootstrapServer, Bootstrapper},
     cementation::ConfirmingSet,
-    config::{NodeConfig, NodeFlags},
+    config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{
-        ActiveElectionsContainer, CurrentRepTiers, LocalVoteHistory, RequestAggregator, VoteCache,
-        VoteCacheProcessor, VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
-        VoteRebroadcaster, WinnerBlockBroadcaster, election::ConfirmedElection,
-        election_schedulers::ElectionSchedulers,
+        ActiveElectionsContainer, AecTicker, AecVoter, CurrentRepTiers, LocalVoteHistory,
+        RequestAggregator, VoteCache, VoteCacheProcessor, VoteGenerators, VoteProcessor,
+        VoteProcessorExt, VoteProcessorQueue, VoteRebroadcaster, WinnerBlockBroadcaster,
+        election::ConfirmedElection, election_schedulers::ElectionSchedulers,
     },
     representatives::{OnlineReps, RepCrawler, RepCrawlerExt},
     telemetry::{TelementryExt, Telemetry},
@@ -43,6 +47,41 @@ use crate::ledger_snapshots::LedgerSnapshots;
 
 use rsnano_types::PrivateKey;
 use rsnano_wallet::Wallets;
+
+pub struct ConsensusTimerServices<'a> {
+    aec_ticker: &'a TimerThread<AecTicker>,
+    aec_voter: &'a TimerThread<AecVoter>,
+}
+
+impl<'a> ConsensusTimerServices<'a> {
+    pub(crate) fn new(
+        aec_ticker: &'a TimerThread<AecTicker>,
+        aec_voter: &'a TimerThread<AecVoter>,
+    ) -> Self {
+        Self {
+            aec_ticker,
+            aec_voter,
+        }
+    }
+
+    pub fn start(&self, flags: &NodeFlags, network_params: &NetworkParams) {
+        self.aec_voter.start(Duration::from_millis(20));
+        if !flags.disable_request_loop {
+            self.aec_ticker
+                .start(network_params.network.aec_loop_interval);
+        }
+    }
+
+    pub fn stop(&self) {
+        self.aec_ticker.stop();
+        self.aec_voter.stop();
+    }
+
+    #[cfg(test)]
+    pub fn ticker(&self) -> &TimerThread<AecTicker> {
+        self.aec_ticker
+    }
+}
 
 pub struct TickerServices {
     ticker_pool: TickerPool,

@@ -5,7 +5,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc::{Receiver, SyncSender},
     },
-    time::Duration,
 };
 
 use tracing::{error, info};
@@ -27,9 +26,9 @@ use rsnano_utils::{
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
-    BacklogServices, BootstrapWorkServices, ConsensusServices, LedgerQueryServices,
-    NetworkServices, NodeCallbacks, NodeServices, TelemetryServices, TickerServices,
-    WalletServices,
+    BacklogServices, BootstrapWorkServices, ConsensusServices, ConsensusTimerServices,
+    LedgerQueryServices, NetworkServices, NodeCallbacks, NodeServices, TelemetryServices,
+    TickerServices, WalletServices,
     block_processing::{BlockContext, BlockSource, ProcessedResult, UncheckedMap},
     config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{AecTicker, AecVoter, election::ConfirmedElection},
@@ -146,6 +145,10 @@ impl Node {
 
     pub fn ticker_services_mut(&mut self) -> &mut TickerServices {
         &mut self.ticker_services
+    }
+
+    fn consensus_timer_services(&self) -> ConsensusTimerServices<'_> {
+        ConsensusTimerServices::new(&self.aec_ticker, &self.aec_voter)
     }
 
     fn new(args: NodeArgs, is_nulled: bool, node_id_key_file: NodeIdKeyFile) -> Self {
@@ -384,13 +387,10 @@ impl Node {
         let telemetry_services = self.telemetry_services();
 
         network_services.start(self.config.tcp.max_inbound_connections);
-        self.aec_voter.start(Duration::from_millis(20));
+        self.consensus_timer_services()
+            .start(&self.flags, &self.network_params);
 
         consensus_services.start(&self.config, &self.flags);
-        if !self.flags.disable_request_loop {
-            self.aec_ticker
-                .start(self.network_params.network.aec_loop_interval);
-        }
         self.backlog_scan.start();
         bootstrap_work_services.start(self.config.enable_bootstrap_responder);
         telemetry_services.start();
@@ -418,10 +418,9 @@ impl Node {
 
         self.ticker_services_mut().stop();
         network_services.stop_listeners();
-        self.aec_voter.stop();
+        self.consensus_timer_services().stop();
         bootstrap_work_services.stop();
         self.backlog_scan.stop();
-        self.aec_ticker.stop();
         consensus_services.stop();
         telemetry_services.stop();
         wallet_services.stop();
@@ -486,7 +485,7 @@ mod tests {
     };
     use rsnano_utils::{stats::StatsSource, ticker::Tickable};
     use rsnano_wallet::{ReceivableSearch, WalletBackup, WalletsTicker};
-    use std::any::type_name;
+    use std::{any::type_name, time::Duration};
 
     #[test]
     fn schedule_tickers() {
