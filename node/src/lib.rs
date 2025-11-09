@@ -9,6 +9,7 @@ pub mod block_processing;
 pub mod block_rate_calculator;
 pub mod bootstrap;
 pub mod cementation;
+mod composition;
 pub mod config;
 pub mod consensus;
 mod ledger_event_processor;
