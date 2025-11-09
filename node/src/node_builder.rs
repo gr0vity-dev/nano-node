@@ -9,6 +9,7 @@ use std::{
     time::Duration,
 };
 
+use anyhow::anyhow;
 use bounded_vec_deque::BoundedVecDeque;
 use num_format::{Locale, ToFormattedString};
 use tracing::{info, warn};
@@ -151,7 +152,7 @@ pub struct NodeBuilder {
     event_sink: Option<SyncSender<NodeEvent>>,
 }
 
-pub(crate) struct NodeParts {
+pub(crate) struct ComposedNode {
     pub(crate) is_nulled: bool,
     pub(crate) runtime: tokio::runtime::Handle,
     pub(crate) data_path: PathBuf,
@@ -256,14 +257,14 @@ impl NodeBuilder {
             event_sender: self.event_sink,
         };
 
-        Ok(Node::new_with_args(args))
+        Node::new_with_args(args)
     }
 }
-pub(crate) fn build_node_parts(
+pub(crate) fn compose_root(
     args: NodeArgs,
     is_nulled: bool,
     mut node_id_key_file: NodeIdKeyFile,
-) -> NodeParts {
+) -> anyhow::Result<ComposedNode> {
     let mut tokio_runner = TokioRunner::new(args.config.io_threads);
     tokio_runner.start();
     let runtime = tokio_runner.handle().clone();
@@ -1450,7 +1451,7 @@ pub(crate) fn build_node_parts(
         ledger_snapshots: ledger_snapshots.clone(),
     };
 
-    NodeParts {
+    Ok(ComposedNode {
         is_nulled,
         runtime,
         data_path: application_path,
@@ -1470,5 +1471,5 @@ pub(crate) fn build_node_parts(
         ticker_services,
         #[cfg(feature = "ledger_snapshots")]
         ledger_snapshots,
-    }
+    })
 }

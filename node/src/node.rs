@@ -32,7 +32,7 @@ use crate::{
     block_processing::{BlockContext, BlockSource, ProcessedResult, UncheckedMap},
     config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{AecTicker, AecVoter, election::ConfirmedElection},
-    node_builder::NodeParts,
+    node_builder::ComposedNode,
     node_id_key_file::NodeIdKeyFile,
     tokio_runner::TokioRunner,
 };
@@ -96,11 +96,12 @@ impl Node {
             callbacks,
             ..NodeArgs::create_test_instance()
         };
-        Self::new(args, true, NodeIdKeyFile::new_null())
+        Self::build_from_args(args, true, NodeIdKeyFile::new_null())
+            .expect("null node initialization failed")
     }
 
-    pub(crate) fn new_with_args(args: NodeArgs) -> Self {
-        Self::new(args, false, NodeIdKeyFile::default())
+    pub(crate) fn new_with_args(args: NodeArgs) -> anyhow::Result<Self> {
+        Self::build_from_args(args, false, NodeIdKeyFile::default())
     }
 
     pub fn node_id(&self) -> NodeId {
@@ -151,35 +152,39 @@ impl Node {
         ConsensusTimerServices::new(&self.aec_ticker, &self.aec_voter)
     }
 
-    fn new(args: NodeArgs, is_nulled: bool, node_id_key_file: NodeIdKeyFile) -> Self {
-        let parts = crate::node_builder::build_node_parts(args, is_nulled, node_id_key_file);
-        Self::from_parts(parts)
+    fn build_from_args(
+        args: NodeArgs,
+        is_nulled: bool,
+        node_id_key_file: NodeIdKeyFile,
+    ) -> anyhow::Result<Self> {
+        let composed = crate::node_builder::compose_root(args, is_nulled, node_id_key_file)?;
+        Self::new(composed)
     }
 
-    fn from_parts(parts: NodeParts) -> Self {
-        Self {
-            is_nulled: parts.is_nulled,
-            runtime: parts.runtime,
-            data_path: parts.data_path,
-            node_id: parts.node_id,
-            config: parts.config,
-            network_params: parts.network_params,
-            workers: parts.workers,
-            flags: parts.flags,
-            services: parts.services,
-            unchecked: parts.unchecked,
-            backlog_scan: parts.backlog_scan,
+    pub(crate) fn new(composed: ComposedNode) -> anyhow::Result<Self> {
+        Ok(Self {
+            is_nulled: composed.is_nulled,
+            runtime: composed.runtime,
+            data_path: composed.data_path,
+            node_id: composed.node_id,
+            config: composed.config,
+            network_params: composed.network_params,
+            workers: composed.workers,
+            flags: composed.flags,
+            services: composed.services,
+            unchecked: composed.unchecked,
+            backlog_scan: composed.backlog_scan,
             stopped: AtomicBool::new(false),
             start_stop_listener: OutputListenerMt::new(),
-            tokio_runner: parts.tokio_runner,
-            aec_ticker: parts.aec_ticker,
-            stats_collector: parts.stats_collector,
-            container_info_factory: parts.container_info_factory,
-            aec_voter: parts.aec_voter,
-            ticker_services: parts.ticker_services,
+            tokio_runner: composed.tokio_runner,
+            aec_ticker: composed.aec_ticker,
+            stats_collector: composed.stats_collector,
+            container_info_factory: composed.container_info_factory,
+            aec_voter: composed.aec_voter,
+            ticker_services: composed.ticker_services,
             #[cfg(feature = "ledger_snapshots")]
-            ledger_snapshots: parts.ledger_snapshots,
-        }
+            ledger_snapshots: composed.ledger_snapshots,
+        })
     }
 
     pub fn container_info(&self) -> ContainerInfo {
@@ -523,7 +528,8 @@ mod tests {
             config: config.clone(),
             ..NodeArgs::create_test_instance()
         };
-        let node = Node::new(args, true, NodeIdKeyFile::new_null());
+        let node = Node::build_from_args(args, true, NodeIdKeyFile::new_null())
+            .expect("null node build failed");
         let task = node.aec_ticker.task();
         let ticker = task.as_ref().unwrap();
 
