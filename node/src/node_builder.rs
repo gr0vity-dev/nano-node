@@ -14,7 +14,7 @@ use bounded_vec_deque::BoundedVecDeque;
 use num_format::{Locale, ToFormattedString};
 use tracing::{info, warn};
 
-use rsnano_ledger::{Ledger, LedgerBuilder};
+use rsnano_ledger::{Ledger, LedgerBuilder, RepWeightCache};
 use rsnano_messages::{Message, NetworkFilter};
 use rsnano_network::{
     ChannelId, DeadChannelCleanup, Network, NetworkCleanup, PeerConnector, TcpListener,
@@ -284,6 +284,34 @@ struct FoundationBits {
     syn_cookies: Arc<SynCookies>,
 }
 
+struct InfrastructureBits {
+    work_factory: Arc<WorkFactory>,
+    wallets: Arc<Wallets>,
+    wallet_reps: Arc<Mutex<WalletRepresentatives>>,
+}
+
+struct NetworkBits {
+    inbound_message_queue: Arc<InboundMessageQueue>,
+    network: Arc<RwLock<Network>>,
+    network_filter: Arc<NetworkFilter>,
+    unchecked: Arc<Mutex<UncheckedMap>>,
+    online_reps: Arc<Mutex<OnlineReps>>,
+    message_sender: MessageSender,
+    message_flooder: MessageFlooder,
+    telemetry: Arc<Telemetry>,
+    bootstrap_server: Arc<BootstrapServer>,
+}
+
+struct ConsensusBits {
+    vote_processor_queue: Arc<VoteProcessorQueue>,
+    vote_history: Arc<LocalVoteHistory>,
+    confirming_set: Arc<ConfirmingSet>,
+    vote_cache: Arc<Mutex<VoteCache>>,
+    fork_cache: Arc<RwLock<ForkCache>>,
+    block_processor_queue: Arc<BlockProcessorQueue>,
+    unchecked_reenqueuer: UncheckedBlockReenqueuer,
+}
+
 fn build_foundation(
     mut config: NodeConfig,
     network_params: NetworkParams,
@@ -444,6 +472,294 @@ fn build_foundation(
     })
 }
 
+fn build_infrastructure(
+    runtime: &tokio::runtime::Handle,
+    config: &NodeConfig,
+    network_params: &NetworkParams,
+    application_path: &PathBuf,
+    is_nulled: bool,
+    lmdb_env_factory: &LmdbEnvironmentFactory,
+    ledger: &Arc<Ledger>,
+    steady_clock: &Arc<SteadyClock>,
+    global_config: &GlobalConfig,
+    block_processor_queue: &Arc<BlockProcessorQueue>,
+    online_reps: &Arc<Mutex<OnlineReps>>,
+) -> anyhow::Result<InfrastructureBits> {
+    let work_factory = Arc::new(
+        WorkFactory::builder(runtime.clone())
+            .local_work_pool(|p| {
+                p.threads(config.work_threads as usize)
+                    .cpu_rate_limit(Duration::from_millis(config.pow_sleep_interval_ns as u64))
+                    .opencl_config(config.opencl.clone())
+                    .enable_gpu(config.enable_opencl)
+            })
+            .work_peers(config.work_peers.clone())
+            .finish(),
+    );
+    info!(
+        "Work pool threads: {} ({})",
+        work_factory.work_threads(),
+        if work_factory.has_opencl() {
+            "OpenCL"
+        } else {
+            "CPU"
+        }
+    );
+    info!("Work peers: {}", config.work_peers.len());
+
+    let mut wallets_path = application_path.clone();
+    wallets_path.push("wallets.ldb");
+
+    let wallets_env = if is_nulled {
+        Arc::new(LmdbEnvironment::new_null())
+    } else {
+        let options = EnvironmentOptions {
+            path: wallets_path,
+            max_dbs: 128,
+            map_size: 1024 * 1024 * 1024,
+            flags: EnvironmentFlags::NO_SUB_DIR
+                | EnvironmentFlags::NO_TLS
+                | EnvironmentFlags::NO_READAHEAD,
+        };
+        Arc::new(
+            lmdb_env_factory
+                .create(options)
+                .context("Failed to create LMDB environment for wallets")?,
+        )
+    };
+
+    let wallets_config = global_config.wallets_config();
+
+    let mut wallets = Wallets::new(
+        wallets_config.clone(),
+        wallets_env,
+        ledger.clone(),
+        network_params.work.clone(),
+        steady_clock.clone(),
+    );
+    if !is_nulled {
+        wallets
+            .initialize()
+            .context("Failed to initialize wallets database")?;
+    }
+
+    let wallets = Arc::new(wallets);
+
+    let (tx_work, rx_work) = mpsc::channel();
+    wallets.set_work_queue(tx_work);
+
+    let (tx_block, rx_block) = mpsc::channel();
+    wallets.set_block_queue(tx_block);
+
+    let wallet_work = WalletWorkProvider::new(wallets.clone(), rx_work, work_factory.clone());
+
+    std::thread::Builder::new()
+        .name("Wallet work".to_owned())
+        .spawn(move || wallet_work.run())
+        .context("Failed to spawn wallet work thread")?;
+
+    let wallet_blocks =
+        WalletBlockProcessor::new(rx_block, wallets.clone(), block_processor_queue.clone());
+
+    std::thread::Builder::new()
+        .name("Wallet blocks".to_owned())
+        .spawn(move || wallet_blocks.run())
+        .context("Failed to spawn wallet blocks thread")?;
+
+    let wallet_reps = Arc::new(Mutex::new(WalletRepresentatives::new(
+        wallets_config.voting_enabled,
+        wallets_config.vote_minimum,
+        ledger.rep_weights.clone(),
+        wallets.clone(),
+        online_reps.clone(),
+    )));
+    wallet_reps.lock().unwrap().compute_reps();
+
+    Ok(InfrastructureBits {
+        work_factory,
+        wallets,
+        wallet_reps,
+    })
+}
+
+fn build_network(
+    config: &NodeConfig,
+    network_params: &NetworkParams,
+    node_id: NodeId,
+    node_id_key: &PrivateKey,
+    current_network: Networks,
+    runtime: &tokio::runtime::Handle,
+    callbacks: &NodeCallbacks,
+    steady_clock: &Arc<SteadyClock>,
+    stats: &Arc<Stats>,
+    ledger: &Arc<Ledger>,
+    rep_weights: &Arc<RepWeightCache>,
+    flags: &NodeFlags,
+    ticker_pool: &mut TickerPool,
+) -> NetworkBits {
+    let mut inbound_message_queue = InboundMessageQueue::new(config.message_processor.max_queue);
+    if let Some(cb) = callbacks.on_inbound.clone() {
+        inbound_message_queue.set_inbound_callback(cb);
+    }
+    if let Some(cb) = callbacks.on_inbound_dropped.clone() {
+        inbound_message_queue.set_inbound_dropped_callback(cb);
+    }
+    let inbound_message_queue = Arc::new(inbound_message_queue);
+
+    let network = Network::new(config.network.clone());
+    runtime.spawn(run_loopback_channel_adapter(
+        network.loopback().clone(),
+        node_id,
+        current_network,
+        inbound_message_queue.clone(),
+    ));
+    let network = Arc::new(RwLock::new(network));
+
+    let mut network_filter = NetworkFilter::new(config.network_duplicate_filter_size);
+    network_filter.age_cutoff = config.network_duplicate_filter_cutoff;
+    let network_filter = Arc::new(network_filter);
+
+    let unchecked = Arc::new(Mutex::new(UncheckedMap::new(
+        config.max_unchecked_blocks as usize,
+    )));
+
+    let online_reps = Arc::new(Mutex::new(
+        OnlineReps::builder()
+            .rep_weights(rep_weights.clone())
+            .online_weight_minimum(config.online_weight_minimum)
+            .representative_weight_minimum(config.representative_vote_weight_minimum)
+            .weight_interval(OnlineReps::default_interval_for(current_network))
+            .finish(),
+    ));
+
+    let online_weight_sampler =
+        OnlineWeightSampler::new(ledger.clone(), network_params.network.current_network);
+
+    let mut online_weight_calculation = OnlineWeightCalculation::new(
+        online_weight_sampler,
+        online_reps.clone(),
+        steady_clock.clone(),
+    );
+    online_weight_calculation.tick(&CancellationToken::new());
+    ticker_pool.insert(
+        online_weight_calculation,
+        OnlineReps::default_interval_for(current_network),
+    );
+
+    let mut message_sender =
+        MessageSender::new(stats.clone(), network_params.network.protocol_info());
+
+    if let Some(callback) = callbacks.on_publish.clone() {
+        message_sender.set_published_callback(callback);
+    }
+
+    let message_flooder = MessageFlooder::new(
+        online_reps.clone(),
+        network.clone(),
+        stats.clone(),
+        message_sender.clone(),
+    );
+
+    let telemetry_config = TelementryConfig {
+        enable_ongoing_broadcasts: !flags.disable_providing_telemetry_metrics,
+    };
+    let telemetry_factory = TelemetryFactory {
+        ledger: ledger.clone(),
+        network: network.clone(),
+        node_id_key: node_id_key.clone(),
+        unchecked: unchecked.clone(),
+        startup_time: steady_clock.now(),
+        clock: steady_clock.clone(),
+    };
+    let telemetry = Arc::new(Telemetry::new(
+        telemetry_factory,
+        telemetry_config,
+        stats.clone(),
+        ledger.genesis().hash(),
+        network_params.clone(),
+        network.clone(),
+        message_sender.clone(),
+        steady_clock.clone(),
+    ));
+
+    let bootstrap_server = Arc::new(BootstrapServer::new(
+        config.bootstrap_server.clone(),
+        stats.clone(),
+        ledger.clone(),
+        steady_clock.clone(),
+        message_sender.clone(),
+    ));
+
+    NetworkBits {
+        inbound_message_queue,
+        network,
+        network_filter,
+        unchecked,
+        online_reps,
+        message_sender,
+        message_flooder,
+        telemetry,
+        bootstrap_server,
+    }
+}
+
+fn build_consensus_bits(
+    config: &NodeConfig,
+    global_config: &GlobalConfig,
+    ledger: &Arc<Ledger>,
+    stats: &Arc<Stats>,
+    network_params: &NetworkParams,
+    ledger_tx: &Sender<LedgerEvent>,
+    unchecked: &Arc<Mutex<UncheckedMap>>,
+    steady_clock: &Arc<SteadyClock>,
+) -> ConsensusBits {
+    let vote_processor_queue = Arc::new(VoteProcessorQueue::new(
+        config.vote_processor.clone(),
+        stats.clone(),
+    ));
+
+    let vote_history = Arc::new(LocalVoteHistory::new(
+        network_params.network.current_network,
+    ));
+
+    let confirming_set = Arc::new(ConfirmingSet::new(
+        config.confirming_set.clone(),
+        ledger.clone(),
+        stats.clone(),
+    ));
+    confirming_set.set_event_publisher(ledger_tx.clone());
+
+    let vote_cache = Arc::new(Mutex::new(VoteCache::new(
+        config.vote_cache.clone(),
+        stats.clone(),
+    )));
+
+    let fork_cache = Arc::new(RwLock::new(ForkCache::with(
+        config.fork_cache_max_size,
+        config.fork_cache_max_forks_per_root,
+    )));
+
+    let block_processor_config = ProcessQueueConfig::from(global_config);
+    let block_processor_queue = Arc::new(BlockProcessorQueue::new(block_processor_config));
+
+    let unchecked_reenqueuer = UncheckedBlockReenqueuer::new(
+        unchecked.clone(),
+        ledger.clone(),
+        block_processor_queue.clone(),
+        steady_clock.clone(),
+    );
+
+    ConsensusBits {
+        vote_processor_queue,
+        vote_history,
+        confirming_set,
+        vote_cache,
+        fork_cache,
+        block_processor_queue,
+        unchecked_reenqueuer,
+    }
+}
+
 pub(crate) fn compose_root(
     args: NodeArgs,
     is_nulled: bool,
@@ -490,229 +806,72 @@ pub(crate) fn compose_root(
 
     let node_observer = event_sender.clone();
 
-    let work_factory = Arc::new(
-        WorkFactory::builder(runtime.clone())
-            .local_work_pool(|p| {
-                p.threads(config.work_threads as usize)
-                    .cpu_rate_limit(Duration::from_millis(config.pow_sleep_interval_ns as u64))
-                    .opencl_config(config.opencl.clone())
-                    .enable_gpu(config.enable_opencl)
-            })
-            .work_peers(config.work_peers.clone())
-            .finish(),
-    );
-    info!(
-        "Work pool threads: {} ({})",
-        work_factory.work_threads(),
-        if work_factory.has_opencl() {
-            "OpenCL"
-        } else {
-            "CPU"
-        }
-    );
-    info!("Work peers: {}", config.work_peers.len());
-
     let mut ledger_event_processor_plugins: Vec<Box<dyn LedgerEventProcessorPlugin>> = Vec::new();
     let rep_weights = ledger.rep_weights.clone();
 
-    let mut inbound_message_queue = InboundMessageQueue::new(config.message_processor.max_queue);
-    if let Some(cb) = callbacks.on_inbound {
-        inbound_message_queue.set_inbound_callback(cb);
-    }
-    if let Some(cb) = callbacks.on_inbound_dropped {
-        inbound_message_queue.set_inbound_dropped_callback(cb);
-    }
-    let inbound_message_queue = Arc::new(inbound_message_queue);
-
-    let network = Network::new(config.network.clone());
-    runtime.spawn(run_loopback_channel_adapter(
-        network.loopback().clone(),
+    let NetworkBits {
+        inbound_message_queue,
+        network,
+        network_filter,
+        unchecked,
+        online_reps,
+        message_sender,
+        message_flooder,
+        telemetry,
+        bootstrap_server,
+    } = build_network(
+        &config,
+        &network_params,
         node_id,
+        &node_id_key,
         current_network,
-        inbound_message_queue.clone(),
-    ));
-    let network = Arc::new(RwLock::new(network));
-
-    let mut network_filter = NetworkFilter::new(config.network_duplicate_filter_size);
-    network_filter.age_cutoff = config.network_duplicate_filter_cutoff;
-    let network_filter = Arc::new(network_filter);
-
-    let unchecked = Arc::new(Mutex::new(UncheckedMap::new(
-        config.max_unchecked_blocks as usize,
-    )));
-
-    let online_reps = Arc::new(Mutex::new(
-        OnlineReps::builder()
-            .rep_weights(rep_weights.clone())
-            .online_weight_minimum(config.online_weight_minimum)
-            .representative_weight_minimum(config.representative_vote_weight_minimum)
-            .weight_interval(OnlineReps::default_interval_for(current_network))
-            .finish(),
-    ));
-
-    let online_weight_sampler =
-        OnlineWeightSampler::new(ledger.clone(), network_params.network.current_network);
-
-    let mut online_weight_calculation = OnlineWeightCalculation::new(
-        online_weight_sampler,
-        online_reps.clone(),
-        steady_clock.clone(),
-    );
-    // Make sure that online weight is properly calculated from the beginning;
-    online_weight_calculation.tick(&CancellationToken::new());
-    ticker_pool.insert(
-        online_weight_calculation,
-        OnlineReps::default_interval_for(current_network),
+        &runtime,
+        &callbacks,
+        &steady_clock,
+        &stats,
+        &ledger,
+        &rep_weights,
+        &flags,
+        &mut ticker_pool,
     );
 
-    let mut message_sender =
-        MessageSender::new(stats.clone(), network_params.network.protocol_info());
-
-    if let Some(callback) = &callbacks.on_publish {
-        message_sender.set_published_callback(callback.clone());
-    }
-
-    let message_flooder = MessageFlooder::new(
-        online_reps.clone(),
-        network.clone(),
-        stats.clone(),
-        message_sender.clone(),
-    );
-
-    let telemetry_config = TelementryConfig {
-        enable_ongoing_broadcasts: !flags.disable_providing_telemetry_metrics,
-    };
-    let telemetry_factory = TelemetryFactory {
-        ledger: ledger.clone(),
-        network: network.clone(),
-        node_id_key: node_id_key.clone(),
-        unchecked: unchecked.clone(),
-        startup_time: steady_clock.now(),
-        clock: steady_clock.clone(),
-    };
-    let telemetry = Arc::new(Telemetry::new(
-        telemetry_factory,
-        telemetry_config,
-        stats.clone(),
-        ledger.genesis().hash(),
-        network_params.clone(),
-        network.clone(),
-        message_sender.clone(),
-        steady_clock.clone(),
-    ));
-
-    let bootstrap_server = Arc::new(BootstrapServer::new(
-        config.bootstrap_server.clone(),
-        stats.clone(),
-        ledger.clone(),
-        steady_clock.clone(),
-        message_sender.clone(),
-    ));
-
-    let vote_processor_queue = Arc::new(VoteProcessorQueue::new(
-        config.vote_processor.clone(),
-        stats.clone(),
-    ));
-
-    let vote_history = Arc::new(LocalVoteHistory::new(
-        network_params.network.current_network,
-    ));
-
-    let confirming_set = Arc::new(ConfirmingSet::new(
-        config.confirming_set.clone(),
-        ledger.clone(),
-        stats.clone(),
-    ));
-    confirming_set.set_event_publisher(ledger_tx.clone());
-
-    let vote_cache = Arc::new(Mutex::new(VoteCache::new(
-        config.vote_cache.clone(),
-        stats.clone(),
-    )));
-
-    let fork_cache = Arc::new(RwLock::new(ForkCache::with(
-        config.fork_cache_max_size,
-        config.fork_cache_max_forks_per_root,
-    )));
-
-    let block_processor_config = ProcessQueueConfig::from(&global_config);
-    let block_processor_queue = Arc::new(BlockProcessorQueue::new(block_processor_config));
-
-    let unchecked_reenqueuer = UncheckedBlockReenqueuer::new(
-        unchecked.clone(),
-        ledger.clone(),
-        block_processor_queue.clone(),
-        steady_clock.clone(),
+    let ConsensusBits {
+        vote_processor_queue,
+        vote_history,
+        confirming_set,
+        vote_cache,
+        fork_cache,
+        block_processor_queue,
+        unchecked_reenqueuer,
+    } = build_consensus_bits(
+        &config,
+        &global_config,
+        &ledger,
+        &stats,
+        &network_params,
+        &ledger_tx,
+        &unchecked,
+        &steady_clock,
     );
     ticker_pool.insert(unchecked_reenqueuer.clone(), Duration::from_secs(1));
 
-    let mut wallets_path = application_path.clone();
-    wallets_path.push("wallets.ldb");
-
-    let wallets_env = if is_nulled {
-        Arc::new(LmdbEnvironment::new_null())
-    } else {
-        let options = EnvironmentOptions {
-            path: wallets_path,
-            max_dbs: 128,
-            map_size: 1024 * 1024 * 1024,
-            flags: EnvironmentFlags::NO_SUB_DIR
-                | EnvironmentFlags::NO_TLS
-                | EnvironmentFlags::NO_READAHEAD,
-        };
-        Arc::new(
-            lmdb_env_factory
-                .create(options)
-                .expect("Could not create LMDB env for wallets"),
-        )
-    };
-
-    let wallets_config = global_config.wallets_config();
-
-    let mut wallets = Wallets::new(
-        wallets_config.clone(),
-        wallets_env,
-        ledger.clone(),
-        network_params.work.clone(),
-        steady_clock.clone(),
-    );
-    if !is_nulled {
-        wallets.initialize().expect("Could not create wallet");
-    }
-
-    let wallets = Arc::new(wallets);
-
-    let (tx_work, rx_work) = mpsc::channel();
-    wallets.set_work_queue(tx_work);
-
-    let (tx_block, rx_block) = mpsc::channel();
-    wallets.set_block_queue(tx_block);
-
-    let wallet_work = WalletWorkProvider::new(wallets.clone(), rx_work, work_factory.clone());
-
-    std::thread::Builder::new()
-        .name("Wallet work".to_owned())
-        .spawn(move || {
-            wallet_work.run();
-        })
-        .unwrap();
-
-    let wallet_blocks =
-        WalletBlockProcessor::new(rx_block, wallets.clone(), block_processor_queue.clone());
-
-    std::thread::Builder::new()
-        .name("Wallet blocks".to_owned())
-        .spawn(move || wallet_blocks.run())
-        .unwrap();
-
-    let wallet_reps = Arc::new(Mutex::new(WalletRepresentatives::new(
-        wallets_config.voting_enabled,
-        wallets_config.vote_minimum,
-        ledger.rep_weights.clone(),
-        wallets.clone(),
-        online_reps.clone(),
-    )));
-    wallet_reps.lock().unwrap().compute_reps();
+    let InfrastructureBits {
+        work_factory,
+        wallets,
+        wallet_reps,
+    } = build_infrastructure(
+        &runtime,
+        &config,
+        &network_params,
+        &application_path,
+        is_nulled,
+        &lmdb_env_factory,
+        &ledger,
+        &steady_clock,
+        &global_config,
+        &block_processor_queue,
+        &online_reps,
+    )?;
 
     let vote_broadcaster = Arc::new(VoteBroadcaster::new(
         vote_processor_queue.clone(),
