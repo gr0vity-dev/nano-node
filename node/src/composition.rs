@@ -1,11 +1,24 @@
 //! Composition helpers for building the node graph in distinct phases.
 
-use std::{fs::Permissions, os::unix::fs::PermissionsExt, path::PathBuf, sync::Arc};
+use std::{
+    fs::Permissions,
+    os::unix::fs::PermissionsExt,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use anyhow::Context;
 use num_format::{Locale, ToFormattedString};
 use rsnano_ledger::{Ledger, LedgerBuilder};
-use rsnano_network_protocol::SynCookies;
+use rsnano_network::{
+    DeadChannelCleanup, Network, NetworkCleanup, PeerConnector, TcpListener, TcpNetworkAdapter,
+    TrafficType,
+};
+use rsnano_network_protocol::{
+    HandshakeStats, InboundMessageQueue, InboundMessageQueueCleanup, LatestKeepalives,
+    LatestKeepalivesCleanup, MessageCallback, NanoDataReceiverFactory, SynCookies,
+};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_fs::NullableFilesystem;
 use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
