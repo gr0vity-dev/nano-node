@@ -327,6 +327,13 @@ struct ConsensusRuntime {
     aec_receiver: backpressure_channel::Receiver<AecEvent>,
 }
 
+struct IntegrationBits {
+    backlog_scan: BacklogScan,
+    bounded_backlog: Arc<BoundedBacklog>,
+    request_aggregator: Arc<RequestAggregator>,
+    ledger_event_plugins: Vec<Box<dyn LedgerEventProcessorPlugin>>,
+}
+
 fn build_foundation(
     mut config: NodeConfig,
     network_params: NetworkParams,
@@ -887,6 +894,97 @@ fn build_consensus_runtime(
     }
 }
 
+fn build_integration_bits(
+    config: &mut NodeConfig,
+    global_config: &GlobalConfig,
+    ledger: &Arc<Ledger>,
+    steady_clock: &Arc<SteadyClock>,
+    stats: &Arc<Stats>,
+    ledger_tx: &Sender<LedgerEvent>,
+    vote_generators: &Arc<VoteGenerators>,
+    election_schedulers: &Arc<ElectionSchedulers>,
+) -> IntegrationBits {
+    let mut backlog_scan =
+        BacklogScan::new(global_config.into(), ledger.clone(), steady_clock.clone());
+
+    // Hook backlog discoveries into the schedulers so accounts get activated promptly.
+    let schedulers_w = Arc::downgrade(election_schedulers);
+    let ledger_l = ledger.clone();
+    backlog_scan.on_unconfirmed_found(move |batch| {
+        if let Some(schedulers) = schedulers_w.upgrade() {
+            let any = ledger_l.any();
+            for info in batch {
+                schedulers.activate_backlog(
+                    &any,
+                    &info.account,
+                    &info.account_info,
+                    &info.conf_info,
+                );
+            }
+        }
+    });
+
+    let request_aggregator = Arc::new(RequestAggregator::new(
+        config.request_aggregator.clone(),
+        stats.clone(),
+        vote_generators.clone(),
+        ledger.clone(),
+    ));
+
+    if config.bounded_backlog.max_backlog == 0 {
+        config.enable_bounded_backlog = false;
+    }
+    if !config.enable_bounded_backlog {
+        config.bounded_backlog.max_backlog = 0;
+    }
+
+    let bounded_backlog = Arc::new(BoundedBacklog::new(
+        config.bounded_backlog.clone(),
+        ledger.clone(),
+        stats.clone(),
+        steady_clock.clone(),
+        ledger_tx.clone(),
+    ));
+
+    let mut ledger_event_plugins: Vec<Box<dyn LedgerEventProcessorPlugin>> = Vec::new();
+
+    if config.enable_bounded_backlog {
+        info!(
+            "Bounded backlog enabled: max backlog={}, batch_size={}, scan_rate={}",
+            config.bounded_backlog.max_backlog,
+            config.bounded_backlog.batch_size,
+            config.bounded_backlog.scan_rate
+        );
+
+        ledger_event_plugins.push(Box::new(BoundedBacklogPlugin::new(bounded_backlog.clone())));
+
+        backlog_scan.on_unconfirmed_found({
+            let backlog_w = Arc::downgrade(&bounded_backlog);
+            move |batch| {
+                if let Some(backlog) = backlog_w.upgrade() {
+                    backlog.activate_batch(batch);
+                }
+            }
+        });
+
+        backlog_scan.on_up_to_date({
+            let backlog_w = Arc::downgrade(&bounded_backlog);
+            move |batch| {
+                if let Some(backlog) = backlog_w.upgrade() {
+                    backlog.erase_accounts(batch);
+                }
+            }
+        });
+    }
+
+    IntegrationBits {
+        backlog_scan,
+        bounded_backlog,
+        request_aggregator,
+        ledger_event_plugins,
+    }
+}
+
 pub(crate) fn compose_root(
     args: NodeArgs,
     is_nulled: bool,
@@ -1048,6 +1146,23 @@ pub(crate) fn compose_root(
         election_schedulers.clone(),
     )));
 
+    let IntegrationBits {
+        backlog_scan,
+        bounded_backlog,
+        request_aggregator,
+        mut ledger_event_plugins,
+    } = build_integration_bits(
+        &mut config,
+        &global_config,
+        &ledger,
+        &steady_clock,
+        &stats,
+        &ledger_tx,
+        &vote_generators,
+        &election_schedulers,
+    );
+    ledger_event_processor_plugins.append(&mut ledger_event_plugins);
+
     let mut bootstrap_sender = MessageSender::new_with_buffer_size(
         stats.clone(),
         network_params.network.protocol_info(),
@@ -1133,79 +1248,6 @@ pub(crate) fn compose_root(
         network_adapter.clone(),
         runtime.clone(),
     ));
-
-    let request_aggregator = Arc::new(RequestAggregator::new(
-        config.request_aggregator.clone(),
-        stats.clone(),
-        vote_generators.clone(),
-        ledger.clone(),
-    ));
-
-    let mut backlog_scan = BacklogScan::new(
-        (&global_config).into(),
-        ledger.clone(),
-        steady_clock.clone(),
-    );
-
-    //  TODO: Hook this direclty in the schedulers
-    let schedulers_w = Arc::downgrade(&election_schedulers);
-    let ledger_l = ledger.clone();
-    backlog_scan.on_unconfirmed_found(move |batch| {
-        if let Some(schedulers) = schedulers_w.upgrade() {
-            let any = ledger_l.any();
-            for info in batch {
-                schedulers.activate_backlog(
-                    &any,
-                    &info.account,
-                    &info.account_info,
-                    &info.conf_info,
-                );
-            }
-        }
-    });
-
-    if config.bounded_backlog.max_backlog == 0 {
-        config.enable_bounded_backlog = false;
-    }
-    if !config.enable_bounded_backlog {
-        config.bounded_backlog.max_backlog = 0;
-    }
-
-    let bounded_backlog = Arc::new(BoundedBacklog::new(
-        config.bounded_backlog.clone(),
-        ledger.clone(),
-        stats.clone(),
-        steady_clock.clone(),
-        ledger_tx.clone(),
-    ));
-
-    if config.enable_bounded_backlog {
-        info!(
-            "Bounded backlog enabled: max backlog={}, batch_size={}, scan_rate={}",
-            config.bounded_backlog.max_backlog,
-            config.bounded_backlog.batch_size,
-            config.bounded_backlog.scan_rate
-        );
-
-        ledger_event_processor_plugins
-            .push(Box::new(BoundedBacklogPlugin::new(bounded_backlog.clone())));
-
-        // Activate accounts with unconfirmed blocks
-        let backlog_w = Arc::downgrade(&bounded_backlog);
-        backlog_scan.on_unconfirmed_found(move |batch| {
-            if let Some(backlog) = backlog_w.upgrade() {
-                backlog.activate_batch(batch);
-            }
-        });
-
-        // Erase accounts with all confirmed blocks
-        let backlog_w = Arc::downgrade(&bounded_backlog);
-        backlog_scan.on_up_to_date(move |batch| {
-            if let Some(backlog) = backlog_w.upgrade() {
-                backlog.erase_accounts(batch);
-            }
-        });
-    }
 
     let track_conf_times = Box::new(TrackConfirmationTimes::default());
     let conf_time_stats = track_conf_times.stats();
