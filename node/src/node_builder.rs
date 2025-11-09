@@ -13,19 +13,16 @@ use tracing::{info, warn};
 
 use rsnano_ledger::{Ledger, RepWeightCache};
 use rsnano_messages::{Message, NetworkFilter};
-use rsnano_network::{
-    ChannelId, DeadChannelCleanup, Network, NetworkCleanup, PeerConnector, TcpListener,
-    TcpNetworkAdapter, TrafficType,
-};
+use rsnano_network::{ChannelId, DeadChannelCleanup, Network, NetworkCleanup, TrafficType};
 use rsnano_network_protocol::{
-    HandshakeStats, InboundMessageQueue, InboundMessageQueueCleanup, LatestKeepalives,
-    LatestKeepalivesCleanup, MessageCallback, NanoDataReceiverFactory,
+    InboundMessageQueue, InboundMessageQueueCleanup, LatestKeepalivesCleanup, MessageCallback,
+    NanoDataReceiverFactory,
 };
 use rsnano_nullable_clock::{SteadyClock, SystemTimeFactory};
 use rsnano_nullable_lmdb::{
     EnvironmentFlags, EnvironmentOptions, LmdbEnvironment, LmdbEnvironmentFactory,
 };
-use rsnano_types::{Networks, NodeId, Peer, PrivateKey};
+use rsnano_types::{Networks, NodeId, PrivateKey};
 use rsnano_utils::{
     CancellationToken,
     container_info::ContainerInfoFactory,
@@ -50,7 +47,7 @@ use crate::{
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
     bootstrap::{BootstrapResponderCleanup, BootstrapServer, Bootstrapper, BootstrapperCleanup},
     cementation::{ConfirmingSet, TrackConfirmationTimes},
-    composition::{FoundationBits, build_foundation},
+    composition::{FoundationBits, NetworkIoBits, build_foundation, build_network_io},
     config::{
         DaemonConfig, DaemonToml, GlobalConfig, NetworkParams, NodeConfig, NodeFlags,
         get_node_toml_config_path,
@@ -71,14 +68,12 @@ use crate::{
     node_id_key_file::NodeIdKeyFile,
     node_monitor::NodeMonitor,
     recently_cemented_inserter::RecentlyCementedInserter,
-    representatives::{OnlineReps, OnlineRepsCleanup, OnlineWeightCalculation, RepCrawler},
+    representatives::{OnlineReps, OnlineRepsCleanup, OnlineWeightCalculation},
     telemetry::{TelementryConfig, Telemetry, TelemetryFactory},
     tokio_runner::TokioRunner,
     transport::{
         MessageFlooder, MessageProcessor, MessageSender, NetworkMessageProcessor, NetworkThreads,
-        PeerCacheConnector, PeerCacheUpdater,
-        keepalive::{KeepaliveMessageFactory, KeepalivePublisher},
-        run_loopback_channel_adapter,
+        PeerCacheConnector, PeerCacheUpdater, run_loopback_channel_adapter,
     },
     utils::spawn_backpressure_processor,
     wallets::{
@@ -984,11 +979,30 @@ pub(crate) fn compose_root(
         bootstrap_sender.set_published_callback(callback.clone());
     }
 
-    let latest_keepalives = Arc::new(Mutex::new(LatestKeepalives::default()));
-    let handshake_stats = Arc::new(HandshakeStats::default());
-
     let inbound_queue_clone = inbound_message_queue.clone();
     let try_enqueue = Arc::new(move |msg, channel| inbound_queue_clone.put(msg, channel));
+
+    let NetworkIoBits {
+        network_adapter,
+        peer_connector,
+        keepalive_factory,
+        keepalive_publisher,
+        rep_crawler,
+        tcp_listener,
+        latest_keepalives,
+        handshake_stats,
+    } = build_network_io(
+        &config,
+        &network_params,
+        &runtime,
+        &steady_clock,
+        &stats,
+        &network,
+        &ledger,
+        &message_sender,
+        &online_reps,
+        &active_elections,
+    );
 
     let data_receiver_factory = Box::new(NanoDataReceiverFactory::new(
         &network,
@@ -1008,57 +1022,13 @@ pub(crate) fn compose_root(
         .unwrap()
         .set_data_receiver_factory(data_receiver_factory);
 
-    let network_adapter = Arc::new(TcpNetworkAdapter::new(
-        network.clone(),
-        steady_clock.clone(),
-        runtime.clone(),
-    ));
-
-    let peer_connector = Arc::new(PeerConnector::new(
-        config.tcp.connect_timeout,
-        network_adapter.clone(),
-        runtime.clone(),
-    ));
-
-    let keepalive_factory = Arc::new(KeepaliveMessageFactory::new(
-        network.clone(),
-        Peer::new(config.external_address.clone(), config.external_port),
-    ));
-
-    let keepalive_publisher = Arc::new(KeepalivePublisher::new(
-        network.clone(),
-        peer_connector.clone(),
-        message_sender.clone(),
-        keepalive_factory.clone(),
-    ));
-
-    let rep_crawler = Arc::new(RepCrawler::new(
-        online_reps.clone(),
-        stats.clone(),
-        config.rep_crawler_query_timeout,
-        config.clone(),
-        network_params.clone(),
-        network.clone(),
-        ledger.clone(),
-        steady_clock.clone(),
-        message_sender.clone(),
-        keepalive_publisher.clone(),
-        active_elections.clone(),
-        runtime.clone(),
-    ));
-
-    // BEWARE: `bootstrap` takes `network.port` instead of `config.peering_port` because when the user doesn't specify
-    //         a peering port and wants the OS to pick one, the picking happens when `network` gets initialized
-    //         (if UDP is active, otherwise it happens when `bootstrap` gets initialized), so then for TCP traffic
-    //         we want to tell `bootstrap` to use the already picked port instead of itself picking a different one.
-    //         Thus, be very careful if you change the order: if `bootstrap` gets constructed before `network`,
-    //         the latter would inherit the port from the former (if TCP is active, otherwise `network` picks first)
-    //
-    let tcp_listener = Arc::new(TcpListener::new(
-        network.read().unwrap().listening_port(),
-        network_adapter.clone(),
-        runtime.clone(),
-    ));
+    // BEWARE: `bootstrap` takes `network.port` instead of `config.peering_port` because when the
+    // user doesn't specify a peering port and wants the OS to pick one, the picking happens when
+    // `network` gets initialized (if UDP is active, otherwise it happens when `bootstrap` gets
+    // initialized), so then for TCP traffic we want to tell `bootstrap` to use the already picked
+    // port instead of itself picking a different one. Thus, be very careful if you change the order:
+    // if `bootstrap` gets constructed before `network`, the latter would inherit the port from the
+    // former (if TCP is active, otherwise `network` picks first)
 
     let track_conf_times = Box::new(TrackConfirmationTimes::default());
     let conf_time_stats = track_conf_times.stats();

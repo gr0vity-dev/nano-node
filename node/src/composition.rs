@@ -4,25 +4,18 @@ use std::{
     fs::Permissions,
     os::unix::fs::PermissionsExt,
     path::PathBuf,
-    sync::{Arc, Mutex},
-    time::Duration,
+    sync::{Arc, Mutex, RwLock},
 };
 
 use anyhow::Context;
 use num_format::{Locale, ToFormattedString};
 use rsnano_ledger::{Ledger, LedgerBuilder};
-use rsnano_network::{
-    DeadChannelCleanup, Network, NetworkCleanup, PeerConnector, TcpListener, TcpNetworkAdapter,
-    TrafficType,
-};
-use rsnano_network_protocol::{
-    HandshakeStats, InboundMessageQueue, InboundMessageQueueCleanup, LatestKeepalives,
-    LatestKeepalivesCleanup, MessageCallback, NanoDataReceiverFactory, SynCookies,
-};
+use rsnano_network::{Network, PeerConnector, TcpListener, TcpNetworkAdapter};
+use rsnano_network_protocol::{HandshakeStats, LatestKeepalives, SynCookies};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_fs::NullableFilesystem;
 use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
-use rsnano_types::{Networks, NodeId, PrivateKey};
+use rsnano_types::{Networks, NodeId, Peer, PrivateKey};
 use rsnano_utils::{
     container_info::ContainerInfoFactory,
     stats::Stats,
@@ -35,10 +28,15 @@ use tracing::info;
 use crate::{
     block_processing::LedgerEvent,
     config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},
-    consensus::{get_bootstrap_weights, log_bootstrap_weights},
+    consensus::{ActiveElectionsContainer, get_bootstrap_weights, log_bootstrap_weights},
     node_id_key_file::NodeIdKeyFile,
+    representatives::{OnlineReps, RepCrawler},
     telemetry::{rsnano_build_info, rsnano_version_string},
     tokio_runner::TokioRunner,
+    transport::{
+        MessageSender,
+        keepalive::{KeepaliveMessageFactory, KeepalivePublisher},
+    },
 };
 
 pub(crate) struct FoundationBits {
@@ -62,6 +60,17 @@ pub(crate) struct FoundationBits {
     pub(crate) current_network: Networks,
     pub(crate) lmdb_env_factory: LmdbEnvironmentFactory,
     pub(crate) syn_cookies: Arc<SynCookies>,
+}
+
+pub(crate) struct NetworkIoBits {
+    pub(crate) network_adapter: Arc<TcpNetworkAdapter>,
+    pub(crate) peer_connector: Arc<PeerConnector>,
+    pub(crate) keepalive_factory: Arc<KeepaliveMessageFactory>,
+    pub(crate) keepalive_publisher: Arc<KeepalivePublisher>,
+    pub(crate) rep_crawler: Arc<RepCrawler>,
+    pub(crate) tcp_listener: Arc<TcpListener>,
+    pub(crate) latest_keepalives: Arc<Mutex<LatestKeepalives>>,
+    pub(crate) handshake_stats: Arc<HandshakeStats>,
 }
 
 pub(crate) fn build_foundation(
@@ -222,4 +231,77 @@ pub(crate) fn build_foundation(
         lmdb_env_factory,
         syn_cookies,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_network_io(
+    config: &NodeConfig,
+    network_params: &NetworkParams,
+    runtime: &tokio::runtime::Handle,
+    steady_clock: &Arc<SteadyClock>,
+    stats: &Arc<Stats>,
+    network: &Arc<RwLock<Network>>,
+    ledger: &Arc<Ledger>,
+    message_sender: &MessageSender,
+    online_reps: &Arc<Mutex<OnlineReps>>,
+    active_elections: &Arc<RwLock<ActiveElectionsContainer>>,
+) -> NetworkIoBits {
+    let network_adapter = Arc::new(TcpNetworkAdapter::new(
+        network.clone(),
+        steady_clock.clone(),
+        runtime.clone(),
+    ));
+
+    let peer_connector = Arc::new(PeerConnector::new(
+        config.tcp.connect_timeout,
+        network_adapter.clone(),
+        runtime.clone(),
+    ));
+
+    let keepalive_factory = Arc::new(KeepaliveMessageFactory::new(
+        network.clone(),
+        Peer::new(config.external_address.clone(), config.external_port),
+    ));
+
+    let keepalive_publisher = Arc::new(KeepalivePublisher::new(
+        network.clone(),
+        peer_connector.clone(),
+        message_sender.clone(),
+        keepalive_factory.clone(),
+    ));
+
+    let latest_keepalives = Arc::new(Mutex::new(LatestKeepalives::default()));
+    let handshake_stats = Arc::new(HandshakeStats::default());
+
+    let rep_crawler = Arc::new(RepCrawler::new(
+        online_reps.clone(),
+        stats.clone(),
+        config.rep_crawler_query_timeout,
+        config.clone(),
+        network_params.clone(),
+        network.clone(),
+        ledger.clone(),
+        steady_clock.clone(),
+        message_sender.clone(),
+        keepalive_publisher.clone(),
+        active_elections.clone(),
+        runtime.clone(),
+    ));
+
+    let tcp_listener = Arc::new(TcpListener::new(
+        network.read().unwrap().listening_port(),
+        network_adapter.clone(),
+        runtime.clone(),
+    ));
+
+    NetworkIoBits {
+        network_adapter,
+        peer_connector,
+        keepalive_factory,
+        keepalive_publisher,
+        rep_crawler,
+        tcp_listener,
+        latest_keepalives,
+        handshake_stats,
+    }
 }
