@@ -9,12 +9,12 @@ use std::{
     time::Duration,
 };
 
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 use bounded_vec_deque::BoundedVecDeque;
 use num_format::{Locale, ToFormattedString};
 use tracing::{info, warn};
 
-use rsnano_ledger::LedgerBuilder;
+use rsnano_ledger::{Ledger, LedgerBuilder};
 use rsnano_messages::{Message, NetworkFilter};
 use rsnano_network::{
     ChannelId, DeadChannelCleanup, Network, NetworkCleanup, PeerConnector, TcpListener,
@@ -35,7 +35,7 @@ use rsnano_utils::{
     container_info::ContainerInfoFactory,
     get_cpu_count,
     stats::{Stats, StatsCollector},
-    sync::backpressure_channel,
+    sync::backpressure_channel::{self, Receiver, Sender},
     thread_pool::ThreadPool,
     ticker::{Tickable, TickerPool, TimerThread},
 };
@@ -48,7 +48,7 @@ use crate::{
     aec_event_processor::AecEventProcessor,
     block_processing::{
         BacklogScan, BacklogWaiter, BlockProcessor, BlockProcessorQueue, BoundedBacklog,
-        BoundedBacklogPlugin, LocalBlockBroadcaster, LocalBlockBroadcasterPlugin,
+        BoundedBacklogPlugin, LedgerEvent, LocalBlockBroadcaster, LocalBlockBroadcasterPlugin,
         ProcessQueueConfig, UncheckedBlockReenqueuer, UncheckedMap,
     },
     block_rate_calculator::BlockRateCalculator,
@@ -260,19 +260,44 @@ impl NodeBuilder {
         Node::new_with_args(args)
     }
 }
-pub(crate) fn compose_root(
-    args: NodeArgs,
+
+struct FoundationBits {
+    tokio_runner: TokioRunner,
+    runtime: tokio::runtime::Handle,
+    config: NodeConfig,
+    network_params: NetworkParams,
+    flags: NodeFlags,
+    application_path: PathBuf,
+    steady_clock: Arc<SteadyClock>,
+    stats: Arc<Stats>,
+    node_id_key: PrivateKey,
+    node_id: NodeId,
+    global_config: GlobalConfig,
+    ledger: Arc<Ledger>,
+    ledger_tx: Sender<LedgerEvent>,
+    ledger_rx: Receiver<LedgerEvent>,
+    event_queues_info: ContainerInfoFactory,
+    workers: Arc<ThreadPool>,
+    ticker_pool: TickerPool,
+    current_network: Networks,
+    lmdb_env_factory: LmdbEnvironmentFactory,
+    syn_cookies: Arc<SynCookies>,
+}
+
+fn build_foundation(
+    mut config: NodeConfig,
+    network_params: NetworkParams,
+    flags: NodeFlags,
+    application_path: PathBuf,
     is_nulled: bool,
-    mut node_id_key_file: NodeIdKeyFile,
-) -> anyhow::Result<ComposedNode> {
-    let mut tokio_runner = TokioRunner::new(args.config.io_threads);
+    node_id_key_file: &mut NodeIdKeyFile,
+) -> anyhow::Result<FoundationBits> {
+    let mut tokio_runner = TokioRunner::new(config.io_threads);
     tokio_runner.start();
     let runtime = tokio_runner.handle().clone();
 
-    let network_params = args.network_params;
     let current_network = network_params.network.current_network;
     let network_label = network_params.network.get_current_network_as_string();
-    let application_path = args.data_path;
 
     info!("Node started");
     info!("Version: {}", rsnano_version_string());
@@ -288,11 +313,182 @@ pub(crate) fn compose_root(
         network_params.ledger.genesis_account.encode_account()
     );
 
-    let mut config = args.config;
-    let flags = args.flags;
     if flags.enable_voting {
         config.enable_voting = true;
     }
+
+    let steady_clock = if is_nulled {
+        Arc::new(SteadyClock::new_null())
+    } else {
+        Arc::new(SteadyClock::default())
+    };
+
+    let stats = Arc::new(Stats::new(Default::default()));
+
+    let global_config = GlobalConfig {
+        node_config: config.clone(),
+        flags: flags.clone(),
+        network_params: network_params.clone(),
+    };
+
+    let node_id_key = node_id_key_file
+        .initialize(&application_path)
+        .context("Failed to initialize node ID key file")?;
+    let node_id = NodeId::from(&node_id_key);
+    info!("Node ID: {}", node_id);
+
+    let bootstrap_weights = if (network_params.network.is_live_network()
+        || network_params.network.is_beta_network())
+        && !flags.inactive_node
+    {
+        get_bootstrap_weights(current_network)
+    } else {
+        Default::default()
+    };
+
+    let fs = if is_nulled {
+        NullableFilesystem::new_null()
+    } else {
+        NullableFilesystem::default()
+    };
+
+    if !fs.exists(&application_path) {
+        fs.create_dir_all(&application_path)
+            .with_context(|| format!("Could not create data dir {:?}", application_path))?;
+        fs.set_permissions(&application_path, Permissions::from_mode(0o700))
+            .with_context(|| {
+                format!(
+                    "Could not set data dir permissions for {:?}",
+                    application_path
+                )
+            })?;
+    }
+
+    let mut ledger_path = application_path.clone();
+    ledger_path.push("data.ldb");
+
+    let lmdb_env_factory = if is_nulled {
+        LmdbEnvironmentFactory::new_null()
+    } else {
+        LmdbEnvironmentFactory::default()
+    };
+
+    info!("LMDB sync strategy: {:?}", config.lmdb_config.sync);
+    info!("Loading ledger, this may take a while...");
+    let ledger = LedgerBuilder::new(&ledger_path)
+        .env_factory(&lmdb_env_factory)
+        .config(config.lmdb_config.clone())
+        .constants(network_params.ledger.clone())
+        .min_rep_weight(config.representative_vote_weight_minimum)
+        .bootstrap_weights(bootstrap_weights)
+        .stats(stats.clone())
+        .finish()
+        .with_context(|| format!("Could not open ledger at {:?}", ledger_path))?;
+
+    info!("Database backend: {}", ledger.store_vendor());
+
+    let mut event_queues_info = ContainerInfoFactory::new();
+    let (ledger_tx, ledger_rx) = backpressure_channel::channel(1024);
+    let ledger_tx_clone = ledger_tx.clone();
+    event_queues_info.add_leaf("ledger", move || ledger_tx_clone.len());
+
+    let ledger = Arc::new(ledger);
+    info!(
+        "Block count:     {}",
+        ledger.block_count().to_formatted_string(&Locale::en)
+    );
+    info!(
+        "Confirmed count: {}",
+        ledger.confirmed_count().to_formatted_string(&Locale::en)
+    );
+    info!(
+        "Account count:   {}",
+        ledger.account_count().to_formatted_string(&Locale::en)
+    );
+    info!(
+        "Representative count: {}",
+        ledger.rep_weights.len().to_formatted_string(&Locale::en)
+    );
+
+    log_bootstrap_weights(&ledger.rep_weights);
+
+    let syn_cookies = Arc::new(SynCookies::new(network_params.network.max_peers_per_ip));
+
+    let workers = Arc::new(ThreadPool::new(
+        config.background_threads as usize,
+        "Worker".to_string(),
+    ));
+    let ticker_pool = TickerPool::with_thread_pool(workers.clone());
+
+    Ok(FoundationBits {
+        tokio_runner,
+        runtime,
+        config,
+        network_params,
+        flags,
+        application_path,
+        steady_clock,
+        stats,
+        node_id_key,
+        node_id,
+        global_config,
+        ledger,
+        ledger_tx,
+        ledger_rx,
+        event_queues_info,
+        workers,
+        ticker_pool,
+        current_network,
+        lmdb_env_factory,
+        syn_cookies,
+    })
+}
+
+pub(crate) fn compose_root(
+    args: NodeArgs,
+    is_nulled: bool,
+    mut node_id_key_file: NodeIdKeyFile,
+) -> anyhow::Result<ComposedNode> {
+    let NodeArgs {
+        data_path,
+        config,
+        network_params,
+        flags,
+        callbacks,
+        event_sender,
+    } = args;
+
+    let FoundationBits {
+        tokio_runner,
+        runtime,
+        mut config,
+        network_params,
+        flags,
+        application_path,
+        steady_clock,
+        stats,
+        node_id_key,
+        node_id,
+        global_config,
+        ledger,
+        ledger_tx,
+        ledger_rx,
+        mut event_queues_info,
+        workers,
+        mut ticker_pool,
+        current_network,
+        lmdb_env_factory,
+        syn_cookies,
+    } = build_foundation(
+        config,
+        network_params,
+        flags,
+        data_path,
+        is_nulled,
+        &mut node_id_key_file,
+    )?;
+
+    let node_observer = event_sender.clone();
 
     let work_factory = Arc::new(
         WorkFactory::builder(runtime.clone())
@@ -316,120 +512,14 @@ pub(crate) fn compose_root(
     );
     info!("Work peers: {}", config.work_peers.len());
 
-    let node_observer = args.event_sender;
-    // Time relative to the start of the node. This makes time exlpicit and enables us to
-    // write time relevant unit tests with ease.
-    let steady_clock = if is_nulled {
-        Arc::new(SteadyClock::new_null())
-    } else {
-        Arc::new(SteadyClock::default())
-    };
-
-    let global_config = &GlobalConfig {
-        node_config: config.clone(),
-        flags: flags.clone(),
-        network_params: network_params.clone(),
-    };
-    let node_id_key = node_id_key_file.initialize(&application_path).unwrap();
-    let node_id = NodeId::from(&node_id_key);
-    info!("Node ID: {}", node_id);
-
-    let stats = Arc::new(Stats::new(Default::default()));
-
-    let bootstrap_weights = if (network_params.network.is_live_network()
-        || network_params.network.is_beta_network())
-        && !flags.inactive_node
-    {
-        get_bootstrap_weights(current_network)
-    } else {
-        Default::default()
-    };
-
-    let fs = if is_nulled {
-        NullableFilesystem::new_null()
-    } else {
-        NullableFilesystem::default()
-    };
-
-    if !fs.exists(&application_path) {
-        fs.create_dir_all(&application_path)
-            .expect("Could not create data dir");
-        fs.set_permissions(&application_path, Permissions::from_mode(0o700))
-            .expect("Could not set data dir permissions");
-    }
-
-    let mut ledger_path = application_path.clone();
-    ledger_path.push("data.ldb");
-
-    let lmdb_env_factory = if is_nulled {
-        LmdbEnvironmentFactory::new_null()
-    } else {
-        LmdbEnvironmentFactory::default()
-    };
-
-    info!("LMDB sync strategy: {:?}", config.lmdb_config.sync);
-    info!("Loading ledger, this may take a while...");
-    let ledger = LedgerBuilder::new(&ledger_path)
-        .env_factory(&lmdb_env_factory)
-        .config(config.lmdb_config.clone())
-        .constants(network_params.ledger.clone())
-        .min_rep_weight(config.representative_vote_weight_minimum)
-        .bootstrap_weights(bootstrap_weights)
-        .stats(stats.clone())
-        .finish();
-
-    let ledger = match ledger {
-        Ok(i) => i,
-        Err(e) => {
-            panic!("Could not open ledger: {:?}. Details: {:?}", ledger_path, e)
-        }
-    };
-
-    // hard coded version! TODO: read version from Cargo
-    info!("Database backend: {}", ledger.store_vendor());
-
+    let mut ledger_event_processor_plugins: Vec<Box<dyn LedgerEventProcessorPlugin>> = Vec::new();
     let rep_weights = ledger.rep_weights.clone();
 
-    let mut event_queues_info = ContainerInfoFactory::new();
-    let (ledger_tx, ledger_rx) = backpressure_channel::channel(1024);
-    let ledger_tx_clone = ledger_tx.clone();
-    event_queues_info.add_leaf("ledger", move || ledger_tx_clone.len());
-
-    let ledger = Arc::new(ledger);
-    info!(
-        "Block count:     {}",
-        ledger.block_count().to_formatted_string(&Locale::en)
-    );
-    info!(
-        "Confirmed count: {}",
-        ledger.confirmed_count().to_formatted_string(&Locale::en)
-    );
-    info!(
-        "Account count:   {}",
-        ledger.account_count().to_formatted_string(&Locale::en)
-    );
-    info!(
-        "Representative count: {}",
-        rep_weights.len().to_formatted_string(&Locale::en)
-    );
-
-    log_bootstrap_weights(&rep_weights);
-
-    let mut ledger_event_processor_plugins: Vec<Box<dyn LedgerEventProcessorPlugin>> = Vec::new();
-
-    let syn_cookies = Arc::new(SynCookies::new(network_params.network.max_peers_per_ip));
-
-    let workers = Arc::new(ThreadPool::new(
-        config.background_threads as usize,
-        "Worker".to_string(),
-    ));
-    let mut ticker_pool = TickerPool::with_thread_pool(workers.clone());
-
     let mut inbound_message_queue = InboundMessageQueue::new(config.message_processor.max_queue);
-    if let Some(cb) = args.callbacks.on_inbound {
+    if let Some(cb) = callbacks.on_inbound {
         inbound_message_queue.set_inbound_callback(cb);
     }
-    if let Some(cb) = args.callbacks.on_inbound_dropped {
+    if let Some(cb) = callbacks.on_inbound_dropped {
         inbound_message_queue.set_inbound_dropped_callback(cb);
     }
     let inbound_message_queue = Arc::new(inbound_message_queue);
@@ -478,7 +568,7 @@ pub(crate) fn compose_root(
     let mut message_sender =
         MessageSender::new(stats.clone(), network_params.network.protocol_info());
 
-    if let Some(callback) = &args.callbacks.on_publish {
+    if let Some(callback) = &callbacks.on_publish {
         message_sender.set_published_callback(callback.clone());
     }
 
@@ -545,7 +635,7 @@ pub(crate) fn compose_root(
         config.fork_cache_max_forks_per_root,
     )));
 
-    let block_processor_config = ProcessQueueConfig::from(global_config);
+    let block_processor_config = ProcessQueueConfig::from(&global_config);
     let block_processor_queue = Arc::new(BlockProcessorQueue::new(block_processor_config));
 
     let unchecked_reenqueuer = UncheckedBlockReenqueuer::new(
@@ -726,7 +816,7 @@ pub(crate) fn compose_root(
         512,
     );
 
-    if let Some(callback) = &args.callbacks.on_publish {
+    if let Some(callback) = &callbacks.on_publish {
         bootstrap_sender.set_published_callback(callback.clone());
     }
 
@@ -813,8 +903,11 @@ pub(crate) fn compose_root(
         ledger.clone(),
     ));
 
-    let mut backlog_scan =
-        BacklogScan::new(global_config.into(), ledger.clone(), steady_clock.clone());
+    let mut backlog_scan = BacklogScan::new(
+        (&global_config).into(),
+        ledger.clone(),
+        steady_clock.clone(),
+    );
 
     //  TODO: Hook this direclty in the schedulers
     let schedulers_w = Arc::downgrade(&election_schedulers);
