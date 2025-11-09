@@ -31,9 +31,7 @@ use crate::{
     NodeServices, TelemetryServices, WalletServices,
     block_processing::{BacklogScan, BlockContext, BlockSource, ProcessedResult, UncheckedMap},
     config::{NetworkParams, NodeConfig, NodeFlags},
-    consensus::{
-        AecTicker, AecVoter, VoteCacheProcessor, VoteRebroadcaster, election::ConfirmedElection,
-    },
+    consensus::{AecTicker, AecVoter, election::ConfirmedElection},
     node_builder::NodeParts,
     node_id_key_file::NodeIdKeyFile,
     tokio_runner::TokioRunner,
@@ -52,10 +50,8 @@ pub struct Node {
     services: NodeServices,
     pub unchecked: Arc<Mutex<UncheckedMap>>,
     pub backlog_scan: BacklogScan,
-    vote_cache_processor: Arc<VoteCacheProcessor>,
     stopped: AtomicBool,
     start_stop_listener: OutputListenerMt<&'static str>,
-    vote_rebroadcaster: VoteRebroadcaster,
     tokio_runner: TokioRunner,
     pub aec_ticker: TimerThread<AecTicker>,
     pub stats_collector: StatsCollector,
@@ -161,10 +157,8 @@ impl Node {
             services: parts.services,
             unchecked: parts.unchecked,
             backlog_scan: parts.backlog_scan,
-            vote_cache_processor: parts.vote_cache_processor,
             stopped: AtomicBool::new(false),
             start_stop_listener: OutputListenerMt::new(),
-            vote_rebroadcaster: parts.vote_rebroadcaster,
             tokio_runner: parts.tokio_runner,
             aec_ticker: parts.aec_ticker,
             stats_collector: parts.stats_collector,
@@ -384,7 +378,6 @@ impl Node {
         self.aec_voter.start(Duration::from_millis(20));
 
         consensus_services.start(&self.config, &self.flags);
-        self.vote_cache_processor.start();
         if !self.flags.disable_request_loop {
             self.aec_ticker
                 .start(self.network_params.network.aec_loop_interval);
@@ -393,9 +386,6 @@ impl Node {
         bootstrap_work_services.start(self.config.enable_bootstrap_responder);
         telemetry_services.start();
 
-        if self.config.enable_vote_rebroadcast {
-            self.vote_rebroadcaster.start();
-        }
         self.ticker_pool.start();
     }
 
@@ -422,13 +412,11 @@ impl Node {
         self.aec_voter.stop();
         bootstrap_work_services.stop();
         self.backlog_scan.stop();
-        self.vote_cache_processor.stop();
         self.aec_ticker.stop();
         consensus_services.stop();
         telemetry_services.stop();
         wallet_services.stop();
         network_services.stop_threads(); // Stop network last to avoid killing in-use sockets
-        self.vote_rebroadcaster.stop();
         self.workers.join();
         self.tokio_runner.stop();
         // work pool is not stopped on purpose due to testing setup

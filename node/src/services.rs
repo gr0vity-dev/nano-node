@@ -21,8 +21,8 @@ use crate::{
     config::{NodeConfig, NodeFlags},
     consensus::{
         ActiveElectionsContainer, CurrentRepTiers, LocalVoteHistory, RequestAggregator, VoteCache,
-        VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
-        WinnerBlockBroadcaster, election::ConfirmedElection,
+        VoteCacheProcessor, VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
+        VoteRebroadcaster, WinnerBlockBroadcaster, election::ConfirmedElection,
         election_schedulers::ElectionSchedulers,
     },
     representatives::{OnlineReps, RepCrawler, RepCrawlerExt},
@@ -184,6 +184,7 @@ pub struct NodeServices {
     pub vote_history: Arc<LocalVoteHistory>,
     pub confirming_set: Arc<ConfirmingSet>,
     pub vote_cache: Arc<Mutex<VoteCache>>,
+    pub(crate) vote_cache_processor: Arc<VoteCacheProcessor>,
     pub block_processor: Arc<BlockProcessor>,
     pub block_processor_queue: Arc<BlockProcessorQueue>,
     pub wallets: Arc<Wallets>,
@@ -208,6 +209,7 @@ pub struct NodeServices {
     pub recently_cemented: Arc<Mutex<BoundedVecDeque<ConfirmedElection>>>,
     pub block_rates: Arc<CurrentBlockRates>,
     pub wallet_reps: Arc<Mutex<WalletRepresentatives>>,
+    pub(crate) vote_rebroadcaster: Arc<Mutex<VoteRebroadcaster>>,
     pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
     #[cfg(feature = "ledger_snapshots")]
     pub ledger_snapshots: Arc<LedgerSnapshots>,
@@ -259,9 +261,11 @@ impl NodeServices {
             self.winner_block_broadcaster.clone(),
             self.vote_processor_queue.clone(),
             self.vote_cache.clone(),
+            self.vote_cache_processor.clone(),
             self.confirming_set.clone(),
             self.block_processor.clone(),
             self.block_processor_queue.clone(),
+            self.vote_rebroadcaster.clone(),
         )
     }
 
@@ -300,9 +304,11 @@ pub struct ConsensusServices {
     pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
     pub vote_processor_queue: Arc<VoteProcessorQueue>,
     pub vote_cache: Arc<Mutex<VoteCache>>,
+    pub(crate) vote_cache_processor: Arc<VoteCacheProcessor>,
     pub confirming_set: Arc<ConfirmingSet>,
     pub block_processor: Arc<BlockProcessor>,
     pub block_processor_queue: Arc<BlockProcessorQueue>,
+    pub(crate) vote_rebroadcaster: Arc<Mutex<VoteRebroadcaster>>,
 }
 
 impl ConsensusServices {
@@ -322,9 +328,11 @@ impl ConsensusServices {
         winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
         vote_processor_queue: Arc<VoteProcessorQueue>,
         vote_cache: Arc<Mutex<VoteCache>>,
+        vote_cache_processor: Arc<VoteCacheProcessor>,
         confirming_set: Arc<ConfirmingSet>,
         block_processor: Arc<BlockProcessor>,
         block_processor_queue: Arc<BlockProcessorQueue>,
+        vote_rebroadcaster: Arc<Mutex<VoteRebroadcaster>>,
     ) -> Self {
         Self {
             active,
@@ -342,9 +350,11 @@ impl ConsensusServices {
             winner_block_broadcaster,
             vote_processor_queue,
             vote_cache,
+            vote_cache_processor,
             confirming_set,
             block_processor,
             block_processor_queue,
+            vote_rebroadcaster,
         }
     }
 
@@ -364,6 +374,10 @@ impl ConsensusServices {
             self.bounded_backlog.start();
         }
         self.local_block_broadcaster.start();
+        self.vote_cache_processor.start();
+        if config.enable_vote_rebroadcast {
+            self.vote_rebroadcaster.lock().unwrap().start();
+        }
     }
 
     pub fn stop(&self) {
@@ -377,6 +391,8 @@ impl ConsensusServices {
         self.bounded_backlog.stop();
         self.rep_crawler.stop();
         self.block_processor.stop();
+        self.vote_rebroadcaster.lock().unwrap().stop();
+        self.vote_cache_processor.stop();
     }
 }
 

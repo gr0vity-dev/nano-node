@@ -163,8 +163,6 @@ pub(crate) struct NodeParts {
     pub(crate) services: NodeServices,
     pub(crate) unchecked: Arc<Mutex<UncheckedMap>>,
     pub(crate) backlog_scan: BacklogScan,
-    pub(crate) vote_cache_processor: Arc<VoteCacheProcessor>,
-    pub(crate) vote_rebroadcaster: VoteRebroadcaster,
     pub(crate) tokio_runner: TokioRunner,
     pub(crate) aec_ticker: TimerThread<AecTicker>,
     pub(crate) stats_collector: StatsCollector,
@@ -1078,13 +1076,13 @@ pub(crate) fn build_node_parts(
             .finish(),
     );
 
-    let vote_rebroadcaster = VoteRebroadcaster::new(
+    let vote_rebroadcaster = Arc::new(Mutex::new(VoteRebroadcaster::new(
         vote_rebroadcast_queue.clone(),
         message_flooder.clone(),
         rep_weights.clone(),
         steady_clock.clone(),
         config.rebroadcast_history.clone(),
-    );
+    )));
 
     let keepalive_factory_w = Arc::downgrade(&keepalive_factory);
     let message_publisher_l = Arc::new(Mutex::new(message_sender.clone()));
@@ -1301,12 +1299,12 @@ pub(crate) fn build_node_parts(
     }
 
     let aec_event_processor = AecEventProcessor {
-        vote_cache_processor: vote_cache_processor.clone(),
         node_observer: node_observer.clone(),
         election_schedulers: election_schedulers.clone(),
         network_filter: network_filter.clone(),
         bootstrap_election_activator,
         recently_cemented_inserter,
+        vote_cache_processor: vote_cache_processor.clone(),
         vote_cache: vote_cache.clone(),
         vote_rebroadcast_queue: vote_rebroadcast_queue.clone(),
         vote_processor: vote_processor.clone(),
@@ -1356,7 +1354,8 @@ pub(crate) fn build_node_parts(
     stats_collector.add_source(online_reps.clone());
     stats_collector.add_source(fork_cache.clone());
     stats_collector.add_source(active_elections.clone());
-    stats_collector.add_source(vote_rebroadcaster.stats.clone());
+    let vote_rebroadcaster_stats = vote_rebroadcaster.lock().unwrap().stats.clone();
+    stats_collector.add_source(vote_rebroadcaster_stats);
     stats_collector.add_source(election_schedulers.clone());
     stats_collector.add_source(network.clone());
     stats_collector.add_source(backlog_scan.stats());
@@ -1415,6 +1414,7 @@ pub(crate) fn build_node_parts(
         vote_history: vote_history.clone(),
         confirming_set: confirming_set.clone(),
         vote_cache: vote_cache.clone(),
+        vote_cache_processor: vote_cache_processor.clone(),
         block_processor: block_processor.clone(),
         block_processor_queue: block_processor_queue.clone(),
         wallets: wallets.clone(),
@@ -1439,6 +1439,7 @@ pub(crate) fn build_node_parts(
         recently_cemented: recently_cemented.clone(),
         block_rates: block_rates.clone(),
         wallet_reps: wallet_reps.clone(),
+        vote_rebroadcaster: vote_rebroadcaster.clone(),
         winner_block_broadcaster: winner_block_broadcaster.clone(),
         #[cfg(feature = "ledger_snapshots")]
         ledger_snapshots: ledger_snapshots.clone(),
@@ -1456,8 +1457,6 @@ pub(crate) fn build_node_parts(
         services,
         unchecked,
         backlog_scan,
-        vote_cache_processor,
-        vote_rebroadcaster,
         tokio_runner,
         aec_ticker: TimerThread::new("AEC ticker", aec_ticker),
         stats_collector,
