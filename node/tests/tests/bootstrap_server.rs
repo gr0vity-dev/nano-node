@@ -455,7 +455,11 @@ fn serve_frontiers_invalid_count() {
     assert_timely_eq(
         Duration::from_secs(5),
         || {
-            stats.count(StatType::BootstrapServer, DetailType::Invalid, Direction::In)
+            stats.count(
+                StatType::BootstrapServer,
+                DetailType::Invalid,
+                Direction::In,
+            )
         },
         1,
     );
@@ -479,7 +483,11 @@ fn serve_frontiers_invalid_count() {
     assert_timely_eq(
         Duration::from_secs(5),
         || {
-            stats.count(StatType::BootstrapServer, DetailType::Invalid, Direction::In)
+            stats.count(
+                StatType::BootstrapServer,
+                DetailType::Invalid,
+                Direction::In,
+            )
         },
         2,
     );
@@ -503,7 +511,11 @@ fn serve_frontiers_invalid_count() {
     assert_timely_eq(
         Duration::from_secs(5),
         || {
-            stats.count(StatType::BootstrapServer, DetailType::Invalid, Direction::In)
+            stats.count(
+                StatType::BootstrapServer,
+                DetailType::Invalid,
+                Direction::In,
+            )
         },
         3,
     );

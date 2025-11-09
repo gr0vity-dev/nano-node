@@ -40,8 +40,13 @@ fn batches() {
     };
     let representatives = vec![representative];
 
-    let mut solicitor =
-        ConfirmationSolicitor::new(node2_network_services.message_flooder.lock().unwrap().clone());
+    let mut solicitor = ConfirmationSolicitor::new(
+        node2_network_services
+            .message_flooder
+            .lock()
+            .unwrap()
+            .clone(),
+    );
     solicitor.prepare(&representatives);
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -91,8 +96,13 @@ fn different_hashes() {
     };
     let representatives = vec![representative];
 
-    let mut solicitor =
-        ConfirmationSolicitor::new(node2_network_services.message_flooder.lock().unwrap().clone());
+    let mut solicitor = ConfirmationSolicitor::new(
+        node2_network_services
+            .message_flooder
+            .lock()
+            .unwrap()
+            .clone(),
+    );
     solicitor.prepare(&representatives);
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -134,8 +144,13 @@ fn bypass_max_requests_cap() {
     let node2 = system.build_node().flags(flags).finish();
 
     let node2_network_services = node2.network_services();
-    let mut solicitor =
-        ConfirmationSolicitor::new(node2_network_services.message_flooder.lock().unwrap().clone());
+    let mut solicitor = ConfirmationSolicitor::new(
+        node2_network_services
+            .message_flooder
+            .lock()
+            .unwrap()
+            .clone(),
+    );
 
     let mut representatives = Vec::new();
     const MAX_REPRESENTATIVES: usize = 50;

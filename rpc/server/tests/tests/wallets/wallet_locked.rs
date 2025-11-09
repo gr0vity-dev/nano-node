@@ -13,7 +13,10 @@ fn wallet_locked_false() {
     node.wallet_services().wallets.create(wallet_id);
 
     assert_eq!(
-        node.wallet_services().wallets.valid_password(&wallet_id).unwrap(),
+        node.wallet_services()
+            .wallets
+            .valid_password(&wallet_id)
+            .unwrap(),
         true
     );
 

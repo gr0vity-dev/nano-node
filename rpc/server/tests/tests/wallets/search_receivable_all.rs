@@ -11,7 +11,7 @@ fn search_receivable_all() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send = lattice

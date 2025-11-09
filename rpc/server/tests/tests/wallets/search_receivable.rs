@@ -13,7 +13,7 @@ fn search_receivable() {
     let all_wallet_ids = node.wallet_services().wallets.wallet_ids();
     let wallet_id = all_wallet_ids[0];
 
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     // Get initial balance before any operations
     let initial_balance = node.balance(&DEV_GENESIS_ACCOUNT);

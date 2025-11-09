@@ -194,7 +194,7 @@ fn confirmation() {
         //await ack
         ws_client.next().await.unwrap().unwrap();
 
-        node1.insert_into_wallet(&DEV_GENESIS_KEY);
+        node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
         let unsaved_block_lattice_builder = UnsavedBlockLatticeBuilder::new();
         let mut lattice = unsaved_block_lattice_builder;
@@ -251,7 +251,7 @@ fn confirmation_options() {
         ws_client.next().await.unwrap().unwrap();
 
         // Confirm a state block for an in-wallet account
-        node1.insert_into_wallet(&DEV_GENESIS_KEY);
+        node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
         let mut lattice = UnsavedBlockLatticeBuilder::new();
         let key = PrivateKey::new();
         let mut balance = Amount::MAX;
@@ -354,7 +354,7 @@ fn confirmation_options_votes() {
         ws_client.next().await.unwrap().unwrap();
 
         // Confirm a state block for an in-wallet account
-        node1.insert_into_wallet(&DEV_GENESIS_KEY);
+        node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
         let key = PrivateKey::new();
         let send_amount = node1.config.online_weight_minimum + Amount::raw(1);
         let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -403,7 +403,7 @@ fn confirmation_options_sideband() {
         ws_client.next().await.unwrap().unwrap();
 
         // Confirm a state block for an in-wallet account
-        node1.insert_into_wallet(&DEV_GENESIS_KEY);
+        node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
         let key = PrivateKey::new();
         let send_amount = node1.config.online_weight_minimum + Amount::raw(1);
@@ -449,7 +449,7 @@ fn confirmation_options_update() {
         ws_client.next().await.unwrap().unwrap();
 
         // Confirm a block
-        node1.insert_into_wallet(&DEV_GENESIS_KEY);
+        node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
         let key = PrivateKey::new();
         let mut lattice = UnsavedBlockLatticeBuilder::new();
         let send = lattice.genesis().send(&key, Amount::nano(1000));
@@ -499,7 +499,7 @@ fn vote() {
         ws_client.next().await.unwrap().unwrap();
 
         // Quick-confirm a block
-        node1.insert_into_wallet(&DEV_GENESIS_KEY);
+        node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
         let key = PrivateKey::new();
         let mut lattice = UnsavedBlockLatticeBuilder::new();
         let send = lattice.genesis().send(&key, Amount::nano(1000));
@@ -556,7 +556,7 @@ fn vote_options_representatives() {
         //await ack
         ws_client.next().await.unwrap().unwrap();
 
-        node1.insert_into_wallet(&DEV_GENESIS_KEY);
+        node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 	    // Quick-confirm a block
         let mut lattice = UnsavedBlockLatticeBuilder::new();
         let key = PrivateKey::new();

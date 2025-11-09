@@ -49,7 +49,11 @@ fn accounts_create_default_with_precomputed_work() {
             .unwrap()
     });
 
-    assert!(node.wallet_services().wallets.exists(&result.accounts[0].into()));
+    assert!(
+        node.wallet_services()
+            .wallets
+            .exists(&result.accounts[0].into())
+    );
 
     assert_timely2(|| {
         !node
@@ -80,7 +84,11 @@ fn accounts_create_without_precomputed_work() {
         .runtime
         .block_on(async { server.client.accounts_create_args(args).await.unwrap() });
 
-    assert!(node.wallet_services().wallets.exists(&result.accounts[0].into()));
+    assert!(
+        node.wallet_services()
+            .wallets
+            .exists(&result.accounts[0].into())
+    );
 
     assert_timely2(|| {
         node.wallet_services()

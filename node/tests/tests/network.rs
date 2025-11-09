@@ -60,8 +60,7 @@ fn last_contacted() {
     // capture the state before and ensure the clock ticks at least once
     let timestamp_before_keepalive = channel0.last_activity();
     let stats = node0.stats_service();
-    let keepalive_count =
-        stats.count(StatType::Message, DetailType::Keepalive, Direction::In);
+    let keepalive_count = stats.count(StatType::Message, DetailType::Keepalive, Direction::In);
     let steady_clock = node0_network_services.steady_clock.clone();
     assert_timely_msg(
         Duration::from_secs(3),
@@ -206,7 +205,12 @@ fn receivable_processor_confirm_sufficient_pos() {
     let inbound_queue = node1.network_services().inbound_message_queue;
     inbound_queue.put(con1, channel);
 
-    assert_timely2(|| ledger_services.ledger.confirmed().block_exists(&send1.hash()));
+    assert_timely2(|| {
+        ledger_services
+            .ledger
+            .confirmed()
+            .block_exists(&send1.hash())
+    });
 }
 
 #[test]
@@ -226,8 +230,8 @@ fn send_valid_confirm_ack() {
     let node1 = system.make_node();
     let node2 = system.make_node();
     let key2 = PrivateKey::new();
-    node1.insert_into_wallet(&DEV_GENESIS_KEY);
-    node2.insert_into_wallet(&key2);
+    node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
+    node2.wallet_services().insert_into_wallet(&key2);
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let block2 = lattice.genesis().send_all_except(&key2, 50);
@@ -245,9 +249,9 @@ fn send_valid_publish() {
     let mut system = System::new();
     let node1 = system.make_node();
     let node2 = system.make_node();
-    node1.insert_into_wallet(&DEV_GENESIS_KEY);
+    node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     let key2 = PrivateKey::new();
-    node2.insert_into_wallet(&key2);
+    node2.wallet_services().insert_into_wallet(&key2);
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let block2 = lattice.genesis().send_all_except(&key2, 50);
@@ -271,7 +275,7 @@ fn send_with_receive() {
     let node1 = system.make_node();
     let node2 = system.make_node();
     let key2 = PrivateKey::new();
-    node1.insert_into_wallet(&DEV_GENESIS_KEY);
+    node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let block1 = lattice.genesis().send(&key2, node1.config.receive_minimum);
@@ -284,7 +288,7 @@ fn send_with_receive() {
     assert_timely(Duration::from_secs(5), || {
         node2.block_exists(&block1.hash())
     });
-    node2.insert_into_wallet(&key2);
+    node2.wallet_services().insert_into_wallet(&key2);
     assert_timely(Duration::from_secs(10), || {
         node1.balance(&key2.public_key().as_account()) == node1.config.receive_minimum
             && node2.balance(&key2.public_key().as_account()) == node1.config.receive_minimum
@@ -297,8 +301,8 @@ fn receive_weight_change() {
     let node1 = system.make_node();
     let node2 = system.make_node();
     let key2 = PrivateKey::new();
-    node1.insert_into_wallet(&DEV_GENESIS_KEY);
-    node2.insert_into_wallet(&key2);
+    node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
+    node2.wallet_services().insert_into_wallet(&key2);
     let node1_wallets = node1.wallet_services();
     let node2_wallets = node2.wallet_services();
     node2_wallets
@@ -327,8 +331,7 @@ fn receive_weight_change() {
     let node2_ledger = node2.ledger_query_services().ledger.clone();
     assert_timely(Duration::from_secs(10), || {
         node1_ledger.any().weight_exact(key2.public_key()) == node1.config.receive_minimum
-            && node2_ledger.any().weight_exact(key2.public_key())
-                == node1.config.receive_minimum
+            && node2_ledger.any().weight_exact(key2.public_key()) == node1.config.receive_minimum
     });
 }
 

@@ -172,7 +172,7 @@ mod election_scheduler {
         // Add representative
         let rep_weight = Amount::nano(100_000);
         let rep = setup_rep(&node, rep_weight, &DEV_GENESIS_KEY);
-        node.insert_into_wallet(&rep);
+        node.wallet_services().insert_into_wallet(&rep);
 
         // Create a chain of blocks - and trigger an optimistic election for the last block
         let howmany_blocks = 2;

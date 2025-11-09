@@ -61,10 +61,7 @@ fn codes() {
     assert_eq!(vote_processor.vote_blocking(&vote), Ok(()));
 
     // Processing the same vote is a replay
-    assert_eq!(
-        Err(VoteError::Replay),
-        vote_processor.vote_blocking(&vote)
-    );
+    assert_eq!(Err(VoteError::Replay), vote_processor.vote_blocking(&vote));
 
     // Invalid takes precedence
     assert_eq!(
@@ -191,10 +188,10 @@ fn weights() {
     let wallet_id2 = node2_wallets.wallets.wallet_ids()[0];
     let wallet_id3 = node3_wallets.wallets.wallet_ids()[0];
 
-    node0.insert_into_wallet(&DEV_GENESIS_KEY);
-    node1.insert_into_wallet(&key1);
-    node2.insert_into_wallet(&key2);
-    node3.insert_into_wallet(&key3);
+    node0.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
+    node1.wallet_services().insert_into_wallet(&key1);
+    node2.wallet_services().insert_into_wallet(&key2);
+    node3.wallet_services().insert_into_wallet(&key3);
 
     node1_wallets
         .wallets
@@ -263,45 +260,23 @@ fn weights() {
     // Wait for rep tiers to be updated
     let stats = node0_ledger.stats.clone();
     stats.clear();
-    assert_timely2(|| {
-        stats.count(StatType::RepTiers, DetailType::Updated, Direction::In) >= 2
-    });
+    assert_timely2(|| stats.count(StatType::RepTiers, DetailType::Updated, Direction::In) >= 2);
 
     let rep_tiers = node0_consensus.rep_tiers.clone();
     assert_timely_eq2(
-        || {
-            rep_tiers
-                .lock()
-                .unwrap()
-                .tier(&key1.public_key())
-        },
+        || rep_tiers.lock().unwrap().tier(&key1.public_key()),
         RepTier::None,
     );
     assert_timely_eq2(
-        || {
-            rep_tiers
-                .lock()
-                .unwrap()
-                .tier(&key2.public_key())
-        },
+        || rep_tiers.lock().unwrap().tier(&key2.public_key()),
         RepTier::Tier1,
     );
     assert_timely_eq2(
-        || {
-            rep_tiers
-                .lock()
-                .unwrap()
-                .tier(&key3.public_key())
-        },
+        || rep_tiers.lock().unwrap().tier(&key3.public_key()),
         RepTier::Tier2,
     );
     assert_timely_eq2(
-        || {
-            rep_tiers
-                .lock()
-                .unwrap()
-                .tier(&DEV_GENESIS_PUB_KEY)
-        },
+        || rep_tiers.lock().unwrap().tier(&DEV_GENESIS_PUB_KEY),
         RepTier::Tier3,
     );
 }

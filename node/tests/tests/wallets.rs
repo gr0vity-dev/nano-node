@@ -192,7 +192,8 @@ fn search_receivable() {
         }
         assert_timely_eq2(|| node.balance(&DEV_GENESIS_ACCOUNT), Amount::MAX);
         let receive_hash = node
-            .ledger_query_services().ledger
+            .ledger_query_services()
+            .ledger
             .any()
             .account_head(&DEV_GENESIS_ACCOUNT)
             .unwrap();

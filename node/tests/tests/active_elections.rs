@@ -889,7 +889,7 @@ fn confirm_frontier() {
     node2.process(send.clone());
     assert_timely2(|| node2.consensus_services().active.read().unwrap().len() > 0);
 
-    node1.insert_into_wallet(&DEV_GENESIS_KEY);
+    node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     // Save election to check request count afterwards
     assert_timely2(|| node2.is_active_root(&send.qualified_root()));
@@ -1438,7 +1438,7 @@ fn confirm_new() {
     );
     let node2 = system.make_node();
     // Add key to node2
-    node2.insert_into_wallet(&DEV_GENESIS_KEY);
+    node2.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     // Let node2 know about the block
     assert_timely2(|| node2.block_exists(&send.hash()));
     // Wait confirmation

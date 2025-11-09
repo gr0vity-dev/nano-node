@@ -223,7 +223,7 @@ fn insufficient_spend_one() {
     let mut system = System::new();
     let node = system.make_node();
     let key1 = PrivateKey::new();
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
 
     node.wallet_services()
@@ -261,7 +261,7 @@ fn insufficient_spend_one() {
 fn spend_all_one() {
     let mut system = System::new();
     let node = system.make_node();
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
     node.wallet_services()
@@ -291,7 +291,7 @@ fn spend_all_one() {
 fn send_async() {
     let mut system = System::new();
     let node = system.make_node();
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
     let block = node.wallet_services().wallets.send(
@@ -312,7 +312,7 @@ fn send_async() {
 fn spend() {
     let mut system = System::new();
     let node = system.make_node();
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
     // Sending from empty accounts should always be an error.
@@ -353,7 +353,7 @@ fn spend() {
 fn partial_spend() {
     let mut system = System::new();
     let node = system.make_node();
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
     node.wallet_services()
@@ -382,7 +382,7 @@ fn spend_no_previous() {
     let node = system.make_node();
     let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     {
-        node.insert_into_wallet(&DEV_GENESIS_KEY);
+        node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
         for _ in 0..50 {
             let key = PrivateKey::new();
             node.wallet_services()

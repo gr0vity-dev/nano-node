@@ -116,9 +116,9 @@ fn frontier_scan() {
     // Frontier scan should detect all the accounts with missing blocks
     let node1_bootstrapper = node1.consensus_services().bootstrapper;
     assert_timely(Duration::from_secs(10), || {
-        updates.iter().all(|block| {
-            node1_bootstrapper.prioritized(&block.account_field().unwrap())
-        })
+        updates
+            .iter()
+            .all(|block| node1_bootstrapper.prioritized(&block.account_field().unwrap()))
     });
 }
 
@@ -177,9 +177,9 @@ fn frontier_scan_pending() {
     // Frontier scan should detect all the accounts with missing blocks
     let node1_bootstrapper = node1.consensus_services().bootstrapper;
     assert_timely(Duration::from_secs(10), || {
-        opens.iter().all(|block| {
-            node1_bootstrapper.prioritized(&block.account_field().unwrap())
-        })
+        opens
+            .iter()
+            .all(|block| node1_bootstrapper.prioritized(&block.account_field().unwrap()))
     });
 }
 
@@ -249,9 +249,9 @@ fn frontier_scan_cannot_prioritize() {
     assert_always_eq(
         Duration::from_secs(1),
         || {
-            opens2.iter().all(|block| {
-                !node1_bootstrapper.prioritized(&block.account_field().unwrap())
-            })
+            opens2
+                .iter()
+                .all(|block| !node1_bootstrapper.prioritized(&block.account_field().unwrap()))
         },
         true,
     );

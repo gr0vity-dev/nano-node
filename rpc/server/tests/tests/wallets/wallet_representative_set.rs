@@ -21,7 +21,10 @@ fn wallet_representative_set() {
     });
 
     assert_eq!(
-        node.wallet_services().wallets.get_representative(wallet).unwrap(),
+        node.wallet_services()
+            .wallets
+            .get_representative(wallet)
+            .unwrap(),
         PublicKey::ZERO
     );
 }

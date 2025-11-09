@@ -13,7 +13,10 @@ fn wallet_lock() {
     node.wallet_services().wallets.create(wallet_id);
 
     assert_eq!(
-        node.wallet_services().wallets.valid_password(&wallet_id).unwrap(),
+        node.wallet_services()
+            .wallets
+            .valid_password(&wallet_id)
+            .unwrap(),
         true
     );
 
@@ -21,7 +24,10 @@ fn wallet_lock() {
         .block_on(async { server.client.wallet_lock(wallet_id).await.unwrap() });
 
     assert_eq!(
-        node.wallet_services().wallets.valid_password(&wallet_id).unwrap(),
+        node.wallet_services()
+            .wallets
+            .valid_password(&wallet_id)
+            .unwrap(),
         false
     );
 }
@@ -38,7 +44,10 @@ fn wallet_lock_fails_without_enable_control() {
     node.wallet_services().wallets.create(wallet_id);
 
     assert_eq!(
-        node.wallet_services().wallets.valid_password(&wallet_id).unwrap(),
+        node.wallet_services()
+            .wallets
+            .valid_password(&wallet_id)
+            .unwrap(),
         true
     );
 
@@ -52,7 +61,10 @@ fn wallet_lock_fails_without_enable_control() {
     );
 
     assert_eq!(
-        node.wallet_services().wallets.valid_password(&wallet_id).unwrap(),
+        node.wallet_services()
+            .wallets
+            .valid_password(&wallet_id)
+            .unwrap(),
         true
     );
 }

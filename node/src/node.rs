@@ -1455,15 +1455,6 @@ impl Node {
         self.confirm_multi(blocks);
     }
 
-    pub fn insert_into_wallet(&self, keys: &PrivateKey) {
-        let wallet_services = self.wallet_services();
-        let wallet_id = wallet_services.wallets.wallet_ids()[0];
-        wallet_services
-            .wallets
-            .insert_adhoc2(&wallet_id, &keys.raw_key(), true)
-            .unwrap();
-    }
-
     pub fn process_active(&self, block: Block) {
         self.consensus_services()
             .block_processor_queue

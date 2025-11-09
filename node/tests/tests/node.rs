@@ -317,8 +317,7 @@ fn no_voting() {
     );
     let stats = node0.stats_service().clone();
     assert_eq!(
-        stats
-            .count(StatType::Message, DetailType::ConfirmAck, Direction::In),
+        stats.count(StatType::Message, DetailType::ConfirmAck, Direction::In),
         0
     );
 }
@@ -328,7 +327,7 @@ fn bootstrap_confirm_frontiers() {
     let mut system = System::new();
     let node0 = system.make_node();
     let node1 = system.make_node();
-    node0.insert_into_wallet(&DEV_GENESIS_KEY);
+    node0.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
 
@@ -402,7 +401,7 @@ fn bootstrap_fork_open() {
 
     // Allow node0 to vote on its fork
 
-    node0.insert_into_wallet(&DEV_GENESIS_KEY);
+    node0.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     assert_timely(Duration::from_secs(10), || {
         !node1.block_exists(&open1.hash()) && node1.block_exists(&open0.hash())
@@ -449,8 +448,8 @@ fn rep_self_vote() {
     node0.force_confirm(&open_big.hash());
 
     // Insert representatives into the node to allow voting
-    node0.insert_into_wallet(&rep_big);
-    node0.insert_into_wallet(&DEV_GENESIS_KEY);
+    node0.wallet_services().insert_into_wallet(&rep_big);
+    node0.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     assert_timely_eq2(
         || {
             node0
@@ -576,7 +575,7 @@ fn fork_multi_flip() {
     node2.process(send3.clone());
 
     // Insert voting key into node1
-    node1.insert_into_wallet(&DEV_GENESIS_KEY);
+    node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     start_election(&node2, &send2.hash());
 
@@ -620,7 +619,7 @@ fn fork_multi_flip() {
 fn fork_publish() {
     let mut system = System::new();
     let node1 = system.make_node();
-    node1.insert_into_wallet(&DEV_GENESIS_KEY);
+    node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     let key1 = PrivateKey::new();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let mut fork_lattice = lattice.clone();
@@ -883,7 +882,7 @@ fn search_receivable() {
 fn search_receivable_same() {
     let mut system = System::new();
     let node = system.make_node();
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     let key2 = PrivateKey::new();
 
@@ -917,7 +916,7 @@ fn search_receivable_same() {
         .wait_timeout(Duration::from_secs(5));
     assert!(send_result2.is_ok());
 
-    node.insert_into_wallet(&key2);
+    node.wallet_services().insert_into_wallet(&key2);
     node.wallet_services()
         .wallets
         .search_receivable(&wallet_id)
@@ -1380,7 +1379,7 @@ fn fork_no_vote_quorum() {
     let wallet_id2 = node2.wallet_services().wallets.wallet_ids()[0];
     let wallet_id3 = node3.wallet_services().wallets.wallet_ids()[0];
 
-    node1.insert_into_wallet(&DEV_GENESIS_KEY);
+    node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     let key4 = node1
         .wallet_services()
@@ -1508,11 +1507,7 @@ fn fork_no_vote_quorum() {
     let stats = node3.stats_service().clone();
     assert_timely_msg(
         Duration::from_secs(10),
-        || {
-            stats
-                .count(StatType::Message, DetailType::ConfirmAck, Direction::In)
-                >= 3
-        },
+        || stats.count(StatType::Message, DetailType::ConfirmAck, Direction::In) >= 3,
         "no confirm ack",
     );
     assert_eq!(node1.latest(&DEV_GENESIS_ACCOUNT), send1.hash());
@@ -1732,7 +1727,7 @@ fn vote_republish() {
     let node2 = system.make_node();
     let key2 = PrivateKey::new();
     // by not setting a private key on node1's wallet for genesis account, it is stopped from voting
-    node2.insert_into_wallet(&key2);
+    node2.wallet_services().insert_into_wallet(&key2);
 
     // send1 and send2 are forks of each other
     let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -2159,7 +2154,7 @@ fn epoch_conflict_confirm() {
     });
 
     // Make node1 a representative so it can vote for both blocks
-    node1.insert_into_wallet(&DEV_GENESIS_KEY);
+    node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     // Ensure both conflicting blocks were successfully processed and confirmed
     assert_timely2(|| node0.blocks_confirmed(&[change.clone(), epoch_open.clone()]));
@@ -2637,7 +2632,7 @@ fn dependency_graph_frontier() {
     }
 
     // node1 can vote, but only on the first block
-    node1.insert_into_wallet(&DEV_GENESIS_KEY);
+    node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     assert_timely(Duration::from_secs(10), || {
         node2.is_active_root(&gen_send1.qualified_root())
     });
@@ -2742,7 +2737,7 @@ fn dependency_graph() {
     );
 
     // Start an election for the first block of the dependency graph, and ensure all blocks are eventually confirmed
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     start_election(&node, &gen_send1.hash());
     assert_timely(Duration::from_secs(15), || {
         // Not many blocks should be active simultaneously
@@ -2796,7 +2791,7 @@ fn fork_keep() {
         || node2.consensus_services().active.read().unwrap().len(),
         1,
     );
-    node1.insert_into_wallet(&DEV_GENESIS_KEY);
+    node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     // Fill node with forked blocks
     node1.process_active(send2.clone());
     assert_timely2(|| node1.is_active_root(&send2.qualified_root()));

@@ -18,7 +18,9 @@ fn observe() {
 
     // Add genesis representative
     let node_rep = system.make_node();
-    node_rep.insert_into_wallet(&DEV_GENESIS_KEY);
+    node_rep
+        .wallet_services()
+        .insert_into_wallet(&DEV_GENESIS_KEY);
 
     // The node should see that weight as online
     assert_timely_eq2(
@@ -38,7 +40,7 @@ fn observe() {
 fn observe_local() {
     let mut system = System::new();
     let node = system.make_node();
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     assert_timely_eq2(
         || {
             node.consensus_services()

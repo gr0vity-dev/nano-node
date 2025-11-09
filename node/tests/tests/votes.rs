@@ -352,7 +352,7 @@ fn vote_spacing_vote_generator() {
         })
         .finish();
 
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send1 = lattice
@@ -460,7 +460,7 @@ fn vote_spacing_rapid() {
         })
         .finish();
 
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send1 = lattice

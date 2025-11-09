@@ -15,7 +15,7 @@ fn ledger_snapshot_integration_test() {
             ..System::default_config()
         })
         .finish();
-    node1.insert_into_wallet(&DEV_GENESIS_KEY);
+    node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     let node2 = system
         .build_node()
@@ -26,7 +26,7 @@ fn ledger_snapshot_integration_test() {
         .finish();
     let amount_pr = Amount::nano(2_000_000);
     let rep2_key = setup_rep(&node2, amount_pr, &DEV_GENESIS_KEY);
-    node2.insert_into_wallet(&rep2_key);
+    node2.wallet_services().insert_into_wallet(&rep2_key);
 
     assert_peered_principal_reps(&node1, 2);
     assert_peered_principal_reps(&node2, 2);
@@ -56,9 +56,7 @@ fn assert_peered_principal_reps(node: &Node, expected_rep_count: usize) {
 fn assert_message_received(node: &Node, message_type: MessageType, count: usize) {
     let stats = node.ledger_query_services().stats.clone();
     assert_timely_eq2(
-        || {
-            stats.count(StatType::Message, message_type.into(), Direction::In) as usize
-        },
+        || stats.count(StatType::Message, message_type.into(), Direction::In) as usize,
         count,
     );
 }

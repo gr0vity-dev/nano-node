@@ -240,7 +240,7 @@ fn rep_list() {
             .peered_reps_count()
     );
     // Node #1 has a rep
-    node1.insert_into_wallet(&DEV_GENESIS_KEY);
+    node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     assert_timely_eq(
         Duration::from_secs(5),
         || {
@@ -271,7 +271,7 @@ fn rep_connection_close() {
     let node1 = system.make_node();
     let node2 = system.make_node();
     // Add working representative (node 2)
-    node2.insert_into_wallet(&DEV_GENESIS_KEY);
+    node2.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     assert_timely_eq(
         Duration::from_secs(10),
         || {
@@ -303,7 +303,7 @@ fn rep_connection_close() {
 fn rep_local() {
     let mut system = System::new();
     let node = system.make_node();
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     assert_timely_eq2(
         || {
             node.consensus_services()

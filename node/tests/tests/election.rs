@@ -24,11 +24,14 @@ fn quorum_minimum_confirm_fail() {
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key = PrivateKey::new();
-    let quorum_delta = consensus_services.online_reps.lock().unwrap().quorum_delta();
-    let send1 = lattice.genesis().send(
-        &key,
-        Amount::MAX - (quorum_delta - Amount::raw(1)),
-    );
+    let quorum_delta = consensus_services
+        .online_reps
+        .lock()
+        .unwrap()
+        .quorum_delta();
+    let send1 = lattice
+        .genesis()
+        .send(&key, Amount::MAX - (quorum_delta - Amount::raw(1)));
 
     node1.process_active(send1.clone());
     assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
@@ -70,7 +73,11 @@ fn quorum_minimum_confirm_success() {
     let key1 = PrivateKey::new();
 
     // Only minimum quorum remains
-    let quorum_delta = consensus_services.online_reps.lock().unwrap().quorum_delta();
+    let quorum_delta = consensus_services
+        .online_reps
+        .lock()
+        .unwrap()
+        .quorum_delta();
     let send1 = lattice.genesis().send(&key1, Amount::MAX - quorum_delta);
 
     node1.process_active(send1.clone());
@@ -100,12 +107,20 @@ fn quorum_minimum_flip_fail() {
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
-    let quorum_delta = consensus_services.online_reps.lock().unwrap().quorum_delta();
-    let send1 = lattice.genesis().send(&key1, Amount::MAX - (quorum_delta - Amount::raw(1)));
+    let quorum_delta = consensus_services
+        .online_reps
+        .lock()
+        .unwrap()
+        .quorum_delta();
+    let send1 = lattice
+        .genesis()
+        .send(&key1, Amount::MAX - (quorum_delta - Amount::raw(1)));
 
     let mut fork_lattice = UnsavedBlockLatticeBuilder::new();
     let key2 = PrivateKey::new();
-    let send2 = fork_lattice.genesis().send(&key2, Amount::MAX - (quorum_delta - Amount::raw(1)));
+    let send2 = fork_lattice
+        .genesis()
+        .send(&key2, Amount::MAX - (quorum_delta - Amount::raw(1)));
 
     // Process send1 and wait until its election appears
     node1.process_active(send1.clone());
@@ -144,12 +159,18 @@ fn quorum_minimum_flip_success() {
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
-    let quorum_delta = consensus_services.online_reps.lock().unwrap().quorum_delta();
+    let quorum_delta = consensus_services
+        .online_reps
+        .lock()
+        .unwrap()
+        .quorum_delta();
     let send1 = lattice.genesis().send(&key1, Amount::MAX - quorum_delta);
 
     let mut fork_lattice = UnsavedBlockLatticeBuilder::new();
     let key2 = PrivateKey::new();
-    let send2 = fork_lattice.genesis().send(&key2, Amount::MAX - quorum_delta);
+    let send2 = fork_lattice
+        .genesis()
+        .send(&key2, Amount::MAX - quorum_delta);
 
     // Process send1 and wait until its election appears
     node1.process_active(send1.clone());

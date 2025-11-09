@@ -781,7 +781,7 @@ fn forked_open() {
     let node = system.make_node();
 
     // Voting needs a rep key set up on the node
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     // Setup two forks of the open block
     let key = PrivateKey::new();
@@ -828,7 +828,7 @@ fn epoch_conflict() {
         .finish();
 
     // Voting needs a rep key set up on the node
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     // Setup the initial chain and the conflicting blocks
     let key = PrivateKey::new();
@@ -898,7 +898,7 @@ fn cemented_no_spacing() {
     let node = system.make_node();
 
     // Voting needs a rep key set up on the node
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     // Create a chain of 3 blocks: send1 -> send2 -> send3
     let mut lattice = UnsavedBlockLatticeBuilder::new();

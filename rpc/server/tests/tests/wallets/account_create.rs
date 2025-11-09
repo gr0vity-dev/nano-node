@@ -18,7 +18,11 @@ fn account_create_default() {
         .runtime
         .block_on(async { server.client.account_create(wallet_id).await.unwrap() });
 
-    assert!(node.wallet_services().wallets.exists(&result.account.into()));
+    assert!(
+        node.wallet_services()
+            .wallets
+            .exists(&result.account.into())
+    );
 }
 
 #[test]
@@ -40,7 +44,11 @@ fn account_create_index_max() {
         .runtime
         .block_on(async { server.client.account_create(args).await.unwrap() });
 
-    assert!(node.wallet_services().wallets.exists(&result.account.into()));
+    assert!(
+        node.wallet_services()
+            .wallets
+            .exists(&result.account.into())
+    );
 }
 
 #[test]
@@ -62,7 +70,11 @@ fn account_create_work_without_precomputed_work() {
         .runtime
         .block_on(async { server.client.account_create(args).await.unwrap() });
 
-    assert!(node.wallet_services().wallets.exists(&result.account.into()));
+    assert!(
+        node.wallet_services()
+            .wallets
+            .exists(&result.account.into())
+    );
 
     assert_timely2(|| {
         node.wallet_services()

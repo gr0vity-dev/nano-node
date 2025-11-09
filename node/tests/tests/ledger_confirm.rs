@@ -13,7 +13,7 @@ fn single() {
     let mut system = System::new();
     let node = system.make_node();
     let key1 = PrivateKey::new();
-    node.insert_into_wallet(&DEV_GENESIS_KEY);
+    node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let latest1 = node.latest(&DEV_GENESIS_ACCOUNT);

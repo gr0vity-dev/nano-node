@@ -35,6 +35,7 @@ use crate::{
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 
+use rsnano_types::PrivateKey;
 use rsnano_wallet::Wallets;
 
 #[derive(Clone)]
@@ -55,6 +56,13 @@ impl WalletServices {
             work_factory,
             wallet_reps,
         }
+    }
+
+    pub fn insert_into_wallet(&self, keys: &PrivateKey) {
+        let wallet_id = self.wallets.wallet_ids()[0];
+        self.wallets
+            .insert_adhoc2(&wallet_id, &keys.raw_key(), true)
+            .unwrap();
     }
 }
 
