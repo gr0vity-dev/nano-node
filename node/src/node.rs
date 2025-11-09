@@ -1794,8 +1794,8 @@ mod tests {
     #[test]
     fn connect_winner_block_rebroadcaster() {
         let node = Node::new_null();
-        let broadcast_tracker = node
-            .services()
+        let consensus_services = node.consensus_services();
+        let broadcast_tracker = consensus_services
             .winner_block_broadcaster
             .lock()
             .unwrap()
@@ -1803,7 +1803,7 @@ mod tests {
         let election = ConfirmedElection::new_test_instance();
         let winner_hash = election.winner.hash();
 
-        node.services()
+        consensus_services
             .active
             .write()
             .unwrap()

@@ -10,10 +10,10 @@ fn account_list() {
 
     let wallet = WalletId::random();
 
-    node.services().wallets.create(wallet);
+    node.wallet_services().wallets.create(wallet);
 
     let account: Account = node
-        .services()
+        .wallet_services()
         .wallets
         .deterministic_insert2(&wallet, false)
         .unwrap()

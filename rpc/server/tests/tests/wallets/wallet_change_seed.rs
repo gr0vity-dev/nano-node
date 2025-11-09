@@ -10,7 +10,7 @@ fn wallet_change_seed() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let wallet_id = WalletId::random();
-    node.services().wallets.create(wallet_id);
+    node.wallet_services().wallets.create(wallet_id);
     let new_seed =
         RawKey::decode_hex("74F2B37AAD20F4A260F0A5B3CB3D7FB51673212263E58A380BC10474BB039CEE")
             .unwrap();
@@ -24,7 +24,7 @@ fn wallet_change_seed() {
     });
 
     assert_eq!(
-        node.services().wallets.get_seed(wallet_id).unwrap(),
+        node.wallet_services().wallets.get_seed(wallet_id).unwrap(),
         new_seed
     );
 }

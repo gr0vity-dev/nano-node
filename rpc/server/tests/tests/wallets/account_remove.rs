@@ -10,15 +10,15 @@ fn account_remove() {
 
     let wallet = WalletId::random();
 
-    node.services().wallets.create(wallet);
+    node.wallet_services().wallets.create(wallet);
 
     let account = node
-        .services()
+        .wallet_services()
         .wallets
         .deterministic_insert2(&wallet, false)
         .unwrap();
 
-    assert!(node.services().wallets.exists(&account));
+    assert!(node.wallet_services().wallets.exists(&account));
 
     node.runtime.block_on(async {
         server
@@ -28,7 +28,7 @@ fn account_remove() {
             .unwrap()
     });
 
-    assert!(!node.services().wallets.exists(&account));
+    assert!(!node.wallet_services().wallets.exists(&account));
 }
 
 #[test]
@@ -40,15 +40,15 @@ fn account_remove_fails_without_enable_control() {
 
     let wallet = WalletId::random();
 
-    node.services().wallets.create(wallet);
+    node.wallet_services().wallets.create(wallet);
 
     let account = node
-        .services()
+        .wallet_services()
         .wallets
         .deterministic_insert2(&wallet, false)
         .unwrap();
 
-    assert!(node.services().wallets.exists(&account));
+    assert!(node.wallet_services().wallets.exists(&account));
 
     let result = node
         .runtime
@@ -69,9 +69,9 @@ fn account_remove_fails_wallet_locked() {
 
     let wallet_id = WalletId::random();
 
-    node.services().wallets.create(wallet_id);
+    node.wallet_services().wallets.create(wallet_id);
 
-    node.services().wallets.lock(&wallet_id).unwrap();
+    node.wallet_services().wallets.lock(&wallet_id).unwrap();
 
     let result = node
         .runtime

@@ -10,7 +10,7 @@ fn wallet_representative_set() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let wallet = WalletId::random();
-    node.services().wallets.create(wallet);
+    node.wallet_services().wallets.create(wallet);
 
     node.runtime.block_on(async {
         server
@@ -21,7 +21,7 @@ fn wallet_representative_set() {
     });
 
     assert_eq!(
-        node.services().wallets.get_representative(wallet).unwrap(),
+        node.wallet_services().wallets.get_representative(wallet).unwrap(),
         PublicKey::ZERO
     );
 }

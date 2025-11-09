@@ -12,7 +12,7 @@ mod tests {
         let server = setup_rpc_client_and_server(node.clone(), true);
 
         let wallet_id = WalletId::random();
-        node.services().wallets.create(wallet_id);
+        node.wallet_services().wallets.create(wallet_id);
 
         node.runtime.block_on(async {
             server
@@ -24,7 +24,7 @@ mod tests {
 
         assert_timely(Duration::from_secs(5), || {
             !node
-                .services()
+                .wallet_services()
                 .wallets
                 .work_get2(&wallet_id, &Account::ZERO.into())
                 .unwrap()

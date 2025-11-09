@@ -48,7 +48,7 @@ fn add_existing() {
 
     // the block processor will notice that the block is a fork and it will try to publish it
     // which will update the election object
-    consensus_services.block_processor_queue.push(BlockContext::new(
+    node1.consensus_services().block_processor_queue.push(BlockContext::new(
         send2.clone().into(),
         BlockSource::Live,
         ChannelId::LOOPBACK,

@@ -10,7 +10,7 @@ fn password_change() {
 
     let wallet_id: WalletId = 1.into();
 
-    node.services().wallets.create(wallet_id);
+    node.wallet_services().wallets.create(wallet_id);
 
     node.runtime.block_on(async {
         server
@@ -21,13 +21,13 @@ fn password_change() {
     });
 
     assert!(
-        node.services()
+        node.wallet_services()
             .wallets
             .attempt_password(&wallet_id, "")
             .is_err()
     );
     assert!(
-        node.services()
+        node.wallet_services()
             .wallets
             .attempt_password(&wallet_id, "password")
             .is_ok()
@@ -43,7 +43,7 @@ fn password_change_fails_without_enable_control() {
 
     let wallet_id: WalletId = 1.into();
 
-    node.services().wallets.create(wallet_id);
+    node.wallet_services().wallets.create(wallet_id);
 
     let result = node.runtime.block_on(async {
         server

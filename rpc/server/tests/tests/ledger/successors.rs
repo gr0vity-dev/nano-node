@@ -22,7 +22,7 @@ fn successors() {
 
     let key = PrivateKey::new();
     let block = node
-        .services()
+        .wallet_services()
         .wallets
         .send(
             wallet_id,

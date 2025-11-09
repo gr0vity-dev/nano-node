@@ -25,8 +25,8 @@ fn wallet_ledger() {
     let open_hash = setup_test_environment(node.clone(), keys.clone(), send_amount);
 
     let wallet_id = WalletId::random();
-    node.services().wallets.create(wallet_id);
-    node.services()
+    node.wallet_services().wallets.create(wallet_id);
+    node.wallet_services()
         .wallets
         .insert_adhoc2(&wallet_id, &keys.raw_key(), true)
         .unwrap();
