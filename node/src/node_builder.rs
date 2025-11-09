@@ -164,7 +164,6 @@ pub(crate) struct NodeParts {
     pub(crate) unchecked: Arc<Mutex<UncheckedMap>>,
     pub(crate) backlog_scan: BacklogScan,
     pub(crate) vote_cache_processor: Arc<VoteCacheProcessor>,
-    pub(crate) message_processor: Mutex<MessageProcessor>,
     pub(crate) vote_rebroadcaster: VoteRebroadcaster,
     pub(crate) tokio_runner: TokioRunner,
     pub(crate) aec_ticker: TimerThread<AecTicker>,
@@ -1054,11 +1053,11 @@ pub(crate) fn build_node_parts(
         steady_clock.clone(),
     )));
 
-    let message_processor = Mutex::new(MessageProcessor::new(
+    let message_processor = Arc::new(Mutex::new(MessageProcessor::new(
         config.clone(),
         inbound_message_queue.clone(),
         network_message_processor.clone(),
-    ));
+    )));
 
     let rep_crawler_w = Arc::downgrade(&rep_crawler);
     if !flags.disable_rep_crawler {
@@ -1433,6 +1432,7 @@ pub(crate) fn build_node_parts(
         peer_connector: peer_connector.clone(),
         inbound_message_queue: inbound_message_queue.clone(),
         network_filter: network_filter.clone(),
+        message_processor: message_processor.clone(),
         message_sender: message_publisher_l.clone(),
         message_flooder: message_flooder.clone(),
         keepalive_publisher: keepalive_publisher.clone(),
@@ -1457,7 +1457,6 @@ pub(crate) fn build_node_parts(
         unchecked,
         backlog_scan,
         vote_cache_processor,
-        message_processor,
         vote_rebroadcaster,
         tokio_runner,
         aec_ticker: TimerThread::new("AEC ticker", aec_ticker),

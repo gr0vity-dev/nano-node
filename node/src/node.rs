@@ -36,9 +36,7 @@ use crate::{
     },
     node_builder::NodeParts,
     node_id_key_file::NodeIdKeyFile,
-    telemetry::TelementryExt,
     tokio_runner::TokioRunner,
-    transport::MessageProcessor,
 };
 
 #[allow(dead_code)]
@@ -55,7 +53,6 @@ pub struct Node {
     pub unchecked: Arc<Mutex<UncheckedMap>>,
     pub backlog_scan: BacklogScan,
     vote_cache_processor: Arc<VoteCacheProcessor>,
-    message_processor: Mutex<MessageProcessor>,
     stopped: AtomicBool,
     start_stop_listener: OutputListenerMt<&'static str>,
     vote_rebroadcaster: VoteRebroadcaster,
@@ -165,7 +162,6 @@ impl Node {
             unchecked: parts.unchecked,
             backlog_scan: parts.backlog_scan,
             vote_cache_processor: parts.vote_cache_processor,
-            message_processor: parts.message_processor,
             stopped: AtomicBool::new(false),
             start_stop_listener: OutputListenerMt::new(),
             vote_rebroadcaster: parts.vote_rebroadcaster,
@@ -382,9 +378,9 @@ impl Node {
         let network_services = self.network_services();
         let consensus_services = self.consensus_services();
         let bootstrap_work_services = self.bootstrap_work_services();
+        let telemetry_services = self.telemetry_services();
 
         network_services.start(self.config.tcp.max_inbound_connections);
-        self.message_processor.lock().unwrap().start();
         self.aec_voter.start(Duration::from_millis(20));
 
         consensus_services.start(&self.config, &self.flags);
@@ -395,7 +391,7 @@ impl Node {
         }
         self.backlog_scan.start();
         bootstrap_work_services.start(self.config.enable_bootstrap_responder);
-        self.telemetry_services().telemetry.start();
+        telemetry_services.start();
 
         if self.config.enable_vote_rebroadcast {
             self.vote_rebroadcaster.start();
@@ -418,6 +414,8 @@ impl Node {
         let network_services = self.network_services();
         let consensus_services = self.consensus_services();
         let bootstrap_work_services = self.bootstrap_work_services();
+        let telemetry_services = self.telemetry_services();
+        let wallet_services = self.wallet_services();
 
         self.ticker_pool.stop();
         network_services.stop_listeners();
@@ -427,9 +425,8 @@ impl Node {
         self.vote_cache_processor.stop();
         self.aec_ticker.stop();
         consensus_services.stop();
-        self.telemetry_services().telemetry.stop();
-        self.wallet_services().wallets.stop();
-        self.message_processor.lock().unwrap().stop();
+        telemetry_services.stop();
+        wallet_services.stop();
         network_services.stop_threads(); // Stop network last to avoid killing in-use sockets
         self.vote_rebroadcaster.stop();
         self.workers.join();

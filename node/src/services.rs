@@ -26,8 +26,11 @@ use crate::{
         election_schedulers::ElectionSchedulers,
     },
     representatives::{OnlineReps, RepCrawler, RepCrawlerExt},
-    telemetry::Telemetry,
-    transport::{MessageFlooder, MessageSender, NetworkThreads, keepalive::KeepalivePublisher},
+    telemetry::{TelementryExt, Telemetry},
+    transport::{
+        MessageFlooder, MessageProcessor, MessageSender, NetworkThreads,
+        keepalive::KeepalivePublisher,
+    },
     wallets::WalletRepresentatives,
     work::WorkFactory,
 };
@@ -64,6 +67,10 @@ impl WalletServices {
             .insert_adhoc2(&wallet_id, &keys.raw_key(), true)
             .unwrap();
     }
+
+    pub fn stop(&self) {
+        self.wallets.stop();
+    }
 }
 
 #[derive(Clone)]
@@ -79,6 +86,14 @@ impl TelemetryServices {
             tcp_listener,
         }
     }
+
+    pub fn start(&self) {
+        self.telemetry.start();
+    }
+
+    pub fn stop(&self) {
+        self.telemetry.stop();
+    }
 }
 
 #[derive(Clone)]
@@ -87,6 +102,7 @@ pub struct NetworkServices {
     pub tcp_listener: Arc<TcpListener>,
     pub peer_connector: Arc<PeerConnector>,
     pub(crate) network_threads: Arc<Mutex<NetworkThreads>>,
+    pub message_processor: Arc<Mutex<MessageProcessor>>,
     pub message_sender: Arc<Mutex<MessageSender>>,
     pub message_flooder: Arc<Mutex<MessageFlooder>>,
     pub keepalive_publisher: Arc<KeepalivePublisher>,
@@ -101,6 +117,7 @@ impl NetworkServices {
         tcp_listener: Arc<TcpListener>,
         peer_connector: Arc<PeerConnector>,
         network_threads: Arc<Mutex<NetworkThreads>>,
+        message_processor: Arc<Mutex<MessageProcessor>>,
         message_sender: Arc<Mutex<MessageSender>>,
         message_flooder: Arc<Mutex<MessageFlooder>>,
         keepalive_publisher: Arc<KeepalivePublisher>,
@@ -113,6 +130,7 @@ impl NetworkServices {
             tcp_listener,
             peer_connector,
             network_threads,
+            message_processor,
             message_sender,
             message_flooder,
             keepalive_publisher,
@@ -129,6 +147,7 @@ impl NetworkServices {
         } else {
             warn!("Peering is disabled");
         }
+        self.message_processor.lock().unwrap().start();
     }
 
     pub fn stop(&self) {
@@ -142,6 +161,7 @@ impl NetworkServices {
     }
 
     pub fn stop_threads(&self) {
+        self.message_processor.lock().unwrap().stop();
         self.network_threads.lock().unwrap().stop();
     }
 }
@@ -181,6 +201,7 @@ pub struct NodeServices {
     pub peer_connector: Arc<PeerConnector>,
     pub inbound_message_queue: Arc<InboundMessageQueue>,
     pub network_filter: Arc<NetworkFilter>,
+    pub message_processor: Arc<Mutex<MessageProcessor>>,
     pub message_sender: Arc<Mutex<MessageSender>>,
     pub message_flooder: Arc<Mutex<MessageFlooder>>,
     pub keepalive_publisher: Arc<KeepalivePublisher>,
@@ -211,6 +232,7 @@ impl NodeServices {
             self.tcp_listener.clone(),
             self.peer_connector.clone(),
             self.network_threads.clone(),
+            self.message_processor.clone(),
             self.message_sender.clone(),
             self.message_flooder.clone(),
             self.keepalive_publisher.clone(),
