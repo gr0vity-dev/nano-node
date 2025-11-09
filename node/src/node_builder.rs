@@ -51,7 +51,7 @@ use crate::{
         BoundedBacklogPlugin, LedgerEvent, LocalBlockBroadcaster, LocalBlockBroadcasterPlugin,
         ProcessQueueConfig, UncheckedBlockReenqueuer, UncheckedMap,
     },
-    block_rate_calculator::BlockRateCalculator,
+    block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
     bootstrap::{BootstrapResponderCleanup, BootstrapServer, Bootstrapper, BootstrapperCleanup},
     cementation::{ConfirmingSet, TrackConfirmationTimes},
     config::{
@@ -59,13 +59,15 @@ use crate::{
         get_node_toml_config_path,
     },
     consensus::{
-        ActiveElectionsContainer, AecForkInserter, AecTicker, AecVoter, BootstrapElectionActivator,
-        BootstrapStaleElections, ConfirmReqSender, ConfirmationSolicitorPlugin, CpsLimiter,
-        CurrentRepTiers, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
-        LocalVoteHistory, LocalVotesRemover, RepTiersCalculator, RequestAggregator,
-        RequestAggregatorCleanup, VoteApplier, VoteBroadcaster, VoteCache, VoteCacheProcessor,
-        VoteGenerators, VoteProcessor, VoteProcessorQueue, VoteProcessorQueueCleanup,
-        VoteRebroadcastQueue, VoteRebroadcaster, WalletRepsChecker, WinnerBlockBroadcaster,
+        ActiveElectionsContainer, AecEvent, AecForkInserter, AecTicker, AecVoter,
+        BootstrapElectionActivator, BootstrapStaleElections, ConfirmReqSender,
+        ConfirmationSolicitorPlugin, CpsLimiter, CurrentRepTiers, DependentElectionsConfirmer,
+        ForkCache, ForkCacheUpdater, LocalVoteHistory, LocalVotesRemover, RepTiersCalculator,
+        RequestAggregator, RequestAggregatorCleanup, VoteApplier, VoteBroadcaster, VoteCache,
+        VoteCacheProcessor, VoteGenerators, VoteProcessor, VoteProcessorQueue,
+        VoteProcessorQueueCleanup, VoteRebroadcastQueue, VoteRebroadcaster, WalletRepsChecker,
+        WinnerBlockBroadcaster,
+        election::ConfirmedElection,
         election_schedulers::{ElectionSchedulers, ElectionSchedulersPlugin},
         get_bootstrap_weights, log_bootstrap_weights,
     },
@@ -310,6 +312,19 @@ struct ConsensusBits {
     fork_cache: Arc<RwLock<ForkCache>>,
     block_processor_queue: Arc<BlockProcessorQueue>,
     unchecked_reenqueuer: UncheckedBlockReenqueuer,
+}
+
+struct ConsensusRuntime {
+    vote_generators: Arc<VoteGenerators>,
+    active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+    block_rates: Arc<CurrentBlockRates>,
+    cps_limiter: CpsLimiter,
+    vote_processor: Arc<VoteProcessor>,
+    vote_cache_processor: Arc<VoteCacheProcessor>,
+    recently_cemented: Arc<Mutex<BoundedVecDeque<ConfirmedElection>>>,
+    winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
+    aec_sender: backpressure_channel::Sender<AecEvent>,
+    aec_receiver: backpressure_channel::Receiver<AecEvent>,
 }
 
 fn build_foundation(
@@ -760,6 +775,118 @@ fn build_consensus_bits(
     }
 }
 
+fn build_consensus_runtime(
+    config: &NodeConfig,
+    current_network: Networks,
+    steady_clock: &Arc<SteadyClock>,
+    ledger: &Arc<Ledger>,
+    stats: &Arc<Stats>,
+    network_params: &NetworkParams,
+    wallet_reps: &Arc<Mutex<WalletRepresentatives>>,
+    vote_history: &Arc<LocalVoteHistory>,
+    vote_cache: &Arc<Mutex<VoteCache>>,
+    vote_processor_queue: &Arc<VoteProcessorQueue>,
+    message_flooder: &MessageFlooder,
+    message_sender: &MessageSender,
+    online_reps: &Arc<Mutex<OnlineReps>>,
+    rep_weights: &Arc<RepWeightCache>,
+    ticker_pool: &mut TickerPool,
+    event_queues_info: &mut ContainerInfoFactory,
+    network: &Arc<RwLock<Network>>,
+) -> ConsensusRuntime {
+    let vote_broadcaster = Arc::new(VoteBroadcaster::new(
+        vote_processor_queue.clone(),
+        message_flooder.clone(),
+        stats.clone(),
+    ));
+
+    let vote_generators = Arc::new(VoteGenerators::new(
+        ledger.clone(),
+        wallet_reps.clone(),
+        vote_history.clone(),
+        stats.clone(),
+        config,
+        network_params,
+        vote_broadcaster.clone(),
+        message_sender.clone(),
+        steady_clock.clone(),
+    ));
+
+    let base_latency = match current_network {
+        Networks::NanoDevNetwork => Duration::from_millis(25),
+        _ => Duration::from_millis(1000),
+    };
+
+    let (aec_sender, aec_receiver) = backpressure_channel::channel(1024 * 5);
+    let aec_sender_clone = aec_sender.clone();
+    event_queues_info.add_leaf("aec", move || aec_sender_clone.len());
+
+    let mut active_elections =
+        ActiveElectionsContainer::new(config.active_elections.clone(), base_latency);
+    active_elections.set_observer(aec_sender.clone());
+    let active_elections = Arc::new(RwLock::new(active_elections));
+
+    let block_rate_calculator = BlockRateCalculator::new(steady_clock.clone(), ledger.clone());
+    let block_rates = block_rate_calculator.rates().clone();
+    ticker_pool.insert(block_rate_calculator, Duration::from_millis(500));
+    let cps_limiter = if config.cps_limit > 0 {
+        info!(
+            "Confirmations per second (CPS) is limited to: {}",
+            config.cps_limit
+        );
+        CpsLimiter::new(block_rates.clone(), config.cps_limit as usize)
+    } else {
+        info!("Unlimited confirmations per second (CPS)!");
+        CpsLimiter::unlimited()
+    };
+
+    let vote_applier = VoteApplier::new(
+        active_elections.clone(),
+        online_reps.clone(),
+        steady_clock.clone(),
+        rep_weights.clone(),
+        current_network == Networks::NanoDevNetwork,
+    );
+
+    let vote_processor = Arc::new(VoteProcessor::new(
+        vote_processor_queue.clone(),
+        vote_applier,
+        stats.clone(),
+    ));
+
+    let vote_cache_processor = Arc::new(VoteCacheProcessor::new(
+        stats.clone(),
+        vote_cache.clone(),
+        vote_processor_queue.clone(),
+        config.vote_processor.clone(),
+    ));
+
+    let recently_cemented = Arc::new(Mutex::new(BoundedVecDeque::new(
+        config.confirmation_history_size,
+    )));
+
+    let winner_block_broadcaster = Arc::new(Mutex::new(WinnerBlockBroadcaster::new(
+        steady_clock.clone(),
+        current_network,
+        message_flooder.clone(),
+        online_reps.clone(),
+        network.clone(), // ??? need access
+    )));
+
+    ConsensusRuntime {
+        vote_generators,
+        active_elections,
+        block_rates,
+        cps_limiter,
+        vote_processor,
+        vote_cache_processor,
+        recently_cemented,
+        winner_block_broadcaster,
+        aec_sender,
+        aec_receiver,
+    }
+}
+
 pub(crate) fn compose_root(
     args: NodeArgs,
     is_nulled: bool,
@@ -873,84 +1000,36 @@ pub(crate) fn compose_root(
         &online_reps,
     )?;
 
-    let vote_broadcaster = Arc::new(VoteBroadcaster::new(
-        vote_processor_queue.clone(),
-        message_flooder.clone(),
-        stats.clone(),
-    ));
-
-    let vote_generators = Arc::new(VoteGenerators::new(
-        ledger.clone(),
-        wallet_reps.clone(),
-        vote_history.clone(),
-        stats.clone(),
+    let ConsensusRuntime {
+        vote_generators,
+        active_elections,
+        block_rates,
+        cps_limiter,
+        vote_processor,
+        vote_cache_processor,
+        recently_cemented,
+        winner_block_broadcaster,
+        aec_sender,
+        aec_receiver,
+    } = build_consensus_runtime(
         &config,
-        &network_params,
-        vote_broadcaster,
-        message_sender.clone(),
-        steady_clock.clone(),
-    ));
-
-    let base_latency = match current_network {
-        Networks::NanoDevNetwork => Duration::from_millis(25),
-        _ => Duration::from_millis(1000),
-    };
-
-    let (aec_sender, aec_receiver) = backpressure_channel::channel(1024 * 5);
-    let aec_sender_clone = aec_sender.clone();
-    event_queues_info.add_leaf("aec", move || aec_sender_clone.len());
-
-    let mut active_elections =
-        ActiveElectionsContainer::new(config.active_elections.clone(), base_latency);
-    active_elections.set_observer(aec_sender.clone());
-    let active_elections = Arc::new(RwLock::new(active_elections));
-
-    let block_rate_calculator = BlockRateCalculator::new(steady_clock.clone(), ledger.clone());
-    let block_rates = block_rate_calculator.rates().clone();
-    ticker_pool.insert(block_rate_calculator, Duration::from_millis(500));
-    let cps_limiter = if config.cps_limit > 0 {
-        info!(
-            "Confirmations per second (CPS) is limited to: {}",
-            config.cps_limit
-        );
-        CpsLimiter::new(block_rates.clone(), config.cps_limit as usize)
-    } else {
-        info!("Unlimited confirmations per second (CPS)!");
-        CpsLimiter::unlimited()
-    };
-
-    let vote_applier = VoteApplier::new(
-        active_elections.clone(),
-        online_reps.clone(),
-        steady_clock.clone(),
-        rep_weights.clone(),
-        current_network == Networks::NanoDevNetwork,
-    );
-
-    let vote_processor = Arc::new(VoteProcessor::new(
-        vote_processor_queue.clone(),
-        vote_applier,
-        stats.clone(),
-    ));
-
-    let vote_cache_processor = Arc::new(VoteCacheProcessor::new(
-        stats.clone(),
-        vote_cache.clone(),
-        vote_processor_queue.clone(),
-        config.vote_processor.clone(),
-    ));
-
-    let recently_cemented = Arc::new(Mutex::new(BoundedVecDeque::new(
-        config.confirmation_history_size,
-    )));
-
-    let winner_block_broadcaster = Arc::new(Mutex::new(WinnerBlockBroadcaster::new(
-        steady_clock.clone(),
         current_network,
-        message_flooder.clone(),
-        online_reps.clone(),
-        network.clone(),
-    )));
+        &steady_clock,
+        &ledger,
+        &stats,
+        &network_params,
+        &wallet_reps,
+        &vote_history,
+        &vote_cache,
+        &vote_processor_queue,
+        &message_flooder,
+        &message_sender,
+        &online_reps,
+        &rep_weights,
+        &mut ticker_pool,
+        &mut event_queues_info,
+        &network,
+    );
 
     let confirm_req_sender = ConfirmReqSender::new(stats.clone(), steady_clock.clone());
 
