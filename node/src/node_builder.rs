@@ -13,10 +13,13 @@ use tracing::{info, warn};
 
 use rsnano_ledger::{Ledger, RepWeightCache};
 use rsnano_messages::{Message, NetworkFilter};
-use rsnano_network::{ChannelId, DeadChannelCleanup, Network, NetworkCleanup, TrafficType};
+use rsnano_network::{
+    ChannelId, DeadChannelCleanup, Network, NetworkCleanup, PeerConnector, TcpNetworkAdapter,
+    TrafficType,
+};
 use rsnano_network_protocol::{
-    InboundMessageQueue, InboundMessageQueueCleanup, LatestKeepalivesCleanup, MessageCallback,
-    NanoDataReceiverFactory,
+    InboundMessageQueue, InboundMessageQueueCleanup, LatestKeepalives, LatestKeepalivesCleanup,
+    MessageCallback, SynCookies,
 };
 use rsnano_nullable_clock::{SteadyClock, SystemTimeFactory};
 use rsnano_nullable_lmdb::{
@@ -47,7 +50,10 @@ use crate::{
     block_rate_calculator::{BlockRateCalculator, CurrentBlockRates},
     bootstrap::{BootstrapResponderCleanup, BootstrapServer, Bootstrapper, BootstrapperCleanup},
     cementation::{ConfirmingSet, TrackConfirmationTimes},
-    composition::{FoundationBits, NetworkIoBits, build_foundation, build_network_io},
+    composition::{
+        FoundationBits, NetworkIoBits, TelemetryBits, build_foundation, build_network_io,
+        build_telemetry_bits,
+    },
     config::{
         DaemonConfig, DaemonToml, GlobalConfig, NetworkParams, NodeConfig, NodeFlags,
         get_node_toml_config_path,
@@ -68,12 +74,13 @@ use crate::{
     node_id_key_file::NodeIdKeyFile,
     node_monitor::NodeMonitor,
     recently_cemented_inserter::RecentlyCementedInserter,
-    representatives::{OnlineReps, OnlineRepsCleanup, OnlineWeightCalculation},
-    telemetry::{TelementryConfig, Telemetry, TelemetryFactory},
+    representatives::{OnlineReps, OnlineRepsCleanup, OnlineWeightCalculation, RepCrawler},
+    telemetry::Telemetry,
     tokio_runner::TokioRunner,
     transport::{
         MessageFlooder, MessageProcessor, MessageSender, NetworkMessageProcessor, NetworkThreads,
-        PeerCacheConnector, PeerCacheUpdater, run_loopback_channel_adapter,
+        PeerCacheConnector, PeerCacheUpdater, keepalive::KeepaliveMessageFactory,
+        run_loopback_channel_adapter,
     },
     utils::spawn_backpressure_processor,
     wallets::{
@@ -266,8 +273,11 @@ struct NetworkBits {
     online_reps: Arc<Mutex<OnlineReps>>,
     message_sender: MessageSender,
     message_flooder: MessageFlooder,
-    telemetry: Arc<Telemetry>,
-    bootstrap_server: Arc<BootstrapServer>,
+}
+
+struct NetworkThreadBits {
+    network_threads: Arc<Mutex<NetworkThreads>>,
+    message_processor: Arc<Mutex<MessageProcessor>>,
 }
 
 struct ConsensusBits {
@@ -414,7 +424,7 @@ fn build_network(
     config: &NodeConfig,
     network_params: &NetworkParams,
     node_id: NodeId,
-    node_id_key: &PrivateKey,
+    _node_id_key: &PrivateKey,
     current_network: Networks,
     runtime: &tokio::runtime::Handle,
     callbacks: &NodeCallbacks,
@@ -422,7 +432,7 @@ fn build_network(
     stats: &Arc<Stats>,
     ledger: &Arc<Ledger>,
     rep_weights: &Arc<RepWeightCache>,
-    flags: &NodeFlags,
+    _flags: &NodeFlags,
     ticker_pool: &mut TickerPool,
 ) -> NetworkBits {
     let mut inbound_message_queue = InboundMessageQueue::new(config.message_processor.max_queue);
@@ -488,36 +498,6 @@ fn build_network(
         message_sender.clone(),
     );
 
-    let telemetry_config = TelementryConfig {
-        enable_ongoing_broadcasts: !flags.disable_providing_telemetry_metrics,
-    };
-    let telemetry_factory = TelemetryFactory {
-        ledger: ledger.clone(),
-        network: network.clone(),
-        node_id_key: node_id_key.clone(),
-        unchecked: unchecked.clone(),
-        startup_time: steady_clock.now(),
-        clock: steady_clock.clone(),
-    };
-    let telemetry = Arc::new(Telemetry::new(
-        telemetry_factory,
-        telemetry_config,
-        stats.clone(),
-        ledger.genesis().hash(),
-        network_params.clone(),
-        network.clone(),
-        message_sender.clone(),
-        steady_clock.clone(),
-    ));
-
-    let bootstrap_server = Arc::new(BootstrapServer::new(
-        config.bootstrap_server.clone(),
-        stats.clone(),
-        ledger.clone(),
-        steady_clock.clone(),
-        message_sender.clone(),
-    ));
-
     NetworkBits {
         inbound_message_queue,
         network,
@@ -526,8 +506,98 @@ fn build_network(
         online_reps,
         message_sender,
         message_flooder,
-        telemetry,
-        bootstrap_server,
+    }
+}
+
+fn build_network_threads(
+    config: &NodeConfig,
+    flags: &NodeFlags,
+    network_params: &NetworkParams,
+    steady_clock: &Arc<SteadyClock>,
+    stats: &Arc<Stats>,
+    network: &Arc<RwLock<Network>>,
+    inbound_message_queue: &Arc<InboundMessageQueue>,
+    network_filter: &Arc<NetworkFilter>,
+    online_reps: &Arc<Mutex<OnlineReps>>,
+    bootstrap_server: &Arc<BootstrapServer>,
+    vote_processor_queue: &Arc<VoteProcessorQueue>,
+    block_processor_queue: &Arc<BlockProcessorQueue>,
+    latest_keepalives: &Arc<Mutex<LatestKeepalives>>,
+    network_adapter: &Arc<TcpNetworkAdapter>,
+    request_aggregator: &Arc<RequestAggregator>,
+    bootstrapper: &Arc<Bootstrapper>,
+    peer_connector: &Arc<PeerConnector>,
+    syn_cookies: &Arc<SynCookies>,
+    keepalive_factory: &Arc<KeepaliveMessageFactory>,
+    message_flooder: &MessageFlooder,
+    telemetry: &Arc<Telemetry>,
+    wallet_reps: &Arc<Mutex<WalletRepresentatives>>,
+    #[cfg(feature = "ledger_snapshots")] ledger_snapshots: &Arc<LedgerSnapshots>,
+) -> NetworkThreadBits {
+    let mut dead_channel_cleanup = DeadChannelCleanup::new(
+        steady_clock.clone(),
+        network.clone(),
+        network_params.network.cleanup_cutoff(),
+    );
+    dead_channel_cleanup.add_step(InboundMessageQueueCleanup::new(
+        inbound_message_queue.clone(),
+    ));
+    dead_channel_cleanup.add_step(OnlineRepsCleanup::new(online_reps.clone()));
+    dead_channel_cleanup.add_step(BootstrapResponderCleanup::new(
+        bootstrap_server.server_impl.clone(),
+    ));
+    dead_channel_cleanup.add_step(VoteProcessorQueueCleanup::new(
+        vote_processor_queue.clone(),
+    ));
+    dead_channel_cleanup.add_step(block_processor_queue.clone());
+    dead_channel_cleanup.add_step(LatestKeepalivesCleanup::new(latest_keepalives.clone()));
+    dead_channel_cleanup.add_step(NetworkCleanup::new(network_adapter.clone()));
+    dead_channel_cleanup.add_step(RequestAggregatorCleanup::new(
+        request_aggregator.state.clone(),
+    ));
+    dead_channel_cleanup.add_step(BootstrapperCleanup(bootstrapper.clone()));
+
+    let network_message_processor = Arc::new(NetworkMessageProcessor::new(
+        stats.clone(),
+        network.clone(),
+        network_filter.clone(),
+        block_processor_queue.clone(),
+        wallet_reps.clone(),
+        request_aggregator.clone(),
+        vote_processor_queue.clone(),
+        telemetry.clone(),
+        bootstrap_server.clone(),
+        bootstrapper.clone(),
+        network_params.work.clone(),
+        #[cfg(feature = "ledger_snapshots")]
+        ledger_snapshots.clone(),
+    ));
+
+    let network_threads = Arc::new(Mutex::new(NetworkThreads::new(
+        network.clone(),
+        peer_connector.clone(),
+        flags.clone(),
+        network_params.clone(),
+        config.network.clone(),
+        stats.clone(),
+        syn_cookies.clone(),
+        network_filter.clone(),
+        keepalive_factory.clone(),
+        latest_keepalives.clone(),
+        dead_channel_cleanup,
+        message_flooder.clone(),
+        steady_clock.clone(),
+    )));
+
+    let message_processor = Arc::new(Mutex::new(MessageProcessor::new(
+        config.clone(),
+        inbound_message_queue.clone(),
+        network_message_processor.clone(),
+    )));
+
+    NetworkThreadBits {
+        network_threads,
+        message_processor,
     }
 }
 
@@ -848,8 +918,6 @@ pub(crate) fn compose_root(
         online_reps,
         message_sender,
         message_flooder,
-        telemetry,
-        bootstrap_server,
     } = build_network(
         &config,
         &network_params,
@@ -979,9 +1047,6 @@ pub(crate) fn compose_root(
         bootstrap_sender.set_published_callback(callback.clone());
     }
 
-    let inbound_queue_clone = inbound_message_queue.clone();
-    let try_enqueue = Arc::new(move |msg, channel| inbound_queue_clone.put(msg, channel));
-
     let NetworkIoBits {
         network_adapter,
         peer_connector,
@@ -989,8 +1054,6 @@ pub(crate) fn compose_root(
         keepalive_publisher,
         rep_crawler,
         tcp_listener,
-        latest_keepalives,
-        handshake_stats,
     } = build_network_io(
         &config,
         &network_params,
@@ -1004,30 +1067,32 @@ pub(crate) fn compose_root(
         &active_elections,
     );
 
-    let data_receiver_factory = Box::new(NanoDataReceiverFactory::new(
+    let TelemetryBits {
+        telemetry,
+        bootstrap_server,
+        data_receiver_factory,
+        latest_keepalives,
+        handshake_stats,
+    } = build_telemetry_bits(
+        &config,
+        &flags,
+        &network_params,
         &network,
-        try_enqueue,
-        network_filter.clone(),
-        stats.clone(),
-        handshake_stats.clone(),
-        syn_cookies.clone(),
-        node_id_key.clone(),
-        latest_keepalives.clone(),
-        network_params.ledger.genesis_block.hash(),
-        network_params.network.protocol_info(),
-    ));
+        &inbound_message_queue,
+        &network_filter,
+        &stats,
+        &syn_cookies,
+        &node_id_key,
+        &message_sender,
+        &steady_clock,
+        &ledger,
+        &unchecked,
+    );
 
     network
         .write()
         .unwrap()
         .set_data_receiver_factory(data_receiver_factory);
-
-    // BEWARE: `bootstrap` takes `network.port` instead of `config.peering_port` because when the
-    // user doesn't specify a peering port and wants the OS to pick one, the picking happens when
-    // `network` gets initialized (if UDP is active, otherwise it happens when `bootstrap` gets
-    // initialized), so then for TCP traffic we want to tell `bootstrap` to use the already picked
-    // port instead of itself picking a different one. Thus, be very careful if you change the order:
-    // if `bootstrap` gets constructed before `network`, the latter would inherit the port from the
     // former (if TCP is active, otherwise `network` picks first)
 
     let track_conf_times = Box::new(TrackConfirmationTimes::default());
@@ -1133,29 +1198,6 @@ pub(crate) fn compose_root(
         steady_clock.clone(),
     ));
 
-    let mut dead_channel_cleanup = DeadChannelCleanup::new(
-        steady_clock.clone(),
-        network.clone(),
-        network_params.network.cleanup_cutoff(),
-    );
-    dead_channel_cleanup.add_step(InboundMessageQueueCleanup::new(
-        inbound_message_queue.clone(),
-    ));
-
-    dead_channel_cleanup.add_step(OnlineRepsCleanup::new(online_reps.clone()));
-    dead_channel_cleanup.add_step(BootstrapResponderCleanup::new(
-        bootstrap_server.server_impl.clone(),
-    ));
-    dead_channel_cleanup.add_step(VoteProcessorQueueCleanup::new(vote_processor_queue.clone()));
-    dead_channel_cleanup.add_step(block_processor_queue.clone());
-    dead_channel_cleanup.add_step(LatestKeepalivesCleanup::new(latest_keepalives.clone()));
-    dead_channel_cleanup.add_step(NetworkCleanup::new(network_adapter.clone()));
-
-    dead_channel_cleanup.add_step(RequestAggregatorCleanup::new(
-        request_aggregator.state.clone(),
-    ));
-    dead_channel_cleanup.add_step(BootstrapperCleanup(bootstrapper.clone()));
-
     #[cfg(feature = "ledger_snapshots")]
     let ledger_snapshots = {
         let wallet_reps2 = wallet_reps.clone();
@@ -1174,45 +1216,37 @@ pub(crate) fn compose_root(
         ))
     };
 
-    let network_message_processor = Arc::new(NetworkMessageProcessor::new(
-        stats.clone(),
-        network.clone(),
-        network_filter.clone(),
-        block_processor_queue.clone(),
-        wallet_reps.clone(),
-        request_aggregator.clone(),
-        vote_processor_queue.clone(),
-        telemetry.clone(),
-        bootstrap_server.clone(),
-        bootstrapper.clone(),
-        network_params.work.clone(),
+    let NetworkThreadBits {
+        network_threads,
+        message_processor,
+    } = build_network_threads(
+        &config,
+        &flags,
+        &network_params,
+        &steady_clock,
+        &stats,
+        &network,
+        &inbound_message_queue,
+        &network_filter,
+        &online_reps,
+        &bootstrap_server,
+        &vote_processor_queue,
+        &block_processor_queue,
+        &latest_keepalives,
+        &network_adapter,
+        &request_aggregator,
+        &bootstrapper,
+        &peer_connector,
+        &syn_cookies,
+        &keepalive_factory,
+        &message_flooder,
+        &telemetry,
+        &wallet_reps,
         #[cfg(feature = "ledger_snapshots")]
-        ledger_snapshots.clone(),
-    ));
+        &ledger_snapshots,
+    );
 
-    let network_threads = Arc::new(Mutex::new(NetworkThreads::new(
-        network.clone(),
-        peer_connector.clone(),
-        flags.clone(),
-        network_params.clone(),
-        config.network.clone(),
-        stats.clone(),
-        syn_cookies.clone(),
-        network_filter.clone(),
-        keepalive_factory.clone(),
-        latest_keepalives.clone(),
-        dead_channel_cleanup,
-        message_flooder.clone(),
-        steady_clock.clone(),
-    )));
-
-    let message_processor = Arc::new(Mutex::new(MessageProcessor::new(
-        config.clone(),
-        inbound_message_queue.clone(),
-        network_message_processor.clone(),
-    )));
-
-    let rep_crawler_w = Arc::downgrade(&rep_crawler);
+    let rep_crawler_w: std::sync::Weak<RepCrawler> = Arc::downgrade(&rep_crawler);
     if !flags.disable_rep_crawler {
         network
             .write()
@@ -1239,7 +1273,8 @@ pub(crate) fn compose_root(
         config.rebroadcast_history.clone(),
     )));
 
-    let keepalive_factory_w = Arc::downgrade(&keepalive_factory);
+    let keepalive_factory_w: std::sync::Weak<KeepaliveMessageFactory> =
+        Arc::downgrade(&keepalive_factory);
     let message_publisher_l = Arc::new(Mutex::new(message_sender.clone()));
     let message_publisher_w = Arc::downgrade(&message_publisher_l);
     network

@@ -10,8 +10,11 @@ use std::{
 use anyhow::Context;
 use num_format::{Locale, ToFormattedString};
 use rsnano_ledger::{Ledger, LedgerBuilder};
+use rsnano_messages::{Message, NetworkFilter};
 use rsnano_network::{Network, PeerConnector, TcpListener, TcpNetworkAdapter};
-use rsnano_network_protocol::{HandshakeStats, LatestKeepalives, SynCookies};
+use rsnano_network_protocol::{
+    HandshakeStats, InboundMessageQueue, LatestKeepalives, NanoDataReceiverFactory, SynCookies,
+};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_fs::NullableFilesystem;
 use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
@@ -26,12 +29,15 @@ use rsnano_utils::{
 use tracing::info;
 
 use crate::{
-    block_processing::LedgerEvent,
+    block_processing::{LedgerEvent, UncheckedMap},
+    bootstrap::BootstrapServer,
     config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},
     consensus::{ActiveElectionsContainer, get_bootstrap_weights, log_bootstrap_weights},
     node_id_key_file::NodeIdKeyFile,
     representatives::{OnlineReps, RepCrawler},
-    telemetry::{rsnano_build_info, rsnano_version_string},
+    telemetry::{
+        TelementryConfig, Telemetry, TelemetryFactory, rsnano_build_info, rsnano_version_string,
+    },
     tokio_runner::TokioRunner,
     transport::{
         MessageSender,
@@ -69,6 +75,12 @@ pub(crate) struct NetworkIoBits {
     pub(crate) keepalive_publisher: Arc<KeepalivePublisher>,
     pub(crate) rep_crawler: Arc<RepCrawler>,
     pub(crate) tcp_listener: Arc<TcpListener>,
+}
+
+pub(crate) struct TelemetryBits {
+    pub(crate) telemetry: Arc<Telemetry>,
+    pub(crate) bootstrap_server: Arc<BootstrapServer>,
+    pub(crate) data_receiver_factory: Box<NanoDataReceiverFactory>,
     pub(crate) latest_keepalives: Arc<Mutex<LatestKeepalives>>,
     pub(crate) handshake_stats: Arc<HandshakeStats>,
 }
@@ -233,7 +245,6 @@ pub(crate) fn build_foundation(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_network_io(
     config: &NodeConfig,
     network_params: &NetworkParams,
@@ -270,9 +281,6 @@ pub(crate) fn build_network_io(
         keepalive_factory.clone(),
     ));
 
-    let latest_keepalives = Arc::new(Mutex::new(LatestKeepalives::default()));
-    let handshake_stats = Arc::new(HandshakeStats::default());
-
     let rep_crawler = Arc::new(RepCrawler::new(
         online_reps.clone(),
         stats.clone(),
@@ -301,6 +309,79 @@ pub(crate) fn build_network_io(
         keepalive_publisher,
         rep_crawler,
         tcp_listener,
+    }
+}
+
+pub(crate) fn build_telemetry_bits(
+    config: &NodeConfig,
+    flags: &NodeFlags,
+    network_params: &NetworkParams,
+    network: &Arc<RwLock<Network>>,
+    inbound_queue: &Arc<InboundMessageQueue>,
+    network_filter: &Arc<NetworkFilter>,
+    stats: &Arc<Stats>,
+    syn_cookies: &Arc<SynCookies>,
+    node_id_key: &PrivateKey,
+    message_sender: &MessageSender,
+    steady_clock: &Arc<SteadyClock>,
+    ledger: &Arc<Ledger>,
+    unchecked: &Arc<Mutex<UncheckedMap>>,
+) -> TelemetryBits {
+    let latest_keepalives = Arc::new(Mutex::new(LatestKeepalives::default()));
+    let handshake_stats = Arc::new(HandshakeStats::default());
+
+    let inbound_queue_clone = inbound_queue.clone();
+    let try_enqueue = Arc::new(move |msg: Message, channel| inbound_queue_clone.put(msg, channel));
+
+    let data_receiver_factory = Box::new(NanoDataReceiverFactory::new(
+        network,
+        try_enqueue,
+        network_filter.clone(),
+        stats.clone(),
+        handshake_stats.clone(),
+        syn_cookies.clone(),
+        node_id_key.clone(),
+        latest_keepalives.clone(),
+        network_params.ledger.genesis_block.hash(),
+        network_params.network.protocol_info(),
+    ));
+
+    let telemetry_config = TelementryConfig {
+        enable_ongoing_broadcasts: !flags.disable_providing_telemetry_metrics,
+    };
+
+    let telemetry_factory = TelemetryFactory {
+        ledger: ledger.clone(),
+        network: network.clone(),
+        node_id_key: node_id_key.clone(),
+        unchecked: unchecked.clone(),
+        startup_time: steady_clock.now(),
+        clock: steady_clock.clone(),
+    };
+
+    let telemetry = Arc::new(Telemetry::new(
+        telemetry_factory,
+        telemetry_config,
+        stats.clone(),
+        ledger.genesis().hash(),
+        network_params.clone(),
+        network.clone(),
+        message_sender.clone(),
+        steady_clock.clone(),
+    ));
+
+    let bootstrap_server = Arc::new(BootstrapServer::new(
+        config.bootstrap_server.clone(),
+        stats.clone(),
+        ledger.clone(),
+        steady_clock.clone(),
+        message_sender.clone(),
+    ));
+
+    TelemetryBits {
+        telemetry,
+        bootstrap_server,
+        data_receiver_factory,
         latest_keepalives,
         handshake_stats,
     }
