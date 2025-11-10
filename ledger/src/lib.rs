@@ -17,6 +17,7 @@ mod ledger_sets;
 mod rep_weight_cache;
 mod rep_weights_updater;
 mod representative_block_finder;
+mod store_traits;
 pub mod test_helpers;
 mod vote_verifier;
 
@@ -37,3 +38,4 @@ pub use ledger_sets::*;
 pub use rep_weight_cache::*;
 pub use rep_weights_updater::*;
 pub(crate) use representative_block_finder::RepresentativeBlockFinder;
+pub use store_traits::*;
