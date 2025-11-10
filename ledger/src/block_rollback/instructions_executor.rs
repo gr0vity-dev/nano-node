@@ -34,7 +34,7 @@ impl<'a> RollbackInstructionsExecutor<'a> {
         self.roll_back_representative_cache();
         self.ledger
             .store
-            .cache
+            .cache()
             .block_count
             .fetch_sub(1, Ordering::SeqCst);
 
@@ -47,11 +47,11 @@ impl<'a> RollbackInstructionsExecutor<'a> {
     fn update_block_table(&mut self) {
         self.ledger
             .store
-            .block
+            .block()
             .del(self.txn, &self.instructions.block_hash);
 
         if let Some(hash) = self.instructions.clear_successor {
-            self.ledger.store.successors.del(self.txn, &hash);
+            self.ledger.store.successors().del(self.txn, &hash);
         }
     }
 
@@ -66,10 +66,10 @@ impl<'a> RollbackInstructionsExecutor<'a> {
 
     fn update_pending_table(&mut self) {
         if let Some(pending_key) = &self.instructions.remove_pending {
-            self.ledger.store.pending.del(self.txn, pending_key);
+            self.ledger.store.pending().del(self.txn, pending_key);
         }
         if let Some((key, info)) = &self.instructions.add_pending {
-            self.ledger.store.pending.put(self.txn, key, info);
+            self.ledger.store.pending().put(self.txn, key, info);
         }
     }
 

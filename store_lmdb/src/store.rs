@@ -95,6 +95,55 @@ impl LmdbStore {
     pub fn begin_write(&self) -> WriteTransaction {
         self.env.begin_write()
     }
+
+    pub fn block(&self) -> &LmdbBlockStore {
+        &self.block
+    }
+
+    pub fn account(&self) -> &LmdbAccountStore {
+        &self.account
+    }
+
+    pub fn pending(&self) -> &LmdbPendingStore {
+        &self.pending
+    }
+
+    pub fn confirmation_height(&self) -> &LmdbConfirmationHeightStore {
+        &self.confirmation_height
+    }
+
+    pub fn successors(&self) -> &LmdbSuccessorStore {
+        &self.successors
+    }
+
+    pub fn final_vote(&self) -> &LmdbFinalVoteStore {
+        &self.final_vote
+    }
+
+    pub fn peer(&self) -> &LmdbPeerStore {
+        &self.peer
+    }
+
+    pub fn version(&self) -> &LmdbVersionStore {
+        &self.version
+    }
+
+    pub fn online_weight(&self) -> &LmdbOnlineWeightStore {
+        &self.online_weight
+    }
+
+    pub fn rep_weight(&self) -> Arc<LmdbRepWeightStore> {
+        self.rep_weight.clone()
+    }
+
+    #[cfg(feature = "ledger_snapshots")]
+    pub fn forks(&self) -> &LmdbForksStore {
+        &self.forks
+    }
+
+    pub fn cache(&self) -> &LedgerCache {
+        &self.cache
+    }
 }
 
 #[derive(Serialize, Deserialize)]

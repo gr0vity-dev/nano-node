@@ -12,7 +12,7 @@ pub(crate) fn print_unconfirmed_accounts(args: GlobalArgs) -> anyhow::Result<()>
     })?;
     let store = LmdbStore::new(env)?;
     let txn = store.begin_read();
-    for (account, info) in store.account.iter(&txn) {
+    for (account, info) in store.account().iter(&txn) {
         let conf_height = store
             .confirmation_height
             .get(&txn, &account)

@@ -1,11 +1,13 @@
+use std::ops::Bound;
+
 use rsnano_nullable_lmdb::{ReadTransaction, Transaction};
-use rsnano_store_lmdb::LmdbStore;
 use rsnano_types::{
     Account, AccountInfo, Amount, BlockHash, ConfirmationHeightInfo, PendingInfo, PendingKey,
     SavedBlock,
 };
 
 use super::{AnyReceivableIterator, LedgerSet};
+use crate::{LedgerStore, RangeBounds as StoreRangeBounds};
 
 pub trait ConfirmedSet: LedgerSet {
     fn get_block(&self, hash: &BlockHash) -> Option<SavedBlock>;
@@ -15,12 +17,12 @@ pub trait ConfirmedSet: LedgerSet {
 /// Only blocks that are confirmed.
 /// It owns the DB transaction
 pub struct OwningConfirmedSet<'a> {
-    store: &'a LmdbStore,
+    store: &'a dyn LedgerStore,
     tx: ReadTransaction,
 }
 
 impl<'a> OwningConfirmedSet<'a> {
-    pub fn new(store: &'a LmdbStore, tx: ReadTransaction) -> Self {
+    pub fn new(store: &'a dyn LedgerStore, tx: ReadTransaction) -> Self {
         Self { store, tx }
     }
 
@@ -36,10 +38,11 @@ impl<'a> OwningConfirmedSet<'a> {
         account: Account,
         send_hash: BlockHash,
     ) -> Option<(PendingKey, PendingInfo)> {
+        let start = PendingKey::new(account, send_hash);
         let mut it = self
             .store
-            .pending
-            .iter_range(&self.tx, PendingKey::new(account, send_hash)..);
+            .pending()
+            .iter_range(&self.tx, StoreRangeBounds::new(Bound::Included(start), Bound::Unbounded));
 
         let (mut key, mut info) = it.next()?;
 
@@ -68,7 +71,7 @@ impl<'a> OwningConfirmedSet<'a> {
 
     pub fn frontiers(&self) -> impl Iterator<Item = (Account, BlockHash)> {
         self.store
-            .confirmation_height
+            .confirmation_height()
             .iter(&self.tx)
             .map(|(account, conf_info)| (account, conf_info.frontier))
     }
@@ -105,12 +108,12 @@ impl<'a> ConfirmedSet for OwningConfirmedSet<'a> {
 /// Only blocks that are confirmed.
 /// It borrows the DB transaction
 pub struct BorrowingConfirmedSet<'a> {
-    store: &'a LmdbStore,
+    store: &'a dyn LedgerStore,
     tx: &'a dyn Transaction,
 }
 
 impl<'a> BorrowingConfirmedSet<'a> {
-    pub fn new(store: &'a LmdbStore, tx: &'a dyn Transaction) -> Self {
+    pub fn new(store: &'a dyn LedgerStore, tx: &'a dyn Transaction) -> Self {
         Self { store, tx }
     }
 
@@ -125,7 +128,7 @@ impl<'a> BorrowingConfirmedSet<'a> {
     {
         AnyReceivableIterator::<'txn>::new(
             self.tx,
-            &self.store.pending,
+            self.store.pending(),
             account,
             Some(account),
             hash.inc(),
@@ -133,7 +136,7 @@ impl<'a> BorrowingConfirmedSet<'a> {
     }
 
     fn account_head(&self, account: &Account) -> Option<BlockHash> {
-        let info = self.store.confirmation_height.get(self.tx, account)?;
+        let info = self.store.confirmation_height().get(self.tx, account)?;
         Some(info.frontier)
     }
 }
@@ -175,11 +178,11 @@ impl<'a> ConfirmedSet for BorrowingConfirmedSet<'a> {
         if hash.is_zero() {
             return None;
         }
-        let block = self.store.block.get(self.tx, hash)?;
+        let block = self.store.block().get(self.tx, hash)?;
 
         let conf_info = self
             .store
-            .confirmation_height
+            .confirmation_height()
             .get(self.tx, &block.account())?;
 
         if block.height() <= conf_info.height {
@@ -190,7 +193,7 @@ impl<'a> ConfirmedSet for BorrowingConfirmedSet<'a> {
     }
 
     fn get_conf_info(&self, account: &Account) -> Option<ConfirmationHeightInfo> {
-        self.store.confirmation_height.get(self.tx, account)
+        self.store.confirmation_height().get(self.tx, account)
     }
 }
 

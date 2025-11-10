@@ -31,7 +31,7 @@ use rsnano_work_validation::WorkThresholds;
 
 use crate::{
     BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, GenerateCacheFlags,
-    LedgerConstants, LedgerSet, OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet,
+    LedgerConstants, LedgerSet, LedgerStore, OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet,
     RepWeightCache, RepWeightsUpdater, RollbackError,
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
@@ -115,7 +115,7 @@ impl From<BlockError> for DetailType {
 }
 
 pub struct Ledger {
-    pub store: LmdbStore,
+    pub store: Arc<dyn LedgerStore>,
     pub rep_weights_updater: RepWeightsUpdater,
     pub rep_weights: Arc<RepWeightCache>,
     pub constants: LedgerConstants,
@@ -262,6 +262,10 @@ impl Ledger {
         NullLedgerBuilder::new()
     }
 
+    pub(crate) fn store_ref(&self) -> &dyn LedgerStore {
+        self.store.as_ref()
+    }
+
     pub(crate) fn new(
         env: LmdbEnvironment,
         constants: LedgerConstants,
@@ -270,11 +274,13 @@ impl Ledger {
         stats: Arc<Stats>,
         thread_count: usize,
     ) -> anyhow::Result<Self> {
-        let mut store = LmdbStore::new(env)?;
-        store.cache = rep_weights.ledger_cache.clone();
+        let mut store_impl = LmdbStore::new(env)?;
+        store_impl.cache = rep_weights.ledger_cache.clone();
+        let store_impl = Arc::new(store_impl);
+        let store: Arc<dyn LedgerStore> = store_impl;
 
         let rep_weights_updater =
-            RepWeightsUpdater::new(store.rep_weight.clone(), min_rep_weight, &rep_weights);
+            RepWeightsUpdater::new(store.rep_weight_store(), min_rep_weight, &rep_weights);
 
         let mut ledger = Self {
             rep_weights,
@@ -297,7 +303,7 @@ impl Ledger {
     ) -> anyhow::Result<()> {
         if self
             .store
-            .account
+            .account()
             .iter(&self.store.begin_read())
             .next()
             .is_none()
@@ -308,9 +314,7 @@ impl Ledger {
         }
 
         if generate_cache.reps || generate_cache.account_count || generate_cache.block_count {
-            self.store
-                .account
-                .for_each_par(&self.store.env, thread_count, |iter| {
+            self.store.for_each_account_par(thread_count, &|iter| {
                     let mut block_count = 0;
                     let mut account_count = 0;
                     let mut rep_weights: HashMap<PublicKey, Amount> = HashMap::new();
@@ -324,12 +328,12 @@ impl Ledger {
                         }
                     }
                     self.store
-                        .cache
+                        .cache()
                         .block_count
                         .fetch_add(block_count, Ordering::SeqCst);
 
                     self.store
-                        .cache
+                        .cache()
                         .account_count
                         .fetch_add(account_count, Ordering::SeqCst);
 
@@ -338,15 +342,13 @@ impl Ledger {
         }
 
         if generate_cache.confirmed_count {
-            self.store
-                .confirmation_height
-                .for_each_par(&self.store.env, thread_count, |iter| {
+            self.store.for_each_confirmation_height_par(thread_count, &|iter| {
                     let mut confirmed_count = 0;
                     for (_, info) in iter {
                         confirmed_count += info.height;
                     }
                     self.store
-                        .cache
+                        .cache()
                         .confirmed_count
                         .fetch_add(confirmed_count, Ordering::SeqCst);
                 });
@@ -358,15 +360,15 @@ impl Ledger {
     fn add_genesis_block(&self, txn: &mut WriteTransaction) {
         let genesis_hash = self.constants.genesis_block.hash();
         let genesis_account = self.constants.genesis_account;
-        self.store.block.put(txn, &self.constants.genesis_block);
+        self.store.block().put(txn, &self.constants.genesis_block);
 
-        self.store.confirmation_height.put(
+        self.store.confirmation_height().put(
             txn,
             &genesis_account,
             &ConfirmationHeightInfo::new(1, genesis_hash),
         );
 
-        self.store.account.put(
+        self.store.account().put(
             txn,
             &genesis_account,
             &AccountInfo {
@@ -380,22 +382,22 @@ impl Ledger {
             },
         );
         self.store
-            .rep_weight
+            .rep_weight()
             .put(txn, genesis_account.into(), Amount::MAX);
     }
 
     pub fn any(&self) -> OwningAnySet<'_> {
-        OwningAnySet::new(&self.store, &self.constants)
+        OwningAnySet::new(self.store_ref(), &self.constants)
     }
 
     pub fn confirmed(&self) -> OwningConfirmedSet<'_> {
         let tx = self.store.begin_read();
-        OwningConfirmedSet::new(&self.store, tx)
+        OwningConfirmedSet::new(self.store_ref(), tx)
     }
 
     pub fn unconfirmed(&self) -> impl LedgerSet + use<'_> {
         let tx = self.store.begin_read();
-        OwningUnconfirmedSet::new(&self.store, tx)
+        OwningUnconfirmedSet::new(self.store_ref(), tx)
     }
 
     pub fn bootstrap_weight_max_blocks(&self) -> u64 {
@@ -431,21 +433,21 @@ impl Ledger {
         if !new_info.head.is_zero() {
             if old_info.head.is_zero() && new_info.open_block == new_info.head {
                 self.store
-                    .cache
+                    .cache()
                     .account_count
                     .fetch_add(1, Ordering::SeqCst);
             }
             if !old_info.head.is_zero() && old_info.epoch != new_info.epoch {
-                // store.account ().put won't erase existing entries if they're in different tables
-                self.store.account.del(txn, account);
+                // store.account() ().put won't erase existing entries if they're in different tables
+                self.store.account().del(txn, account);
             }
-            self.store.account.put(txn, account, new_info);
+            self.store.account().put(txn, account, new_info);
         } else {
-            debug_assert!(!self.store.confirmation_height.exists(txn, account));
-            self.store.account.del(txn, account);
-            debug_assert!(self.store.cache.account_count.load(Ordering::SeqCst) > 0);
+            debug_assert!(!self.store.confirmation_height().exists(txn, account));
+            self.store.account().del(txn, account);
+            debug_assert!(self.store.cache().account_count.load(Ordering::SeqCst) > 0);
             self.store
-                .cache
+                .cache()
                 .account_count
                 .fetch_sub(1, Ordering::SeqCst);
         }
@@ -496,7 +498,7 @@ impl Ledger {
                 }
 
                 // Here we check that the block is still OK to rollback, there could be a delay between gathering the targets and performing the rollbacks
-                if let Some(block) = self.store.block.get(&txn, hash) {
+                if let Some(block) = self.store.block().get(&txn, hash) {
                     debug!(
                         "Rolling back: {}, account: {}",
                         hash,
@@ -576,7 +578,7 @@ impl Ledger {
             for block in batch.into_iter() {
                 let any = BorrowingAnySet {
                     constants: &self.constants,
-                    store: &self.store,
+                    store: self.store_ref(),
                     tx: &tx,
                 };
                 let validator =
@@ -683,10 +685,10 @@ impl Ledger {
         root: &QualifiedRoot,
     ) -> Option<BlockHash> {
         if !root.previous.is_zero() {
-            self.store.successors.get(tx, &root.previous)
+            self.store.successors().get(tx, &root.previous)
         } else {
             self.store
-                .account
+                .account()
                 .get(tx, &root.root.into())
                 .map(|i| i.open_block)
         }
@@ -707,7 +709,7 @@ impl Ledger {
         target_hash: BlockHash,
         max_blocks: usize,
     ) -> (WriteTransaction, Vec<SavedBlock>) {
-        BlockCementer::new(&self.store, &self.constants, &self.stats).confirm(
+        BlockCementer::new(self.store_ref(), &self.constants, &self.stats).confirm(
             txn,
             target_hash,
             max_blocks,
@@ -732,7 +734,7 @@ impl Ledger {
                 let mut success = false;
                 loop {
                     if txn.is_refresh_needed() {
-                        txn = self.store.env.refresh(txn);
+                        txn = self.store.refresh_write_txn(txn);
                     }
 
                     // Cementing deep dependency chains might take a long time, allow for graceful shutdown, ignore notifications
@@ -749,14 +751,14 @@ impl Ledger {
                             .inc(StatType::ConfirmingSet, DetailType::NotifyIntermediate);
                         cementing_observer.batch_confirmed(confirmed);
                         confirmed = Vec::new();
-                        txn = self.store.env.begin_write();
+                        txn = self.store.begin_write();
                     }
 
                     self.stats
                         .inc(StatType::ConfirmingSet, DetailType::Cementing);
 
                     // The block might be rolled back before it's fully confirmed
-                    if !self.store.block.exists(&txn, confirmation_root) {
+                    if !self.store.block().exists(&txn, confirmation_root) {
                         self.stats
                             .inc(StatType::ConfirmingSet, DetailType::MissingBlock);
                         break;
@@ -776,7 +778,7 @@ impl Ledger {
                         for block in added {
                             confirmed.push((block, *confirmation_root));
                         }
-                    } else if BorrowingConfirmedSet::new(&self.store, &txn)
+                    } else if BorrowingConfirmedSet::new(self.store_ref(), &txn)
                         .block_exists(&confirmation_root)
                     {
                         self.stats
@@ -785,9 +787,9 @@ impl Ledger {
                     }
 
                     success = {
-                        if let Some(block) = self.store.block.get(&txn, confirmation_root) {
+                        if let Some(block) = self.store.block().get(&txn, confirmation_root) {
                             if let Some(conf_info) =
-                                self.store.confirmation_height.get(&txn, &block.account())
+                                self.store.confirmation_height().get(&txn, &block.account())
                             {
                                 block.height() <= conf_info.height
                             } else {
@@ -830,32 +832,32 @@ impl Ledger {
     ) -> VecDeque<(Root, BlockHash)> {
         let verifier = VoteVerifier {
             constants: &self.constants,
-            store: &self.store,
+            store: self.store_ref(),
         };
         verifier.verify_votes(candidates, is_final)
     }
 
     pub fn block_count(&self) -> u64 {
-        self.store.cache.block_count.load(Ordering::SeqCst)
+        self.store.cache().block_count.load(Ordering::SeqCst)
     }
 
     pub fn simulate_block_count(&self, value: u64) {
-        self.store.cache.block_count.store(value, Ordering::SeqCst)
+        self.store.cache().block_count.store(value, Ordering::SeqCst)
     }
 
     pub fn confirmed_count(&self) -> u64 {
-        self.store.cache.confirmed_count.load(Ordering::SeqCst)
+        self.store.cache().confirmed_count.load(Ordering::SeqCst)
     }
 
     pub fn simulate_confirmed_count(&self, value: u64) {
         self.store
-            .cache
+            .cache()
             .confirmed_count
             .store(value, Ordering::SeqCst)
     }
 
     pub fn account_count(&self) -> u64 {
-        self.store.cache.account_count.load(Ordering::SeqCst)
+        self.store.cache().account_count.load(Ordering::SeqCst)
     }
 
     pub fn backlog_count(&self) -> u64 {
@@ -878,7 +880,7 @@ impl Ledger {
 
     pub fn version(&self) -> u32 {
         let tx = self.store.begin_read();
-        self.store.version.get(&tx).unwrap_or_default() as u32
+        self.store.version().get(&tx).unwrap_or_default() as u32
     }
 
     pub fn store_vendor(&self) -> String {
@@ -893,7 +895,7 @@ impl Ledger {
     #[cfg(feature = "ledger_snapshots")]
     pub fn mark_fork(&self, root: &QualifiedRoot, snapshot_number: SnapshotNumber) {
         let mut tx = self.store.begin_write();
-        self.store.forks.put(&mut tx, root, snapshot_number);
+        self.store.forks().put(&mut tx, root, snapshot_number);
         tx.commit();
     }
 
@@ -917,7 +919,7 @@ impl Ledger {
 
         let mut txn = self.store.begin_write();
         for (_, root) in forks_to_roll_back {
-            self.store.forks.del(&mut txn, &root);
+            self.store.forks().del(&mut txn, &root);
         }
         txn.commit();
     }
@@ -927,12 +929,12 @@ impl Ledger {
         let tx = self.store.begin_read();
         let any = BorrowingAnySet {
             constants: &self.constants,
-            store: &self.store,
+            store: self.store_ref(),
             tx: &tx,
         };
 
         self.store
-            .forks
+            .forks()
             .iter(&tx)
             .filter_map(|(root, snap_no)| {
                 if snap_no < snapshot_number {
@@ -949,7 +951,7 @@ impl Ledger {
 
 impl Drop for Ledger {
     fn drop(&mut self) {
-        self.store.env.sync().expect("sync failed");
+        self.store.sync().expect("sync failed");
     }
 }
 

@@ -40,7 +40,7 @@ impl PeerCacheConnector {
         let tx = self.ledger.store.begin_read();
         self.ledger
             .store
-            .peer
+            .peer()
             .iter(&tx)
             .map(|(peer, _)| peer)
             .collect()

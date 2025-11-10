@@ -48,9 +48,9 @@ impl<'a> BlockInserter<'a> {
 
         let sideband = self.instructions.set_sideband.clone();
         let saved_block = SavedBlock::new(self.block.clone(), sideband);
-        self.ledger.store.block.put(self.txn, &saved_block);
+        self.ledger.store.block().put(self.txn, &saved_block);
         if !saved_block.previous().is_zero() {
-            self.ledger.store.successors.put(
+            self.ledger.store.successors().put(
                 self.txn,
                 &saved_block.previous(),
                 &saved_block.hash(),
@@ -62,7 +62,7 @@ impl<'a> BlockInserter<'a> {
         self.update_representative_cache();
         self.ledger
             .store
-            .cache
+            .cache()
             .block_count
             .fetch_add(1, Ordering::SeqCst);
 
@@ -80,7 +80,7 @@ impl<'a> BlockInserter<'a> {
         let account_info = self
             .ledger
             .store
-            .account
+            .account()
             .get(self.txn, &self.instructions.account)
             .unwrap_or_default();
         account_info
@@ -97,13 +97,13 @@ impl<'a> BlockInserter<'a> {
 
     fn delete_old_pending_info(&mut self) {
         if let Some(key) = &self.instructions.delete_pending {
-            self.ledger.store.pending.del(self.txn, key);
+            self.ledger.store.pending().del(self.txn, key);
         }
     }
 
     fn insert_new_pending_info(&mut self) {
         if let Some((key, info)) = &self.instructions.insert_pending {
-            self.ledger.store.pending.put(self.txn, key, info);
+            self.ledger.store.pending().put(self.txn, key, info);
         }
     }
 
@@ -152,7 +152,7 @@ mod tests {
                 .weight(&instructions.set_account_info.representative),
             instructions.set_account_info.balance
         );
-        assert_eq!(ledger.store.cache.block_count.load(Ordering::Relaxed), 2);
+        assert_eq!(ledger.store.cache().block_count.load(Ordering::Relaxed), 2);
         assert_eq!(result.deleted_pending, Vec::new());
     }
 
@@ -268,11 +268,11 @@ mod tests {
         instructions: &BlockInsertInstructions,
     ) -> InsertResult {
         let mut txn = ledger.store.begin_write();
-        let saved_blocks = ledger.store.block.track_puts();
-        let saved_accounts = ledger.store.account.track_puts();
-        let saved_pending = ledger.store.pending.track_puts();
-        let saved_successors = ledger.store.successors.track_puts();
-        let deleted_pending = ledger.store.pending.track_deletions();
+        let saved_blocks = ledger.store.block().track_puts();
+        let saved_accounts = ledger.store.account().track_puts();
+        let saved_pending = ledger.store.pending().track_puts();
+        let saved_successors = ledger.store.successors().track_puts();
+        let deleted_pending = ledger.store.pending().track_deletions();
 
         let mut block_inserter = BlockInserter::new(&ledger, &mut txn, block, &instructions);
         block_inserter.insert().unwrap();

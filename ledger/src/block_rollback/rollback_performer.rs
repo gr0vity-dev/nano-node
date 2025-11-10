@@ -97,7 +97,7 @@ impl<'a> BlockRollbackPerformer<'a> {
     fn any(&self) -> BorrowingAnySet<'_> {
         BorrowingAnySet {
             constants: &self.ledger.constants,
-            store: &self.ledger.store,
+            store: self.ledger.store_ref(),
             tx: self.txn,
         }
     }

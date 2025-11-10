@@ -53,8 +53,7 @@ impl OnlineWeightSampler {
     fn load_samples(&self) -> Vec<Amount> {
         let txn = self.ledger.store.begin_read();
         self.ledger
-            .store
-            .online_weight
+            .store.online_weight()
             .iter(&txn)
             .map(|(_, amount)| amount)
             .collect()
@@ -90,7 +89,7 @@ impl OnlineWeightSampler {
         let to_delete = self.samples_to_delete(tx, now);
 
         for timestamp in to_delete {
-            self.ledger.store.online_weight.del(tx, timestamp);
+            self.ledger.store.online_weight().del(tx, timestamp);
         }
     }
 
@@ -102,33 +101,37 @@ impl OnlineWeightSampler {
     }
 
     fn old_samples<'tx>(
-        &self,
+        &'tx self,
         tx: &'tx WriteTransaction,
         now: SystemTime,
-    ) -> impl Iterator<Item = u64> + use<'tx> {
+    ) -> Box<dyn Iterator<Item = u64> + 'tx> {
         let timestamp_cutoff = system_time_as_seconds(now - self.cutoff);
 
-        self.ledger
-            .store
-            .online_weight
-            .iter(tx)
-            .map(|(ts, _)| ts)
-            .take_while(move |ts| *ts < timestamp_cutoff)
+        Box::new(
+            self.ledger
+                .store
+                .online_weight()
+                .iter(tx)
+                .map(|(ts, _)| ts)
+                .take_while(move |ts| *ts < timestamp_cutoff),
+        )
     }
 
     fn future_samples<'tx>(
-        &self,
+        &'tx self,
         tx: &'tx WriteTransaction,
         now: SystemTime,
-    ) -> impl Iterator<Item = u64> + use<'tx> {
+    ) -> Box<dyn Iterator<Item = u64> + 'tx> {
         let timestamp_now = system_time_as_seconds(now);
 
-        self.ledger
-            .store
-            .online_weight
-            .iter_rev(tx)
-            .map(|(ts, _)| ts)
-            .take_while(move |ts| *ts > timestamp_now)
+        Box::new(
+            self.ledger
+                .store
+                .online_weight()
+                .iter_rev(tx)
+                .map(|(ts, _)| ts)
+                .take_while(move |ts| *ts > timestamp_now),
+        )
     }
 
     fn insert_new_sample(
@@ -137,7 +140,7 @@ impl OnlineWeightSampler {
         current_online_weight: Amount,
         now: SystemTime,
     ) {
-        self.ledger.store.online_weight.put(
+        self.ledger.store.online_weight().put(
             txn,
             system_time_as_seconds(now),
             &current_online_weight,

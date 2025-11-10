@@ -1,15 +1,16 @@
 use rsnano_nullable_lmdb::Transaction;
-use rsnano_store_lmdb::LmdbStore;
 use rsnano_types::{Block, BlockHash};
+
+use crate::LedgerStore;
 
 /// Goes back in the block history until it finds a block with representative information
 pub(crate) struct RepresentativeBlockFinder<'a> {
     txn: &'a dyn Transaction,
-    store: &'a LmdbStore,
+    store: &'a dyn LedgerStore,
 }
 
 impl<'a> RepresentativeBlockFinder<'a> {
-    pub fn new(txn: &'a dyn Transaction, store: &'a LmdbStore) -> Self {
+    pub fn new(txn: &'a dyn Transaction, store: &'a dyn LedgerStore) -> Self {
         Self { txn, store }
     }
 
@@ -17,7 +18,7 @@ impl<'a> RepresentativeBlockFinder<'a> {
         let mut current = hash;
         let mut result = BlockHash::ZERO;
         while result.is_zero() {
-            let Some(block) = self.store.block.get(self.txn, &current) else {
+            let Some(block) = self.store.block().get(self.txn, &current) else {
                 return BlockHash::ZERO;
             };
             (current, result) = match &*block {

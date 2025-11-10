@@ -380,7 +380,7 @@ fn configured_peers_response() {
     let now = UNIX_EPOCH + Duration::from_secs(1_000_000);
     let ledger = Ledger::new_null_builder().peers([(endpoint, now)]).finish();
     let tx = ledger.store.begin_read();
-    assert_eq!(ledger.store.peer.iter(&tx).next().unwrap(), (endpoint, now));
+    assert_eq!(ledger.store.peer().iter(&tx).next().unwrap(), (endpoint, now));
 }
 
 #[test]

@@ -57,17 +57,61 @@ pub type StoreIterator<'a, T> = Box<dyn Iterator<Item = T> + 'a>;
 
 pub trait LedgerStore: Send + Sync {
     fn block_store(&self) -> &dyn BlockStore;
+    fn block(&self) -> &dyn BlockStore {
+        self.block_store()
+    }
+
     fn account_store(&self) -> &dyn AccountStore;
+    fn account(&self) -> &dyn AccountStore {
+        self.account_store()
+    }
+
     fn pending_store(&self) -> &dyn PendingStore;
+    fn pending(&self) -> &dyn PendingStore {
+        self.pending_store()
+    }
+
     fn confirmation_height_store(&self) -> &dyn ConfirmationHeightStore;
+    fn confirmation_height(&self) -> &dyn ConfirmationHeightStore {
+        self.confirmation_height_store()
+    }
+
     fn successor_store(&self) -> &dyn SuccessorStore;
+    fn successors(&self) -> &dyn SuccessorStore {
+        self.successor_store()
+    }
+
     fn final_vote_store(&self) -> &dyn FinalVoteStore;
+    fn final_vote(&self) -> &dyn FinalVoteStore {
+        self.final_vote_store()
+    }
+
     fn peer_store(&self) -> &dyn PeerStore;
+    fn peer(&self) -> &dyn PeerStore {
+        self.peer_store()
+    }
+
     fn version_store(&self) -> &dyn VersionStore;
+    fn version(&self) -> &dyn VersionStore {
+        self.version_store()
+    }
+
     fn online_weight_store(&self) -> &dyn OnlineWeightStore;
+    fn online_weight(&self) -> &dyn OnlineWeightStore {
+        self.online_weight_store()
+    }
+
     fn rep_weight_store(&self) -> Arc<dyn RepWeightStore>;
+    fn rep_weight(&self) -> Arc<dyn RepWeightStore> {
+        self.rep_weight_store()
+    }
+
     #[cfg(feature = "ledger_snapshots")]
     fn forks_store(&self) -> &dyn ForksStore;
+    #[cfg(feature = "ledger_snapshots")]
+    fn forks(&self) -> &dyn ForksStore {
+        self.forks_store()
+    }
 
     fn begin_read(&self) -> ReadTransaction;
     fn begin_write(&self) -> WriteTransaction;
@@ -75,6 +119,18 @@ pub trait LedgerStore: Send + Sync {
     fn sync(&self) -> Result<()>;
     fn cache(&self) -> &LedgerCache;
     fn memory_stats(&self) -> Result<MemoryStats>;
+
+    fn for_each_account_par(
+        &self,
+        thread_count: usize,
+        action: &(dyn Fn(&mut dyn Iterator<Item = (Account, AccountInfo)>) + Send + Sync),
+    );
+
+    fn for_each_confirmation_height_par(
+        &self,
+        thread_count: usize,
+        action: &(dyn Fn(&mut dyn Iterator<Item = (Account, ConfirmationHeightInfo)>) + Send + Sync),
+    );
 }
 
 pub trait BlockStore: Send + Sync {
@@ -121,6 +177,10 @@ pub trait ConfirmationHeightStore: Send + Sync {
     fn put(&self, txn: &mut WriteTransaction, account: &Account, info: &ConfirmationHeightInfo);
     fn get(&self, txn: &dyn Transaction, account: &Account) -> Option<ConfirmationHeightInfo>;
     fn exists(&self, txn: &dyn Transaction, account: &Account) -> bool;
+    fn iter<'a>(
+        &'a self,
+        txn: &'a dyn Transaction,
+    ) -> StoreIterator<'a, (Account, ConfirmationHeightInfo)>;
 }
 
 pub trait RepWeightStore: Send + Sync {
@@ -158,6 +218,8 @@ pub trait PeerStore: Send + Sync {
 pub trait OnlineWeightStore: Send + Sync {
     fn put(&self, txn: &mut WriteTransaction, time: u64, amount: &Amount);
     fn del(&self, txn: &mut WriteTransaction, time: u64);
+    fn iter<'a>(&'a self, txn: &'a dyn Transaction) -> StoreIterator<'a, (u64, Amount)>;
+    fn iter_rev<'a>(&'a self, txn: &'a dyn Transaction) -> StoreIterator<'a, (u64, Amount)>;
 }
 
 pub trait VersionStore: Send + Sync {
@@ -169,6 +231,10 @@ pub trait ForksStore: Send + Sync {
     fn put(&self, txn: &mut WriteTransaction, root: &QualifiedRoot, snapshot: SnapshotNumber);
     fn del(&self, txn: &mut WriteTransaction, root: &QualifiedRoot);
     fn get(&self, txn: &dyn Transaction, root: &QualifiedRoot) -> Option<SnapshotNumber>;
+    fn iter<'a>(
+        &'a self,
+        txn: &'a dyn Transaction,
+    ) -> StoreIterator<'a, (QualifiedRoot, SnapshotNumber)>;
 }
 
 #[cfg(feature = "ledger_snapshots")]
@@ -247,6 +313,24 @@ impl LedgerStore for LmdbStore {
 
     fn memory_stats(&self) -> Result<MemoryStats> {
         self.memory_stats()
+    }
+
+    fn for_each_account_par(
+        &self,
+        thread_count: usize,
+        action: &(dyn Fn(&mut dyn Iterator<Item = (Account, AccountInfo)>) + Send + Sync),
+    ) {
+        self.account
+            .for_each_par(&self.env, thread_count, |iter| action(iter));
+    }
+
+    fn for_each_confirmation_height_par(
+        &self,
+        thread_count: usize,
+        action: &(dyn Fn(&mut dyn Iterator<Item = (Account, ConfirmationHeightInfo)>) + Send + Sync),
+    ) {
+        self.confirmation_height
+            .for_each_par(&self.env, thread_count, |iter| action(iter));
     }
 }
 
@@ -356,6 +440,13 @@ impl ConfirmationHeightStore for LmdbConfirmationHeightStore {
     fn exists(&self, txn: &dyn Transaction, account: &Account) -> bool {
         self.exists(txn, account)
     }
+
+    fn iter<'a>(
+        &'a self,
+        txn: &'a dyn Transaction,
+    ) -> StoreIterator<'a, (Account, ConfirmationHeightInfo)> {
+        Box::new(LmdbConfirmationHeightStore::iter(self, txn))
+    }
 }
 
 impl RepWeightStore for LmdbRepWeightStore {
@@ -445,6 +536,14 @@ impl OnlineWeightStore for LmdbOnlineWeightStore {
     fn del(&self, txn: &mut WriteTransaction, time: u64) {
         self.del(txn, time);
     }
+
+    fn iter<'a>(&'a self, txn: &'a dyn Transaction) -> StoreIterator<'a, (u64, Amount)> {
+        Box::new(LmdbOnlineWeightStore::iter(self, txn))
+    }
+
+    fn iter_rev<'a>(&'a self, txn: &'a dyn Transaction) -> StoreIterator<'a, (u64, Amount)> {
+        Box::new(LmdbOnlineWeightStore::iter_rev(self, txn))
+    }
 }
 
 impl VersionStore for LmdbVersionStore {
@@ -465,5 +564,12 @@ impl ForksStore for LmdbForksStore {
 
     fn get(&self, txn: &dyn Transaction, root: &QualifiedRoot) -> Option<SnapshotNumber> {
         self.get(txn, root)
+    }
+
+    fn iter<'a>(
+        &'a self,
+        txn: &'a dyn Transaction,
+    ) -> StoreIterator<'a, (QualifiedRoot, SnapshotNumber)> {
+        Box::new(LmdbForksStore::iter(self, txn))
     }
 }

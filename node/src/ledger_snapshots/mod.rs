@@ -526,7 +526,7 @@ mod tests {
             .finish();
 
         let mut tx = fixture.snapshots.ledger.store.begin_write();
-        fixture.snapshots.ledger.store.successors.put(
+        fixture.snapshots.ledger.store.successors().put(
             &mut tx,
             &fork_block.previous(),
             &fork_block.hash(),

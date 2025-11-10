@@ -285,13 +285,13 @@ mod tests {
 
         ledger
             .store
-            .cache
+            .cache()
             .confirmed_count
             .store(args.confirmed, Relaxed);
 
         ledger
             .store
-            .cache
+            .cache()
             .block_count
             .store(args.confirmed + args.unconfirmed, Relaxed);
 

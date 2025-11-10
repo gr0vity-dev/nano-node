@@ -4,20 +4,23 @@ use std::{
 };
 
 use rsnano_nullable_lmdb::WriteTransaction;
-use rsnano_store_lmdb::LmdbRepWeightStore;
 use rsnano_types::{Amount, PublicKey};
 
-use crate::{RepWeightCache, RepWeights};
+use crate::{RepWeightCache, RepWeights, RepWeightStore};
 
 /// Updates the representative weights in the ledger and in the in-memory cache
 pub struct RepWeightsUpdater {
     weight_cache: Arc<RwLock<RepWeights>>,
-    store: Arc<LmdbRepWeightStore>,
+    store: Arc<dyn RepWeightStore>,
     min_weight: Amount,
 }
 
 impl RepWeightsUpdater {
-    pub fn new(store: Arc<LmdbRepWeightStore>, min_weight: Amount, cache: &RepWeightCache) -> Self {
+    pub fn new(
+        store: Arc<dyn RepWeightStore>,
+        min_weight: Amount,
+        cache: &RepWeightCache,
+    ) -> Self {
         RepWeightsUpdater {
             weight_cache: cache.inner(),
             store,
@@ -114,12 +117,13 @@ impl RepWeightsUpdater {
 mod tests {
     use super::*;
     use rsnano_nullable_lmdb::LmdbEnvironment;
-    use rsnano_store_lmdb::ConfiguredRepWeightDatabaseBuilder;
+    use rsnano_store_lmdb::{ConfiguredRepWeightDatabaseBuilder, LmdbRepWeightStore};
 
     #[test]
     fn representation_changes() {
         let env = Arc::new(LmdbEnvironment::new_null());
-        let store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
+        let lmdb_store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
+        let store: Arc<dyn RepWeightStore> = lmdb_store.clone();
         let account = PublicKey::from(1);
         let rep_weights = RepWeightCache::new();
         let rep_weights_updater = RepWeightsUpdater::new(store, Amount::ZERO, &rep_weights);
@@ -145,8 +149,9 @@ mod tests {
                 )]))
                 .build(),
         );
-        let store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
-        let delete_tracker = store.track_deletions();
+        let lmdb_store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
+        let delete_tracker = lmdb_store.track_deletions();
+        let store: Arc<dyn RepWeightStore> = lmdb_store.clone();
         let rep_weights = RepWeightCache::new();
         let rep_weights_updater = RepWeightsUpdater::new(store, Amount::ZERO, &rep_weights);
         rep_weights_updater.representation_put(representative, weight);
@@ -178,8 +183,9 @@ mod tests {
                 ]))
                 .build(),
         );
-        let store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
-        let delete_tracker = store.track_deletions();
+        let lmdb_store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
+        let delete_tracker = lmdb_store.track_deletions();
+        let store: Arc<dyn RepWeightStore> = lmdb_store.clone();
         let rep_weights = RepWeightCache::new();
         let rep_weights_updater = RepWeightsUpdater::new(store, Amount::ZERO, &rep_weights);
         rep_weights_updater.representation_put(rep1, weight);

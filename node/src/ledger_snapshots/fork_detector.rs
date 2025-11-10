@@ -83,7 +83,7 @@ mod tests {
             ledger
                 .store
                 .forks
-                .get(&ledger.store.env.begin_read(), &root),
+                .get(&ledger.store.begin_read(), &root),
             Some(snapshot_number)
         );
     }
@@ -127,7 +127,7 @@ mod tests {
             ledger
                 .store
                 .forks
-                .get(&ledger.store.env.begin_read(), &root1),
+                .get(&ledger.store.begin_read(), &root1),
             Some(snapshot_number)
         );
 
@@ -135,7 +135,7 @@ mod tests {
             ledger
                 .store
                 .forks
-                .get(&ledger.store.env.begin_read(), &root2),
+                .get(&ledger.store.begin_read(), &root2),
             Some(snapshot_number)
         );
     }
@@ -166,7 +166,7 @@ mod tests {
             ledger
                 .store
                 .forks
-                .get(&ledger.store.env.begin_read(), &root),
+                .get(&ledger.store.begin_read(), &root),
             None
         );
     }

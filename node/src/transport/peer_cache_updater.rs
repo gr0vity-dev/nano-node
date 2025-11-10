@@ -54,11 +54,11 @@ impl PeerCacheUpdater {
         let Some(endpoint) = channel.peering_addr() else {
             return;
         };
-        let exists = self.ledger.store.peer.exists(tx, endpoint);
+        let exists = self.ledger.store.peer().exists(tx, endpoint);
 
         self.ledger
             .store
-            .peer
+            .peer()
             .put(tx, endpoint, self.time_factory.now());
 
         if !exists {
@@ -71,7 +71,7 @@ impl PeerCacheUpdater {
 
     fn delete_old_peers(&self, tx: &mut WriteTransaction) {
         for peer in self.get_old_peers(tx) {
-            self.ledger.store.peer.del(tx, peer)
+            self.ledger.store.peer().del(tx, peer)
         }
     }
 
@@ -80,7 +80,7 @@ impl PeerCacheUpdater {
         let cutoff = now - self.erase_cutoff;
         self.ledger
             .store
-            .peer
+            .peer()
             .iter(tx)
             .filter_map(|(peer, time)| {
                 if time < cutoff || time > now {
@@ -303,8 +303,8 @@ mod tests {
         let ledger = Arc::new(Ledger::new_null_builder().peers(already_stored).finish());
         let time_factory = SystemTimeFactory::new_null_with(now);
         let stats = Arc::new(Stats::default());
-        let put_tracker = ledger.store.peer.track_puts();
-        let delete_tracker = ledger.store.peer.track_deletions();
+        let put_tracker = ledger.store.peer().track_puts();
+        let delete_tracker = ledger.store.peer().track_deletions();
         let erase_cutoff = Duration::from_secs(60 * 60);
         let mut peer_history = PeerCacheUpdater::new(
             Arc::new(RwLock::new(network)),

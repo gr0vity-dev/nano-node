@@ -1,22 +1,21 @@
 use std::{collections::VecDeque, sync::atomic::Ordering};
 
 use rsnano_nullable_lmdb::{Transaction, WriteTransaction};
-use rsnano_store_lmdb::LmdbStore;
 use rsnano_types::{BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
-use crate::LedgerConstants;
+use crate::{LedgerConstants, LedgerStore};
 
 /// Cements Blocks in the ledger
 pub(crate) struct BlockCementer<'a> {
     constants: &'a LedgerConstants,
-    store: &'a LmdbStore,
+    store: &'a dyn LedgerStore,
     stats: &'a Stats,
 }
 
 impl<'a> BlockCementer<'a> {
     pub(crate) fn new(
-        store: &'a LmdbStore,
+        store: &'a dyn LedgerStore,
         constants: &'a LedgerConstants,
         stats: &'a Stats,
     ) -> Self {
@@ -38,7 +37,7 @@ impl<'a> BlockCementer<'a> {
         let mut stack = VecDeque::new();
         stack.push_back(target_hash);
         while let Some(&hash) = stack.back() {
-            let block = self.store.block.get(&txn, &hash).unwrap();
+            let block = self.store.block().get(&txn, &hash).unwrap();
 
             let dependents =
                 block.dependent_blocks(&self.constants.epochs, &self.constants.genesis_account);
@@ -68,10 +67,10 @@ impl<'a> BlockCementer<'a> {
 
                     // Update store
                     self.store
-                        .confirmation_height
+                        .confirmation_height()
                         .put(&mut txn, &block.account(), &conf_height);
                     self.store
-                        .cache
+                        .cache()
                         .confirmed_count
                         .fetch_add(1, Ordering::SeqCst);
 
@@ -92,8 +91,8 @@ impl<'a> BlockCementer<'a> {
             // Ensure that the block wasn't rolled back during the refresh
 
             if txn.is_refresh_needed() {
-                txn = self.store.env.refresh(txn);
-                if !self.store.block.exists(&txn, &target_hash) {
+                txn = self.store.refresh_write_txn(txn);
+                if !self.store.block().exists(&txn, &target_hash) {
                     break; // Block was rolled back during cementing
                 }
             }
@@ -107,10 +106,10 @@ impl<'a> BlockCementer<'a> {
     }
 
     fn is_confirmed(&self, tx: &WriteTransaction, hash: &BlockHash) -> bool {
-        let Some(block) = self.store.block.get(tx, hash) else {
+        let Some(block) = self.store.block().get(tx, hash) else {
             return false;
         };
-        let Some(info) = self.store.confirmation_height.get(tx, &block.account()) else {
+        let Some(info) = self.store.confirmation_height().get(tx, &block.account()) else {
             return false;
         };
 

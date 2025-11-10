@@ -1,15 +1,14 @@
 use std::collections::VecDeque;
 
-use rsnano_store_lmdb::LmdbStore;
 use rsnano_types::{BlockHash, Root};
 
-use crate::{AnySet, BorrowingAnySet, LedgerConstants, OwningAnySet};
+use crate::{AnySet, BorrowingAnySet, LedgerConstants, LedgerStore, OwningAnySet};
 use rsnano_nullable_lmdb::{Transaction, WriteTransaction};
 
 /// Verifies whether a vote (or a final vote) can be generated for a given block
 pub(crate) struct VoteVerifier<'a> {
     pub constants: &'a LedgerConstants,
-    pub store: &'a LmdbStore,
+    pub store: &'a dyn LedgerStore,
 }
 
 impl<'a> VoteVerifier<'a> {
@@ -24,7 +23,7 @@ impl<'a> VoteVerifier<'a> {
             let mut txn = self.store.begin_write();
             for (root, hash) in &candidates {
                 if txn.is_refresh_needed() {
-                    txn = self.store.env.refresh(txn);
+                    txn = self.store.refresh_write_txn(txn);
                 }
                 if self.should_vote_final(&mut txn, root, hash) {
                     verified.push_back((*root, *hash));
@@ -65,6 +64,6 @@ impl<'a> VoteVerifier<'a> {
         };
         debug_assert!(block.root() == *root);
         any.dependents_confirmed(&block)
-            && self.store.final_vote.put(tx, &block.qualified_root(), hash)
+            && self.store.final_vote().put(tx, &block.qualified_root(), hash)
     }
 }
