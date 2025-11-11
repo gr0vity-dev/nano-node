@@ -1,6 +1,6 @@
 use std::{
     fs::{File, Permissions, set_permissions},
-    io::{Read, Write},
+    io::Write,
     ops::RangeBounds,
     os::unix::prelude::PermissionsExt,
     path::Path,
@@ -13,9 +13,9 @@ use rsnano_nullable_lmdb::{
     DatabaseFlags, Error, LmdbEnvironment, Transaction, WriteFlags, WriteTransaction,
 };
 use rsnano_types::{
-    Account, DeserializationError, KeyDerivationFunction, PublicKey, RawKey, WorkNonce,
-    deterministic_key, read_u64_ne,
+    Account, KeyDerivationFunction, PublicKey, RawKey, WorkNonce, deterministic_key,
 };
+use store_traits::wallet::{KeyType, WalletStore, WalletStoreIterator, WalletValue};
 
 use crate::{Fan, LmdbDatabase, LmdbRangeIterator};
 
@@ -31,50 +31,6 @@ impl Fans {
             wallet_key_mem: Fan::new(RawKey::ZERO, fanout),
         }
     }
-}
-
-pub struct WalletValue {
-    pub key: RawKey,
-    pub work: WorkNonce,
-}
-
-impl WalletValue {
-    pub const SERIALIZED_SIZE: usize = RawKey::SERIALIZED_SIZE + 8;
-
-    pub fn new(key: RawKey, work: WorkNonce) -> Self {
-        Self { key, work }
-    }
-
-    pub fn to_bytes(&self) -> [u8; Self::SERIALIZED_SIZE] {
-        let mut buffer = [0; Self::SERIALIZED_SIZE];
-        self.serialize(&mut buffer.as_mut()).unwrap();
-        buffer
-    }
-
-    pub fn serialize<T>(&self, writer: &mut T) -> std::io::Result<()>
-    where
-        T: Write,
-    {
-        writer.write_all(self.key.as_bytes())?;
-        writer.write_all(&u64::from(self.work).to_ne_bytes())
-    }
-
-    pub fn deserialize<T>(reader: &mut T) -> Result<Self, DeserializationError>
-    where
-        T: Read,
-    {
-        let key = RawKey::deserialize(reader)?;
-        let work = read_u64_ne(reader)?;
-        Ok(WalletValue::new(key, work.into()))
-    }
-}
-
-#[derive(FromPrimitive)]
-pub enum KeyType {
-    NotAType,
-    Unknown,
-    Adhoc,
-    Deterministic,
 }
 
 pub struct LmdbWalletStore {
@@ -730,6 +686,124 @@ fn read_wallet_record(k: &[u8], mut v: &[u8]) -> (PublicKey, WalletValue) {
     let key = PublicKey::from_slice(k).expect("Should be a valid key");
     let value = WalletValue::deserialize(&mut v).expect("Should be a valid wallet value");
     (key, value)
+}
+
+impl WalletStore for LmdbWalletStore {
+    fn password(&self) -> RawKey {
+        LmdbWalletStore::password(self)
+    }
+
+    fn valid_password(&self, txn: &dyn Transaction) -> bool {
+        LmdbWalletStore::valid_password(self, txn)
+    }
+
+    fn attempt_password(&self, txn: &dyn Transaction, password: &str) -> bool {
+        LmdbWalletStore::attempt_password(self, txn, password)
+    }
+
+    fn rekey(&self, txn: &mut WriteTransaction, password: &str) -> anyhow::Result<()> {
+        LmdbWalletStore::rekey(self, txn, password)
+    }
+
+    fn lock(&self) {
+        LmdbWalletStore::lock(self)
+    }
+
+    fn is_open(&self) -> bool {
+        LmdbWalletStore::is_open(self)
+    }
+
+    fn deterministic_key(&self, txn: &dyn Transaction, index: u32) -> RawKey {
+        LmdbWalletStore::deterministic_key(self, txn, index)
+    }
+
+    fn deterministic_insert(&self, txn: &mut WriteTransaction) -> PublicKey {
+        LmdbWalletStore::deterministic_insert(self, txn)
+    }
+
+    fn deterministic_insert_at(&self, txn: &mut WriteTransaction, index: u32) -> PublicKey {
+        LmdbWalletStore::deterministic_insert_at(self, txn, index)
+    }
+
+    fn deterministic_index_get(&self, txn: &dyn Transaction) -> u32 {
+        LmdbWalletStore::deterministic_index_get(self, txn)
+    }
+
+    fn deterministic_index_set(&self, txn: &mut WriteTransaction, index: u32) {
+        LmdbWalletStore::deterministic_index_set(self, txn, index)
+    }
+
+    fn deterministic_clear(&self, txn: &mut WriteTransaction) {
+        LmdbWalletStore::deterministic_clear(self, txn)
+    }
+
+    fn insert_adhoc(&self, txn: &mut WriteTransaction, prv: &RawKey) -> PublicKey {
+        LmdbWalletStore::insert_adhoc(self, txn, prv)
+    }
+
+    fn insert_watch(&self, txn: &mut WriteTransaction, pub_key: &PublicKey) -> anyhow::Result<()> {
+        LmdbWalletStore::insert_watch(self, txn, pub_key)
+    }
+
+    fn fetch(&self, txn: &dyn Transaction, pub_key: &PublicKey) -> anyhow::Result<RawKey> {
+        LmdbWalletStore::fetch(self, txn, pub_key)
+    }
+
+    fn erase(&self, txn: &mut WriteTransaction, pub_key: &PublicKey) {
+        LmdbWalletStore::erase(self, txn, pub_key)
+    }
+
+    fn exists(&self, txn: &dyn Transaction, pub_key: &PublicKey) -> bool {
+        LmdbWalletStore::exists(self, txn, pub_key)
+    }
+
+    fn find(&self, txn: &dyn Transaction, pub_key: &PublicKey) -> Option<WalletValue> {
+        LmdbWalletStore::find(self, txn, pub_key)
+    }
+
+    fn get_key_type(&self, txn: &dyn Transaction, pub_key: &PublicKey) -> KeyType {
+        LmdbWalletStore::get_key_type(self, txn, pub_key)
+    }
+
+    fn representative(&self, txn: &dyn Transaction) -> PublicKey {
+        LmdbWalletStore::representative(self, txn)
+    }
+
+    fn representative_set(&self, txn: &mut WriteTransaction, representative: &PublicKey) {
+        LmdbWalletStore::representative_set(self, txn, representative)
+    }
+
+    fn work_get(&self, txn: &dyn Transaction, pub_key: &PublicKey) -> anyhow::Result<WorkNonce> {
+        LmdbWalletStore::work_get(self, txn, pub_key)
+    }
+
+    fn work_put(&self, txn: &mut WriteTransaction, pub_key: &PublicKey, work: WorkNonce) {
+        LmdbWalletStore::work_put(self, txn, pub_key, work)
+    }
+
+    fn seed(&self, txn: &dyn Transaction) -> RawKey {
+        LmdbWalletStore::seed(self, txn)
+    }
+
+    fn set_seed(&self, txn: &mut WriteTransaction, seed: &RawKey) {
+        LmdbWalletStore::set_seed(self, txn, seed)
+    }
+
+    fn serialize_json(&self, txn: &dyn Transaction) -> String {
+        LmdbWalletStore::serialize_json(self, txn)
+    }
+
+    fn write_backup(&self, txn: &dyn Transaction, path: &Path) -> anyhow::Result<()> {
+        LmdbWalletStore::write_backup(self, txn, path)
+    }
+
+    fn iter<'a>(&'a self, txn: &'a dyn Transaction) -> WalletStoreIterator<'a> {
+        Box::new(self.iter(txn))
+    }
+
+    fn destroy(&self, txn: &mut WriteTransaction) {
+        LmdbWalletStore::destroy(self, txn)
+    }
 }
 
 #[cfg(test)]

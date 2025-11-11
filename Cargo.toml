@@ -23,6 +23,7 @@ members = [
 	"websocket/client", 
 	"websocket/server",
 	"store_lmdb",
+	"store_traits",
 	"ledger",
 	"wallet", 
 	"node",

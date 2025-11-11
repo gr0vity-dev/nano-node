@@ -1,7 +1,4 @@
 #[macro_use]
-extern crate num_derive;
-
-#[macro_use]
 extern crate anyhow;
 
 mod account_store;
@@ -12,6 +9,7 @@ mod final_vote_store;
 #[cfg(feature = "ledger_snapshots")]
 pub mod forks_store;
 mod iterator;
+mod ledger_impl;
 mod lmdb_config;
 mod online_weight_store;
 mod peer_store;
@@ -41,12 +39,14 @@ pub use pending_store::{ConfiguredPendingDatabaseBuilder, LmdbPendingStore, read
 pub use rep_weight_store::*;
 pub use rsnano_nullable_lmdb::EnvironmentFlags;
 pub use rsnano_nullable_lmdb::EnvironmentOptions;
-pub use store::{LedgerCache, LmdbStore, MemoryStats};
+pub use store::LmdbStore;
+pub use store_traits::ledger::{LedgerCache, MemoryStats};
+pub use store_traits::wallet::{KeyType, WalletValue};
 pub use successor_store::LmdbSuccessorStore;
 pub use upgrades::create_and_update_lmdb_env;
 pub use vacuum::vacuum;
 pub use version_store::LmdbVersionStore;
-pub use wallet_store::{Fans, KeyType, LmdbWalletStore, WalletValue};
+pub use wallet_store::{Fans, LmdbWalletStore};
 
 struct Split {
     start: U256,

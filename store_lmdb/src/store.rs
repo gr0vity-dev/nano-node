@@ -6,33 +6,8 @@ use crate::{
     successor_store::LmdbSuccessorStore,
 };
 use rsnano_nullable_lmdb::{LmdbEnvironment, ReadTransaction, WriteTransaction};
-use serde::{Deserialize, Serialize};
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
-};
-
-pub struct LedgerCache {
-    pub confirmed_count: AtomicU64,
-    pub block_count: AtomicU64,
-    pub account_count: AtomicU64,
-}
-
-impl LedgerCache {
-    pub fn new() -> Self {
-        Self {
-            confirmed_count: AtomicU64::new(0),
-            block_count: AtomicU64::new(0),
-            account_count: AtomicU64::new(0),
-        }
-    }
-
-    pub fn reset(&self) {
-        self.confirmed_count.store(0, Ordering::SeqCst);
-        self.block_count.store(0, Ordering::SeqCst);
-        self.account_count.store(0, Ordering::SeqCst);
-    }
-}
+use std::sync::Arc;
+use store_traits::ledger::{LedgerCache, MemoryStats};
 
 pub struct LmdbStore {
     pub env: LmdbEnvironment,
@@ -144,16 +119,6 @@ impl LmdbStore {
     pub fn cache(&self) -> &LedgerCache {
         &self.cache
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct MemoryStats {
-    pub branch_pages: usize,
-    pub depth: u32,
-    pub entries: usize,
-    pub leaf_pages: usize,
-    pub overflow_pages: usize,
-    pub page_size: u32,
 }
 
 #[cfg(test)]

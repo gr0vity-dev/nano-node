@@ -6,7 +6,7 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-ledger_snapshots = ["rsnano_store_lmdb/ledger_snapshots"]
+ledger_snapshots = ["rsnano_store_lmdb/ledger_snapshots", "store_traits/ledger_snapshots"]
 
 [dev-dependencies]
 rsnano_store_lmdb = { path = "../store_lmdb", features=["output_tracking"]}
@@ -16,6 +16,7 @@ rsnano_types = { path = "../types" }
 rsnano_work_validation = { path = "../work_validation" }
 rsnano_utils = { path = "../utils" }
 rsnano_store_lmdb = { path = "../store_lmdb" }
+store_traits = { path = "../store_traits" }
 rsnano_nullable_lmdb = { path = "../nullables/lmdb" }
 rsnano_nullable_env = { path = "../nullables/env" }
 rsnano_output_tracker = { path = "../nullables/output_tracker" }

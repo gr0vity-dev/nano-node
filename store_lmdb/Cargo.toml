@@ -7,7 +7,7 @@ edition = "2024"
 
 [features]
 output_tracking = []
-ledger_snapshots = []
+ledger_snapshots = ["store_traits/ledger_snapshots"]
 
 [dev-dependencies]
 rsnano_store_lmdb = { path = ".", features = ["output_tracking"] }
@@ -16,6 +16,7 @@ rsnano_store_lmdb = { path = ".", features = ["output_tracking"] }
 rsnano_types = { path = "../types" }
 rsnano_output_tracker = { path = "../nullables/output_tracker" }
 rsnano_nullable_lmdb = { path = "../nullables/lmdb" }
+store_traits = { path = "../store_traits" }
 primitive-types = "0"
 anyhow = "1"
 uuid = { version = "1", features = ["v4"] }
