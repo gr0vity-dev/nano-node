@@ -15,7 +15,7 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_lmdb::{
     DatabaseFlags, LmdbDatabase, LmdbEnvironment, Transaction, WriteFlags, WriteTransaction,
 };
-use rsnano_store_lmdb::{KeyType, LmdbIterator, LmdbWalletStore};
+use rsnano_store_lmdb::{KeyType, LmdbIterator};
 use rsnano_types::{
     Account, Amount, Block, BlockDetails, BlockHash, Epoch, KeyDerivationFunction, Link, Networks,
     PendingKey, PrivateKey, PublicKey, RawKey, Root, SavedBlock, StateBlockArgs, WalletId,
@@ -29,8 +29,8 @@ use rsnano_utils::{
 use rsnano_work_validation::WorkThresholds;
 
 use super::{
-    BlockPromise, MultiBlockPromise, Wallet, WalletsConfig, WalletsError,
-    delayed_work_queue::DelayedWorkQueue,
+    BlockPromise, LmdbWalletStoreFactory, MultiBlockPromise, Wallet, WalletStoreFactory,
+    WalletsConfig, WalletsError, delayed_work_queue::DelayedWorkQueue,
 };
 
 enum PreparedSend {
@@ -47,7 +47,7 @@ pub struct Wallets {
     ledger: Arc<Ledger>,
     work_thresholds: WorkThresholds,
     delayed_work: Mutex<DelayedWorkQueue>,
-    kdf: KeyDerivationFunction,
+    store_factory: Arc<dyn WalletStoreFactory>,
     work_queue: Mutex<Option<mpsc::Sender<WorkRequest>>>,
     block_queue: Mutex<Option<mpsc::Sender<Block>>>,
     waiting_for_work: Mutex<HashMap<Root, WorkItem>>,
@@ -67,9 +67,8 @@ impl Wallets {
         ledger: Arc<Ledger>,
         work: WorkThresholds,
         clock: Arc<SteadyClock>,
+        store_factory: Arc<dyn WalletStoreFactory>,
     ) -> Self {
-        let kdf = KeyDerivationFunction::new(wallets_config.kdf_work);
-
         Self {
             db: None,
             send_action_ids_handle: None,
@@ -79,7 +78,7 @@ impl Wallets {
             ledger: Arc::clone(&ledger),
             work_thresholds: work,
             delayed_work: Mutex::new(DelayedWorkQueue::default()),
-            kdf: kdf.clone(),
+            store_factory,
             work_queue: Mutex::new(None),
             block_queue: Mutex::new(None),
             waiting_for_work: Mutex::new(HashMap::new()),
@@ -95,7 +94,13 @@ impl Wallets {
         let wallets_config = WalletsConfig::default();
         let work = WorkThresholds::default_for(network);
         let clock = Arc::new(SteadyClock::new_null());
-        Self::new(wallets_config, env, ledger, work, clock)
+        let kdf = KeyDerivationFunction::new(wallets_config.kdf_work);
+        let store_factory = Arc::new(LmdbWalletStoreFactory::new(
+            Arc::clone(&env),
+            wallets_config.password_fanout as usize,
+            kdf,
+        ));
+        Self::new(wallets_config, env, ledger, work, clock, store_factory)
     }
 
     pub fn stop(&self) {
@@ -122,6 +127,20 @@ impl Wallets {
             .choose(&mut rand::rng())
             .cloned()
             .unwrap_or(self.ledger.constants.genesis_account.into())
+    }
+
+    fn open_wallet(&self, wallet_id: WalletId) -> anyhow::Result<Arc<Wallet>> {
+        let store = self.store_factory.open_existing(wallet_id)?;
+        Ok(Arc::new(Wallet::from_store(wallet_id, store)))
+    }
+
+    fn create_wallet_with_rep(
+        &self,
+        wallet_id: WalletId,
+        representative: PublicKey,
+    ) -> anyhow::Result<Arc<Wallet>> {
+        let store = self.store_factory.create_new(wallet_id, representative)?;
+        Ok(Arc::new(Wallet::from_store(wallet_id, store)))
     }
 
     pub fn enter_initial_password(&self, wallet: &Arc<Wallet>) {
@@ -171,18 +190,8 @@ impl Wallets {
 
             for id in wallet_ids {
                 assert!(!guard.contains_key(&id));
-                let representative = self.random_representative();
-                let text = PathBuf::from(id.encode_hex());
-                let wallet = Wallet::new(
-                    id,
-                    &self.env,
-                    self.wallets_config.password_fanout as usize,
-                    self.kdf.clone(),
-                    representative,
-                    &text,
-                )?;
-
-                guard.insert(id, Arc::new(wallet));
+                let wallet = self.open_wallet(id)?;
+                guard.insert(id, wallet);
             }
 
             info!("Found {} wallet(s)", guard.len());
@@ -416,17 +425,8 @@ impl Wallets {
         for id in wallet_ids {
             // New wallet
             if !guard.contains_key(&id) {
-                let text = PathBuf::from(id.encode_hex());
-                let representative = self.random_representative();
-                if let Ok(wallet) = Wallet::new(
-                    id,
-                    &self.env,
-                    self.wallets_config.password_fanout as usize,
-                    self.kdf.clone(),
-                    representative,
-                    &text,
-                ) {
-                    guard.insert(id, Arc::new(wallet));
+                if let Ok(wallet) = self.open_wallet(id) {
+                    guard.insert(id, wallet);
                 }
             }
             // List of wallets on disk
@@ -727,14 +727,7 @@ impl Wallets {
 
     pub fn import(&self, wallet_id: WalletId, json: &str) -> anyhow::Result<()> {
         let _guard = self.wallets.lock().unwrap();
-        let _wallet = Wallet::new_from_json(
-            wallet_id,
-            &self.env,
-            self.wallets_config.password_fanout as usize,
-            self.kdf.clone(),
-            &PathBuf::from(wallet_id.to_string()),
-            json,
-        )?;
+        self.store_factory.create_from_json(wallet_id, json)?;
         Ok(())
     }
 
@@ -749,17 +742,11 @@ impl Wallets {
             .get(&wallet_id)
             .ok_or_else(|| anyhow!("wallet not found"))?;
         let id = WalletId::from_bytes(rand::rng().random());
-        let temp = LmdbWalletStore::new_from_json(
-            1,
-            self.kdf.clone(),
-            &self.env,
-            &PathBuf::from(id.to_string()),
-            json,
-        )?;
+        let temp = self.store_factory.create_from_json(id, json)?;
 
         let mut txn = self.env.begin_write();
         let result = if temp.attempt_password(&txn, password) {
-            existing.store.import_wallet(&mut txn, &temp)
+            existing.store.import_wallet(&mut txn, temp.as_ref())
         } else {
             Err(anyhow!("bad password"))
         };
@@ -1311,18 +1298,9 @@ impl Wallets {
     pub fn create(&self, wallet_id: WalletId) {
         let mut guard = self.wallets.lock().unwrap();
         debug_assert!(!guard.contains_key(&wallet_id));
-        let wallet = {
-            let Ok(wallet) = Wallet::new(
-                wallet_id,
-                &self.env,
-                self.wallets_config.password_fanout as usize,
-                self.kdf.clone(),
-                self.random_representative(),
-                &PathBuf::from(wallet_id.to_string()),
-            ) else {
-                return;
-            };
-            Arc::new(wallet)
+        let wallet = match self.create_wallet_with_rep(wallet_id, self.random_representative()) {
+            Ok(wallet) => wallet,
+            Err(_) => return,
         };
         guard.insert(wallet_id, Arc::clone(&wallet));
         self.enter_initial_password(&wallet);
@@ -1710,8 +1688,21 @@ mod tests {
             let work = WorkThresholds::default_for(network);
             let ledger = Arc::new(args.ledger.unwrap_or_else(|| Ledger::new_null()));
             let clock = Arc::new(SteadyClock::new_null());
+            let kdf = KeyDerivationFunction::new(wallets_config.kdf_work);
+            let store_factory = Arc::new(LmdbWalletStoreFactory::new(
+                Arc::clone(&env),
+                wallets_config.password_fanout as usize,
+                kdf,
+            ));
 
-            let wallets = Arc::new(Wallets::new(wallets_config, env, ledger, work, clock));
+            let wallets = Arc::new(Wallets::new(
+                wallets_config,
+                env,
+                ledger,
+                work,
+                clock,
+                store_factory,
+            ));
 
             let (tx_work, rx_work) = mpsc::channel();
             if !args.disable_work_queue {

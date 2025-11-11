@@ -1,9 +1,12 @@
-use std::path::Path;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::Result;
-use rsnano_nullable_lmdb::{Transaction, WriteTransaction};
+use rsnano_nullable_lmdb::{LmdbEnvironment, Transaction, WriteTransaction};
 use rsnano_store_lmdb::{KeyType, LmdbWalletStore, WalletValue};
-use rsnano_types::{PublicKey, RawKey, WorkNonce};
+use rsnano_types::{KeyDerivationFunction, PublicKey, RawKey, WalletId, WorkNonce};
 
 pub type WalletStoreIterator<'a> = Box<dyn Iterator<Item = (PublicKey, WalletValue)> + 'a>;
 
@@ -68,6 +71,69 @@ pub trait WalletStore: Send + Sync {
         }
 
         Ok(())
+    }
+}
+
+pub trait WalletStoreFactory: Send + Sync {
+    fn open_existing(&self, wallet_id: WalletId) -> Result<Arc<dyn WalletStore>>;
+    fn create_new(
+        &self,
+        wallet_id: WalletId,
+        representative: PublicKey,
+    ) -> Result<Arc<dyn WalletStore>>;
+    fn create_from_json(&self, wallet_id: WalletId, json: &str) -> Result<Arc<dyn WalletStore>>;
+}
+
+pub struct LmdbWalletStoreFactory {
+    env: Arc<LmdbEnvironment>,
+    fanout: usize,
+    kdf: KeyDerivationFunction,
+}
+
+impl LmdbWalletStoreFactory {
+    pub fn new(env: Arc<LmdbEnvironment>, fanout: usize, kdf: KeyDerivationFunction) -> Self {
+        Self { env, fanout, kdf }
+    }
+
+    fn wallet_path(&self, wallet_id: WalletId) -> PathBuf {
+        PathBuf::from(wallet_id.to_string())
+    }
+}
+
+impl WalletStoreFactory for LmdbWalletStoreFactory {
+    fn open_existing(&self, wallet_id: WalletId) -> Result<Arc<dyn WalletStore>> {
+        let path = self.wallet_path(wallet_id);
+        let store = LmdbWalletStore::new(
+            self.fanout,
+            self.kdf.clone(),
+            &self.env,
+            &PublicKey::ZERO,
+            &path,
+        )?;
+        Ok(Arc::new(store))
+    }
+
+    fn create_new(
+        &self,
+        wallet_id: WalletId,
+        representative: PublicKey,
+    ) -> Result<Arc<dyn WalletStore>> {
+        let path = self.wallet_path(wallet_id);
+        let store = LmdbWalletStore::new(
+            self.fanout,
+            self.kdf.clone(),
+            &self.env,
+            &representative,
+            &path,
+        )?;
+        Ok(Arc::new(store))
+    }
+
+    fn create_from_json(&self, wallet_id: WalletId, json: &str) -> Result<Arc<dyn WalletStore>> {
+        let path = self.wallet_path(wallet_id);
+        let store =
+            LmdbWalletStore::new_from_json(self.fanout, self.kdf.clone(), &self.env, &path, json)?;
+        Ok(Arc::new(store))
     }
 }
 

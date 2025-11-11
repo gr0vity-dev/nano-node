@@ -1,11 +1,8 @@
-use std::{path::Path, sync::Arc};
-
-use anyhow::Context;
+use std::sync::Arc;
 
 use rsnano_ledger::{AnySet, Ledger};
-use rsnano_nullable_lmdb::{LmdbEnvironment, Transaction, WriteTransaction};
-use rsnano_store_lmdb::LmdbWalletStore;
-use rsnano_types::{KeyDerivationFunction, PrivateKey, PublicKey, WalletId, WorkNonce};
+use rsnano_nullable_lmdb::{Transaction, WriteTransaction};
+use rsnano_types::{PrivateKey, PublicKey, WalletId, WorkNonce};
 
 use crate::WalletStore;
 
@@ -15,34 +12,6 @@ pub struct Wallet {
 }
 
 impl Wallet {
-    pub fn new(
-        id: WalletId,
-        env: &LmdbEnvironment,
-        fanout: usize,
-        kdf: KeyDerivationFunction,
-        representative: PublicKey,
-        wallet_path: &Path,
-    ) -> anyhow::Result<Self> {
-        let store = LmdbWalletStore::new(fanout, kdf, env, &representative, &wallet_path)
-            .context("could not create wallet store")?;
-
-        Ok(Self::from_store(id, Arc::new(store)))
-    }
-
-    pub fn new_from_json(
-        id: WalletId,
-        env: &LmdbEnvironment,
-        fanout: usize,
-        kdf: KeyDerivationFunction,
-        wallet_path: &Path,
-        json: &str,
-    ) -> anyhow::Result<Self> {
-        let store = LmdbWalletStore::new_from_json(fanout, kdf, env, &wallet_path, json)
-            .context("could not create wallet store")?;
-
-        Ok(Self::from_store(id, Arc::new(store)))
-    }
-
     pub fn id(&self) -> &WalletId {
         &self.id
     }
