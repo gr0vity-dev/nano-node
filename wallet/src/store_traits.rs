@@ -4,8 +4,8 @@ use std::{
 };
 
 use anyhow::Result;
-use rsnano_nullable_lmdb::{LmdbEnvironment, Transaction, WriteTransaction};
-use rsnano_store_lmdb::{KeyType, LmdbWalletStore, WalletValue};
+use rsnano_nullable_lmdb::{LmdbDatabase, LmdbEnvironment, Transaction, WriteTransaction};
+use rsnano_store_lmdb::{KeyType, LmdbIterator, LmdbWalletStore, WalletValue};
 use rsnano_types::{KeyDerivationFunction, PublicKey, RawKey, WalletId, WorkNonce};
 
 pub type WalletStoreIterator<'a> = Box<dyn Iterator<Item = (PublicKey, WalletValue)> + 'a>;
@@ -21,6 +21,8 @@ pub trait WalletStore: Send + Sync {
     fn deterministic_insert(&self, txn: &mut WriteTransaction) -> PublicKey;
     fn deterministic_insert_at(&self, txn: &mut WriteTransaction, index: u32) -> PublicKey;
     fn deterministic_index_get(&self, txn: &dyn Transaction) -> u32;
+    fn deterministic_index_set(&self, txn: &mut WriteTransaction, index: u32);
+    fn deterministic_clear(&self, txn: &mut WriteTransaction);
     fn insert_adhoc(&self, txn: &mut WriteTransaction, prv: &RawKey) -> PublicKey;
     fn insert_watch(&self, txn: &mut WriteTransaction, pub_key: &PublicKey) -> Result<()>;
     fn fetch(&self, txn: &dyn Transaction, pub_key: &PublicKey) -> Result<RawKey>;
@@ -38,6 +40,24 @@ pub trait WalletStore: Send + Sync {
     fn write_backup(&self, txn: &dyn Transaction, path: &Path) -> Result<()>;
     fn iter<'a>(&'a self, txn: &'a dyn Transaction) -> WalletStoreIterator<'a>;
     fn destroy(&self, txn: &mut WriteTransaction);
+
+    fn move_keys(
+        &self,
+        txn: &mut WriteTransaction,
+        other: &dyn WalletStore,
+        keys: &[PublicKey],
+    ) -> Result<()> {
+        assert!(self.valid_password(txn));
+        assert!(other.valid_password(txn));
+
+        for key in keys {
+            let prv = other.fetch(txn, key)?;
+            self.insert_adhoc(txn, &prv);
+            other.erase(txn, key);
+        }
+
+        Ok(())
+    }
 
     fn import_wallet(&self, txn: &mut WriteTransaction, other: &dyn WalletStore) -> Result<()> {
         assert!(self.valid_password(txn));
@@ -82,6 +102,7 @@ pub trait WalletStoreFactory: Send + Sync {
         representative: PublicKey,
     ) -> Result<Arc<dyn WalletStore>>;
     fn create_from_json(&self, wallet_id: WalletId, json: &str) -> Result<Arc<dyn WalletStore>>;
+    fn list_wallet_ids(&self) -> Result<Vec<WalletId>>;
 }
 
 pub struct LmdbWalletStoreFactory {
@@ -97,6 +118,10 @@ impl LmdbWalletStoreFactory {
 
     fn wallet_path(&self, wallet_id: WalletId) -> PathBuf {
         PathBuf::from(wallet_id.to_string())
+    }
+
+    fn wallets_db(&self) -> LmdbDatabase {
+        self.env.open_db(None).expect("wallets db should exist")
     }
 }
 
@@ -134,6 +159,24 @@ impl WalletStoreFactory for LmdbWalletStoreFactory {
         let store =
             LmdbWalletStore::new_from_json(self.fanout, self.kdf.clone(), &self.env, &path, json)?;
         Ok(Arc::new(store))
+    }
+
+    fn list_wallet_ids(&self) -> Result<Vec<WalletId>> {
+        let db = self.wallets_db();
+        let txn = self.env.begin_read();
+        let cursor = txn.open_ro_cursor(db)?;
+        let ids = LmdbIterator::new(cursor, |key, _| {
+            if key.len() == 64 {
+                let id =
+                    WalletId::decode_hex(std::str::from_utf8(key).unwrap()).unwrap_or_default();
+                (id, ())
+            } else {
+                (WalletId::ZERO, ())
+            }
+        })
+        .filter_map(|(id, _)| if id.is_zero() { None } else { Some(id) })
+        .collect();
+        Ok(ids)
     }
 }
 
@@ -176,6 +219,14 @@ impl WalletStore for LmdbWalletStore {
 
     fn deterministic_index_get(&self, txn: &dyn Transaction) -> u32 {
         LmdbWalletStore::deterministic_index_get(self, txn)
+    }
+
+    fn deterministic_index_set(&self, txn: &mut WriteTransaction, index: u32) {
+        LmdbWalletStore::deterministic_index_set(self, txn, index)
+    }
+
+    fn deterministic_clear(&self, txn: &mut WriteTransaction) {
+        LmdbWalletStore::deterministic_clear(self, txn)
     }
 
     fn insert_adhoc(&self, txn: &mut WriteTransaction, prv: &RawKey) -> PublicKey {

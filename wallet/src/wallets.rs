@@ -15,7 +15,7 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_lmdb::{
     DatabaseFlags, LmdbDatabase, LmdbEnvironment, Transaction, WriteFlags, WriteTransaction,
 };
-use rsnano_store_lmdb::{KeyType, LmdbIterator};
+use rsnano_store_lmdb::KeyType;
 use rsnano_types::{
     Account, Amount, Block, BlockDetails, BlockHash, Epoch, KeyDerivationFunction, Link, Networks,
     PendingKey, PrivateKey, PublicKey, RawKey, Root, SavedBlock, StateBlockArgs, WalletId,
@@ -129,6 +129,16 @@ impl Wallets {
             .unwrap_or(self.ledger.constants.genesis_account.into())
     }
 
+    fn list_wallet_ids(&self) -> Vec<WalletId> {
+        match self.store_factory.list_wallet_ids() {
+            Ok(ids) => ids,
+            Err(e) => {
+                warn!("Failed to list wallet ids: {e:?}");
+                Vec::new()
+            }
+        }
+    }
+
     fn open_wallet(&self, wallet_id: WalletId) -> anyhow::Result<Arc<Wallet>> {
         let store = self.store_factory.open_existing(wallet_id)?;
         Ok(Arc::new(Wallet::from_store(wallet_id, store)))
@@ -207,39 +217,17 @@ impl Wallets {
         Ok(())
     }
 
-    fn iter_wallets<'tx>(&self, tx: &'tx dyn Transaction) -> impl Iterator<Item = WalletId> + 'tx {
-        let cursor = tx
-            .open_ro_cursor(self.db.unwrap())
-            .expect("Could not read from wallets db");
-
-        LmdbIterator::new(cursor, |k, _| {
-            // wallet tables are identified by their wallet id hex string which is 64 bytes
-            let key = if k.len() == 64 {
-                WalletId::decode_hex(std::str::from_utf8(k).unwrap()).unwrap()
-            } else {
-                WalletId::ZERO
-            };
-            (key, ())
-        })
-        .filter_map(|(k, _)| if k.is_zero() { None } else { Some(k) })
-    }
-
     pub fn wallet_ids(&self) -> Vec<WalletId> {
-        let txn = self.env.begin_read();
-        let ids = self.get_wallet_ids_with_tx(&txn);
-        txn.commit();
-        ids
+        self.list_wallet_ids()
     }
 
     pub fn get_wallet_ids(&self) -> Vec<WalletId> {
-        let txn = self.env.begin_read();
-        let ids = self.iter_wallets(&txn).collect::<Vec<_>>();
-        txn.commit();
-        ids
+        self.list_wallet_ids()
     }
 
     pub fn get_wallet_ids_with_tx(&self, tx: &dyn Transaction) -> Vec<WalletId> {
-        self.iter_wallets(tx).collect()
+        let _ = tx;
+        self.list_wallet_ids()
     }
 
     pub fn get_block_hash(
