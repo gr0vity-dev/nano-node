@@ -546,9 +546,7 @@ fn build_network_threads(
     dead_channel_cleanup.add_step(BootstrapResponderCleanup::new(
         bootstrap_server.server_impl.clone(),
     ));
-    dead_channel_cleanup.add_step(VoteProcessorQueueCleanup::new(
-        vote_processor_queue.clone(),
-    ));
+    dead_channel_cleanup.add_step(VoteProcessorQueueCleanup::new(vote_processor_queue.clone()));
     dead_channel_cleanup.add_step(block_processor_queue.clone());
     dead_channel_cleanup.add_step(LatestKeepalivesCleanup::new(latest_keepalives.clone()));
     dead_channel_cleanup.add_step(NetworkCleanup::new(network_adapter.clone()));

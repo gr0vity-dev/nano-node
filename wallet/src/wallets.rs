@@ -510,10 +510,7 @@ impl Wallets {
         }
 
         let mut txn = self.env.begin_write();
-        let result = target
-            .store
-            .move_keys(&mut txn, &source.store, accounts)
-            .map_err(|_| WalletsError::AccountNotFound);
+        let result = Self::move_accounts_between_stores(target, source, accounts, &mut txn);
         txn.commit();
         result
     }
@@ -539,6 +536,23 @@ impl Wallets {
         let index = wallet.store.deterministic_index_get(&txn);
         txn.commit();
         Ok(index)
+    }
+
+    fn move_accounts_between_stores(
+        target: &Arc<Wallet>,
+        source: &Arc<Wallet>,
+        accounts: &[PublicKey],
+        txn: &mut WriteTransaction,
+    ) -> Result<(), WalletsError> {
+        for account in accounts {
+            let prv = source
+                .store
+                .fetch(txn, account)
+                .map_err(|_| WalletsError::AccountNotFound)?;
+            target.store.insert_adhoc(txn, &prv);
+            source.store.erase(txn, account);
+        }
+        Ok(())
     }
 
     fn prepare_send(
@@ -745,7 +759,7 @@ impl Wallets {
 
         let mut txn = self.env.begin_write();
         let result = if temp.attempt_password(&txn, password) {
-            existing.store.import(&mut txn, &temp)
+            existing.store.import_wallet(&mut txn, &temp)
         } else {
             Err(anyhow!("bad password"))
         };

@@ -8,8 +8,8 @@ use rsnano_types::{
 
 use super::{BorrowingConfirmedSet, ConfirmedSet, LedgerSet};
 use crate::{
-    DependentBlocksFinder, LedgerConstants, LedgerStore, PendingStore, RangeBounds as StoreRangeBounds,
-    RepresentativeBlockFinder,
+    DependentBlocksFinder, LedgerConstants, LedgerStore, PendingStore,
+    RangeBounds as StoreRangeBounds, RepresentativeBlockFinder,
 };
 
 pub trait AnySet: LedgerSet {
@@ -668,10 +668,11 @@ fn clone_bound<T: Clone>(bound: Bound<&T>) -> Bound<T> {
     }
 }
 
-fn to_store_range<T: Clone>(
-    range: impl RangeBounds<T>,
-) -> StoreRangeBounds<T> {
-    StoreRangeBounds::new(clone_bound(range.start_bound()), clone_bound(range.end_bound()))
+fn to_store_range<T: Clone>(range: impl RangeBounds<T>) -> StoreRangeBounds<T> {
+    StoreRangeBounds::new(
+        clone_bound(range.start_bound()),
+        clone_bound(range.end_bound()),
+    )
 }
 
 #[cfg(test)]

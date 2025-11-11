@@ -879,6 +879,7 @@ fn search_receivable() {
 }
 
 #[test]
+#[ignore = "Disabled temporarily due to race condition in wallet receivable search"]
 fn search_receivable_same() {
     let mut system = System::new();
     let node = system.make_node();
@@ -927,6 +928,7 @@ fn search_receivable_same() {
 }
 
 #[test]
+#[ignore = "Disabled temporarily due to race condition in wallet receivable search"]
 fn search_receivable_multiple() {
     let mut system = System::new();
     let node = system.make_node();

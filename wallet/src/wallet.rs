@@ -7,9 +7,11 @@ use rsnano_nullable_lmdb::{LmdbEnvironment, Transaction, WriteTransaction};
 use rsnano_store_lmdb::LmdbWalletStore;
 use rsnano_types::{KeyDerivationFunction, PrivateKey, PublicKey, WalletId, WorkNonce};
 
+use crate::WalletStore;
+
 pub struct Wallet {
     id: WalletId,
-    pub store: Arc<LmdbWalletStore>,
+    pub store: Arc<dyn WalletStore>,
 }
 
 impl Wallet {
@@ -24,10 +26,7 @@ impl Wallet {
         let store = LmdbWalletStore::new(fanout, kdf, env, &representative, &wallet_path)
             .context("could not create wallet store")?;
 
-        Ok(Self {
-            id,
-            store: Arc::new(store),
-        })
+        Ok(Self::from_store(id, Arc::new(store)))
     }
 
     pub fn new_from_json(
@@ -41,14 +40,15 @@ impl Wallet {
         let store = LmdbWalletStore::new_from_json(fanout, kdf, env, &wallet_path, json)
             .context("could not create wallet store")?;
 
-        Ok(Self {
-            id,
-            store: Arc::new(store),
-        })
+        Ok(Self::from_store(id, Arc::new(store)))
     }
 
     pub fn id(&self) -> &WalletId {
         &self.id
+    }
+
+    pub fn from_store(id: WalletId, store: Arc<dyn WalletStore>) -> Self {
+        Self { id, store }
     }
 
     pub fn work_put(&self, txn: &mut WriteTransaction, pub_key: &PublicKey, work: WorkNonce) {

@@ -80,10 +80,7 @@ mod tests {
         fork_detector.process(&LedgerEvent::BlocksProcessed(vec![processed_results]));
 
         assert_eq!(
-            ledger
-                .store
-                .forks
-                .get(&ledger.store.begin_read(), &root),
+            ledger.store.forks.get(&ledger.store.begin_read(), &root),
             Some(snapshot_number)
         );
     }
@@ -124,18 +121,12 @@ mod tests {
         ]));
 
         assert_eq!(
-            ledger
-                .store
-                .forks
-                .get(&ledger.store.begin_read(), &root1),
+            ledger.store.forks.get(&ledger.store.begin_read(), &root1),
             Some(snapshot_number)
         );
 
         assert_eq!(
-            ledger
-                .store
-                .forks
-                .get(&ledger.store.begin_read(), &root2),
+            ledger.store.forks.get(&ledger.store.begin_read(), &root2),
             Some(snapshot_number)
         );
     }
@@ -163,10 +154,7 @@ mod tests {
         fork_detector.process(&LedgerEvent::BlocksProcessed(vec![processed_results]));
 
         assert_eq!(
-            ledger
-                .store
-                .forks
-                .get(&ledger.store.begin_read(), &root),
+            ledger.store.forks.get(&ledger.store.begin_read(), &root),
             None
         );
     }

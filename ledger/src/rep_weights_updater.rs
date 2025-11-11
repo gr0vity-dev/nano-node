@@ -6,7 +6,7 @@ use std::{
 use rsnano_nullable_lmdb::WriteTransaction;
 use rsnano_types::{Amount, PublicKey};
 
-use crate::{RepWeightCache, RepWeights, RepWeightStore};
+use crate::{RepWeightCache, RepWeightStore, RepWeights};
 
 /// Updates the representative weights in the ledger and in the in-memory cache
 pub struct RepWeightsUpdater {
@@ -16,11 +16,7 @@ pub struct RepWeightsUpdater {
 }
 
 impl RepWeightsUpdater {
-    pub fn new(
-        store: Arc<dyn RepWeightStore>,
-        min_weight: Amount,
-        cache: &RepWeightCache,
-    ) -> Self {
+    pub fn new(store: Arc<dyn RepWeightStore>, min_weight: Amount, cache: &RepWeightCache) -> Self {
         RepWeightsUpdater {
             weight_cache: cache.inner(),
             store,

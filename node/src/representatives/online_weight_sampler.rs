@@ -53,7 +53,8 @@ impl OnlineWeightSampler {
     fn load_samples(&self) -> Vec<Amount> {
         let txn = self.ledger.store.begin_read();
         self.ledger
-            .store.online_weight()
+            .store
+            .online_weight()
             .iter(&txn)
             .map(|(_, amount)| amount)
             .collect()

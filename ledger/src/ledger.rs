@@ -31,8 +31,8 @@ use rsnano_work_validation::WorkThresholds;
 
 use crate::{
     BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, GenerateCacheFlags,
-    LedgerConstants, LedgerSet, LedgerStore, OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet,
-    RepWeightCache, RepWeightsUpdater, RollbackError,
+    LedgerConstants, LedgerSet, LedgerStore, OwningAnySet, OwningConfirmedSet,
+    OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater, RollbackError,
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
     vote_verifier::VoteVerifier,
@@ -315,34 +315,35 @@ impl Ledger {
 
         if generate_cache.reps || generate_cache.account_count || generate_cache.block_count {
             self.store.for_each_account_par(thread_count, &|iter| {
-                    let mut block_count = 0;
-                    let mut account_count = 0;
-                    let mut rep_weights: HashMap<PublicKey, Amount> = HashMap::new();
+                let mut block_count = 0;
+                let mut account_count = 0;
+                let mut rep_weights: HashMap<PublicKey, Amount> = HashMap::new();
 
-                    for (_, info) in iter {
-                        block_count += info.block_count;
-                        account_count += 1;
-                        if !info.balance.is_zero() {
-                            let total = rep_weights.entry(info.representative).or_default();
-                            *total += info.balance;
-                        }
+                for (_, info) in iter {
+                    block_count += info.block_count;
+                    account_count += 1;
+                    if !info.balance.is_zero() {
+                        let total = rep_weights.entry(info.representative).or_default();
+                        *total += info.balance;
                     }
-                    self.store
-                        .cache()
-                        .block_count
-                        .fetch_add(block_count, Ordering::SeqCst);
+                }
+                self.store
+                    .cache()
+                    .block_count
+                    .fetch_add(block_count, Ordering::SeqCst);
 
-                    self.store
-                        .cache()
-                        .account_count
-                        .fetch_add(account_count, Ordering::SeqCst);
+                self.store
+                    .cache()
+                    .account_count
+                    .fetch_add(account_count, Ordering::SeqCst);
 
-                    self.rep_weights_updater.copy_from(&rep_weights);
-                });
+                self.rep_weights_updater.copy_from(&rep_weights);
+            });
         }
 
         if generate_cache.confirmed_count {
-            self.store.for_each_confirmation_height_par(thread_count, &|iter| {
+            self.store
+                .for_each_confirmation_height_par(thread_count, &|iter| {
                     let mut confirmed_count = 0;
                     for (_, info) in iter {
                         confirmed_count += info.height;
@@ -842,7 +843,10 @@ impl Ledger {
     }
 
     pub fn simulate_block_count(&self, value: u64) {
-        self.store.cache().block_count.store(value, Ordering::SeqCst)
+        self.store
+            .cache()
+            .block_count
+            .store(value, Ordering::SeqCst)
     }
 
     pub fn confirmed_count(&self) -> u64 {

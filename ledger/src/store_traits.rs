@@ -129,7 +129,9 @@ pub trait LedgerStore: Send + Sync {
     fn for_each_confirmation_height_par(
         &self,
         thread_count: usize,
-        action: &(dyn Fn(&mut dyn Iterator<Item = (Account, ConfirmationHeightInfo)>) + Send + Sync),
+        action: &(
+             dyn Fn(&mut dyn Iterator<Item = (Account, ConfirmationHeightInfo)>) + Send + Sync
+         ),
     );
 }
 
@@ -327,7 +329,9 @@ impl LedgerStore for LmdbStore {
     fn for_each_confirmation_height_par(
         &self,
         thread_count: usize,
-        action: &(dyn Fn(&mut dyn Iterator<Item = (Account, ConfirmationHeightInfo)>) + Send + Sync),
+        action: &(
+             dyn Fn(&mut dyn Iterator<Item = (Account, ConfirmationHeightInfo)>) + Send + Sync
+         ),
     ) {
         self.confirmation_height
             .for_each_par(&self.env, thread_count, |iter| action(iter));

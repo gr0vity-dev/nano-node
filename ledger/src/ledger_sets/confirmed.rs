@@ -39,10 +39,10 @@ impl<'a> OwningConfirmedSet<'a> {
         send_hash: BlockHash,
     ) -> Option<(PendingKey, PendingInfo)> {
         let start = PendingKey::new(account, send_hash);
-        let mut it = self
-            .store
-            .pending()
-            .iter_range(&self.tx, StoreRangeBounds::new(Bound::Included(start), Bound::Unbounded));
+        let mut it = self.store.pending().iter_range(
+            &self.tx,
+            StoreRangeBounds::new(Bound::Included(start), Bound::Unbounded),
+        );
 
         let (mut key, mut info) = it.next()?;
 
