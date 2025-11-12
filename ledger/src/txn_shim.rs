@@ -1,4 +1,3 @@
-use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
 use crate::LedgerStore;
@@ -32,21 +31,13 @@ impl LedgerReadTxnSHIM {
     }
 
     pub fn is_refresh_needed(&self) -> bool {
-        self.inner.is_refresh_needed()
-    }
-}
-
-impl Deref for LedgerReadTxnSHIM {
-    type Target = ReadTransaction;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
+        LmdbTransaction::is_refresh_needed(&self.inner)
     }
 }
 
 impl LmdbTransaction for LedgerReadTxnSHIM {
     fn is_refresh_needed(&self) -> bool {
-        self.inner.is_refresh_needed()
+        LmdbTransaction::is_refresh_needed(&self.inner)
     }
 
     fn is_refresh_needed_with(&self, max_duration: Duration) -> bool {
@@ -85,27 +76,13 @@ impl LedgerWriteTxnSHIM {
     }
 
     pub fn is_refresh_needed(&self) -> bool {
-        self.inner.is_refresh_needed()
-    }
-}
-
-impl Deref for LedgerWriteTxnSHIM {
-    type Target = WriteTransaction;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl DerefMut for LedgerWriteTxnSHIM {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
+        LmdbTransaction::is_refresh_needed(&self.inner)
     }
 }
 
 impl LmdbTransaction for LedgerWriteTxnSHIM {
     fn is_refresh_needed(&self) -> bool {
-        self.inner.is_refresh_needed()
+        LmdbTransaction::is_refresh_needed(&self.inner)
     }
 
     fn is_refresh_needed_with(&self, max_duration: Duration) -> bool {
@@ -128,12 +105,20 @@ impl LmdbTransaction for LedgerWriteTxnSHIM {
 /// Shared transaction trait exposed inside the ledger module so logic code can
 /// accept "any" ledger transaction without importing LMDB types.
 impl LedgerReadTxn for LedgerReadTxnSHIM {
+    fn is_refresh_needed(&self) -> bool {
+        self.is_refresh_needed()
+    }
+
     fn as_lmdb_txn_shim(&self) -> &dyn LmdbTransaction {
         &self.inner
     }
 }
 
 impl LedgerReadTxn for LedgerWriteTxnSHIM {
+    fn is_refresh_needed(&self) -> bool {
+        self.is_refresh_needed()
+    }
+
     fn as_lmdb_txn_shim(&self) -> &dyn LmdbTransaction {
         &self.inner
     }

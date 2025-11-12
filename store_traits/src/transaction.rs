@@ -1,4 +1,7 @@
+use rsnano_nullable_lmdb::Transaction as LmdbTransaction;
+
 pub trait LedgerReadTxn {
+    fn is_refresh_needed(&self) -> bool;
     /// Temporary LMDB escape hatch until adapters are in place.
     fn as_lmdb_txn_shim(&self) -> &dyn rsnano_nullable_lmdb::Transaction;
 }
@@ -8,12 +11,20 @@ pub trait LedgerWriteTxn: LedgerReadTxn {
 }
 
 impl LedgerReadTxn for rsnano_nullable_lmdb::ReadTransaction {
+    fn is_refresh_needed(&self) -> bool {
+        LmdbTransaction::is_refresh_needed(self)
+    }
+
     fn as_lmdb_txn_shim(&self) -> &dyn rsnano_nullable_lmdb::Transaction {
         self
     }
 }
 
 impl LedgerReadTxn for rsnano_nullable_lmdb::WriteTransaction {
+    fn is_refresh_needed(&self) -> bool {
+        LmdbTransaction::is_refresh_needed(self)
+    }
+
     fn as_lmdb_txn_shim(&self) -> &dyn rsnano_nullable_lmdb::Transaction {
         self
     }

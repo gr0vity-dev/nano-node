@@ -10,6 +10,7 @@ use crate::{
     DependentBlocksFinder, LedgerConstants, LedgerReadTxnSHIM, LedgerStore, LedgerTxnSHIM,
     PendingStore, RangeBounds as StoreRangeBounds, RepresentativeBlockFinder,
 };
+use store_traits::LedgerReadTxn;
 
 pub trait AnySet: LedgerSet {
     fn should_refresh(&self) -> bool;
@@ -428,7 +429,7 @@ impl<'a> AnySet for BorrowingAnySet<'a> {
     }
 
     fn should_refresh(&self) -> bool {
-        self.tx.is_refresh_needed()
+        LedgerReadTxn::is_refresh_needed(self.tx)
     }
 
     fn block_successor(&self, hash: &BlockHash) -> Option<BlockHash> {

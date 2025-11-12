@@ -42,7 +42,7 @@ impl RepWeightsUpdater {
         representative: PublicKey,
         amount: Amount,
     ) {
-        let previous_weight = self.store.get(&*tx, &representative).unwrap_or_default();
+        let previous_weight = self.store.get(tx, &representative).unwrap_or_default();
         let new_weight = previous_weight.wrapping_add(amount);
         self.put_store(tx, representative, previous_weight, new_weight);
         let mut guard = self.weight_cache.write().unwrap();
@@ -93,8 +93,8 @@ impl RepWeightsUpdater {
         amount_2: Amount,
     ) {
         if rep_1 != rep_2 {
-            let previous_weight_1 = self.store.get(&*tx, &rep_1).unwrap_or_default();
-            let previous_weight_2 = self.store.get(&*tx, &rep_2).unwrap_or_default();
+            let previous_weight_1 = self.store.get(tx, &rep_1).unwrap_or_default();
+            let previous_weight_2 = self.store.get(tx, &rep_2).unwrap_or_default();
             let new_weight_1 = previous_weight_1.wrapping_add(amount_1);
             let new_weight_2 = previous_weight_2.wrapping_add(amount_2);
             self.put_store(tx, rep_1, previous_weight_1, new_weight_1);

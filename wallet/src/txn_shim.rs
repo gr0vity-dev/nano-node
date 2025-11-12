@@ -1,7 +1,4 @@
-use std::{
-    ops::{Deref, DerefMut},
-    time::Duration,
-};
+use std::time::Duration;
 
 use rsnano_nullable_lmdb::{
     LmdbDatabase, ReadTransaction, RoCursor, Transaction as LmdbTransaction, WriteFlags,
@@ -44,14 +41,6 @@ impl WalletReadTxnSHIM {
 
     pub fn into_inner(self) -> ReadTransaction {
         self.inner
-    }
-}
-
-impl Deref for WalletReadTxnSHIM {
-    type Target = ReadTransaction;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
     }
 }
 
@@ -116,20 +105,6 @@ impl WalletWriteTxnSHIM {
 
     pub fn into_inner(self) -> WriteTransaction {
         self.inner
-    }
-}
-
-impl Deref for WalletWriteTxnSHIM {
-    type Target = WriteTransaction;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl DerefMut for WalletWriteTxnSHIM {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
     }
 }
 
