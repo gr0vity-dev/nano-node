@@ -156,9 +156,23 @@ impl LmdbTransaction for WalletWriteTxnSHIM {
 }
 
 /// Temporary trait alias letting wallet logic accept either shim without naming LMDB types.
-impl WalletReadTxn for WalletReadTxnSHIM {}
-impl WalletReadTxn for WalletWriteTxnSHIM {}
-impl WalletWriteTxn for WalletWriteTxnSHIM {}
+impl WalletReadTxn for WalletReadTxnSHIM {
+    fn as_lmdb_txn_shim(&self) -> &dyn LmdbTransaction {
+        &self.inner
+    }
+}
+
+impl WalletReadTxn for WalletWriteTxnSHIM {
+    fn as_lmdb_txn_shim(&self) -> &dyn LmdbTransaction {
+        &self.inner
+    }
+}
+
+impl WalletWriteTxn for WalletWriteTxnSHIM {
+    fn as_lmdb_write_txn_shim(&mut self) -> &mut WriteTransaction {
+        &mut self.inner
+    }
+}
 
 pub trait WalletTxnSHIM: WalletReadTxn + LmdbTransaction {}
 

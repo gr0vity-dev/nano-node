@@ -127,9 +127,23 @@ impl LmdbTransaction for LedgerWriteTxnSHIM {
 
 /// Shared transaction trait exposed inside the ledger module so logic code can
 /// accept "any" ledger transaction without importing LMDB types.
-impl LedgerReadTxn for LedgerReadTxnSHIM {}
-impl LedgerReadTxn for LedgerWriteTxnSHIM {}
-impl LedgerWriteTxn for LedgerWriteTxnSHIM {}
+impl LedgerReadTxn for LedgerReadTxnSHIM {
+    fn as_lmdb_txn_shim(&self) -> &dyn LmdbTransaction {
+        &self.inner
+    }
+}
+
+impl LedgerReadTxn for LedgerWriteTxnSHIM {
+    fn as_lmdb_txn_shim(&self) -> &dyn LmdbTransaction {
+        &self.inner
+    }
+}
+
+impl LedgerWriteTxn for LedgerWriteTxnSHIM {
+    fn as_lmdb_write_txn_shim(&mut self) -> &mut WriteTransaction {
+        &mut self.inner
+    }
+}
 
 pub trait LedgerTxnSHIM: LedgerReadTxn + LmdbTransaction {}
 
@@ -170,7 +184,11 @@ impl LmdbTransaction for LedgerTxnAdapterSHIM<'_> {
     }
 }
 
-impl<'a> LedgerReadTxn for LedgerTxnAdapterSHIM<'a> {}
+impl<'a> LedgerReadTxn for LedgerTxnAdapterSHIM<'a> {
+    fn as_lmdb_txn_shim(&self) -> &dyn LmdbTransaction {
+        self.inner.as_lmdb_txn_shim()
+    }
+}
 
 #[allow(non_snake_case)]
 pub fn begin_read_txn_SHIM(store: &dyn LedgerStore) -> LedgerReadTxnSHIM {

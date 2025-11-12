@@ -4,47 +4,47 @@ use std::{
     sync::Arc,
 };
 
+use crate::{WalletReadTxn, WalletWriteTxn};
 use anyhow::Result;
 use num_derive::FromPrimitive;
-use rsnano_nullable_lmdb::{Transaction, WriteTransaction};
 use rsnano_types::{DeserializationError, PublicKey, RawKey, WalletId, WorkNonce, read_u64_ne};
 
 pub type WalletStoreIterator<'a> = Box<dyn Iterator<Item = (PublicKey, WalletValue)> + 'a>;
 
 pub trait WalletStore: Send + Sync {
     fn password(&self) -> RawKey;
-    fn valid_password(&self, txn: &dyn Transaction) -> bool;
-    fn attempt_password(&self, txn: &dyn Transaction, password: &str) -> bool;
-    fn rekey(&self, txn: &mut WriteTransaction, password: &str) -> Result<()>;
+    fn valid_password(&self, txn: &dyn WalletReadTxn) -> bool;
+    fn attempt_password(&self, txn: &dyn WalletReadTxn, password: &str) -> bool;
+    fn rekey(&self, txn: &mut dyn WalletWriteTxn, password: &str) -> Result<()>;
     fn lock(&self);
     fn is_open(&self) -> bool;
-    fn deterministic_key(&self, txn: &dyn Transaction, index: u32) -> RawKey;
-    fn deterministic_insert(&self, txn: &mut WriteTransaction) -> PublicKey;
-    fn deterministic_insert_at(&self, txn: &mut WriteTransaction, index: u32) -> PublicKey;
-    fn deterministic_index_get(&self, txn: &dyn Transaction) -> u32;
-    fn deterministic_index_set(&self, txn: &mut WriteTransaction, index: u32);
-    fn deterministic_clear(&self, txn: &mut WriteTransaction);
-    fn insert_adhoc(&self, txn: &mut WriteTransaction, prv: &RawKey) -> PublicKey;
-    fn insert_watch(&self, txn: &mut WriteTransaction, pub_key: &PublicKey) -> Result<()>;
-    fn fetch(&self, txn: &dyn Transaction, pub_key: &PublicKey) -> Result<RawKey>;
-    fn erase(&self, txn: &mut WriteTransaction, pub_key: &PublicKey);
-    fn exists(&self, txn: &dyn Transaction, pub_key: &PublicKey) -> bool;
-    fn find(&self, txn: &dyn Transaction, pub_key: &PublicKey) -> Option<WalletValue>;
-    fn get_key_type(&self, txn: &dyn Transaction, pub_key: &PublicKey) -> KeyType;
-    fn representative(&self, txn: &dyn Transaction) -> PublicKey;
-    fn representative_set(&self, txn: &mut WriteTransaction, representative: &PublicKey);
-    fn work_get(&self, txn: &dyn Transaction, pub_key: &PublicKey) -> Result<WorkNonce>;
-    fn work_put(&self, txn: &mut WriteTransaction, pub_key: &PublicKey, work: WorkNonce);
-    fn seed(&self, txn: &dyn Transaction) -> RawKey;
-    fn set_seed(&self, txn: &mut WriteTransaction, seed: &RawKey);
-    fn serialize_json(&self, txn: &dyn Transaction) -> String;
-    fn write_backup(&self, txn: &dyn Transaction, path: &Path) -> Result<()>;
-    fn iter<'a>(&'a self, txn: &'a dyn Transaction) -> WalletStoreIterator<'a>;
-    fn destroy(&self, txn: &mut WriteTransaction);
+    fn deterministic_key(&self, txn: &dyn WalletReadTxn, index: u32) -> RawKey;
+    fn deterministic_insert(&self, txn: &mut dyn WalletWriteTxn) -> PublicKey;
+    fn deterministic_insert_at(&self, txn: &mut dyn WalletWriteTxn, index: u32) -> PublicKey;
+    fn deterministic_index_get(&self, txn: &dyn WalletReadTxn) -> u32;
+    fn deterministic_index_set(&self, txn: &mut dyn WalletWriteTxn, index: u32);
+    fn deterministic_clear(&self, txn: &mut dyn WalletWriteTxn);
+    fn insert_adhoc(&self, txn: &mut dyn WalletWriteTxn, prv: &RawKey) -> PublicKey;
+    fn insert_watch(&self, txn: &mut dyn WalletWriteTxn, pub_key: &PublicKey) -> Result<()>;
+    fn fetch(&self, txn: &dyn WalletReadTxn, pub_key: &PublicKey) -> Result<RawKey>;
+    fn erase(&self, txn: &mut dyn WalletWriteTxn, pub_key: &PublicKey);
+    fn exists(&self, txn: &dyn WalletReadTxn, pub_key: &PublicKey) -> bool;
+    fn find(&self, txn: &dyn WalletReadTxn, pub_key: &PublicKey) -> Option<WalletValue>;
+    fn get_key_type(&self, txn: &dyn WalletReadTxn, pub_key: &PublicKey) -> KeyType;
+    fn representative(&self, txn: &dyn WalletReadTxn) -> PublicKey;
+    fn representative_set(&self, txn: &mut dyn WalletWriteTxn, representative: &PublicKey);
+    fn work_get(&self, txn: &dyn WalletReadTxn, pub_key: &PublicKey) -> Result<WorkNonce>;
+    fn work_put(&self, txn: &mut dyn WalletWriteTxn, pub_key: &PublicKey, work: WorkNonce);
+    fn seed(&self, txn: &dyn WalletReadTxn) -> RawKey;
+    fn set_seed(&self, txn: &mut dyn WalletWriteTxn, seed: &RawKey);
+    fn serialize_json(&self, txn: &dyn WalletReadTxn) -> String;
+    fn write_backup(&self, txn: &dyn WalletReadTxn, path: &Path) -> Result<()>;
+    fn iter<'a>(&'a self, txn: &'a dyn WalletReadTxn) -> WalletStoreIterator<'a>;
+    fn destroy(&self, txn: &mut dyn WalletWriteTxn);
 
     fn move_keys(
         &self,
-        txn: &mut WriteTransaction,
+        txn: &mut dyn WalletWriteTxn,
         other: &dyn WalletStore,
         keys: &[PublicKey],
     ) -> Result<()> {
@@ -60,7 +60,7 @@ pub trait WalletStore: Send + Sync {
         Ok(())
     }
 
-    fn import_wallet(&self, txn: &mut WriteTransaction, other: &dyn WalletStore) -> Result<()> {
+    fn import_wallet(&self, txn: &mut dyn WalletWriteTxn, other: &dyn WalletStore) -> Result<()> {
         assert!(self.valid_password(txn));
         assert!(other.valid_password(txn));
 

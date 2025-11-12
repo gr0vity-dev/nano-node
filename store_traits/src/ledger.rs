@@ -8,8 +8,9 @@ use std::{
     time::SystemTime,
 };
 
+use crate::{LedgerReadTxn, LedgerWriteTxn};
 use anyhow::Result;
-use rsnano_nullable_lmdb::{ReadTransaction, Transaction, WriteTransaction};
+use rsnano_nullable_lmdb::{ReadTransaction, WriteTransaction};
 use rsnano_output_tracker::OutputTrackerMt;
 #[cfg(feature = "ledger_snapshots")]
 use rsnano_types::SnapshotNumber;
@@ -140,39 +141,39 @@ pub trait LedgerStore: Send + Sync {
 }
 
 pub trait BlockStore: Send + Sync {
-    fn put(&self, txn: &mut WriteTransaction, block: &SavedBlock);
-    fn get(&self, txn: &dyn Transaction, hash: &BlockHash) -> Option<SavedBlock>;
-    fn del(&self, txn: &mut WriteTransaction, hash: &BlockHash);
-    fn exists(&self, txn: &dyn Transaction, hash: &BlockHash) -> bool;
-    fn iter<'a>(&'a self, txn: &'a dyn Transaction) -> StoreIterator<'a, SavedBlock>;
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, block: &SavedBlock);
+    fn get(&self, txn: &dyn LedgerReadTxn, hash: &BlockHash) -> Option<SavedBlock>;
+    fn del(&self, txn: &mut dyn LedgerWriteTxn, hash: &BlockHash);
+    fn exists(&self, txn: &dyn LedgerReadTxn, hash: &BlockHash) -> bool;
+    fn iter<'a>(&'a self, txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, SavedBlock>;
     fn iter_range<'a>(
         &'a self,
-        txn: &'a dyn Transaction,
+        txn: &'a dyn LedgerReadTxn,
         range: RangeBounds<BlockHash>,
     ) -> StoreIterator<'a, SavedBlock>;
     fn track_puts(&self) -> Arc<OutputTrackerMt<SavedBlock>>;
 }
 
 pub trait AccountStore: Send + Sync {
-    fn put(&self, txn: &mut WriteTransaction, account: &Account, info: &AccountInfo);
-    fn get(&self, txn: &dyn Transaction, account: &Account) -> Option<AccountInfo>;
-    fn del(&self, txn: &mut WriteTransaction, account: &Account);
-    fn iter<'a>(&'a self, txn: &'a dyn Transaction) -> StoreIterator<'a, (Account, AccountInfo)>;
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, account: &Account, info: &AccountInfo);
+    fn get(&self, txn: &dyn LedgerReadTxn, account: &Account) -> Option<AccountInfo>;
+    fn del(&self, txn: &mut dyn LedgerWriteTxn, account: &Account);
+    fn iter<'a>(&'a self, txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, (Account, AccountInfo)>;
     fn iter_range<'a>(
         &'a self,
-        txn: &'a dyn Transaction,
+        txn: &'a dyn LedgerReadTxn,
         range: RangeBounds<Account>,
     ) -> StoreIterator<'a, (Account, AccountInfo)>;
     fn track_puts(&self) -> Arc<OutputTrackerMt<(Account, AccountInfo)>>;
 }
 
 pub trait PendingStore: Send + Sync {
-    fn put(&self, txn: &mut WriteTransaction, key: &PendingKey, pending: &PendingInfo);
-    fn del(&self, txn: &mut WriteTransaction, key: &PendingKey);
-    fn get(&self, txn: &dyn Transaction, key: &PendingKey) -> Option<PendingInfo>;
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, key: &PendingKey, pending: &PendingInfo);
+    fn del(&self, txn: &mut dyn LedgerWriteTxn, key: &PendingKey);
+    fn get(&self, txn: &dyn LedgerReadTxn, key: &PendingKey) -> Option<PendingInfo>;
     fn iter_range<'a>(
         &'a self,
-        txn: &'a dyn Transaction,
+        txn: &'a dyn LedgerReadTxn,
         range: RangeBounds<PendingKey>,
     ) -> StoreIterator<'a, (PendingKey, PendingInfo)>;
     fn track_puts(&self) -> Arc<OutputTrackerMt<(PendingKey, PendingInfo)>>;
@@ -180,66 +181,66 @@ pub trait PendingStore: Send + Sync {
 }
 
 pub trait ConfirmationHeightStore: Send + Sync {
-    fn put(&self, txn: &mut WriteTransaction, account: &Account, info: &ConfirmationHeightInfo);
-    fn get(&self, txn: &dyn Transaction, account: &Account) -> Option<ConfirmationHeightInfo>;
-    fn exists(&self, txn: &dyn Transaction, account: &Account) -> bool;
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, account: &Account, info: &ConfirmationHeightInfo);
+    fn get(&self, txn: &dyn LedgerReadTxn, account: &Account) -> Option<ConfirmationHeightInfo>;
+    fn exists(&self, txn: &dyn LedgerReadTxn, account: &Account) -> bool;
     fn iter<'a>(
         &'a self,
-        txn: &'a dyn Transaction,
+        txn: &'a dyn LedgerReadTxn,
     ) -> StoreIterator<'a, (Account, ConfirmationHeightInfo)>;
 }
 
 pub trait RepWeightStore: Send + Sync {
-    fn get(&self, txn: &dyn Transaction, rep: &PublicKey) -> Option<Amount>;
-    fn put(&self, txn: &mut WriteTransaction, representative: PublicKey, weight: Amount);
-    fn del(&self, txn: &mut WriteTransaction, representative: &PublicKey);
+    fn get(&self, txn: &dyn LedgerReadTxn, rep: &PublicKey) -> Option<Amount>;
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, representative: PublicKey, weight: Amount);
+    fn del(&self, txn: &mut dyn LedgerWriteTxn, representative: &PublicKey);
     fn track_puts(&self) -> Arc<OutputTrackerMt<(PublicKey, Amount)>>;
     fn track_deletions(&self) -> Arc<OutputTrackerMt<PublicKey>>;
 }
 
 pub trait SuccessorStore: Send + Sync {
-    fn put(&self, txn: &mut WriteTransaction, block: &BlockHash, successor: &BlockHash);
-    fn del(&self, txn: &mut WriteTransaction, block: &BlockHash);
-    fn get(&self, txn: &dyn Transaction, block: &BlockHash) -> Option<BlockHash>;
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, block: &BlockHash, successor: &BlockHash);
+    fn del(&self, txn: &mut dyn LedgerWriteTxn, block: &BlockHash);
+    fn get(&self, txn: &dyn LedgerReadTxn, block: &BlockHash) -> Option<BlockHash>;
     fn track_puts(&self) -> Arc<OutputTrackerMt<(BlockHash, BlockHash)>>;
 }
 
 pub trait FinalVoteStore: Send + Sync {
-    fn put(&self, txn: &mut WriteTransaction, root: &QualifiedRoot, hash: &BlockHash) -> bool;
-    fn get(&self, txn: &dyn Transaction, root: &QualifiedRoot) -> Option<BlockHash>;
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, root: &QualifiedRoot, hash: &BlockHash) -> bool;
+    fn get(&self, txn: &dyn LedgerReadTxn, root: &QualifiedRoot) -> Option<BlockHash>;
 }
 
 pub trait PeerStore: Send + Sync {
-    fn put(&self, txn: &mut WriteTransaction, endpoint: SocketAddrV6, time: SystemTime);
-    fn del(&self, txn: &mut WriteTransaction, endpoint: SocketAddrV6);
-    fn exists(&self, txn: &dyn Transaction, endpoint: SocketAddrV6) -> bool;
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6, time: SystemTime);
+    fn del(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6);
+    fn exists(&self, txn: &dyn LedgerReadTxn, endpoint: SocketAddrV6) -> bool;
     fn iter<'a>(
         &'a self,
-        txn: &'a dyn Transaction,
+        txn: &'a dyn LedgerReadTxn,
     ) -> StoreIterator<'a, (SocketAddrV6, SystemTime)>;
     fn track_puts(&self) -> Arc<OutputTrackerMt<(SocketAddrV6, SystemTime)>>;
     fn track_deletions(&self) -> Arc<OutputTrackerMt<SocketAddrV6>>;
 }
 
 pub trait OnlineWeightStore: Send + Sync {
-    fn put(&self, txn: &mut WriteTransaction, time: u64, amount: &Amount);
-    fn del(&self, txn: &mut WriteTransaction, time: u64);
-    fn iter<'a>(&'a self, txn: &'a dyn Transaction) -> StoreIterator<'a, (u64, Amount)>;
-    fn iter_rev<'a>(&'a self, txn: &'a dyn Transaction) -> StoreIterator<'a, (u64, Amount)>;
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, time: u64, amount: &Amount);
+    fn del(&self, txn: &mut dyn LedgerWriteTxn, time: u64);
+    fn iter<'a>(&'a self, txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, (u64, Amount)>;
+    fn iter_rev<'a>(&'a self, txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, (u64, Amount)>;
 }
 
 pub trait VersionStore: Send + Sync {
-    fn get(&self, txn: &dyn Transaction) -> Option<i32>;
+    fn get(&self, txn: &dyn LedgerReadTxn) -> Option<i32>;
 }
 
 #[cfg(feature = "ledger_snapshots")]
 pub trait ForksStore: Send + Sync {
-    fn put(&self, txn: &mut WriteTransaction, root: &QualifiedRoot, snapshot: SnapshotNumber);
-    fn del(&self, txn: &mut WriteTransaction, root: &QualifiedRoot);
-    fn get(&self, txn: &dyn Transaction, root: &QualifiedRoot) -> Option<SnapshotNumber>;
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, root: &QualifiedRoot, snapshot: SnapshotNumber);
+    fn del(&self, txn: &mut dyn LedgerWriteTxn, root: &QualifiedRoot);
+    fn get(&self, txn: &dyn LedgerReadTxn, root: &QualifiedRoot) -> Option<SnapshotNumber>;
     fn iter<'a>(
         &'a self,
-        txn: &'a dyn Transaction,
+        txn: &'a dyn LedgerReadTxn,
     ) -> StoreIterator<'a, (QualifiedRoot, SnapshotNumber)>;
 }
 
