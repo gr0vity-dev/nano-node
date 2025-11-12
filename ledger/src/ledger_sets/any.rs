@@ -1,6 +1,6 @@
 use std::ops::{Bound, RangeBounds};
 
-use rsnano_nullable_lmdb::{ReadTransaction, Transaction};
+use rsnano_nullable_lmdb::Transaction;
 use rsnano_types::{
     Account, AccountInfo, Amount, Block, BlockHash, BlockPriority, DependentBlocks, DetailedBlock,
     PendingInfo, PendingKey, PublicKey, QualifiedRoot, Root, SavedBlock, block_priority,
@@ -8,8 +8,9 @@ use rsnano_types::{
 
 use super::{BorrowingConfirmedSet, ConfirmedSet, LedgerSet};
 use crate::{
-    DependentBlocksFinder, LedgerConstants, LedgerStore, LedgerTransactionAdapter, PendingStore,
-    RangeBounds as StoreRangeBounds, RepresentativeBlockFinder,
+    DependentBlocksFinder, LedgerConstants, LedgerReadTransaction, LedgerStore,
+    LedgerTransactionAdapter, PendingStore, RangeBounds as StoreRangeBounds,
+    RepresentativeBlockFinder,
 };
 
 pub trait AnySet: LedgerSet {
@@ -83,13 +84,13 @@ pub trait AnySet: LedgerSet {
 /// It owns the DB transaction
 pub struct OwningAnySet<'a> {
     store: &'a dyn LedgerStore,
-    txn: ReadTransaction,
+    txn: LedgerReadTransaction,
     constants: &'a LedgerConstants,
 }
 
 impl<'a> OwningAnySet<'a> {
     pub(crate) fn new(store: &'a dyn LedgerStore, constants: &'a LedgerConstants) -> Self {
-        let tx = store.begin_read();
+        let tx = LedgerReadTransaction::new(store.begin_read());
         Self {
             store,
             txn: tx,
