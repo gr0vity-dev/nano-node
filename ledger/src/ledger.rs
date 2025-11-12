@@ -11,7 +11,7 @@ use std::{
 
 use tracing::debug;
 
-use rsnano_nullable_lmdb::{LmdbEnvironment, Transaction};
+use rsnano_nullable_lmdb::LmdbEnvironment;
 #[cfg(feature = "ledger_snapshots")]
 use rsnano_store_lmdb::forks_store::ConfiguredForksDatabaseBuilder;
 use rsnano_store_lmdb::{
@@ -31,9 +31,9 @@ use rsnano_work_validation::WorkThresholds;
 
 use crate::{
     BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, GenerateCacheFlags,
-    LedgerConstants, LedgerReadTxnSHIM, LedgerSet, LedgerStore, LedgerWriteTxnSHIM, OwningAnySet,
-    OwningConfirmedSet, OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater, RollbackError,
-    begin_write_txn_SHIM,
+    LedgerConstants, LedgerReadTxnSHIM, LedgerSet, LedgerStore, LedgerTxnSHIM, LedgerWriteTxnSHIM,
+    OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater,
+    RollbackError, begin_write_txn_SHIM,
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
     refresh_write_txn_SHIM,
@@ -684,7 +684,7 @@ impl Ledger {
 
     fn block_successor_by_qualified_root(
         &self,
-        tx: &dyn Transaction,
+        tx: &dyn LedgerTxnSHIM,
         root: &QualifiedRoot,
     ) -> Option<BlockHash> {
         if !root.previous.is_zero() {

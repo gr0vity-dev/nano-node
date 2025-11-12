@@ -29,6 +29,10 @@ impl LedgerReadTxnSHIM {
     pub fn into_inner(self) -> ReadTransaction {
         self.inner
     }
+
+    pub fn is_refresh_needed(&self) -> bool {
+        self.inner.is_refresh_needed()
+    }
 }
 
 impl Deref for LedgerReadTxnSHIM {
@@ -77,6 +81,10 @@ impl LedgerWriteTxnSHIM {
 
     pub fn into_inner(self) -> WriteTransaction {
         self.inner
+    }
+
+    pub fn is_refresh_needed(&self) -> bool {
+        self.inner.is_refresh_needed()
     }
 }
 
@@ -157,14 +165,17 @@ impl LmdbTransaction for LedgerTxnAdapterSHIM<'_> {
     }
 }
 
+#[allow(non_snake_case)]
 pub fn begin_read_txn_SHIM(store: &dyn LedgerStore) -> LedgerReadTxnSHIM {
     LedgerReadTxnSHIM::new(store.begin_read())
 }
 
+#[allow(non_snake_case)]
 pub fn begin_write_txn_SHIM(store: &dyn LedgerStore) -> LedgerWriteTxnSHIM {
     LedgerWriteTxnSHIM::new(store.begin_write())
 }
 
+#[allow(non_snake_case)]
 pub fn refresh_write_txn_SHIM(
     store: &dyn LedgerStore,
     txn: LedgerWriteTxnSHIM,

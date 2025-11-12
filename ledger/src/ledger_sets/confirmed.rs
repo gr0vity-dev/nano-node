@@ -6,9 +6,8 @@ use rsnano_types::{
 };
 
 use super::{AnyReceivableIterator, LedgerSet};
-use rsnano_nullable_lmdb::Transaction;
 
-use crate::{LedgerReadTxnSHIM, LedgerStore, RangeBounds as StoreRangeBounds};
+use crate::{LedgerReadTxnSHIM, LedgerStore, LedgerTxnSHIM, RangeBounds as StoreRangeBounds};
 
 pub trait ConfirmedSet: LedgerSet {
     fn get_block(&self, hash: &BlockHash) -> Option<SavedBlock>;
@@ -110,11 +109,11 @@ impl<'a> ConfirmedSet for OwningConfirmedSet<'a> {
 /// It borrows the DB transaction
 pub struct BorrowingConfirmedSet<'a> {
     store: &'a dyn LedgerStore,
-    tx: &'a dyn Transaction,
+    tx: &'a dyn LedgerTxnSHIM,
 }
 
 impl<'a> BorrowingConfirmedSet<'a> {
-    pub fn new(store: &'a dyn LedgerStore, tx: &'a dyn Transaction) -> Self {
+    pub fn new(store: &'a dyn LedgerStore, tx: &'a dyn LedgerTxnSHIM) -> Self {
         Self { store, tx }
     }
 

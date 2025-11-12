@@ -3,8 +3,6 @@ use std::{collections::VecDeque, sync::atomic::Ordering};
 use rsnano_types::{BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
-use rsnano_nullable_lmdb::Transaction;
-
 use crate::{LedgerConstants, LedgerStore, LedgerWriteTxnSHIM, refresh_write_txn_SHIM};
 
 /// Cements Blocks in the ledger

@@ -1,6 +1,5 @@
 use std::ops::{Bound, RangeBounds};
 
-use rsnano_nullable_lmdb::Transaction;
 use rsnano_types::{
     Account, AccountInfo, Amount, Block, BlockHash, BlockPriority, DependentBlocks, DetailedBlock,
     PendingInfo, PendingKey, PublicKey, QualifiedRoot, Root, SavedBlock, block_priority,
@@ -9,7 +8,7 @@ use rsnano_types::{
 use super::{BorrowingConfirmedSet, ConfirmedSet, LedgerSet};
 use crate::{
     DependentBlocksFinder, LedgerConstants, LedgerReadTxnSHIM, LedgerStore, LedgerTxnAdapterSHIM,
-    PendingStore, RangeBounds as StoreRangeBounds, RepresentativeBlockFinder,
+    LedgerTxnSHIM, PendingStore, RangeBounds as StoreRangeBounds, RepresentativeBlockFinder,
 };
 
 pub trait AnySet: LedgerSet {
@@ -351,7 +350,7 @@ impl<'a> AnySet for OwningAnySet<'a> {
 pub(crate) struct BorrowingAnySet<'a> {
     pub constants: &'a LedgerConstants,
     pub store: &'a dyn LedgerStore,
-    pub tx: &'a dyn Transaction,
+    pub tx: &'a dyn LedgerTxnSHIM,
 }
 
 impl<'a> BorrowingAnySet<'a> {
@@ -601,7 +600,7 @@ pub struct AnyReceivableIterator<'a> {
 
 impl<'a> AnyReceivableIterator<'a> {
     pub fn new(
-        txn: &'a dyn Transaction,
+        txn: &'a dyn LedgerTxnSHIM,
         pending: &'a dyn PendingStore,
         requested_account: Account,
         returned_account: Option<Account>,

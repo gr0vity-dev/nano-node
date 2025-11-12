@@ -41,6 +41,6 @@ pub use rep_weights_updater::*;
 pub(crate) use representative_block_finder::RepresentativeBlockFinder;
 pub use store_traits::*;
 pub use txn_shim::{
-    LedgerReadTxnSHIM, LedgerTxnAdapterSHIM, LedgerTxnSHIM, LedgerWriteTxnSHIM, begin_read_txn_SHIM,
-    begin_write_txn_SHIM, refresh_write_txn_SHIM,
+    LedgerReadTxnSHIM, LedgerTxnAdapterSHIM, LedgerTxnSHIM, LedgerWriteTxnSHIM,
+    begin_read_txn_SHIM, begin_write_txn_SHIM, refresh_write_txn_SHIM,
 };
