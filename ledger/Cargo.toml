@@ -20,6 +20,7 @@ store_traits = { path = "../store_traits" }
 rsnano_nullable_lmdb = { path = "../nullables/lmdb" }
 rsnano_nullable_env = { path = "../nullables/env" }
 rsnano_output_tracker = { path = "../nullables/output_tracker" }
+lmdb-rkv = "0"
 anyhow = "1"
 once_cell = "1"
 num-traits = "0"

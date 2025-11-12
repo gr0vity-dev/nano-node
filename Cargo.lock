@@ -4188,6 +4188,7 @@ name = "rsnano_ledger"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "lmdb-rkv",
  "num-derive",
  "num-traits 0.2.19",
  "once_cell",
