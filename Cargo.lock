@@ -4551,6 +4551,7 @@ name = "rsnano_wallet"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "lmdb-rkv",
  "rand 0.9.2",
  "rsnano_ledger",
  "rsnano_nullable_clock",
