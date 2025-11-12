@@ -1,9 +1,9 @@
 use crate::{FORKS_TEST_DATABASE, LmdbIterator};
 use rsnano_nullable_lmdb::{
-    ConfiguredDatabase, DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, Transaction,
-    WriteFlags, WriteTransaction,
+    ConfiguredDatabase, DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, WriteFlags,
 };
 use rsnano_types::{QualifiedRoot, SnapshotNumber, read_u32_be};
+use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
 /// Maps the qualified roots to the snapshot number when the fork was detected
 pub struct LmdbForksStore {
@@ -24,11 +24,11 @@ impl LmdbForksStore {
     /// Returns *true* if root was inserted or the same root was already in the database
     pub fn put(
         &self,
-        txn: &mut WriteTransaction,
+        txn: &mut dyn LedgerWriteTxn,
         root: &QualifiedRoot,
         snapshot_number: SnapshotNumber,
     ) {
-        txn.put(
+        txn.raw_put(
             self.database,
             &root.to_bytes(),
             &snapshot_number.to_be_bytes(),
@@ -37,8 +37,8 @@ impl LmdbForksStore {
         .expect("This should never fail");
     }
 
-    pub fn get(&self, tx: &dyn Transaction, root: &QualifiedRoot) -> Option<SnapshotNumber> {
-        let result = tx.get(self.database, &root.to_bytes());
+    pub fn get(&self, tx: &dyn LedgerReadTxn, root: &QualifiedRoot) -> Option<SnapshotNumber> {
+        let result = tx.raw_get(self.database, &root.to_bytes());
         match result {
             Err(Error::NotFound) => None,
             Ok(mut bytes) => Some(read_u32_be(&mut bytes).unwrap()),
@@ -46,16 +46,16 @@ impl LmdbForksStore {
         }
     }
 
-    pub fn del(&self, tx: &mut WriteTransaction, root: &QualifiedRoot) {
+    pub fn del(&self, tx: &mut dyn LedgerWriteTxn, root: &QualifiedRoot) {
         let root_bytes = root.to_bytes();
-        tx.delete(self.database, &root_bytes, None).unwrap();
+        tx.raw_delete(self.database, &root_bytes, None).unwrap();
     }
 
     pub fn iter<'tx>(
         &self,
-        tx: &'tx dyn Transaction,
+        tx: &'tx dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (QualifiedRoot, SnapshotNumber)> + 'tx + use<'tx> {
-        let cursor = tx.open_ro_cursor(self.database).unwrap();
+        let cursor = tx.raw_open_ro_cursor(self.database).unwrap();
         LmdbIterator::new(cursor, read_fork_record)
     }
 }

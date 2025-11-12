@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use rsnano_nullable_lmdb::{
-    ConfiguredDatabase, DatabaseFlags, LmdbDatabase, LmdbEnvironment, RoCursor, Transaction,
-    WriteFlags, WriteTransaction,
+    ConfiguredDatabase, DatabaseFlags, LmdbDatabase, LmdbEnvironment, RoCursor, WriteFlags,
     sys::{MDB_FIRST, MDB_NEXT, MDB_cursor_op},
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{Amount, PublicKey};
+use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
 use crate::REP_WEIGHT_TEST_DATABASE;
 
@@ -35,8 +35,8 @@ impl LmdbRepWeightStore {
         self.put_listener.track()
     }
 
-    pub fn get(&self, txn: &dyn Transaction, pub_key: &PublicKey) -> Option<Amount> {
-        match txn.get(self.database, pub_key.as_bytes()) {
+    pub fn get(&self, txn: &dyn LedgerReadTxn, pub_key: &PublicKey) -> Option<Amount> {
+        match txn.raw_get(self.database, pub_key.as_bytes()) {
             Ok(mut bytes) => Some(Amount::deserialize(&mut bytes).expect("Should be valid amount")),
             Err(rsnano_nullable_lmdb::Error::NotFound) => None,
             Err(e) => {
@@ -45,10 +45,10 @@ impl LmdbRepWeightStore {
         }
     }
 
-    pub fn put(&self, txn: &mut WriteTransaction, representative: PublicKey, weight: Amount) {
+    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, representative: PublicKey, weight: Amount) {
         self.put_listener.emit((representative, weight));
 
-        txn.put(
+        txn.raw_put(
             self.database,
             representative.as_bytes(),
             &weight.to_be_bytes(),
@@ -57,19 +57,19 @@ impl LmdbRepWeightStore {
         .unwrap();
     }
 
-    pub fn del(&self, txn: &mut WriteTransaction, representative: &PublicKey) {
+    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, representative: &PublicKey) {
         self.delete_listener.emit(*representative);
 
-        txn.delete(self.database, representative.as_bytes(), None)
+        txn.raw_delete(self.database, representative.as_bytes(), None)
             .unwrap();
     }
 
-    pub fn count(&self, txn: &dyn Transaction) -> u64 {
-        txn.count(self.database)
+    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
+        txn.raw_count(self.database)
     }
 
-    pub fn iter<'a>(&self, txn: &'a dyn Transaction) -> RepWeightIterator<'a> {
-        let cursor = txn.open_ro_cursor(self.database).unwrap();
+    pub fn iter<'a>(&self, txn: &'a dyn LedgerReadTxn) -> RepWeightIterator<'a> {
+        let cursor = txn.raw_open_ro_cursor(self.database).unwrap();
         RepWeightIterator {
             cursor,
             operation: MDB_FIRST,

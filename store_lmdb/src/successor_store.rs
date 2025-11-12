@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use rsnano_nullable_lmdb::{
-    DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, Transaction, WriteFlags, WriteTransaction,
+    DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, WriteFlags,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::BlockHash;
+use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
 /// Stores the hash of the successor block for a given block hash
 pub struct LmdbSuccessorStore {
@@ -25,12 +26,12 @@ impl LmdbSuccessorStore {
         self.put_listener.track()
     }
 
-    pub fn put(&self, tx: &mut WriteTransaction, block: &BlockHash, successor: &BlockHash) {
+    pub fn put(&self, tx: &mut dyn LedgerWriteTxn, block: &BlockHash, successor: &BlockHash) {
         if self.put_listener.is_tracked() {
             self.put_listener.emit((*block, *successor));
         }
 
-        tx.put(
+        tx.raw_put(
             self.database,
             block.as_bytes(),
             successor.as_bytes(),
@@ -39,20 +40,20 @@ impl LmdbSuccessorStore {
         .unwrap();
     }
 
-    pub fn del(&self, tx: &mut WriteTransaction, block: &BlockHash) {
-        tx.delete(self.database, block.as_bytes(), None).unwrap();
+    pub fn del(&self, tx: &mut dyn LedgerWriteTxn, block: &BlockHash) {
+        tx.raw_delete(self.database, block.as_bytes(), None).unwrap();
     }
 
-    pub fn get(&self, tx: &dyn Transaction, block: &BlockHash) -> Option<BlockHash> {
-        match tx.get(self.database, block.as_bytes()) {
+    pub fn get(&self, tx: &dyn LedgerReadTxn, block: &BlockHash) -> Option<BlockHash> {
+        match tx.raw_get(self.database, block.as_bytes()) {
             Ok(bytes) => BlockHash::from_slice(bytes),
             Err(Error::NotFound) => None,
             Err(e) => panic!("Could not load successor hash: {:?}", e),
         }
     }
 
-    pub fn count(&self, tx: &dyn Transaction) -> u64 {
-        tx.count(self.database)
+    pub fn count(&self, tx: &dyn LedgerReadTxn) -> u64 {
+        tx.raw_count(self.database)
     }
 }
 

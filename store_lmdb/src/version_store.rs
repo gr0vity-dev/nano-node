@@ -1,6 +1,7 @@
 use rsnano_nullable_lmdb::{
-    DatabaseFlags, Error, LmdbEnvironment, Transaction, WriteFlags, WriteTransaction,
+    DatabaseFlags, Error, LmdbEnvironment, WriteFlags,
 };
+use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
 use crate::{LmdbDatabase, STORE_VERSION_CURRENT};
 
@@ -49,25 +50,25 @@ impl LmdbVersionStore {
         self.db_handle
     }
 
-    pub fn put(&self, txn: &mut WriteTransaction, version: i32) {
+    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, version: i32) {
         let db = self.db_handle();
 
         let key_bytes = version_key();
         let value_bytes = value_bytes(version);
 
-        txn.put(db, &key_bytes, &value_bytes, WriteFlags::empty())
+        txn.raw_put(db, &key_bytes, &value_bytes, WriteFlags::empty())
             .unwrap();
     }
 
-    pub fn get(&self, txn: &dyn Transaction) -> Option<i32> {
+    pub fn get(&self, txn: &dyn LedgerReadTxn) -> Option<i32> {
         let db = self.db_handle();
         load_version(txn, db)
     }
 }
 
-fn load_version(txn: &dyn Transaction, db: LmdbDatabase) -> Option<i32> {
+fn load_version(txn: &dyn LedgerReadTxn, db: LmdbDatabase) -> Option<i32> {
     let key_bytes = version_key();
-    match txn.get(db, &key_bytes) {
+    match txn.raw_get(db, &key_bytes) {
         Ok(value) => Some(i32::from_be_bytes(value[28..].try_into().unwrap())),
         Err(Error::NotFound) => None,
         Err(_) => panic!("Error while loading db version"),

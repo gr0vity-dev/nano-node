@@ -1,7 +1,7 @@
 use std::{net::SocketAddrV6, sync::Arc, time::SystemTime};
 
 use anyhow::anyhow;
-use rsnano_nullable_lmdb::{ReadTransaction, Transaction, WriteTransaction};
+use rsnano_nullable_lmdb::{ReadTransaction, WriteTransaction};
 use rsnano_output_tracker::OutputTrackerMt;
 use rsnano_types::{
     Account, AccountInfo, Amount, BlockHash, ConfirmationHeightInfo, PendingInfo, PendingKey,
@@ -211,36 +211,36 @@ impl PendingStore for LmdbPendingStore {
 
 impl ConfirmationHeightStore for LmdbConfirmationHeightStore {
     fn put(&self, txn: &mut dyn LedgerWriteTxn, account: &Account, info: &ConfirmationHeightInfo) {
-        LmdbConfirmationHeightStore::put(self, write_txn_shim(txn), account, info);
+        LmdbConfirmationHeightStore::put(self, txn, account, info);
     }
 
     fn get(&self, txn: &dyn LedgerReadTxn, account: &Account) -> Option<ConfirmationHeightInfo> {
-        LmdbConfirmationHeightStore::get(self, read_txn_shim(txn), account)
+        LmdbConfirmationHeightStore::get(self, txn, account)
     }
 
     fn exists(&self, txn: &dyn LedgerReadTxn, account: &Account) -> bool {
-        LmdbConfirmationHeightStore::exists(self, read_txn_shim(txn), account)
+        LmdbConfirmationHeightStore::exists(self, txn, account)
     }
 
     fn iter<'a>(
         &'a self,
         txn: &'a dyn LedgerReadTxn,
     ) -> StoreIterator<'a, (Account, ConfirmationHeightInfo)> {
-        Box::new(LmdbConfirmationHeightStore::iter(self, read_txn_shim(txn)))
+        Box::new(LmdbConfirmationHeightStore::iter(self, txn))
     }
 }
 
 impl RepWeightStore for LmdbRepWeightStore {
     fn get(&self, txn: &dyn LedgerReadTxn, rep: &PublicKey) -> Option<Amount> {
-        LmdbRepWeightStore::get(self, read_txn_shim(txn), rep)
+        LmdbRepWeightStore::get(self, txn, rep)
     }
 
     fn put(&self, txn: &mut dyn LedgerWriteTxn, representative: PublicKey, weight: Amount) {
-        LmdbRepWeightStore::put(self, write_txn_shim(txn), representative, weight);
+        LmdbRepWeightStore::put(self, txn, representative, weight);
     }
 
     fn del(&self, txn: &mut dyn LedgerWriteTxn, representative: &PublicKey) {
-        LmdbRepWeightStore::del(self, write_txn_shim(txn), representative);
+        LmdbRepWeightStore::del(self, txn, representative);
     }
 
     fn track_puts(&self) -> Arc<OutputTrackerMt<(PublicKey, Amount)>> {
@@ -254,15 +254,15 @@ impl RepWeightStore for LmdbRepWeightStore {
 
 impl SuccessorStore for LmdbSuccessorStore {
     fn put(&self, txn: &mut dyn LedgerWriteTxn, block: &BlockHash, successor: &BlockHash) {
-        LmdbSuccessorStore::put(self, write_txn_shim(txn), block, successor);
+        LmdbSuccessorStore::put(self, txn, block, successor);
     }
 
     fn del(&self, txn: &mut dyn LedgerWriteTxn, block: &BlockHash) {
-        LmdbSuccessorStore::del(self, write_txn_shim(txn), block);
+        LmdbSuccessorStore::del(self, txn, block);
     }
 
     fn get(&self, txn: &dyn LedgerReadTxn, block: &BlockHash) -> Option<BlockHash> {
-        LmdbSuccessorStore::get(self, read_txn_shim(txn), block)
+        LmdbSuccessorStore::get(self, txn, block)
     }
 
     fn track_puts(&self) -> Arc<OutputTrackerMt<(BlockHash, BlockHash)>> {
@@ -272,32 +272,32 @@ impl SuccessorStore for LmdbSuccessorStore {
 
 impl FinalVoteStore for LmdbFinalVoteStore {
     fn put(&self, txn: &mut dyn LedgerWriteTxn, root: &QualifiedRoot, hash: &BlockHash) -> bool {
-        LmdbFinalVoteStore::put(self, write_txn_shim(txn), root, hash)
+        LmdbFinalVoteStore::put(self, txn, root, hash)
     }
 
     fn get(&self, txn: &dyn LedgerReadTxn, root: &QualifiedRoot) -> Option<BlockHash> {
-        LmdbFinalVoteStore::get(self, read_txn_shim(txn), root)
+        LmdbFinalVoteStore::get(self, txn, root)
     }
 }
 
 impl PeerStore for LmdbPeerStore {
     fn put(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6, time: SystemTime) {
-        LmdbPeerStore::put(self, write_txn_shim(txn), endpoint, time);
+        LmdbPeerStore::put(self, txn, endpoint, time);
     }
 
     fn del(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6) {
-        LmdbPeerStore::del(self, write_txn_shim(txn), endpoint);
+        LmdbPeerStore::del(self, txn, endpoint);
     }
 
     fn exists(&self, txn: &dyn LedgerReadTxn, endpoint: SocketAddrV6) -> bool {
-        LmdbPeerStore::exists(self, read_txn_shim(txn), endpoint)
+        LmdbPeerStore::exists(self, txn, endpoint)
     }
 
     fn iter<'a>(
         &'a self,
         txn: &'a dyn LedgerReadTxn,
     ) -> StoreIterator<'a, (SocketAddrV6, SystemTime)> {
-        Box::new(LmdbPeerStore::iter(self, read_txn_shim(txn)))
+        Box::new(LmdbPeerStore::iter(self, txn))
     }
 
     fn track_puts(&self) -> Arc<OutputTrackerMt<(SocketAddrV6, SystemTime)>> {
@@ -311,53 +311,46 @@ impl PeerStore for LmdbPeerStore {
 
 impl OnlineWeightStore for LmdbOnlineWeightStore {
     fn put(&self, txn: &mut dyn LedgerWriteTxn, time: u64, amount: &Amount) {
-        LmdbOnlineWeightStore::put(self, write_txn_shim(txn), time, amount);
+        LmdbOnlineWeightStore::put(self, txn, time, amount);
     }
 
     fn del(&self, txn: &mut dyn LedgerWriteTxn, time: u64) {
-        LmdbOnlineWeightStore::del(self, write_txn_shim(txn), time);
+        LmdbOnlineWeightStore::del(self, txn, time);
     }
 
     fn iter<'a>(&'a self, txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, (u64, Amount)> {
-        Box::new(LmdbOnlineWeightStore::iter(self, read_txn_shim(txn)))
+        Box::new(LmdbOnlineWeightStore::iter(self, txn))
     }
 
     fn iter_rev<'a>(&'a self, txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, (u64, Amount)> {
-        Box::new(LmdbOnlineWeightStore::iter_rev(self, read_txn_shim(txn)))
+        Box::new(LmdbOnlineWeightStore::iter_rev(self, txn))
     }
 }
 
 impl VersionStore for LmdbVersionStore {
     fn get(&self, txn: &dyn LedgerReadTxn) -> Option<i32> {
-        LmdbVersionStore::get(self, read_txn_shim(txn))
+        LmdbVersionStore::get(self, txn)
     }
 }
 
 #[cfg(feature = "ledger_snapshots")]
 impl ForksStore for LmdbForksStore {
     fn put(&self, txn: &mut dyn LedgerWriteTxn, root: &QualifiedRoot, snapshot: SnapshotNumber) {
-        LmdbForksStore::put(self, write_txn_shim(txn), root, snapshot);
+        LmdbForksStore::put(self, txn, root, snapshot);
     }
 
     fn del(&self, txn: &mut dyn LedgerWriteTxn, root: &QualifiedRoot) {
-        LmdbForksStore::del(self, write_txn_shim(txn), root);
+        LmdbForksStore::del(self, txn, root);
     }
 
     fn get(&self, txn: &dyn LedgerReadTxn, root: &QualifiedRoot) -> Option<SnapshotNumber> {
-        LmdbForksStore::get(self, read_txn_shim(txn), root)
+        LmdbForksStore::get(self, txn, root)
     }
 
     fn iter<'a>(
         &'a self,
         txn: &'a dyn LedgerReadTxn,
     ) -> StoreIterator<'a, (QualifiedRoot, SnapshotNumber)> {
-        Box::new(LmdbForksStore::iter(self, read_txn_shim(txn)))
+        Box::new(LmdbForksStore::iter(self, txn))
     }
-}
-fn read_txn_shim(txn: &dyn LedgerReadTxn) -> &dyn Transaction {
-    txn.as_lmdb_txn_shim()
-}
-
-fn write_txn_shim(txn: &mut dyn LedgerWriteTxn) -> &mut WriteTransaction {
-    txn.as_lmdb_write_txn_shim()
 }

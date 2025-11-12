@@ -1,7 +1,8 @@
 use rsnano_nullable_lmdb::{
-    DatabaseFlags, LmdbDatabase, LmdbEnvironment, Transaction, WriteFlags, WriteTransaction,
+    DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags,
 };
 use rsnano_types::Amount;
+use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
 use crate::LmdbIterator;
 
@@ -19,10 +20,10 @@ impl LmdbOnlineWeightStore {
         self.database
     }
 
-    pub fn put(&self, txn: &mut WriteTransaction, time: u64, amount: &Amount) {
+    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, time: u64, amount: &Amount) {
         let time_bytes = time.to_be_bytes();
         let amount_bytes = amount.to_be_bytes();
-        txn.put(
+        txn.raw_put(
             self.database,
             &time_bytes,
             &amount_bytes,
@@ -31,16 +32,16 @@ impl LmdbOnlineWeightStore {
         .unwrap();
     }
 
-    pub fn del(&self, txn: &mut WriteTransaction, time: u64) {
+    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, time: u64) {
         let time_bytes = time.to_be_bytes();
-        txn.delete(self.database, &time_bytes, None).unwrap();
+        txn.raw_delete(self.database, &time_bytes, None).unwrap();
     }
 
     pub fn iter<'txn>(
         &self,
-        tx: &'txn dyn Transaction,
+        tx: &'txn dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (u64, Amount)> + 'txn + use<'txn> {
-        let cursor = tx.open_ro_cursor(self.database).unwrap();
+        let cursor = tx.raw_open_ro_cursor(self.database).unwrap();
 
         LmdbIterator::new(cursor, |key, value| {
             let time = u64::from_be_bytes(key.try_into().unwrap());
@@ -52,9 +53,9 @@ impl LmdbOnlineWeightStore {
     /// Iterate in descending order
     pub fn iter_rev<'txn>(
         &self,
-        tx: &'txn dyn Transaction,
+        tx: &'txn dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (u64, Amount)> + 'txn + use<'txn> {
-        let cursor = tx.open_ro_cursor(self.database).unwrap();
+        let cursor = tx.raw_open_ro_cursor(self.database).unwrap();
 
         LmdbIterator::new_descending(cursor, |key, value| {
             let time = u64::from_be_bytes(key.try_into().unwrap());
@@ -63,12 +64,12 @@ impl LmdbOnlineWeightStore {
         })
     }
 
-    pub fn count(&self, txn: &dyn Transaction) -> u64 {
-        txn.count(self.database)
+    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
+        txn.raw_count(self.database)
     }
 
-    pub fn clear(&self, txn: &mut WriteTransaction) {
-        txn.clear_db(self.database).unwrap();
+    pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
+        txn.raw_clear_db(self.database).unwrap();
     }
 }
 

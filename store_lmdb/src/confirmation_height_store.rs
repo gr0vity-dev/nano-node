@@ -1,10 +1,10 @@
 use std::ops::RangeBounds;
 
 use rsnano_nullable_lmdb::{
-    ConfiguredDatabase, DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, Transaction,
-    WriteFlags, WriteTransaction,
+    ConfiguredDatabase, DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, WriteFlags,
 };
 use rsnano_types::{Account, ConfirmationHeightInfo};
+use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
 use crate::{
     CONFIRMATION_HEIGHT_TEST_DATABASE, LmdbIterator, LmdbRangeIterator, parallel_traversal,
@@ -27,11 +27,11 @@ impl LmdbConfirmationHeightStore {
 
     pub fn put(
         &self,
-        txn: &mut WriteTransaction,
+        txn: &mut dyn LedgerWriteTxn,
         account: &Account,
         info: &ConfirmationHeightInfo,
     ) {
-        txn.put(
+        txn.raw_put(
             self.database,
             account.as_bytes(),
             &info.to_bytes(),
@@ -40,8 +40,8 @@ impl LmdbConfirmationHeightStore {
         .unwrap();
     }
 
-    pub fn get(&self, txn: &dyn Transaction, account: &Account) -> Option<ConfirmationHeightInfo> {
-        match txn.get(self.database, account.as_bytes()) {
+    pub fn get(&self, txn: &dyn LedgerReadTxn, account: &Account) -> Option<ConfirmationHeightInfo> {
+        match txn.raw_get(self.database, account.as_bytes()) {
             Err(Error::NotFound) => None,
             Ok(mut bytes) => Some(
                 ConfirmationHeightInfo::deserialize(&mut bytes)
@@ -53,36 +53,36 @@ impl LmdbConfirmationHeightStore {
         }
     }
 
-    pub fn exists(&self, txn: &dyn Transaction, account: &Account) -> bool {
-        txn.exists(self.database, account.as_bytes())
+    pub fn exists(&self, txn: &dyn LedgerReadTxn, account: &Account) -> bool {
+        txn.raw_exists(self.database, account.as_bytes())
     }
 
-    pub fn del(&self, txn: &mut WriteTransaction, account: &Account) {
-        txn.delete(self.database, account.as_bytes(), None).unwrap();
+    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, account: &Account) {
+        txn.raw_delete(self.database, account.as_bytes(), None).unwrap();
     }
 
-    pub fn count(&self, txn: &dyn Transaction) -> u64 {
-        txn.count(self.database)
+    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
+        txn.raw_count(self.database)
     }
 
-    pub fn clear(&self, txn: &mut WriteTransaction) {
-        txn.clear_db(self.database).unwrap()
+    pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
+        txn.raw_clear_db(self.database).unwrap()
     }
 
     pub fn iter<'tx>(
         &self,
-        tx: &'tx dyn Transaction,
+        tx: &'tx dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (Account, ConfirmationHeightInfo)> + 'tx + use<'tx> {
-        let cursor = tx.open_ro_cursor(self.database).unwrap();
+        let cursor = tx.raw_open_ro_cursor(self.database).unwrap();
         LmdbIterator::new(cursor, read_conf_height_record)
     }
 
     pub fn iter_range<'txn>(
         &self,
-        tx: &'txn dyn Transaction,
+        tx: &'txn dyn LedgerReadTxn,
         range: impl RangeBounds<Account> + 'static,
     ) -> impl Iterator<Item = (Account, ConfirmationHeightInfo)> + 'txn {
-        let cursor = tx.open_ro_cursor(self.database).unwrap();
+        let cursor = tx.raw_open_ro_cursor(self.database).unwrap();
         LmdbRangeIterator::new(
             cursor,
             range.start_bound().map(|b| b.as_bytes().to_vec()),

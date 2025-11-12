@@ -7,10 +7,10 @@ use std::{
 };
 
 use rsnano_nullable_lmdb::{
-    ConfiguredDatabase, DatabaseFlags, LmdbDatabase, LmdbEnvironment, Transaction, WriteFlags,
-    WriteTransaction,
+    ConfiguredDatabase, DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
+use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
 use crate::{PEERS_TEST_DATABASE, iterator::LmdbIterator};
 
@@ -39,9 +39,9 @@ impl LmdbPeerStore {
         self.put_listener.track()
     }
 
-    pub fn put(&self, txn: &mut WriteTransaction, endpoint: SocketAddrV6, time: SystemTime) {
+    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6, time: SystemTime) {
         self.put_listener.emit((endpoint.clone(), time));
-        txn.put(
+        txn.raw_put(
             self.database,
             &EndpointBytes::from(endpoint),
             &TimeBytes::from(time),
@@ -54,30 +54,30 @@ impl LmdbPeerStore {
         self.delete_listener.track()
     }
 
-    pub fn del(&self, txn: &mut WriteTransaction, endpoint: SocketAddrV6) {
+    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6) {
         self.delete_listener.emit(endpoint);
-        txn.delete(self.database, &EndpointBytes::from(endpoint), None)
+        txn.raw_delete(self.database, &EndpointBytes::from(endpoint), None)
             .unwrap();
     }
 
-    pub fn exists(&self, txn: &dyn Transaction, endpoint: SocketAddrV6) -> bool {
-        txn.exists(self.database, &EndpointBytes::from(endpoint))
+    pub fn exists(&self, txn: &dyn LedgerReadTxn, endpoint: SocketAddrV6) -> bool {
+        txn.raw_exists(self.database, &EndpointBytes::from(endpoint))
     }
 
-    pub fn count(&self, txn: &dyn Transaction) -> u64 {
-        txn.count(self.database)
+    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
+        txn.raw_count(self.database)
     }
 
-    pub fn clear(&self, txn: &mut WriteTransaction) {
-        txn.clear_db(self.database).unwrap();
+    pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
+        txn.raw_clear_db(self.database).unwrap();
     }
 
     pub fn iter<'a>(
         &self,
-        txn: &'a dyn Transaction,
+        txn: &'a dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (SocketAddrV6, SystemTime)> + 'a + use<'a> {
         let cursor = txn
-            .open_ro_cursor(self.database)
+            .raw_open_ro_cursor(self.database)
             .expect("Could not read peer store database");
         PeerIterator(LmdbIterator::new(cursor, |k, v| {
             (
