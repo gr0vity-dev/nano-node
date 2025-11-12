@@ -7,8 +7,8 @@ use rsnano_types::{
 
 use super::{BorrowingConfirmedSet, ConfirmedSet, LedgerSet};
 use crate::{
-    DependentBlocksFinder, LedgerConstants, LedgerReadTxnSHIM, LedgerStore, LedgerTxnAdapterSHIM,
-    LedgerTxnSHIM, PendingStore, RangeBounds as StoreRangeBounds, RepresentativeBlockFinder,
+    DependentBlocksFinder, LedgerConstants, LedgerReadTxnSHIM, LedgerStore, LedgerTxnSHIM,
+    PendingStore, RangeBounds as StoreRangeBounds, RepresentativeBlockFinder,
 };
 
 pub trait AnySet: LedgerSet {
@@ -470,8 +470,7 @@ impl<'a> AnySet for BorrowingAnySet<'a> {
 
     /// Returns the latest block with representative information
     fn representative_block_hash(&self, hash: &BlockHash) -> BlockHash {
-        let txn_adapter = LedgerTxnAdapterSHIM::new(self.tx);
-        let hash = RepresentativeBlockFinder::new(&txn_adapter, self.store).find_rep_block(*hash);
+        let hash = RepresentativeBlockFinder::new(self.tx, self.store).find_rep_block(*hash);
         debug_assert!(hash.is_zero() || self.store.block().exists(self.tx, &hash));
         hash
     }

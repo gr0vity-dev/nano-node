@@ -152,44 +152,6 @@ impl<T> LedgerTxnSHIM for T where T: LedgerReadTxn + LmdbTransaction + ?Sized {}
 /// Adapter that turns a borrowed LMDB transaction reference into something that
 /// implements `LedgerTxnSHIM` without leaking the LMDB trait to logic
 /// call sites. Useful while legacy code still hands around raw `&dyn Transaction`.
-pub struct LedgerTxnAdapterSHIM<'a> {
-    inner: &'a dyn LedgerTxnSHIM,
-}
-
-impl<'a> LedgerTxnAdapterSHIM<'a> {
-    pub fn new(inner: &'a dyn LedgerTxnSHIM) -> Self {
-        Self { inner }
-    }
-}
-
-impl LmdbTransaction for LedgerTxnAdapterSHIM<'_> {
-    fn is_refresh_needed(&self) -> bool {
-        self.inner.is_refresh_needed()
-    }
-
-    fn is_refresh_needed_with(&self, max_duration: Duration) -> bool {
-        self.inner.is_refresh_needed_with(max_duration)
-    }
-
-    fn get(&self, database: LmdbDatabase, key: &[u8]) -> lmdb::Result<&[u8]> {
-        self.inner.get(database, key)
-    }
-
-    fn open_ro_cursor(&self, database: LmdbDatabase) -> lmdb::Result<RoCursor<'_>> {
-        self.inner.open_ro_cursor(database)
-    }
-
-    fn count(&self, database: LmdbDatabase) -> u64 {
-        self.inner.count(database)
-    }
-}
-
-impl<'a> LedgerReadTxn for LedgerTxnAdapterSHIM<'a> {
-    fn as_lmdb_txn_shim(&self) -> &dyn LmdbTransaction {
-        self.inner.as_lmdb_txn_shim()
-    }
-}
-
 #[allow(non_snake_case)]
 pub fn begin_read_txn_SHIM(store: &dyn LedgerStore) -> LedgerReadTxnSHIM {
     LedgerReadTxnSHIM::new(store.begin_read())
