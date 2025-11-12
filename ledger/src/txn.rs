@@ -1,6 +1,7 @@
 use std::ops::{Deref, DerefMut};
 use std::time::Duration;
 
+use crate::LedgerStore;
 use rsnano_nullable_lmdb::{
     LmdbDatabase, ReadTransaction, RoCursor, Transaction as LmdbTransaction, WriteTransaction,
 };
@@ -156,4 +157,19 @@ impl LmdbTransaction for LedgerTransactionAdapter<'_> {
     fn count(&self, database: LmdbDatabase) -> u64 {
         self.inner.count(database)
     }
+}
+
+pub fn begin_read_txn(store: &dyn LedgerStore) -> LedgerReadTransaction {
+    LedgerReadTransaction::new(store.begin_read())
+}
+
+pub fn begin_write_txn(store: &dyn LedgerStore) -> LedgerWriteTransaction {
+    LedgerWriteTransaction::new(store.begin_write())
+}
+
+pub fn refresh_write_txn(
+    store: &dyn LedgerStore,
+    txn: LedgerWriteTransaction,
+) -> LedgerWriteTransaction {
+    LedgerWriteTransaction::new(store.refresh_write_txn(txn.into_inner()))
 }

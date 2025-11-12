@@ -1,13 +1,14 @@
 use std::ops::Bound;
 
-use rsnano_nullable_lmdb::{ReadTransaction, Transaction};
 use rsnano_types::{
     Account, AccountInfo, Amount, BlockHash, ConfirmationHeightInfo, PendingInfo, PendingKey,
     SavedBlock,
 };
 
 use super::{AnyReceivableIterator, LedgerSet};
-use crate::{LedgerStore, RangeBounds as StoreRangeBounds};
+use rsnano_nullable_lmdb::Transaction;
+
+use crate::{LedgerReadTransaction, LedgerStore, RangeBounds as StoreRangeBounds};
 
 pub trait ConfirmedSet: LedgerSet {
     fn get_block(&self, hash: &BlockHash) -> Option<SavedBlock>;
@@ -18,11 +19,11 @@ pub trait ConfirmedSet: LedgerSet {
 /// It owns the DB transaction
 pub struct OwningConfirmedSet<'a> {
     store: &'a dyn LedgerStore,
-    tx: ReadTransaction,
+    tx: LedgerReadTransaction,
 }
 
 impl<'a> OwningConfirmedSet<'a> {
-    pub fn new(store: &'a dyn LedgerStore, tx: ReadTransaction) -> Self {
+    pub fn new(store: &'a dyn LedgerStore, tx: LedgerReadTransaction) -> Self {
         Self { store, tx }
     }
 

@@ -42,4 +42,5 @@ pub(crate) use representative_block_finder::RepresentativeBlockFinder;
 pub use store_traits::*;
 pub use txn::{
     LedgerAnyTransaction, LedgerReadTransaction, LedgerTransactionAdapter, LedgerWriteTransaction,
+    begin_read_txn, begin_write_txn, refresh_write_txn,
 };

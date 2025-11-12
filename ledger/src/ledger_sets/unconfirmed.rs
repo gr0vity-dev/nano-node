@@ -1,18 +1,17 @@
-use rsnano_nullable_lmdb::ReadTransaction;
 use rsnano_types::{Account, AccountInfo, Amount, BlockHash};
 
 use super::LedgerSet;
-use crate::LedgerStore;
+use crate::{LedgerReadTransaction, LedgerStore};
 
 /// Unconfirmed Blocks of the ledger.
 /// It owns the DB transaction
 pub(crate) struct OwningUnconfirmedSet<'a> {
     store: &'a dyn LedgerStore,
-    tx: ReadTransaction,
+    tx: LedgerReadTransaction,
 }
 
 impl<'a> OwningUnconfirmedSet<'a> {
-    pub fn new(store: &'a dyn LedgerStore, tx: ReadTransaction) -> Self {
+    pub fn new(store: &'a dyn LedgerStore, tx: LedgerReadTransaction) -> Self {
         Self { store, tx }
     }
 
@@ -46,7 +45,7 @@ impl<'a> LedgerSet for OwningUnconfirmedSet<'a> {
 /// It borrows the DB transaction
 pub(crate) struct BorrowingUnconfirmedSet<'a> {
     store: &'a dyn LedgerStore,
-    tx: &'a ReadTransaction,
+    tx: &'a LedgerReadTransaction,
 }
 
 impl<'a> LedgerSet for BorrowingUnconfirmedSet<'a> {
@@ -55,14 +54,14 @@ impl<'a> LedgerSet for BorrowingUnconfirmedSet<'a> {
             return false;
         }
 
-        let Some(block) = self.store.block().get(self.tx, hash) else {
+        let Some(block) = self.store.block().get(&*self.tx, hash) else {
             return false;
         };
 
         let conf_info = self
             .store
             .confirmation_height()
-            .get(self.tx, &block.account())
+            .get(&*self.tx, &block.account())
             .unwrap_or_default();
 
         block.height() > conf_info.height

@@ -1,10 +1,11 @@
 use std::{collections::VecDeque, sync::atomic::Ordering};
 
-use rsnano_nullable_lmdb::{Transaction, WriteTransaction};
 use rsnano_types::{BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
-use crate::{LedgerConstants, LedgerStore};
+use rsnano_nullable_lmdb::Transaction;
+
+use crate::{LedgerConstants, LedgerStore, LedgerWriteTransaction, refresh_write_txn};
 
 /// Cements Blocks in the ledger
 pub(crate) struct BlockCementer<'a> {
@@ -28,16 +29,16 @@ impl<'a> BlockCementer<'a> {
 
     pub(crate) fn confirm(
         &self,
-        mut txn: WriteTransaction,
+        mut txn: LedgerWriteTransaction,
         target_hash: BlockHash,
         max_blocks: usize,
-    ) -> (WriteTransaction, Vec<SavedBlock>) {
+    ) -> (LedgerWriteTransaction, Vec<SavedBlock>) {
         let mut result = Vec::new();
 
         let mut stack = VecDeque::new();
         stack.push_back(target_hash);
         while let Some(&hash) = stack.back() {
-            let block = self.store.block().get(&txn, &hash).unwrap();
+            let block = self.store.block().get(&*txn, &hash).unwrap();
 
             let dependents =
                 block.dependent_blocks(&self.constants.epochs, &self.constants.genesis_account);
@@ -91,8 +92,8 @@ impl<'a> BlockCementer<'a> {
             // Ensure that the block wasn't rolled back during the refresh
 
             if txn.is_refresh_needed() {
-                txn = self.store.refresh_write_txn(txn);
-                if !self.store.block().exists(&txn, &target_hash) {
+                txn = refresh_write_txn(self.store, txn);
+                if !self.store.block().exists(&*txn, &target_hash) {
                     break; // Block was rolled back during cementing
                 }
             }
@@ -105,8 +106,8 @@ impl<'a> BlockCementer<'a> {
         (txn, result)
     }
 
-    fn is_confirmed(&self, tx: &WriteTransaction, hash: &BlockHash) -> bool {
-        let Some(block) = self.store.block().get(tx, hash) else {
+    fn is_confirmed(&self, tx: &LedgerWriteTransaction, hash: &BlockHash) -> bool {
+        let Some(block) = self.store.block().get(&*tx, hash) else {
             return false;
         };
         let Some(info) = self.store.confirmation_height().get(tx, &block.account()) else {

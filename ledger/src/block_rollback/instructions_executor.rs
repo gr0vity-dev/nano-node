@@ -1,23 +1,22 @@
 use std::sync::atomic::Ordering;
 
-use rsnano_nullable_lmdb::WriteTransaction;
 use rsnano_types::{Amount, BlockSubType, PublicKey};
 use rsnano_utils::stats::{DetailType, StatType};
 
 use super::rollback_planner::RollbackInstructions;
-use crate::Ledger;
+use crate::{Ledger, LedgerWriteTransaction};
 
 /// Updates the ledger according to the RollbackInstructions
 pub(crate) struct RollbackInstructionsExecutor<'a> {
     ledger: &'a Ledger,
-    txn: &'a mut WriteTransaction,
+    txn: &'a mut LedgerWriteTransaction,
     instructions: &'a RollbackInstructions,
 }
 
 impl<'a> RollbackInstructionsExecutor<'a> {
     pub(crate) fn new(
         ledger: &'a Ledger,
-        txn: &'a mut WriteTransaction,
+        txn: &'a mut LedgerWriteTransaction,
         instructions: &'a RollbackInstructions,
     ) -> Self {
         Self {
