@@ -5,8 +5,8 @@ use rsnano_types::{BlockHash, Root};
 use rsnano_nullable_lmdb::Transaction;
 
 use crate::{
-    AnySet, BorrowingAnySet, LedgerConstants, LedgerStore, LedgerWriteTransaction, OwningAnySet,
-    begin_write_txn, refresh_write_txn,
+    AnySet, BorrowingAnySet, LedgerConstants, LedgerStore, LedgerWriteTxnSHIM, OwningAnySet,
+    begin_write_txn_SHIM, refresh_write_txn_SHIM,
 };
 
 /// Verifies whether a vote (or a final vote) can be generated for a given block
@@ -24,10 +24,10 @@ impl<'a> VoteVerifier<'a> {
         let mut verified = VecDeque::new();
 
         if is_final {
-            let mut txn = begin_write_txn(self.store);
+            let mut txn = begin_write_txn_SHIM(self.store);
             for (root, hash) in &candidates {
                 if txn.is_refresh_needed() {
-                    txn = refresh_write_txn(self.store, txn);
+                    txn = refresh_write_txn_SHIM(self.store, txn);
                 }
                 if self.should_vote_final(&mut txn, root, hash) {
                     verified.push_back((*root, *hash));
@@ -59,7 +59,7 @@ impl<'a> VoteVerifier<'a> {
 
     fn should_vote_final(
         &self,
-        tx: &mut LedgerWriteTransaction,
+        tx: &mut LedgerWriteTxnSHIM,
         root: &Root,
         hash: &BlockHash,
     ) -> bool {

@@ -19,7 +19,7 @@ mod rep_weights_updater;
 mod representative_block_finder;
 mod store_traits;
 pub mod test_helpers;
-mod txn;
+mod txn_shim;
 mod vote_verifier;
 
 #[cfg(test)]
@@ -40,7 +40,7 @@ pub use rep_weight_cache::*;
 pub use rep_weights_updater::*;
 pub(crate) use representative_block_finder::RepresentativeBlockFinder;
 pub use store_traits::*;
-pub use txn::{
-    LedgerAnyTransaction, LedgerReadTransaction, LedgerTransactionAdapter, LedgerWriteTransaction,
-    begin_read_txn, begin_write_txn, refresh_write_txn,
+pub use txn_shim::{
+    LedgerReadTxnSHIM, LedgerTxnAdapterSHIM, LedgerTxnSHIM, LedgerWriteTxnSHIM, begin_read_txn_SHIM,
+    begin_write_txn_SHIM, refresh_write_txn_SHIM,
 };

@@ -8,14 +8,13 @@ use rsnano_nullable_lmdb::{
     WriteTransaction,
 };
 
-/// Logic-owned view over an LMDB read transaction. Provides only the operations
-/// wallet code needs while still implementing the LMDB `Transaction` trait so it
-/// can be handed to store abstractions without exposing the raw type.
-pub struct WalletReadTransaction {
+/// Temporary shim over an LMDB read transaction. Provides only the operations
+/// wallet code needs while keeping LMDB types quarantined.
+pub struct WalletReadTxnSHIM {
     inner: ReadTransaction,
 }
 
-impl WalletReadTransaction {
+impl WalletReadTxnSHIM {
     pub fn new(inner: ReadTransaction) -> Self {
         Self { inner }
     }
@@ -47,7 +46,7 @@ impl WalletReadTransaction {
     }
 }
 
-impl Deref for WalletReadTransaction {
+impl Deref for WalletReadTxnSHIM {
     type Target = ReadTransaction;
 
     fn deref(&self) -> &Self::Target {
@@ -55,7 +54,7 @@ impl Deref for WalletReadTransaction {
     }
 }
 
-impl LmdbTransaction for WalletReadTransaction {
+impl LmdbTransaction for WalletReadTxnSHIM {
     fn is_refresh_needed(&self) -> bool {
         self.inner.is_refresh_needed()
     }
@@ -77,12 +76,12 @@ impl LmdbTransaction for WalletReadTransaction {
     }
 }
 
-/// Logic-owned view over an LMDB write transaction.
-pub struct WalletWriteTransaction {
+/// Temporary shim over an LMDB write transaction.
+pub struct WalletWriteTxnSHIM {
     inner: WriteTransaction,
 }
 
-impl WalletWriteTransaction {
+impl WalletWriteTxnSHIM {
     pub fn new(inner: WriteTransaction) -> Self {
         Self { inner }
     }
@@ -119,7 +118,7 @@ impl WalletWriteTransaction {
     }
 }
 
-impl Deref for WalletWriteTransaction {
+impl Deref for WalletWriteTxnSHIM {
     type Target = WriteTransaction;
 
     fn deref(&self) -> &Self::Target {
@@ -127,13 +126,13 @@ impl Deref for WalletWriteTransaction {
     }
 }
 
-impl DerefMut for WalletWriteTransaction {
+impl DerefMut for WalletWriteTxnSHIM {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
-impl LmdbTransaction for WalletWriteTransaction {
+impl LmdbTransaction for WalletWriteTxnSHIM {
     fn is_refresh_needed(&self) -> bool {
         self.inner.is_refresh_needed()
     }
@@ -155,9 +154,8 @@ impl LmdbTransaction for WalletWriteTransaction {
     }
 }
 
-/// Shared bound for logic code that only needs "transaction-like" behavior
-/// without importing the LMDB trait everywhere.
-pub trait WalletAnyTransaction: LmdbTransaction {}
+/// Temporary trait alias letting wallet logic accept either shim without naming LMDB types.
+pub trait WalletTxnSHIM: LmdbTransaction {}
 
-impl WalletAnyTransaction for WalletReadTransaction {}
-impl WalletAnyTransaction for WalletWriteTransaction {}
+impl WalletTxnSHIM for WalletReadTxnSHIM {}
+impl WalletTxnSHIM for WalletWriteTxnSHIM {}

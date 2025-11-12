@@ -5,7 +5,7 @@ use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 
 use rsnano_nullable_lmdb::Transaction;
 
-use crate::{LedgerConstants, LedgerStore, LedgerWriteTransaction, refresh_write_txn};
+use crate::{LedgerConstants, LedgerStore, LedgerWriteTxnSHIM, refresh_write_txn_SHIM};
 
 /// Cements Blocks in the ledger
 pub(crate) struct BlockCementer<'a> {
@@ -29,10 +29,10 @@ impl<'a> BlockCementer<'a> {
 
     pub(crate) fn confirm(
         &self,
-        mut txn: LedgerWriteTransaction,
+        mut txn: LedgerWriteTxnSHIM,
         target_hash: BlockHash,
         max_blocks: usize,
-    ) -> (LedgerWriteTransaction, Vec<SavedBlock>) {
+    ) -> (LedgerWriteTxnSHIM, Vec<SavedBlock>) {
         let mut result = Vec::new();
 
         let mut stack = VecDeque::new();
@@ -92,7 +92,7 @@ impl<'a> BlockCementer<'a> {
             // Ensure that the block wasn't rolled back during the refresh
 
             if txn.is_refresh_needed() {
-                txn = refresh_write_txn(self.store, txn);
+                txn = refresh_write_txn_SHIM(self.store, txn);
                 if !self.store.block().exists(&*txn, &target_hash) {
                     break; // Block was rolled back during cementing
                 }
@@ -106,7 +106,7 @@ impl<'a> BlockCementer<'a> {
         (txn, result)
     }
 
-    fn is_confirmed(&self, tx: &LedgerWriteTransaction, hash: &BlockHash) -> bool {
+    fn is_confirmed(&self, tx: &LedgerWriteTxnSHIM, hash: &BlockHash) -> bool {
         let Some(block) = self.store.block().get(&*tx, hash) else {
             return false;
         };

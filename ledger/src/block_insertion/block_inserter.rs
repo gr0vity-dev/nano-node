@@ -4,7 +4,7 @@ use rsnano_types::{
     Account, AccountInfo, Amount, Block, BlockSideband, PendingInfo, PendingKey, SavedBlock,
 };
 
-use crate::{Ledger, LedgerWriteTransaction};
+use crate::{Ledger, LedgerWriteTxnSHIM};
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct BlockInsertInstructions {
@@ -20,7 +20,7 @@ pub(crate) struct BlockInsertInstructions {
 /// Inserts a new block into the ledger
 pub(crate) struct BlockInserter<'a> {
     ledger: &'a Ledger,
-    txn: &'a mut LedgerWriteTransaction,
+    txn: &'a mut LedgerWriteTxnSHIM,
     block: &'a Block,
     instructions: &'a BlockInsertInstructions,
 }
@@ -28,7 +28,7 @@ pub(crate) struct BlockInserter<'a> {
 impl<'a> BlockInserter<'a> {
     pub(crate) fn new(
         ledger: &'a Ledger,
-        txn: &'a mut LedgerWriteTransaction,
+        txn: &'a mut LedgerWriteTxnSHIM,
         block: &'a Block,
         instructions: &'a BlockInsertInstructions,
     ) -> Self {
@@ -130,7 +130,7 @@ impl<'a> BlockInserter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::begin_write_txn;
+    use crate::begin_write_txn_SHIM;
     use rsnano_types::{BlockHash, Epoch, PublicKey, TestBlockBuilder, UnixTimestamp};
 
     #[test]
@@ -267,7 +267,7 @@ mod tests {
         block: &mut Block,
         instructions: &BlockInsertInstructions,
     ) -> InsertResult {
-        let mut txn = begin_write_txn(ledger.store_ref());
+        let mut txn = begin_write_txn_SHIM(ledger.store_ref());
         let saved_blocks = ledger.store.block().track_puts();
         let saved_accounts = ledger.store.account().track_puts();
         let saved_pending = ledger.store.pending().track_puts();

@@ -5,7 +5,7 @@ use std::{
 
 use rsnano_types::{Amount, PublicKey};
 
-use crate::{LedgerWriteTransaction, RepWeightCache, RepWeightStore, RepWeights};
+use crate::{LedgerWriteTxnSHIM, RepWeightCache, RepWeightStore, RepWeights};
 
 /// Updates the representative weights in the ledger and in the in-memory cache
 pub struct RepWeightsUpdater {
@@ -38,7 +38,7 @@ impl RepWeightsUpdater {
 
     pub fn representation_add(
         &self,
-        tx: &mut LedgerWriteTransaction,
+        tx: &mut LedgerWriteTxnSHIM,
         representative: PublicKey,
         amount: Amount,
     ) {
@@ -64,7 +64,7 @@ impl RepWeightsUpdater {
 
     fn put_store(
         &self,
-        tx: &mut LedgerWriteTransaction,
+        tx: &mut LedgerWriteTxnSHIM,
         representative: PublicKey,
         previous_weight: Amount,
         new_weight: Amount,
@@ -86,7 +86,7 @@ impl RepWeightsUpdater {
 
     pub fn representation_add_dual(
         &self,
-        tx: &mut LedgerWriteTransaction,
+        tx: &mut LedgerWriteTxnSHIM,
         rep_1: PublicKey,
         amount_1: Amount,
         rep_2: PublicKey,
@@ -150,7 +150,7 @@ mod tests {
         let rep_weights = RepWeightCache::new();
         let rep_weights_updater = RepWeightsUpdater::new(store, Amount::ZERO, &rep_weights);
         rep_weights_updater.representation_put(representative, weight);
-        let mut txn = LedgerWriteTransaction::new(env.begin_write());
+        let mut txn = LedgerWriteTxnSHIM::new(env.begin_write());
 
         // set weight to 0
         rep_weights_updater.representation_add(
@@ -185,7 +185,7 @@ mod tests {
         let rep_weights_updater = RepWeightsUpdater::new(store, Amount::ZERO, &rep_weights);
         rep_weights_updater.representation_put(rep1, weight);
         rep_weights_updater.representation_put(rep2, weight);
-        let mut txn = LedgerWriteTransaction::new(env.begin_write());
+        let mut txn = LedgerWriteTxnSHIM::new(env.begin_write());
 
         // set weight to 0
         rep_weights_updater.representation_add_dual(
@@ -206,7 +206,7 @@ mod tests {
         let env = Arc::new(LmdbEnvironment::new_null());
         let store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
         let put_tracker = store.track_puts();
-        let mut txn = LedgerWriteTransaction::new(env.begin_write());
+        let mut txn = LedgerWriteTxnSHIM::new(env.begin_write());
         let representative = PublicKey::from(1);
         let min_weight = Amount::from(10);
         let rep_weight = Amount::from(9);
@@ -234,7 +234,7 @@ mod tests {
         );
         let store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
         let put_tracker = store.track_puts();
-        let mut txn = LedgerWriteTransaction::new(env.begin_write());
+        let mut txn = LedgerWriteTxnSHIM::new(env.begin_write());
         let min_weight = Amount::from(10);
         let rep_weights = RepWeightCache::new();
         let rep_weights_updater = RepWeightsUpdater::new(store, min_weight, &rep_weights);

@@ -6,14 +6,12 @@ use rsnano_nullable_lmdb::{
     LmdbDatabase, ReadTransaction, RoCursor, Transaction as LmdbTransaction, WriteTransaction,
 };
 
-/// Logic-owned wrapper around `rsnano_nullable_lmdb::ReadTransaction` used by the
-/// ledger module. Keeps LMDB specifics out of most call sites while still
-/// implementing the underlying `Transaction` trait for store access.
-pub struct LedgerReadTransaction {
+/// Temporary shim over `rsnano_nullable_lmdb::ReadTransaction` for ledger logic.
+pub struct LedgerReadTxnSHIM {
     inner: ReadTransaction,
 }
 
-impl LedgerReadTransaction {
+impl LedgerReadTxnSHIM {
     pub fn new(inner: ReadTransaction) -> Self {
         Self { inner }
     }
@@ -33,7 +31,7 @@ impl LedgerReadTransaction {
     }
 }
 
-impl Deref for LedgerReadTransaction {
+impl Deref for LedgerReadTxnSHIM {
     type Target = ReadTransaction;
 
     fn deref(&self) -> &Self::Target {
@@ -41,7 +39,7 @@ impl Deref for LedgerReadTransaction {
     }
 }
 
-impl LmdbTransaction for LedgerReadTransaction {
+impl LmdbTransaction for LedgerReadTxnSHIM {
     fn is_refresh_needed(&self) -> bool {
         self.inner.is_refresh_needed()
     }
@@ -63,12 +61,12 @@ impl LmdbTransaction for LedgerReadTransaction {
     }
 }
 
-/// Logic-owned wrapper around `WriteTransaction`.
-pub struct LedgerWriteTransaction {
+/// Temporary shim over `WriteTransaction` for ledger logic.
+pub struct LedgerWriteTxnSHIM {
     inner: WriteTransaction,
 }
 
-impl LedgerWriteTransaction {
+impl LedgerWriteTxnSHIM {
     pub fn new(inner: WriteTransaction) -> Self {
         Self { inner }
     }
@@ -82,7 +80,7 @@ impl LedgerWriteTransaction {
     }
 }
 
-impl Deref for LedgerWriteTransaction {
+impl Deref for LedgerWriteTxnSHIM {
     type Target = WriteTransaction;
 
     fn deref(&self) -> &Self::Target {
@@ -90,13 +88,13 @@ impl Deref for LedgerWriteTransaction {
     }
 }
 
-impl DerefMut for LedgerWriteTransaction {
+impl DerefMut for LedgerWriteTxnSHIM {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
-impl LmdbTransaction for LedgerWriteTransaction {
+impl LmdbTransaction for LedgerWriteTxnSHIM {
     fn is_refresh_needed(&self) -> bool {
         self.inner.is_refresh_needed()
     }
@@ -120,24 +118,24 @@ impl LmdbTransaction for LedgerWriteTransaction {
 
 /// Shared transaction trait exposed inside the ledger module so logic code can
 /// accept "any" ledger transaction without importing LMDB types.
-pub trait LedgerAnyTransaction: LmdbTransaction {}
+pub trait LedgerTxnSHIM: LmdbTransaction {}
 
-impl<T> LedgerAnyTransaction for T where T: LmdbTransaction + ?Sized {}
+impl<T> LedgerTxnSHIM for T where T: LmdbTransaction + ?Sized {}
 
 /// Adapter that turns a borrowed LMDB transaction reference into something that
-/// implements `LedgerAnyTransaction` without leaking the LMDB trait to logic
+/// implements `LedgerTxnSHIM` without leaking the LMDB trait to logic
 /// call sites. Useful while legacy code still hands around raw `&dyn Transaction`.
-pub struct LedgerTransactionAdapter<'a> {
+pub struct LedgerTxnAdapterSHIM<'a> {
     inner: &'a dyn LmdbTransaction,
 }
 
-impl<'a> LedgerTransactionAdapter<'a> {
+impl<'a> LedgerTxnAdapterSHIM<'a> {
     pub fn new(inner: &'a dyn LmdbTransaction) -> Self {
         Self { inner }
     }
 }
 
-impl LmdbTransaction for LedgerTransactionAdapter<'_> {
+impl LmdbTransaction for LedgerTxnAdapterSHIM<'_> {
     fn is_refresh_needed(&self) -> bool {
         self.inner.is_refresh_needed()
     }
@@ -159,17 +157,17 @@ impl LmdbTransaction for LedgerTransactionAdapter<'_> {
     }
 }
 
-pub fn begin_read_txn(store: &dyn LedgerStore) -> LedgerReadTransaction {
-    LedgerReadTransaction::new(store.begin_read())
+pub fn begin_read_txn_SHIM(store: &dyn LedgerStore) -> LedgerReadTxnSHIM {
+    LedgerReadTxnSHIM::new(store.begin_read())
 }
 
-pub fn begin_write_txn(store: &dyn LedgerStore) -> LedgerWriteTransaction {
-    LedgerWriteTransaction::new(store.begin_write())
+pub fn begin_write_txn_SHIM(store: &dyn LedgerStore) -> LedgerWriteTxnSHIM {
+    LedgerWriteTxnSHIM::new(store.begin_write())
 }
 
-pub fn refresh_write_txn(
+pub fn refresh_write_txn_SHIM(
     store: &dyn LedgerStore,
-    txn: LedgerWriteTransaction,
-) -> LedgerWriteTransaction {
-    LedgerWriteTransaction::new(store.refresh_write_txn(txn.into_inner()))
+    txn: LedgerWriteTxnSHIM,
+) -> LedgerWriteTxnSHIM {
+    LedgerWriteTxnSHIM::new(store.refresh_write_txn(txn.into_inner()))
 }

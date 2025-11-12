@@ -1,6 +1,6 @@
 use rsnano_types::{AccountInfo, BlockHash, SavedBlock};
 
-use crate::{AnySet, BorrowingAnySet, Ledger, LedgerSet, LedgerWriteTransaction};
+use crate::{AnySet, BorrowingAnySet, Ledger, LedgerSet, LedgerWriteTxnSHIM};
 
 use super::{
     instructions_executor::RollbackInstructionsExecutor, planner_factory::RollbackPlannerFactory,
@@ -9,12 +9,12 @@ use super::{
 
 pub(crate) struct BlockRollbackPerformer<'a> {
     ledger: &'a Ledger,
-    pub txn: &'a mut LedgerWriteTransaction,
+    pub txn: &'a mut LedgerWriteTxnSHIM,
     pub rolled_back: Vec<SavedBlock>,
 }
 
 impl<'a> BlockRollbackPerformer<'a> {
-    pub(crate) fn new(ledger: &'a Ledger, txn: &'a mut LedgerWriteTransaction) -> Self {
+    pub(crate) fn new(ledger: &'a Ledger, txn: &'a mut LedgerWriteTxnSHIM) -> Self {
         Self {
             ledger,
             txn,

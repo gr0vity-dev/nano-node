@@ -31,12 +31,12 @@ use rsnano_work_validation::WorkThresholds;
 
 use crate::{
     BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, GenerateCacheFlags,
-    LedgerConstants, LedgerReadTransaction, LedgerSet, LedgerStore, LedgerWriteTransaction,
-    OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater,
-    RollbackError, begin_write_txn,
+    LedgerConstants, LedgerReadTxnSHIM, LedgerSet, LedgerStore, LedgerWriteTxnSHIM, OwningAnySet,
+    OwningConfirmedSet, OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater, RollbackError,
+    begin_write_txn_SHIM,
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
-    refresh_write_txn,
+    refresh_write_txn_SHIM,
     vote_verifier::VoteVerifier,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
@@ -310,7 +310,7 @@ impl Ledger {
             .next()
             .is_none()
         {
-            let mut txn = begin_write_txn(self.store_ref());
+            let mut txn = begin_write_txn_SHIM(self.store_ref());
             self.add_genesis_block(&mut txn);
             txn.commit();
         }
@@ -360,7 +360,7 @@ impl Ledger {
         Ok(())
     }
 
-    fn add_genesis_block(&self, txn: &mut LedgerWriteTransaction) {
+    fn add_genesis_block(&self, txn: &mut LedgerWriteTxnSHIM) {
         let genesis_hash = self.constants.genesis_block.hash();
         let genesis_account = self.constants.genesis_account;
         self.store.block().put(txn, &self.constants.genesis_block);
@@ -394,12 +394,12 @@ impl Ledger {
     }
 
     pub fn confirmed(&self) -> OwningConfirmedSet<'_> {
-        let tx = LedgerReadTransaction::new(self.store.begin_read());
+        let tx = LedgerReadTxnSHIM::new(self.store.begin_read());
         OwningConfirmedSet::new(self.store_ref(), tx)
     }
 
     pub fn unconfirmed(&self) -> impl LedgerSet + use<'_> {
-        let tx = LedgerReadTransaction::new(self.store.begin_read());
+        let tx = LedgerReadTxnSHIM::new(self.store.begin_read());
         OwningUnconfirmedSet::new(self.store_ref(), tx)
     }
 
@@ -428,7 +428,7 @@ impl Ledger {
 
     pub(crate) fn update_account(
         &self,
-        txn: &mut LedgerWriteTransaction,
+        txn: &mut LedgerWriteTxnSHIM,
         account: &Account,
         old_info: &AccountInfo,
         new_info: &AccountInfo,
@@ -484,7 +484,7 @@ impl Ledger {
         let mut rolled_back_count = 0;
         let mut results = RollbackResults::new();
         {
-            let mut txn = begin_write_txn(self.store_ref());
+            let mut txn = begin_write_txn_SHIM(self.store_ref());
 
             for hash in targets {
                 // Skip the rollback if the block is being used by the node, this should be race free as it's checked while holding the ledger write lock
@@ -549,7 +549,7 @@ impl Ledger {
 
     fn roll_back_with_tx(
         &self,
-        tx: &mut LedgerWriteTransaction,
+        tx: &mut LedgerWriteTxnSHIM,
         block: &BlockHash,
     ) -> (Vec<SavedBlock>, Option<RollbackError>) {
         let mut performer = BlockRollbackPerformer::new(self, tx);
@@ -594,7 +594,7 @@ impl Ledger {
         // Insert blocks
         let mut processed = Vec::with_capacity(validation_results.len());
         {
-            let mut txn = begin_write_txn(self.store_ref());
+            let mut txn = begin_write_txn_SHIM(self.store_ref());
             for (result, block) in validation_results {
                 match result {
                     Ok(instructions) => {
@@ -625,7 +625,7 @@ impl Ledger {
     {
         let mut rolled_back = RollbackResults::new();
         {
-            let mut txn = begin_write_txn(self.store_ref());
+            let mut txn = begin_write_txn_SHIM(self.store_ref());
             for block in blocks {
                 if txn.is_refresh_needed() {
                     txn.commit();
@@ -633,7 +633,7 @@ impl Ledger {
                         rolled_back_callback(rolled_back);
                         rolled_back = RollbackResults::new();
                     }
-                    txn = begin_write_txn(self.store_ref());
+                    txn = begin_write_txn_SHIM(self.store_ref());
                 }
                 let rolled_back_blocks = self.rollback_competitor(&mut txn, block);
                 if !rolled_back_blocks.is_empty() {
@@ -654,7 +654,7 @@ impl Ledger {
 
     fn rollback_competitor(
         &self,
-        tx: &mut LedgerWriteTransaction,
+        tx: &mut LedgerWriteTxnSHIM,
         fork_block: &Block,
     ) -> Vec<SavedBlock> {
         let mut rollback_list = Vec::new();
@@ -698,7 +698,7 @@ impl Ledger {
     }
 
     pub fn confirm(&self, hash: BlockHash) -> Vec<SavedBlock> {
-        let txn = begin_write_txn(self.store_ref());
+        let txn = begin_write_txn_SHIM(self.store_ref());
         let (txn, blocks) = self.confirm_max(txn, hash, 1024 * 128);
         txn.commit();
         blocks
@@ -708,10 +708,10 @@ impl Ledger {
     /// Callers must ensure that the target block was confirmed, and if not, call this function multiple times
     fn confirm_max(
         &self,
-        txn: LedgerWriteTransaction,
+        txn: LedgerWriteTxnSHIM,
         target_hash: BlockHash,
         max_blocks: usize,
-    ) -> (LedgerWriteTransaction, Vec<SavedBlock>) {
+    ) -> (LedgerWriteTxnSHIM, Vec<SavedBlock>) {
         BlockCementer::new(self.store_ref(), &self.constants, &self.stats).confirm(
             txn,
             target_hash,
@@ -731,13 +731,13 @@ impl Ledger {
         let mut confirmed = Vec::new();
         let mut blocks_confirmed = 0;
         {
-            let mut txn = begin_write_txn(self.store_ref());
+            let mut txn = begin_write_txn_SHIM(self.store_ref());
 
             for confirmation_root in batch.into_iter() {
                 let mut success = false;
                 loop {
                     if txn.is_refresh_needed() {
-                        txn = refresh_write_txn(self.store_ref(), txn);
+                        txn = refresh_write_txn_SHIM(self.store_ref(), txn);
                     }
 
                     // Cementing deep dependency chains might take a long time, allow for graceful shutdown, ignore notifications
@@ -754,7 +754,7 @@ impl Ledger {
                             .inc(StatType::ConfirmingSet, DetailType::NotifyIntermediate);
                         cementing_observer.batch_confirmed(confirmed);
                         confirmed = Vec::new();
-                        txn = begin_write_txn(self.store_ref());
+                        txn = begin_write_txn_SHIM(self.store_ref());
                     }
 
                     self.stats
@@ -900,7 +900,7 @@ impl Ledger {
 
     #[cfg(feature = "ledger_snapshots")]
     pub fn mark_fork(&self, root: &QualifiedRoot, snapshot_number: SnapshotNumber) {
-        let mut tx = begin_write_txn(self.store_ref());
+        let mut tx = begin_write_txn_SHIM(self.store_ref());
         self.store.forks().put(&mut tx, root, snapshot_number);
         tx.commit();
     }
@@ -923,7 +923,7 @@ impl Ledger {
             }
         }
 
-        let mut txn = begin_write_txn(self.store_ref());
+        let mut txn = begin_write_txn_SHIM(self.store_ref());
         for (_, root) in forks_to_roll_back {
             self.store.forks().del(&mut txn, &root);
         }

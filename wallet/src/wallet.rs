@@ -3,7 +3,7 @@ use std::sync::Arc;
 use rsnano_ledger::{AnySet, Ledger};
 use rsnano_types::{PrivateKey, PublicKey, WalletId, WorkNonce};
 
-use crate::{WalletAnyTransaction, WalletStore, WalletWriteTransaction};
+use crate::{WalletStore, WalletTxnSHIM, WalletWriteTxnSHIM};
 
 pub struct Wallet {
     id: WalletId,
@@ -19,13 +19,13 @@ impl Wallet {
         Self { id, store }
     }
 
-    pub fn work_put(&self, txn: &mut WalletWriteTransaction, pub_key: &PublicKey, work: WorkNonce) {
+    pub fn work_put(&self, txn: &mut WalletWriteTxnSHIM, pub_key: &PublicKey, work: WorkNonce) {
         self.store.work_put(txn, pub_key, work);
     }
 
     pub fn deterministic_check(
         &self,
-        txn: &impl WalletAnyTransaction,
+        txn: &impl WalletTxnSHIM,
         index: u32,
         ledger: &Ledger,
     ) -> u32 {

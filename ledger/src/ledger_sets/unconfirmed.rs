@@ -1,17 +1,17 @@
 use rsnano_types::{Account, AccountInfo, Amount, BlockHash};
 
 use super::LedgerSet;
-use crate::{LedgerReadTransaction, LedgerStore};
+use crate::{LedgerReadTxnSHIM, LedgerStore};
 
 /// Unconfirmed Blocks of the ledger.
 /// It owns the DB transaction
 pub(crate) struct OwningUnconfirmedSet<'a> {
     store: &'a dyn LedgerStore,
-    tx: LedgerReadTransaction,
+    tx: LedgerReadTxnSHIM,
 }
 
 impl<'a> OwningUnconfirmedSet<'a> {
-    pub fn new(store: &'a dyn LedgerStore, tx: LedgerReadTransaction) -> Self {
+    pub fn new(store: &'a dyn LedgerStore, tx: LedgerReadTxnSHIM) -> Self {
         Self { store, tx }
     }
 
@@ -45,7 +45,7 @@ impl<'a> LedgerSet for OwningUnconfirmedSet<'a> {
 /// It borrows the DB transaction
 pub(crate) struct BorrowingUnconfirmedSet<'a> {
     store: &'a dyn LedgerStore,
-    tx: &'a LedgerReadTransaction,
+    tx: &'a LedgerReadTxnSHIM,
 }
 
 impl<'a> LedgerSet for BorrowingUnconfirmedSet<'a> {

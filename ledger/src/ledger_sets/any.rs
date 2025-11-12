@@ -8,9 +8,8 @@ use rsnano_types::{
 
 use super::{BorrowingConfirmedSet, ConfirmedSet, LedgerSet};
 use crate::{
-    DependentBlocksFinder, LedgerConstants, LedgerReadTransaction, LedgerStore,
-    LedgerTransactionAdapter, PendingStore, RangeBounds as StoreRangeBounds,
-    RepresentativeBlockFinder,
+    DependentBlocksFinder, LedgerConstants, LedgerReadTxnSHIM, LedgerStore, LedgerTxnAdapterSHIM,
+    PendingStore, RangeBounds as StoreRangeBounds, RepresentativeBlockFinder,
 };
 
 pub trait AnySet: LedgerSet {
@@ -84,13 +83,13 @@ pub trait AnySet: LedgerSet {
 /// It owns the DB transaction
 pub struct OwningAnySet<'a> {
     store: &'a dyn LedgerStore,
-    txn: LedgerReadTransaction,
+    txn: LedgerReadTxnSHIM,
     constants: &'a LedgerConstants,
 }
 
 impl<'a> OwningAnySet<'a> {
     pub(crate) fn new(store: &'a dyn LedgerStore, constants: &'a LedgerConstants) -> Self {
-        let tx = LedgerReadTransaction::new(store.begin_read());
+        let tx = LedgerReadTxnSHIM::new(store.begin_read());
         Self {
             store,
             txn: tx,
@@ -472,7 +471,7 @@ impl<'a> AnySet for BorrowingAnySet<'a> {
 
     /// Returns the latest block with representative information
     fn representative_block_hash(&self, hash: &BlockHash) -> BlockHash {
-        let txn_adapter = LedgerTransactionAdapter::new(self.tx);
+        let txn_adapter = LedgerTxnAdapterSHIM::new(self.tx);
         let hash = RepresentativeBlockFinder::new(&txn_adapter, self.store).find_rep_block(*hash);
         debug_assert!(hash.is_zero() || self.store.block().exists(self.tx, &hash));
         hash
