@@ -117,23 +117,23 @@ impl LedgerStore for LmdbStore {
 
 impl BlockStore for LmdbBlockStore {
     fn put(&self, txn: &mut dyn LedgerWriteTxn, block: &SavedBlock) {
-        LmdbBlockStore::put(self, write_txn_shim(txn), block);
+        LmdbBlockStore::put(self, txn, block);
     }
 
     fn get(&self, txn: &dyn LedgerReadTxn, hash: &BlockHash) -> Option<SavedBlock> {
-        LmdbBlockStore::get(self, read_txn_shim(txn), hash)
+        LmdbBlockStore::get(self, txn, hash)
     }
 
     fn del(&self, txn: &mut dyn LedgerWriteTxn, hash: &BlockHash) {
-        LmdbBlockStore::del(self, write_txn_shim(txn), hash);
+        LmdbBlockStore::del(self, txn, hash);
     }
 
     fn exists(&self, txn: &dyn LedgerReadTxn, hash: &BlockHash) -> bool {
-        LmdbBlockStore::exists(self, read_txn_shim(txn), hash)
+        LmdbBlockStore::exists(self, txn, hash)
     }
 
     fn iter<'a>(&'a self, txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, SavedBlock> {
-        Box::new(LmdbBlockStore::iter(self, read_txn_shim(txn)))
+        Box::new(LmdbBlockStore::iter(self, txn))
     }
 
     fn iter_range<'a>(
@@ -141,7 +141,7 @@ impl BlockStore for LmdbBlockStore {
         txn: &'a dyn LedgerReadTxn,
         range: RangeBounds<BlockHash>,
     ) -> StoreIterator<'a, SavedBlock> {
-        Box::new(LmdbBlockStore::iter_range(self, read_txn_shim(txn), range))
+        Box::new(LmdbBlockStore::iter_range(self, txn, range))
     }
 
     fn track_puts(&self) -> Arc<OutputTrackerMt<SavedBlock>> {
@@ -151,19 +151,19 @@ impl BlockStore for LmdbBlockStore {
 
 impl AccountStore for LmdbAccountStore {
     fn put(&self, txn: &mut dyn LedgerWriteTxn, account: &Account, info: &AccountInfo) {
-        LmdbAccountStore::put(self, write_txn_shim(txn), account, info);
+        LmdbAccountStore::put(self, txn, account, info);
     }
 
     fn get(&self, txn: &dyn LedgerReadTxn, account: &Account) -> Option<AccountInfo> {
-        LmdbAccountStore::get(self, read_txn_shim(txn), account)
+        LmdbAccountStore::get(self, txn, account)
     }
 
     fn del(&self, txn: &mut dyn LedgerWriteTxn, account: &Account) {
-        LmdbAccountStore::del(self, write_txn_shim(txn), account);
+        LmdbAccountStore::del(self, txn, account);
     }
 
     fn iter<'a>(&'a self, txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, (Account, AccountInfo)> {
-        Box::new(LmdbAccountStore::iter(self, read_txn_shim(txn)))
+        Box::new(LmdbAccountStore::iter(self, txn))
     }
 
     fn iter_range<'a>(
@@ -171,11 +171,7 @@ impl AccountStore for LmdbAccountStore {
         txn: &'a dyn LedgerReadTxn,
         range: RangeBounds<Account>,
     ) -> StoreIterator<'a, (Account, AccountInfo)> {
-        Box::new(LmdbAccountStore::iter_range(
-            self,
-            read_txn_shim(txn),
-            range,
-        ))
+        Box::new(LmdbAccountStore::iter_range(self, txn, range))
     }
 
     fn track_puts(&self) -> Arc<OutputTrackerMt<(Account, AccountInfo)>> {
@@ -185,15 +181,15 @@ impl AccountStore for LmdbAccountStore {
 
 impl PendingStore for LmdbPendingStore {
     fn put(&self, txn: &mut dyn LedgerWriteTxn, key: &PendingKey, pending: &PendingInfo) {
-        LmdbPendingStore::put(self, write_txn_shim(txn), key, pending);
+        LmdbPendingStore::put(self, txn, key, pending);
     }
 
     fn del(&self, txn: &mut dyn LedgerWriteTxn, key: &PendingKey) {
-        LmdbPendingStore::del(self, write_txn_shim(txn), key);
+        LmdbPendingStore::del(self, txn, key);
     }
 
     fn get(&self, txn: &dyn LedgerReadTxn, key: &PendingKey) -> Option<PendingInfo> {
-        LmdbPendingStore::get(self, read_txn_shim(txn), key)
+        LmdbPendingStore::get(self, txn, key)
     }
 
     fn iter_range<'a>(
@@ -201,11 +197,7 @@ impl PendingStore for LmdbPendingStore {
         txn: &'a dyn LedgerReadTxn,
         range: RangeBounds<PendingKey>,
     ) -> StoreIterator<'a, (PendingKey, PendingInfo)> {
-        Box::new(LmdbPendingStore::iter_range(
-            self,
-            read_txn_shim(txn),
-            range,
-        ))
+        Box::new(LmdbPendingStore::iter_range(self, txn, range))
     }
 
     fn track_puts(&self) -> Arc<OutputTrackerMt<(PendingKey, PendingInfo)>> {

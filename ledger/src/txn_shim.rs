@@ -2,7 +2,8 @@ use std::time::Duration;
 
 use crate::LedgerStore;
 use rsnano_nullable_lmdb::{
-    LmdbDatabase, ReadTransaction, RoCursor, Transaction as LmdbTransaction, WriteTransaction,
+    LmdbDatabase, ReadTransaction, RoCursor, RwCursor, Transaction as LmdbTransaction,
+    WriteFlags, WriteTransaction,
 };
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
@@ -112,6 +113,18 @@ impl LedgerReadTxn for LedgerReadTxnSHIM {
     fn as_lmdb_txn_shim(&self) -> &dyn LmdbTransaction {
         &self.inner
     }
+
+    fn raw_get(&self, database: LmdbDatabase, key: &[u8]) -> rsnano_nullable_lmdb::Result<&[u8]> {
+        self.inner.get(database, key)
+    }
+
+    fn raw_open_ro_cursor(&self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
+        self.inner.open_ro_cursor(database)
+    }
+
+    fn raw_count(&self, database: LmdbDatabase) -> u64 {
+        self.inner.count(database)
+    }
 }
 
 impl LedgerReadTxn for LedgerWriteTxnSHIM {
@@ -122,11 +135,54 @@ impl LedgerReadTxn for LedgerWriteTxnSHIM {
     fn as_lmdb_txn_shim(&self) -> &dyn LmdbTransaction {
         &self.inner
     }
+
+    fn raw_get(&self, database: LmdbDatabase, key: &[u8]) -> rsnano_nullable_lmdb::Result<&[u8]> {
+        self.inner.get(database, key)
+    }
+
+    fn raw_open_ro_cursor(&self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
+        self.inner.open_ro_cursor(database)
+    }
+
+    fn raw_count(&self, database: LmdbDatabase) -> u64 {
+        self.inner.count(database)
+    }
 }
 
 impl LedgerWriteTxn for LedgerWriteTxnSHIM {
     fn as_lmdb_write_txn_shim(&mut self) -> &mut WriteTransaction {
         &mut self.inner
+    }
+
+    fn raw_put(
+        &mut self,
+        database: LmdbDatabase,
+        key: &[u8],
+        value: &[u8],
+        flags: WriteFlags,
+    ) -> rsnano_nullable_lmdb::Result<()> {
+        self.inner.put(database, key, value, flags)
+    }
+
+    fn raw_delete(
+        &mut self,
+        database: LmdbDatabase,
+        key: &[u8],
+        value: Option<&[u8]>,
+    ) -> rsnano_nullable_lmdb::Result<()> {
+        self.inner.delete(database, key, value)
+    }
+
+    fn raw_clear_db(&mut self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<()> {
+        self.inner.clear_db(database)
+    }
+
+    fn raw_open_rw_cursor(&mut self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<RwCursor<'_>> {
+        self.inner.open_rw_cursor(database)
+    }
+
+    unsafe fn raw_drop_db(&mut self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<()> {
+        unsafe { self.inner.drop_db(database) }
     }
 }
 

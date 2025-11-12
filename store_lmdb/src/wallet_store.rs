@@ -177,8 +177,8 @@ impl LmdbWalletStore {
         self.fans.lock().unwrap().password.value()
     }
 
-    fn ensure_key_exists(&self, txn: &dyn Transaction, key: &PublicKey) -> anyhow::Result<()> {
-        txn.get(self.db_handle(), key.as_bytes())?;
+    fn ensure_key_exists(&self, txn: &dyn WalletReadTxn, key: &PublicKey) -> anyhow::Result<()> {
+        txn.raw_get(self.db_handle(), key.as_bytes())?;
         Ok(())
     }
 
