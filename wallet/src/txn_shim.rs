@@ -7,6 +7,7 @@ use rsnano_nullable_lmdb::{
     LmdbDatabase, ReadTransaction, RoCursor, Transaction as LmdbTransaction, WriteFlags,
     WriteTransaction,
 };
+use store_traits::transaction::{WalletReadTxn, WalletWriteTxn};
 
 /// Temporary shim over an LMDB read transaction. Provides only the operations
 /// wallet code needs while keeping LMDB types quarantined.
@@ -155,7 +156,11 @@ impl LmdbTransaction for WalletWriteTxnSHIM {
 }
 
 /// Temporary trait alias letting wallet logic accept either shim without naming LMDB types.
-pub trait WalletTxnSHIM: LmdbTransaction {}
+impl WalletReadTxn for WalletReadTxnSHIM {}
+impl WalletReadTxn for WalletWriteTxnSHIM {}
+impl WalletWriteTxn for WalletWriteTxnSHIM {}
+
+pub trait WalletTxnSHIM: WalletReadTxn + LmdbTransaction {}
 
 impl WalletTxnSHIM for WalletReadTxnSHIM {}
 impl WalletTxnSHIM for WalletWriteTxnSHIM {}

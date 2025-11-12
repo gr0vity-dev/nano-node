@@ -5,6 +5,7 @@ use crate::LedgerStore;
 use rsnano_nullable_lmdb::{
     LmdbDatabase, ReadTransaction, RoCursor, Transaction as LmdbTransaction, WriteTransaction,
 };
+use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
 /// Temporary shim over `rsnano_nullable_lmdb::ReadTransaction` for ledger logic.
 pub struct LedgerReadTxnSHIM {
@@ -126,19 +127,23 @@ impl LmdbTransaction for LedgerWriteTxnSHIM {
 
 /// Shared transaction trait exposed inside the ledger module so logic code can
 /// accept "any" ledger transaction without importing LMDB types.
-pub trait LedgerTxnSHIM: LmdbTransaction {}
+impl LedgerReadTxn for LedgerReadTxnSHIM {}
+impl LedgerReadTxn for LedgerWriteTxnSHIM {}
+impl LedgerWriteTxn for LedgerWriteTxnSHIM {}
 
-impl<T> LedgerTxnSHIM for T where T: LmdbTransaction + ?Sized {}
+pub trait LedgerTxnSHIM: LedgerReadTxn + LmdbTransaction {}
+
+impl<T> LedgerTxnSHIM for T where T: LedgerReadTxn + LmdbTransaction + ?Sized {}
 
 /// Adapter that turns a borrowed LMDB transaction reference into something that
 /// implements `LedgerTxnSHIM` without leaking the LMDB trait to logic
 /// call sites. Useful while legacy code still hands around raw `&dyn Transaction`.
 pub struct LedgerTxnAdapterSHIM<'a> {
-    inner: &'a dyn LmdbTransaction,
+    inner: &'a dyn LedgerTxnSHIM,
 }
 
 impl<'a> LedgerTxnAdapterSHIM<'a> {
-    pub fn new(inner: &'a dyn LmdbTransaction) -> Self {
+    pub fn new(inner: &'a dyn LedgerTxnSHIM) -> Self {
         Self { inner }
     }
 }
@@ -164,6 +169,8 @@ impl LmdbTransaction for LedgerTxnAdapterSHIM<'_> {
         self.inner.count(database)
     }
 }
+
+impl<'a> LedgerReadTxn for LedgerTxnAdapterSHIM<'a> {}
 
 #[allow(non_snake_case)]
 pub fn begin_read_txn_SHIM(store: &dyn LedgerStore) -> LedgerReadTxnSHIM {
