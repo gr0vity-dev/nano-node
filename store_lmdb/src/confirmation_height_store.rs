@@ -40,7 +40,11 @@ impl LmdbConfirmationHeightStore {
         .unwrap();
     }
 
-    pub fn get(&self, txn: &dyn LedgerReadTxn, account: &Account) -> Option<ConfirmationHeightInfo> {
+    pub fn get(
+        &self,
+        txn: &dyn LedgerReadTxn,
+        account: &Account,
+    ) -> Option<ConfirmationHeightInfo> {
         match txn.raw_get(self.database, account.as_bytes()) {
             Err(Error::NotFound) => None,
             Ok(mut bytes) => Some(
@@ -58,7 +62,8 @@ impl LmdbConfirmationHeightStore {
     }
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, account: &Account) {
-        txn.raw_delete(self.database, account.as_bytes(), None).unwrap();
+        txn.raw_delete(self.database, account.as_bytes(), None)
+            .unwrap();
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {

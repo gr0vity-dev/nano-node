@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use crate::LedgerStore;
 use rsnano_nullable_lmdb::{
-    LmdbDatabase, ReadTransaction, RoCursor, RwCursor, Transaction as LmdbTransaction,
-    WriteFlags, WriteTransaction,
+    LmdbDatabase, ReadTransaction, RoCursor, RwCursor, Transaction as LmdbTransaction, WriteFlags,
+    WriteTransaction,
 };
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
@@ -118,7 +118,10 @@ impl LedgerReadTxn for LedgerReadTxnSHIM {
         self.inner.get(database, key)
     }
 
-    fn raw_open_ro_cursor(&self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
+    fn raw_open_ro_cursor(
+        &self,
+        database: LmdbDatabase,
+    ) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
         self.inner.open_ro_cursor(database)
     }
 
@@ -140,7 +143,10 @@ impl LedgerReadTxn for LedgerWriteTxnSHIM {
         self.inner.get(database, key)
     }
 
-    fn raw_open_ro_cursor(&self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
+    fn raw_open_ro_cursor(
+        &self,
+        database: LmdbDatabase,
+    ) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
         self.inner.open_ro_cursor(database)
     }
 
@@ -177,7 +183,10 @@ impl LedgerWriteTxn for LedgerWriteTxnSHIM {
         self.inner.clear_db(database)
     }
 
-    fn raw_open_rw_cursor(&mut self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<RwCursor<'_>> {
+    fn raw_open_rw_cursor(
+        &mut self,
+        database: LmdbDatabase,
+    ) -> rsnano_nullable_lmdb::Result<RwCursor<'_>> {
         self.inner.open_rw_cursor(database)
     }
 

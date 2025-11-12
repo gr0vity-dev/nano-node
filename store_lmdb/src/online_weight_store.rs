@@ -1,6 +1,4 @@
-use rsnano_nullable_lmdb::{
-    DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags,
-};
+use rsnano_nullable_lmdb::{DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags};
 use rsnano_types::Amount;
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 

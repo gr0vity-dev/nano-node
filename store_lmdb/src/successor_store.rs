@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use rsnano_nullable_lmdb::{
-    DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, WriteFlags,
-};
+use rsnano_nullable_lmdb::{DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, WriteFlags};
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::BlockHash;
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
@@ -41,7 +39,8 @@ impl LmdbSuccessorStore {
     }
 
     pub fn del(&self, tx: &mut dyn LedgerWriteTxn, block: &BlockHash) {
-        tx.raw_delete(self.database, block.as_bytes(), None).unwrap();
+        tx.raw_delete(self.database, block.as_bytes(), None)
+            .unwrap();
     }
 
     pub fn get(&self, tx: &dyn LedgerReadTxn, block: &BlockHash) -> Option<BlockHash> {

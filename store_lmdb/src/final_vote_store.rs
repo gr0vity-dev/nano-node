@@ -1,8 +1,6 @@
 use std::ops::RangeBounds;
 
-use rsnano_nullable_lmdb::{
-    DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, WriteFlags,
-};
+use rsnano_nullable_lmdb::{DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, WriteFlags};
 use rsnano_types::{BlockHash, QualifiedRoot};
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
@@ -26,7 +24,12 @@ impl LmdbFinalVoteStore {
     }
 
     /// Returns *true* if root + hash was inserted or the same root/hash pair was already in the database
-    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, root: &QualifiedRoot, hash: &BlockHash) -> bool {
+    pub fn put(
+        &self,
+        txn: &mut dyn LedgerWriteTxn,
+        root: &QualifiedRoot,
+        hash: &BlockHash,
+    ) -> bool {
         let root_bytes = root.to_bytes();
         match txn.raw_get(self.database, &root_bytes) {
             Err(Error::NotFound) => {

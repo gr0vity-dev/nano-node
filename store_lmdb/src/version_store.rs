@@ -1,6 +1,4 @@
-use rsnano_nullable_lmdb::{
-    DatabaseFlags, Error, LmdbEnvironment, WriteFlags,
-};
+use rsnano_nullable_lmdb::{DatabaseFlags, Error, LmdbEnvironment, WriteFlags};
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
 use crate::{LmdbDatabase, STORE_VERSION_CURRENT};

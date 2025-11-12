@@ -177,11 +177,7 @@ impl LmdbBlockStore {
             .expect("Couldn't insert into block data table'");
     }
 
-    fn block_raw_get<'a>(
-        &self,
-        txn: &'a dyn LedgerReadTxn,
-        hash: &BlockHash,
-    ) -> Option<&'a [u8]> {
+    fn block_raw_get<'a>(&self, txn: &'a dyn LedgerReadTxn, hash: &BlockHash) -> Option<&'a [u8]> {
         match txn.raw_get(self.index_db, hash.as_bytes()) {
             Err(Error::NotFound) => None,
             Ok(id_bytes) => Some(
