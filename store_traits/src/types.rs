@@ -1,14 +1,11 @@
 use std::{
     fmt,
-    marker::PhantomData,
-    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Deref, DerefMut},
-    ptr::NonNull,
-    time::Duration,
+    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign},
 };
 
 use rsnano_nullable_lmdb::{
     EnvironmentFlags, Error as LmdbError, LmdbDatabase, RoCursor as LmdbRoCursor,
-    RwCursor as LmdbRwCursor, Transaction as LmdbTransaction, WriteFlags, WriteTransaction,
+    RwCursor as LmdbRwCursor, WriteFlags,
 };
 
 pub type StoreResult<T> = Result<T, StoreError>;
@@ -202,106 +199,5 @@ impl BitOr for StoreEnvironmentFlags {
 impl BitOrAssign for StoreEnvironmentFlags {
     fn bitor_assign(&mut self, rhs: Self) {
         self.0 |= rhs.0;
-    }
-}
-
-pub trait StoreBackendTransaction {
-    fn is_refresh_needed(&self) -> bool;
-    fn is_refresh_needed_with(&self, max_duration: Duration) -> bool;
-    fn get<'txn>(&'txn self, database: StoreDatabase, key: &[u8]) -> StoreResult<&'txn [u8]>;
-    fn open_ro_cursor<'txn>(
-        &'txn self,
-        database: StoreDatabase,
-    ) -> StoreResult<StoreRoCursor<'txn>>;
-    fn count(&self, database: StoreDatabase) -> u64;
-}
-
-impl StoreBackendTransaction for rsnano_nullable_lmdb::ReadTransaction {
-    fn is_refresh_needed(&self) -> bool {
-        LmdbTransaction::is_refresh_needed(self)
-    }
-
-    fn is_refresh_needed_with(&self, max_duration: Duration) -> bool {
-        LmdbTransaction::is_refresh_needed_with(self, max_duration)
-    }
-
-    fn get<'txn>(&'txn self, database: StoreDatabase, key: &[u8]) -> StoreResult<&'txn [u8]> {
-        LmdbTransaction::get(self, database.into(), key).map_err(StoreError::from)
-    }
-
-    fn open_ro_cursor<'txn>(
-        &'txn self,
-        database: StoreDatabase,
-    ) -> StoreResult<StoreRoCursor<'txn>> {
-        LmdbTransaction::open_ro_cursor(self, database.into())
-            .map(StoreRoCursor::new)
-            .map_err(StoreError::from)
-    }
-
-    fn count(&self, database: StoreDatabase) -> u64 {
-        LmdbTransaction::count(self, database.into())
-    }
-}
-
-impl StoreBackendTransaction for rsnano_nullable_lmdb::WriteTransaction {
-    fn is_refresh_needed(&self) -> bool {
-        LmdbTransaction::is_refresh_needed(self)
-    }
-
-    fn is_refresh_needed_with(&self, max_duration: Duration) -> bool {
-        LmdbTransaction::is_refresh_needed_with(self, max_duration)
-    }
-
-    fn get<'txn>(&'txn self, database: StoreDatabase, key: &[u8]) -> StoreResult<&'txn [u8]> {
-        LmdbTransaction::get(self, database.into(), key).map_err(StoreError::from)
-    }
-
-    fn open_ro_cursor<'txn>(
-        &'txn self,
-        database: StoreDatabase,
-    ) -> StoreResult<StoreRoCursor<'txn>> {
-        LmdbTransaction::open_ro_cursor(self, database.into())
-            .map(StoreRoCursor::new)
-            .map_err(StoreError::from)
-    }
-
-    fn count(&self, database: StoreDatabase) -> u64 {
-        LmdbTransaction::count(self, database.into())
-    }
-}
-
-pub struct StoreWriteTransaction<'txn> {
-    inner: NonNull<WriteTransaction>,
-    _marker: PhantomData<&'txn mut WriteTransaction>,
-}
-
-impl<'txn> StoreWriteTransaction<'txn> {
-    pub fn new(inner: &'txn mut WriteTransaction) -> Self {
-        Self {
-            inner: NonNull::from(inner),
-            _marker: PhantomData,
-        }
-    }
-
-    pub fn inner(&self) -> &WriteTransaction {
-        unsafe { self.inner.as_ref() }
-    }
-
-    pub fn inner_mut(&mut self) -> &mut WriteTransaction {
-        unsafe { self.inner.as_mut() }
-    }
-}
-
-impl<'txn> Deref for StoreWriteTransaction<'txn> {
-    type Target = WriteTransaction;
-
-    fn deref(&self) -> &Self::Target {
-        self.inner()
-    }
-}
-
-impl<'txn> DerefMut for StoreWriteTransaction<'txn> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.inner_mut()
     }
 }

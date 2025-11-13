@@ -2,13 +2,14 @@ use std::sync::Arc;
 
 use rsnano_nullable_lmdb::sys::{MDB_FIRST, MDB_NEXT};
 use rsnano_nullable_lmdb::{
-    EnvironmentOptions, LmdbEnvironment, LmdbEnvironmentFactory, ReadTransaction, WriteTransaction,
+    EnvironmentOptions, LmdbEnvironment, LmdbEnvironmentFactory, ReadTransaction,
+    Transaction as LmdbTxn, WriteTransaction,
 };
 use store_traits::environment::{
     StoreCursor, StoreEnvironment, StoreEnvironmentFactory, StoreEnvironmentOptions, StoreReadTxn,
     StoreWriteTxn,
 };
-use store_traits::types::{StoreBackendTransaction, StoreDatabase, StoreResult, StoreWriteFlags};
+use store_traits::types::{StoreDatabase, StoreError, StoreResult, StoreWriteFlags};
 
 pub struct LmdbCursor<'txn> {
     inner: rsnano_nullable_lmdb::RoCursor<'txn>,
@@ -89,19 +90,20 @@ impl<'env> StoreReadTxn<'env> for LmdbReadTxn<'env> {
     where
         'env: 'txn,
     {
-        StoreBackendTransaction::get(&self.inner, database, key)
+        LmdbTxn::get(&self.inner, database.into(), key).map_err(Into::into)
     }
 
     fn count(&self, database: StoreDatabase) -> u64 {
-        StoreBackendTransaction::count(&self.inner, database)
+        LmdbTxn::count(&self.inner, database.into())
     }
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
     where
         'env: 'txn,
     {
-        let cursor = StoreBackendTransaction::open_ro_cursor(&self.inner, database)?;
-        Ok(LmdbCursor::new(cursor.into_inner()))
+        let cursor =
+            LmdbTxn::open_ro_cursor(&self.inner, database.into()).map_err(StoreError::from)?;
+        Ok(LmdbCursor::new(cursor))
     }
 
     fn commit(self)
@@ -137,20 +139,20 @@ impl<'env> StoreReadTxn<'env> for LmdbWriteTxn<'env> {
     where
         'env: 'txn,
     {
-        StoreBackendTransaction::get(&self.inner, database, key)
+        LmdbTxn::get(&self.inner, database.into(), key).map_err(Into::into)
     }
 
     fn count(&self, database: StoreDatabase) -> u64 {
-        StoreBackendTransaction::count(&self.inner, database)
+        LmdbTxn::count(&self.inner, database.into())
     }
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
     where
         'env: 'txn,
     {
-        Ok(LmdbCursor::new(
-            StoreBackendTransaction::open_ro_cursor(&self.inner, database)?.into_inner(),
-        ))
+        let cursor =
+            LmdbTxn::open_ro_cursor(&self.inner, database.into()).map_err(StoreError::from)?;
+        Ok(LmdbCursor::new(cursor))
     }
 
     fn commit(self)

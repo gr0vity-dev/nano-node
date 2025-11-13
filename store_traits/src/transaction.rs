@@ -1,15 +1,13 @@
 use crate::types::{
-    StoreBackendTransaction, StoreDatabase, StoreError, StoreResult, StoreRoCursor, StoreRwCursor,
-    StoreWriteFlags, StoreWriteTransaction,
+    StoreDatabase, StoreError, StoreResult, StoreRoCursor, StoreRwCursor, StoreWriteFlags,
 };
 use rsnano_nullable_lmdb::{
-    LmdbDatabase, RoCursor as LmdbRoCursor, RwCursor as LmdbRwCursor, WriteFlags,
+    LmdbDatabase, RoCursor as LmdbRoCursor, RwCursor as LmdbRwCursor, Transaction as LmdbTxn,
+    WriteFlags,
 };
 
 pub trait LedgerReadTxn {
     fn is_refresh_needed(&self) -> bool;
-    /// Temporary LMDB escape hatch until adapters are in place.
-    fn as_lmdb_txn_shim(&self) -> &dyn StoreBackendTransaction;
     fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]>;
     fn raw_exists(&self, database: StoreDatabase, key: &[u8]) -> bool {
         match self.get(database, key) {
@@ -32,7 +30,6 @@ pub trait LedgerReadTxn {
 }
 
 pub trait LedgerWriteTxn: LedgerReadTxn {
-    fn as_lmdb_write_txn_shim(&mut self) -> StoreWriteTransaction<'_>;
     fn put(
         &mut self,
         database: StoreDatabase,
@@ -80,53 +77,45 @@ pub trait LedgerWriteTxn: LedgerReadTxn {
 
 impl LedgerReadTxn for rsnano_nullable_lmdb::ReadTransaction {
     fn is_refresh_needed(&self) -> bool {
-        StoreBackendTransaction::is_refresh_needed(self)
-    }
-
-    fn as_lmdb_txn_shim(&self) -> &dyn StoreBackendTransaction {
-        self
+        LmdbTxn::is_refresh_needed(self)
     }
 
     fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
-        StoreBackendTransaction::get(self, database, key)
+        LmdbTxn::get(self, database.into(), key).map_err(Into::into)
     }
 
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
-        StoreBackendTransaction::open_ro_cursor(self, database)
+        LmdbTxn::open_ro_cursor(self, database.into())
+            .map(StoreRoCursor::new)
+            .map_err(Into::into)
     }
 
     fn count(&self, database: StoreDatabase) -> u64 {
-        StoreBackendTransaction::count(self, database)
+        LmdbTxn::count(self, database.into())
     }
 }
 
 impl LedgerReadTxn for rsnano_nullable_lmdb::WriteTransaction {
     fn is_refresh_needed(&self) -> bool {
-        StoreBackendTransaction::is_refresh_needed(self)
-    }
-
-    fn as_lmdb_txn_shim(&self) -> &dyn StoreBackendTransaction {
-        self
+        LmdbTxn::is_refresh_needed(self)
     }
 
     fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
-        StoreBackendTransaction::get(self, database, key)
+        LmdbTxn::get(self, database.into(), key).map_err(Into::into)
     }
 
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
-        StoreBackendTransaction::open_ro_cursor(self, database)
+        LmdbTxn::open_ro_cursor(self, database.into())
+            .map(StoreRoCursor::new)
+            .map_err(Into::into)
     }
 
     fn count(&self, database: StoreDatabase) -> u64 {
-        StoreBackendTransaction::count(self, database)
+        LmdbTxn::count(self, database.into())
     }
 }
 
 impl LedgerWriteTxn for rsnano_nullable_lmdb::WriteTransaction {
-    fn as_lmdb_write_txn_shim(&mut self) -> StoreWriteTransaction<'_> {
-        StoreWriteTransaction::new(self)
-    }
-
     fn put(
         &mut self,
         database: StoreDatabase,
@@ -345,15 +334,17 @@ impl<T: LedgerWriteTxn + ?Sized> LedgerWriteTxnLmdbExt for T {
 
 impl WalletReadTxn for rsnano_nullable_lmdb::ReadTransaction {
     fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
-        StoreBackendTransaction::get(self, database, key)
+        LmdbTxn::get(self, database.into(), key).map_err(Into::into)
     }
 
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
-        StoreBackendTransaction::open_ro_cursor(self, database)
+        LmdbTxn::open_ro_cursor(self, database.into())
+            .map(StoreRoCursor::new)
+            .map_err(Into::into)
     }
 
     fn count(&self, database: StoreDatabase) -> u64 {
-        StoreBackendTransaction::count(self, database)
+        LmdbTxn::count(self, database.into())
     }
 
     fn commit(self: Box<Self>) {
@@ -363,15 +354,17 @@ impl WalletReadTxn for rsnano_nullable_lmdb::ReadTransaction {
 
 impl WalletReadTxn for rsnano_nullable_lmdb::WriteTransaction {
     fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
-        StoreBackendTransaction::get(self, database, key)
+        LmdbTxn::get(self, database.into(), key).map_err(Into::into)
     }
 
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
-        StoreBackendTransaction::open_ro_cursor(self, database)
+        LmdbTxn::open_ro_cursor(self, database.into())
+            .map(StoreRoCursor::new)
+            .map_err(Into::into)
     }
 
     fn count(&self, database: StoreDatabase) -> u64 {
-        StoreBackendTransaction::count(self, database)
+        LmdbTxn::count(self, database.into())
     }
 
     fn commit(self: Box<Self>) {
