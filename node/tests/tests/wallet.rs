@@ -15,12 +15,13 @@ use rsnano_node::{
     unique_path,
 };
 use rsnano_nullable_lmdb::{LmdbEnvironment, LmdbEnvironmentFactory};
+use rsnano_store_lmdb::LmdbWalletStoreFactory;
 use rsnano_store_lmdb::{EnvironmentFlags, EnvironmentOptions};
 use rsnano_types::{
     Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, Epoch, EpochBlockArgs,
     KeyDerivationFunction, PrivateKey, PublicKey, RawKey, WalletId, deterministic_key,
 };
-use rsnano_wallet::{LmdbWalletStoreFactory, WalletStore, WalletStoreFactory, WalletsError};
+use rsnano_wallet::{WalletStore, WalletStoreFactory, WalletsError};
 use test_helpers::{System, assert_always_eq, assert_timely_eq2, assert_timely2};
 
 struct TestFixture {

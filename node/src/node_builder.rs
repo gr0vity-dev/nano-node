@@ -25,6 +25,7 @@ use rsnano_nullable_clock::{SteadyClock, SystemTimeFactory};
 use rsnano_nullable_lmdb::{
     EnvironmentFlags, EnvironmentOptions, LmdbEnvironment, LmdbEnvironmentFactory,
 };
+use rsnano_store_lmdb::LmdbWalletStoreFactory;
 use rsnano_types::{KeyDerivationFunction, Networks, NodeId, PrivateKey};
 use rsnano_utils::{
     CancellationToken,
@@ -35,9 +36,7 @@ use rsnano_utils::{
     thread_pool::ThreadPool,
     ticker::{Tickable, TickerPool, TimerThread},
 };
-use rsnano_wallet::{
-    LmdbWalletStoreFactory, ReceivableSearch, WalletBackup, Wallets, WalletsTicker,
-};
+use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
 
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};

@@ -13,7 +13,7 @@ use tracing::{debug, info, warn};
 use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_lmdb::{DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags};
-use rsnano_store_lmdb::KeyType;
+use rsnano_store_lmdb::{KeyType, LmdbWalletStoreFactory};
 use rsnano_types::{
     Account, Amount, Block, BlockDetails, BlockHash, Epoch, KeyDerivationFunction, Link, Networks,
     PendingKey, PrivateKey, PublicKey, RawKey, Root, SavedBlock, StateBlockArgs, WalletId,
@@ -27,8 +27,8 @@ use rsnano_utils::{
 use rsnano_work_validation::WorkThresholds;
 
 use super::{
-    BlockPromise, LmdbWalletStoreFactory, MultiBlockPromise, Wallet, WalletStoreFactory,
-    WalletsConfig, WalletsError, delayed_work_queue::DelayedWorkQueue,
+    BlockPromise, MultiBlockPromise, Wallet, WalletStoreFactory, WalletsConfig, WalletsError,
+    delayed_work_queue::DelayedWorkQueue,
 };
 use crate::{WalletReadTxnSHIM, WalletTxnSHIM, WalletWriteTxnSHIM};
 

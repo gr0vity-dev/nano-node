@@ -20,6 +20,7 @@ mod successor_store;
 mod upgrades;
 mod vacuum;
 mod version_store;
+mod wallet_factory;
 mod wallet_store;
 
 use primitive_types::U256;
@@ -46,6 +47,7 @@ pub use successor_store::LmdbSuccessorStore;
 pub use upgrades::create_and_update_lmdb_env;
 pub use vacuum::vacuum;
 pub use version_store::LmdbVersionStore;
+pub use wallet_factory::LmdbWalletStoreFactory;
 pub use wallet_store::{Fans, LmdbWalletStore};
 
 struct Split {
