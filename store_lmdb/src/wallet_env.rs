@@ -1,12 +1,15 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use rsnano_nullable_lmdb::{DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags};
-use rsnano_types::BlockHash;
+use rsnano_nullable_lmdb::{
+    DatabaseFlags, EnvironmentOptions, LmdbDatabase, LmdbEnvironment, LmdbEnvironmentFactory,
+    WriteFlags,
+};
+use rsnano_types::{BlockHash, KeyDerivationFunction};
 use store_traits::wallet::WalletEnvironment as WalletEnvironmentTrait;
 use store_traits::{WalletReadTxn, WalletWriteTxn};
 
-use crate::{WalletReadTxnSHIM, WalletWriteTxnSHIM};
+use crate::{WalletReadTxnSHIM, WalletWriteTxnSHIM, wallet_factory::LmdbWalletStoreFactory};
 
 pub struct LmdbWalletEnvironment {
     env: Arc<LmdbEnvironment>,
@@ -32,6 +35,14 @@ impl LmdbWalletEnvironment {
     pub fn new_null() -> Result<Self> {
         let env = Arc::new(LmdbEnvironment::new_null());
         Self::new(env)
+    }
+
+    pub fn create_store_factory(
+        &self,
+        fanout: usize,
+        kdf: KeyDerivationFunction,
+    ) -> LmdbWalletStoreFactory {
+        LmdbWalletStoreFactory::new(self.env.clone(), fanout, kdf)
     }
 }
 
@@ -93,5 +104,30 @@ fn open_or_create_db(env: &Arc<LmdbEnvironment>, name: Option<&str>) -> Result<L
             Ok(env.create_db(name, DatabaseFlags::empty())?)
         }
         Err(e) => Err(e.into()),
+    }
+}
+
+pub struct LmdbWalletEnvironmentFactory {
+    inner: LmdbEnvironmentFactory,
+}
+
+impl Default for LmdbWalletEnvironmentFactory {
+    fn default() -> Self {
+        Self::new(LmdbEnvironmentFactory::default())
+    }
+}
+
+impl LmdbWalletEnvironmentFactory {
+    pub fn new(inner: LmdbEnvironmentFactory) -> Self {
+        Self { inner }
+    }
+
+    pub fn new_null() -> Self {
+        Self::new(LmdbEnvironmentFactory::new_null())
+    }
+
+    pub fn create(&self, options: EnvironmentOptions) -> Result<Arc<LmdbWalletEnvironment>> {
+        let env = self.inner.create(options)?;
+        Ok(Arc::new(LmdbWalletEnvironment::new(Arc::new(env))?))
     }
 }

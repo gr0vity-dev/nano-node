@@ -12,8 +12,7 @@ use tracing::{debug, info, warn};
 
 use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_nullable_lmdb::LmdbEnvironment;
-use rsnano_store_lmdb::{KeyType, LmdbWalletStoreFactory};
+use rsnano_store_lmdb::KeyType;
 use rsnano_types::{
     Account, Amount, Block, BlockDetails, BlockHash, Epoch, KeyDerivationFunction, Link, Networks,
     PendingKey, PrivateKey, PublicKey, RawKey, Root, SavedBlock, StateBlockArgs, WalletId,
@@ -87,21 +86,19 @@ impl Wallets {
 
     pub fn new_null() -> Self {
         let network = Networks::NanoLiveNetwork;
-        let lmdb_env = Arc::new(LmdbEnvironment::new_null());
-        let wallet_env: Arc<WalletEnvHandle> = Arc::new(
-            LmdbWalletEnvironment::new(Arc::clone(&lmdb_env))
+        let wallet_env_impl = Arc::new(
+            LmdbWalletEnvironment::new_null()
                 .expect("Failed to initialize LMDB wallet environment"),
         );
+        let wallet_env: Arc<WalletEnvHandle> = wallet_env_impl.clone();
         let ledger = Arc::new(Ledger::new_null());
         let wallets_config = WalletsConfig::default();
         let work = WorkThresholds::default_for(network);
         let clock = Arc::new(SteadyClock::new_null());
         let kdf = KeyDerivationFunction::new(wallets_config.kdf_work);
-        let store_factory = Arc::new(LmdbWalletStoreFactory::new(
-            Arc::clone(&lmdb_env),
-            wallets_config.password_fanout as usize,
-            kdf,
-        ));
+        let store_factory: Arc<dyn WalletStoreFactory> = Arc::new(
+            wallet_env_impl.create_store_factory(wallets_config.password_fanout as usize, kdf),
+        );
         Self::new(
             wallets_config,
             wallet_env,
@@ -1677,21 +1674,18 @@ mod tests {
     impl Fixture {
         fn new(args: FixtureArgs) -> Self {
             let network = Networks::NanoLiveNetwork;
-            let lmdb_env = Arc::new(LmdbEnvironment::new_null());
-            let wallet_env: Arc<WalletEnvHandle> = Arc::new(
-                LmdbWalletEnvironment::new(Arc::clone(&lmdb_env))
-                    .expect("Failed to initialize wallet environment"),
+            let wallet_env_impl = Arc::new(
+                LmdbWalletEnvironment::new_null().expect("Failed to initialize wallet environment"),
             );
+            let wallet_env: Arc<WalletEnvHandle> = wallet_env_impl.clone();
             let wallets_config = WalletsConfig::default();
             let work = WorkThresholds::default_for(network);
             let ledger = Arc::new(args.ledger.unwrap_or_else(|| Ledger::new_null()));
             let clock = Arc::new(SteadyClock::new_null());
             let kdf = KeyDerivationFunction::new(wallets_config.kdf_work);
-            let store_factory = Arc::new(LmdbWalletStoreFactory::new(
-                Arc::clone(&lmdb_env),
-                wallets_config.password_fanout as usize,
-                kdf,
-            ));
+            let store_factory: Arc<dyn WalletStoreFactory> = Arc::new(
+                wallet_env_impl.create_store_factory(wallets_config.password_fanout as usize, kdf),
+            );
 
             let wallets = Arc::new(Wallets::new(
                 wallets_config,

@@ -17,8 +17,7 @@ use rsnano_network_protocol::{
 };
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_fs::NullableFilesystem;
-use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
-use rsnano_store_lmdb::LmdbLedgerStoreFactory;
+use rsnano_store_lmdb::{LmdbLedgerStoreFactory, LmdbWalletEnvironmentFactory};
 use rsnano_types::{Networks, NodeId, Peer, PrivateKey};
 use rsnano_utils::{
     container_info::ContainerInfoFactory,
@@ -65,7 +64,7 @@ pub(crate) struct FoundationBits {
     pub(crate) workers: Arc<ThreadPool>,
     pub(crate) ticker_pool: TickerPool,
     pub(crate) current_network: Networks,
-    pub(crate) lmdb_env_factory: LmdbEnvironmentFactory,
+    pub(crate) wallet_env_factory: LmdbWalletEnvironmentFactory,
     pub(crate) syn_cookies: Arc<SynCookies>,
 }
 
@@ -170,15 +169,15 @@ pub(crate) fn build_foundation(
     ledger_path.push("data.ldb");
 
     let lmdb_store_factory = if is_nulled {
-        LmdbLedgerStoreFactory::new(LmdbEnvironmentFactory::new_null())
+        LmdbLedgerStoreFactory::new_null()
     } else {
         LmdbLedgerStoreFactory::default()
     };
 
-    let lmdb_env_factory = if is_nulled {
-        LmdbEnvironmentFactory::new_null()
+    let wallet_env_factory = if is_nulled {
+        LmdbWalletEnvironmentFactory::new_null()
     } else {
-        LmdbEnvironmentFactory::default()
+        LmdbWalletEnvironmentFactory::default()
     };
 
     info!("LMDB sync strategy: {:?}", config.lmdb_config.sync);
@@ -247,7 +246,7 @@ pub(crate) fn build_foundation(
         workers,
         ticker_pool,
         current_network,
-        lmdb_env_factory,
+        wallet_env_factory,
         syn_cookies,
     })
 }

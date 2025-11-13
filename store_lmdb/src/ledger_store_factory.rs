@@ -1,6 +1,8 @@
 use std::{path::PathBuf, sync::Arc};
 
-use rsnano_nullable_lmdb::{EnvironmentOptions, LmdbEnvironment, LmdbEnvironmentFactory};
+use rsnano_nullable_lmdb::{
+    ConfiguredDatabase, EnvironmentOptions, LmdbEnvironment, LmdbEnvironmentFactory,
+};
 use store_traits::{
     config::LedgerStoreConfig,
     ledger::{LedgerCache, LedgerStore, LedgerStoreFactory},
@@ -63,4 +65,18 @@ impl LedgerStoreFactory for LmdbLedgerStoreFactory {
         let env = LmdbEnvironment::new_null();
         self.build_store(env, cache)
     }
+}
+
+pub fn create_null_store_with_databases(
+    databases: Vec<ConfiguredDatabase>,
+    cache: Arc<LedgerCache>,
+) -> anyhow::Result<Arc<dyn LedgerStore>> {
+    let mut builder = LmdbEnvironment::null_builder();
+    for database in databases {
+        builder = builder.configured_database(database);
+    }
+    let env = builder.build();
+    let mut store_impl = LmdbStore::new(env)?;
+    store_impl.cache = cache;
+    Ok(Arc::new(store_impl))
 }

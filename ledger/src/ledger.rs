@@ -11,13 +11,13 @@ use std::{
 
 use tracing::debug;
 
-use rsnano_nullable_lmdb::LmdbEnvironment;
 #[cfg(feature = "ledger_snapshots")]
 use rsnano_store_lmdb::forks_store::ConfiguredForksDatabaseBuilder;
 use rsnano_store_lmdb::{
     ConfiguredAccountDatabaseBuilder, ConfiguredBlockDatabaseBuilder,
     ConfiguredConfirmationHeightDatabaseBuilder, ConfiguredPeersDatabaseBuilder,
-    ConfiguredPendingDatabaseBuilder, LmdbStore, MemoryStats,
+    ConfiguredPendingDatabaseBuilder, LmdbLedgerStoreFactory, MemoryStats,
+    create_null_store_with_databases,
 };
 use rsnano_types::{
     Account, AccountInfo, Amount, Block, BlockHash, ConfirmationHeightInfo, Epoch, Link,
@@ -40,6 +40,7 @@ use crate::{
     vote_verifier::VoteVerifier,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
+use store_traits::ledger::LedgerStoreFactory;
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, EnumCount, EnumIter, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
@@ -221,23 +222,24 @@ impl NullLedgerBuilder {
 
     pub fn finish(self) -> Ledger {
         let (block_index, block_data) = self.blocks.build();
-        let env_builder = LmdbEnvironment::null_builder()
-            .configured_database(block_index)
-            .configured_database(block_data)
-            .configured_database(self.accounts.build())
-            .configured_database(self.pending.build())
-            .configured_database(self.confirmation_height.build())
-            .configured_database(self.peers.build());
+        let rep_weights = Arc::new(RepWeightCache::new());
+        #[allow(unused_mut)]
+        let mut databases = vec![
+            block_index,
+            block_data,
+            self.accounts.build(),
+            self.pending.build(),
+            self.confirmation_height.build(),
+            self.peers.build(),
+        ];
 
         #[cfg(feature = "ledger_snapshots")]
         {
-            env_builder = env_builder.configured_database(self.forks.build())
+            databases.push(self.forks.build());
         }
-        let env = env_builder.build();
-        let rep_weights = Arc::new(RepWeightCache::new());
-        let mut store_impl = LmdbStore::new(env).unwrap();
-        store_impl.cache = rep_weights.ledger_cache.clone();
-        let store: Arc<dyn LedgerStore> = Arc::new(store_impl);
+
+        let store: Arc<dyn LedgerStore> =
+            create_null_store_with_databases(databases, rep_weights.ledger_cache.clone()).unwrap();
 
         Ledger::new(
             store,
@@ -253,11 +255,11 @@ impl NullLedgerBuilder {
 
 impl Ledger {
     pub fn new_null() -> Self {
-        let env = LmdbEnvironment::new_null();
         let rep_weights = Arc::new(RepWeightCache::new());
-        let mut store_impl = LmdbStore::new(env).unwrap();
-        store_impl.cache = rep_weights.ledger_cache.clone();
-        let store: Arc<dyn LedgerStore> = Arc::new(store_impl);
+        let store_factory = LmdbLedgerStoreFactory::new_null();
+        let store = store_factory
+            .create_null_store(rep_weights.ledger_cache.clone())
+            .unwrap();
 
         Self::new(
             store,
