@@ -56,8 +56,7 @@ impl LmdbPendingStore {
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, key: &PendingKey) {
         self.delete_listener.emit(key.clone());
         let key_bytes = key.to_bytes();
-        txn.delete_lmdb(self.database, &key_bytes, None)
-            .unwrap();
+        txn.delete_lmdb(self.database, &key_bytes, None).unwrap();
     }
 
     pub fn get(&self, txn: &dyn LedgerReadTxn, key: &PendingKey) -> Option<PendingInfo> {

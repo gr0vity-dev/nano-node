@@ -7,8 +7,8 @@ use rsnano_types::{
 
 use super::{BorrowingConfirmedSet, ConfirmedSet, LedgerSet};
 use crate::{
-    DependentBlocksFinder, LedgerConstants, LedgerReadTxnSHIM, LedgerStore, LedgerTxnSHIM,
-    PendingStore, RangeBounds as StoreRangeBounds, RepresentativeBlockFinder,
+    DependentBlocksFinder, LedgerConstants, LedgerStore, PendingStore,
+    RangeBounds as StoreRangeBounds, RepresentativeBlockFinder,
 };
 use store_traits::LedgerReadTxn;
 
@@ -83,13 +83,13 @@ pub trait AnySet: LedgerSet {
 /// It owns the DB transaction
 pub struct OwningAnySet<'a> {
     store: &'a dyn LedgerStore,
-    txn: LedgerReadTxnSHIM,
+    txn: Box<dyn LedgerReadTxn>,
     constants: &'a LedgerConstants,
 }
 
 impl<'a> OwningAnySet<'a> {
     pub(crate) fn new(store: &'a dyn LedgerStore, constants: &'a LedgerConstants) -> Self {
-        let tx = LedgerReadTxnSHIM::new(store.begin_read());
+        let tx = store.begin_read();
         Self {
             store,
             txn: tx,
@@ -100,9 +100,13 @@ impl<'a> OwningAnySet<'a> {
     fn borrowing_set(&'a self) -> BorrowingAnySet<'a> {
         BorrowingAnySet {
             store: self.store,
-            tx: &self.txn,
+            tx: self.txn.as_ref(),
             constants: self.constants,
         }
+    }
+
+    fn txn(&self) -> &dyn LedgerReadTxn {
+        self.txn.as_ref()
     }
 
     pub fn accounts_range(
@@ -111,11 +115,11 @@ impl<'a> OwningAnySet<'a> {
     ) -> Box<dyn Iterator<Item = (Account, AccountInfo)> + '_> {
         self.store
             .account()
-            .iter_range(&self.txn, to_store_range(range))
+            .iter_range(self.txn(), to_store_range(range))
     }
 
     pub fn iter_accounts(&self) -> impl Iterator<Item = (Account, AccountInfo)> + '_ {
-        self.store.account().iter(&self.txn)
+        self.store.account().iter(self.txn())
     }
 
     pub fn iter_account_range(
@@ -124,7 +128,7 @@ impl<'a> OwningAnySet<'a> {
     ) -> Box<dyn Iterator<Item = (Account, AccountInfo)> + '_> {
         self.store
             .account()
-            .iter_range(&self.txn, to_store_range(range))
+            .iter_range(self.txn(), to_store_range(range))
     }
 
     pub fn iter_pending_range(
@@ -133,7 +137,7 @@ impl<'a> OwningAnySet<'a> {
     ) -> impl Iterator<Item = (PendingKey, PendingInfo)> + '_ {
         self.store
             .pending()
-            .iter_range(&self.txn, to_store_range(range))
+            .iter_range(self.txn(), to_store_range(range))
     }
 
     pub fn random_blocks(&self, count: usize) -> Vec<SavedBlock> {
@@ -144,7 +148,7 @@ impl<'a> OwningAnySet<'a> {
         let mut it = self
             .store
             .block()
-            .iter_range(&self.txn, to_store_range(starting_hash..));
+            .iter_range(self.txn(), to_store_range(starting_hash..));
         while result.len() < count {
             match it.next() {
                 Some(block) => result.push(block),
@@ -153,7 +157,7 @@ impl<'a> OwningAnySet<'a> {
                     it = self
                         .store
                         .block()
-                        .iter_range(&self.txn, to_store_range(BlockHash::ZERO..));
+                        .iter_range(self.txn(), to_store_range(BlockHash::ZERO..));
                 }
             }
         }
@@ -173,7 +177,7 @@ impl<'a> OwningAnySet<'a> {
     pub fn weight_exact(&self, representative: PublicKey) -> Amount {
         self.store
             .rep_weight()
-            .get(&self.txn, &representative)
+            .get(self.txn(), &representative)
             .unwrap_or_default()
     }
 
@@ -182,11 +186,7 @@ impl<'a> OwningAnySet<'a> {
     }
 
     pub fn refresh(self) -> Self {
-        Self {
-            store: self.store,
-            txn: self.txn.refresh(),
-            constants: self.constants,
-        }
+        Self::new(self.store, self.constants)
     }
 }
 
@@ -218,7 +218,7 @@ impl<'a> AnySet for OwningAnySet<'a> {
     }
 
     fn confirmed(&self) -> BorrowingConfirmedSet<'_> {
-        BorrowingConfirmedSet::new(self.store, &self.txn)
+        BorrowingConfirmedSet::new(self.store, self.txn())
     }
 
     fn dependent_blocks(&self, block: &SavedBlock) -> DependentBlocks {
@@ -298,14 +298,14 @@ impl<'a> AnySet for OwningAnySet<'a> {
     fn receivable_upper_bound(&self, account: Account) -> AnyReceivableIterator<'_> {
         match account.inc() {
             None => AnyReceivableIterator::new(
-                &self.txn,
+                self.txn(),
                 self.store.pending(),
                 Default::default(),
                 None,
                 None,
             ),
             Some(account) => AnyReceivableIterator::new(
-                &self.txn,
+                self.txn(),
                 self.store.pending(),
                 account,
                 None,
@@ -316,7 +316,7 @@ impl<'a> AnySet for OwningAnySet<'a> {
 
     fn receivable_lower_bound(&self, account: Account) -> AnyReceivableIterator<'_> {
         AnyReceivableIterator::new(
-            &self.txn,
+            self.txn(),
             self.store.pending(),
             account,
             None,
@@ -330,7 +330,7 @@ impl<'a> AnySet for OwningAnySet<'a> {
         hash: BlockHash,
     ) -> AnyReceivableIterator<'_> {
         AnyReceivableIterator::new(
-            &self.txn,
+            self.txn(),
             self.store.pending(),
             account,
             Some(account),
@@ -351,7 +351,7 @@ impl<'a> AnySet for OwningAnySet<'a> {
 pub(crate) struct BorrowingAnySet<'a> {
     pub constants: &'a LedgerConstants,
     pub store: &'a dyn LedgerStore,
-    pub tx: &'a dyn LedgerTxnSHIM,
+    pub tx: &'a dyn LedgerReadTxn,
 }
 
 impl<'a> BorrowingAnySet<'a> {
@@ -429,7 +429,7 @@ impl<'a> AnySet for BorrowingAnySet<'a> {
     }
 
     fn should_refresh(&self) -> bool {
-        LedgerReadTxn::is_refresh_needed(self.tx)
+        self.tx.is_refresh_needed()
     }
 
     fn block_successor(&self, hash: &BlockHash) -> Option<BlockHash> {
@@ -600,7 +600,7 @@ pub struct AnyReceivableIterator<'a> {
 
 impl<'a> AnyReceivableIterator<'a> {
     pub fn new(
-        txn: &'a dyn LedgerTxnSHIM,
+        txn: &'a dyn LedgerReadTxn,
         pending: &'a dyn PendingStore,
         requested_account: Account,
         returned_account: Option<Account>,

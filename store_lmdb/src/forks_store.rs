@@ -55,7 +55,10 @@ impl LmdbForksStore {
         &self,
         tx: &'tx dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (QualifiedRoot, SnapshotNumber)> + 'tx + use<'tx> {
-        let cursor = tx.open_ro_cursor(self.database.into()).unwrap().into_inner();
+        let cursor = tx
+            .open_ro_cursor(self.database.into())
+            .unwrap()
+            .into_inner();
         LmdbIterator::new(cursor, read_fork_record)
     }
 }

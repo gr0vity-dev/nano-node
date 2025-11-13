@@ -10,7 +10,6 @@ use std::{
 
 use crate::{LedgerReadTxn, LedgerWriteTxn};
 use anyhow::Result;
-use rsnano_nullable_lmdb::{ReadTransaction, WriteTransaction};
 use rsnano_output_tracker::OutputTrackerMt;
 #[cfg(feature = "ledger_snapshots")]
 use rsnano_types::SnapshotNumber;
@@ -119,9 +118,8 @@ pub trait LedgerStore: Send + Sync {
         self.forks_store()
     }
 
-    fn begin_read(&self) -> ReadTransaction;
-    fn begin_write(&self) -> WriteTransaction;
-    fn refresh_write_txn(&self, txn: WriteTransaction) -> WriteTransaction;
+    fn begin_read(&self) -> Box<dyn LedgerReadTxn>;
+    fn begin_write(&self) -> Box<dyn LedgerWriteTxn>;
     fn sync(&self) -> Result<()>;
     fn cache(&self) -> &LedgerCache;
     fn memory_stats(&self) -> Result<MemoryStats>;

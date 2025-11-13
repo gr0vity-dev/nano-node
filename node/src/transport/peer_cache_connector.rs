@@ -41,7 +41,7 @@ impl PeerCacheConnector {
         self.ledger
             .store
             .peer()
-            .iter(&tx)
+            .iter(tx.as_ref())
             .map(|(peer, _)| peer)
             .collect()
     }

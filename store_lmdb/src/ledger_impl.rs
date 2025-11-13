@@ -1,7 +1,6 @@
 use std::{net::SocketAddrV6, sync::Arc, time::SystemTime};
 
 use anyhow::anyhow;
-use rsnano_nullable_lmdb::{ReadTransaction, WriteTransaction};
 use rsnano_output_tracker::OutputTrackerMt;
 use rsnano_types::{
     Account, AccountInfo, Amount, BlockHash, ConfirmationHeightInfo, PendingInfo, PendingKey,
@@ -70,16 +69,12 @@ impl LedgerStore for LmdbStore {
         &self.forks
     }
 
-    fn begin_read(&self) -> ReadTransaction {
-        self.env.begin_read()
+    fn begin_read(&self) -> Box<dyn LedgerReadTxn> {
+        Box::new(self.env.begin_read())
     }
 
-    fn begin_write(&self) -> WriteTransaction {
-        self.env.begin_write()
-    }
-
-    fn refresh_write_txn(&self, txn: WriteTransaction) -> WriteTransaction {
-        self.env.refresh(txn)
+    fn begin_write(&self) -> Box<dyn LedgerWriteTxn> {
+        Box::new(self.env.begin_write())
     }
 
     fn sync(&self) -> anyhow::Result<()> {

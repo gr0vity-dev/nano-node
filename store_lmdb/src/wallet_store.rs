@@ -374,10 +374,7 @@ impl LmdbWalletStore {
     where
         R: RangeBounds<PublicKey> + 'static,
     {
-        let cursor = tx
-            .open_ro_cursor(self.store_db())
-            .unwrap()
-            .into_inner();
+        let cursor = tx.open_ro_cursor(self.store_db()).unwrap().into_inner();
         LmdbRangeIterator::new(
             cursor,
             range.start_bound().map(|b| b.as_bytes().to_vec()),

@@ -27,10 +27,10 @@ fn reveivable_upper_bound_for_given_account() {
     let key_2 = PendingKey::new(account, 300.into());
     let key_3 = PendingKey::new(200.into(), 1.into());
     let pending = PendingInfo::new_test_instance();
-    ledger.store.pending().put(&mut txn, &key_0, &pending);
-    ledger.store.pending().put(&mut txn, &key_1, &pending);
-    ledger.store.pending().put(&mut txn, &key_2, &pending);
-    ledger.store.pending().put(&mut txn, &key_3, &pending);
+    ledger.store.pending().put(txn.as_mut(), &key_0, &pending);
+    ledger.store.pending().put(txn.as_mut(), &key_1, &pending);
+    ledger.store.pending().put(txn.as_mut(), &key_2, &pending);
+    ledger.store.pending().put(txn.as_mut(), &key_3, &pending);
     txn.commit();
     let any = ledger.any();
 
@@ -59,9 +59,9 @@ fn reveivable_upper_bound() {
     let key_2 = PendingKey::new(100.into(), 300.into());
     let key_3 = PendingKey::new(200.into(), 1.into());
     let pending = PendingInfo::new_test_instance();
-    ledger.store.pending().put(&mut txn, &key_1, &pending);
-    ledger.store.pending().put(&mut txn, &key_2, &pending);
-    ledger.store.pending().put(&mut txn, &key_3, &pending);
+    ledger.store.pending().put(txn.as_mut(), &key_1, &pending);
+    ledger.store.pending().put(txn.as_mut(), &key_2, &pending);
+    ledger.store.pending().put(txn.as_mut(), &key_3, &pending);
     txn.commit();
     let any = ledger.any();
 
@@ -88,7 +88,7 @@ fn reveivable_any() {
 
     let key = PendingKey::new(100.into(), 200.into());
     let pending = PendingInfo::new_test_instance();
-    ledger.store.pending().put(&mut txn, &key, &pending);
+    ledger.store.pending().put(txn.as_mut(), &key, &pending);
     txn.commit();
 
     let any = ledger.any();

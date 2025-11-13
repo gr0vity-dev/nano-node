@@ -7,7 +7,8 @@ use rsnano_types::{
 
 use super::{AnyReceivableIterator, LedgerSet};
 
-use crate::{LedgerReadTxnSHIM, LedgerStore, LedgerTxnSHIM, RangeBounds as StoreRangeBounds};
+use crate::{LedgerStore, RangeBounds as StoreRangeBounds};
+use store_traits::LedgerReadTxn;
 
 pub trait ConfirmedSet: LedgerSet {
     fn get_block(&self, hash: &BlockHash) -> Option<SavedBlock>;
@@ -18,18 +19,18 @@ pub trait ConfirmedSet: LedgerSet {
 /// It owns the DB transaction
 pub struct OwningConfirmedSet<'a> {
     store: &'a dyn LedgerStore,
-    tx: LedgerReadTxnSHIM,
+    tx: Box<dyn LedgerReadTxn>,
 }
 
 impl<'a> OwningConfirmedSet<'a> {
-    pub fn new(store: &'a dyn LedgerStore, tx: LedgerReadTxnSHIM) -> Self {
+    pub fn new(store: &'a dyn LedgerStore, tx: Box<dyn LedgerReadTxn>) -> Self {
         Self { store, tx }
     }
 
     fn borrowing_set(&'a self) -> BorrowingConfirmedSet<'a> {
         BorrowingConfirmedSet {
             store: self.store,
-            tx: &self.tx,
+            tx: self.tx.as_ref(),
         }
     }
 
@@ -40,7 +41,7 @@ impl<'a> OwningConfirmedSet<'a> {
     ) -> Option<(PendingKey, PendingInfo)> {
         let start = PendingKey::new(account, send_hash);
         let mut it = self.store.pending().iter_range(
-            &self.tx,
+            self.tx.as_ref(),
             StoreRangeBounds::new(Bound::Included(start), Bound::Unbounded),
         );
 
@@ -72,7 +73,7 @@ impl<'a> OwningConfirmedSet<'a> {
     pub fn frontiers(&self) -> impl Iterator<Item = (Account, BlockHash)> {
         self.store
             .confirmation_height()
-            .iter(&self.tx)
+            .iter(self.tx.as_ref())
             .map(|(account, conf_info)| (account, conf_info.frontier))
     }
 }
@@ -109,11 +110,11 @@ impl<'a> ConfirmedSet for OwningConfirmedSet<'a> {
 /// It borrows the DB transaction
 pub struct BorrowingConfirmedSet<'a> {
     store: &'a dyn LedgerStore,
-    tx: &'a dyn LedgerTxnSHIM,
+    tx: &'a dyn LedgerReadTxn,
 }
 
 impl<'a> BorrowingConfirmedSet<'a> {
-    pub fn new(store: &'a dyn LedgerStore, tx: &'a dyn LedgerTxnSHIM) -> Self {
+    pub fn new(store: &'a dyn LedgerStore, tx: &'a dyn LedgerReadTxn) -> Self {
         Self { store, tx }
     }
 

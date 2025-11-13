@@ -83,7 +83,10 @@ impl LmdbAccountStore {
         tx: &'txn dyn LedgerReadTxn,
         range: impl RangeBounds<Account> + 'static,
     ) -> Box<dyn Iterator<Item = (Account, AccountInfo)> + 'txn> {
-        let cursor = tx.open_ro_cursor(self.database.into()).unwrap().into_inner();
+        let cursor = tx
+            .open_ro_cursor(self.database.into())
+            .unwrap()
+            .into_inner();
         let start = range.start_bound().map(|b| b.as_bytes().to_vec());
         let end = range.end_bound().map(|b| b.as_bytes().to_vec());
         Box::new(LmdbRangeIterator::new(

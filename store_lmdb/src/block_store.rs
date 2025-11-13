@@ -185,7 +185,7 @@ impl LmdbBlockStore {
             data,
             WriteFlags::APPEND.into(),
         )
-            .expect("Couldn't insert into block data table'");
+        .expect("Couldn't insert into block data table'");
     }
 
     fn load_block_bytes<'a>(

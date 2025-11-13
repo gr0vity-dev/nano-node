@@ -1,24 +1,25 @@
 use rsnano_types::{Account, AccountInfo, Amount, BlockHash};
 
 use super::LedgerSet;
-use crate::{LedgerReadTxnSHIM, LedgerStore};
+use crate::LedgerStore;
+use store_traits::LedgerReadTxn;
 
 /// Unconfirmed Blocks of the ledger.
 /// It owns the DB transaction
 pub(crate) struct OwningUnconfirmedSet<'a> {
     store: &'a dyn LedgerStore,
-    tx: LedgerReadTxnSHIM,
+    tx: Box<dyn LedgerReadTxn>,
 }
 
 impl<'a> OwningUnconfirmedSet<'a> {
-    pub fn new(store: &'a dyn LedgerStore, tx: LedgerReadTxnSHIM) -> Self {
+    pub fn new(store: &'a dyn LedgerStore, tx: Box<dyn LedgerReadTxn>) -> Self {
         Self { store, tx }
     }
 
     fn borrowing_set(&'a self) -> BorrowingUnconfirmedSet<'a> {
         BorrowingUnconfirmedSet {
             store: self.store,
-            tx: &self.tx,
+            tx: self.tx.as_ref(),
         }
     }
 }
@@ -45,7 +46,7 @@ impl<'a> LedgerSet for OwningUnconfirmedSet<'a> {
 /// It borrows the DB transaction
 pub(crate) struct BorrowingUnconfirmedSet<'a> {
     store: &'a dyn LedgerStore,
-    tx: &'a LedgerReadTxnSHIM,
+    tx: &'a dyn LedgerReadTxn,
 }
 
 impl<'a> LedgerSet for BorrowingUnconfirmedSet<'a> {
@@ -54,14 +55,14 @@ impl<'a> LedgerSet for BorrowingUnconfirmedSet<'a> {
             return false;
         }
 
-        let Some(block) = self.store.block().get(&*self.tx, hash) else {
+        let Some(block) = self.store.block().get(self.tx, hash) else {
             return false;
         };
 
         let conf_info = self
             .store
             .confirmation_height()
-            .get(&*self.tx, &block.account())
+            .get(self.tx, &block.account())
             .unwrap_or_default();
 
         block.height() > conf_info.height

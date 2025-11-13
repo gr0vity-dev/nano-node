@@ -6,7 +6,7 @@ use std::{
 
 use tracing::debug;
 
-use rsnano_ledger::{Ledger, LedgerWriteTxnSHIM, begin_write_txn_SHIM};
+use rsnano_ledger::{Ledger, LedgerWriteTxn};
 use rsnano_network::{Channel, Network};
 use rsnano_nullable_clock::SystemTimeFactory;
 use rsnano_utils::{
@@ -42,14 +42,14 @@ impl PeerCacheUpdater {
         }
     }
 
-    fn save_peers(&self, tx: &mut LedgerWriteTxnSHIM) {
+    fn save_peers(&self, tx: &mut dyn LedgerWriteTxn) {
         let live_peers = self.network.read().unwrap().sorted_channels();
         for peer in &live_peers {
             self.save_peer(tx, peer);
         }
     }
 
-    fn save_peer(&self, tx: &mut LedgerWriteTxnSHIM, channel: &Channel) {
+    fn save_peer(&self, tx: &mut dyn LedgerWriteTxn, channel: &Channel) {
         let Some(endpoint) = channel.peering_addr() else {
             return;
         };
@@ -68,13 +68,13 @@ impl PeerCacheUpdater {
         }
     }
 
-    fn delete_old_peers(&self, tx: &mut LedgerWriteTxnSHIM) {
+    fn delete_old_peers(&self, tx: &mut dyn LedgerWriteTxn) {
         for peer in self.get_old_peers(tx) {
             self.ledger.store.peer().del(tx, peer)
         }
     }
 
-    fn get_old_peers(&self, tx: &LedgerWriteTxnSHIM) -> Vec<SocketAddrV6> {
+    fn get_old_peers(&self, tx: &dyn LedgerWriteTxn) -> Vec<SocketAddrV6> {
         let now = self.time_factory.now();
         let cutoff = now - self.erase_cutoff;
         self.ledger
@@ -95,9 +95,9 @@ impl PeerCacheUpdater {
 impl Tickable for PeerCacheUpdater {
     fn tick(&mut self, _cancel_token: &CancellationToken) {
         self.stats.inc(StatType::PeerHistory, DetailType::Loop);
-        let mut txn = begin_write_txn_SHIM(self.ledger.store.as_ref());
-        self.save_peers(&mut txn);
-        self.delete_old_peers(&mut txn);
+        let mut txn = self.ledger.store.begin_write();
+        self.save_peers(txn.as_mut());
+        self.delete_old_peers(txn.as_mut());
         txn.commit();
     }
 }

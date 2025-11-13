@@ -7,7 +7,7 @@ use rsnano_nullable_lmdb::{
 };
 use rsnano_types::{BlockHash, KeyDerivationFunction};
 use store_traits::{
-    wallet::WalletEnvironment as WalletEnvironmentTrait, WalletReadTxn, WalletWriteTxn,
+    WalletReadTxn, WalletWriteTxn, wallet::WalletEnvironment as WalletEnvironmentTrait,
 };
 
 use crate::{WalletReadTxnSHIM, WalletWriteTxnSHIM, wallet_factory::LmdbWalletStoreFactory};

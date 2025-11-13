@@ -54,8 +54,13 @@ impl LmdbVersionStore {
         let key_bytes = version_key();
         let value_bytes = value_bytes(version);
 
-        txn.put(db.into(), &key_bytes, &value_bytes, WriteFlags::empty().into())
-            .unwrap();
+        txn.put(
+            db.into(),
+            &key_bytes,
+            &value_bytes,
+            WriteFlags::empty().into(),
+        )
+        .unwrap();
     }
 
     pub fn get(&self, txn: &dyn LedgerReadTxn) -> Option<i32> {

@@ -69,7 +69,10 @@ impl LmdbRepWeightStore {
     }
 
     pub fn iter<'a>(&self, txn: &'a dyn LedgerReadTxn) -> RepWeightIterator<'a> {
-        let cursor = txn.open_ro_cursor(self.database.into()).unwrap().into_inner();
+        let cursor = txn
+            .open_ro_cursor(self.database.into())
+            .unwrap()
+            .into_inner();
         RepWeightIterator {
             cursor,
             operation: MDB_FIRST,

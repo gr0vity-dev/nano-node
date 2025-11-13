@@ -2,10 +2,8 @@ use std::collections::VecDeque;
 
 use rsnano_types::{BlockHash, Root};
 
-use crate::{
-    AnySet, BorrowingAnySet, LedgerConstants, LedgerStore, LedgerWriteTxnSHIM, OwningAnySet,
-    begin_write_txn_SHIM, refresh_write_txn_SHIM,
-};
+use crate::{AnySet, BorrowingAnySet, LedgerConstants, LedgerStore, OwningAnySet};
+use store_traits::LedgerWriteTxn;
 
 /// Verifies whether a vote (or a final vote) can be generated for a given block
 pub(crate) struct VoteVerifier<'a> {
@@ -22,12 +20,13 @@ impl<'a> VoteVerifier<'a> {
         let mut verified = VecDeque::new();
 
         if is_final {
-            let mut txn = begin_write_txn_SHIM(self.store);
+            let mut txn = self.store.begin_write();
             for (root, hash) in &candidates {
                 if txn.is_refresh_needed() {
-                    txn = refresh_write_txn_SHIM(self.store, txn);
+                    txn.commit();
+                    txn = self.store.begin_write();
                 }
-                if self.should_vote_final(&mut txn, root, hash) {
+                if self.should_vote_final(txn.as_mut(), root, hash) {
                     verified.push_back((*root, *hash));
                 }
             }
@@ -36,7 +35,7 @@ impl<'a> VoteVerifier<'a> {
             let mut any = OwningAnySet::new(self.store, self.constants);
             for (root, hash) in &candidates {
                 if any.is_refresh_needed() {
-                    any = any.refresh();
+                    any = OwningAnySet::new(self.store, self.constants);
                 }
                 if self.should_vote_non_final(&any, root, hash) {
                     verified.push_back((*root, *hash));
@@ -57,7 +56,7 @@ impl<'a> VoteVerifier<'a> {
 
     fn should_vote_final(
         &self,
-        tx: &mut LedgerWriteTxnSHIM,
+        tx: &mut dyn LedgerWriteTxn,
         root: &Root,
         hash: &BlockHash,
     ) -> bool {

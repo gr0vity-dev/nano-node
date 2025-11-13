@@ -387,7 +387,7 @@ fn configured_peers_response() {
     let ledger = Ledger::new_null_builder().peers([(endpoint, now)]).finish();
     let tx = ledger.store.begin_read();
     assert_eq!(
-        ledger.store.peer().iter(&tx).next().unwrap(),
+        ledger.store.peer().iter(tx.as_ref()).next().unwrap(),
         (endpoint, now)
     );
 }

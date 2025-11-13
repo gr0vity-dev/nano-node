@@ -34,8 +34,7 @@ impl LmdbOnlineWeightStore {
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, time: u64) {
         let time_bytes = time.to_be_bytes();
-        txn.delete_lmdb(self.database, &time_bytes, None)
-            .unwrap();
+        txn.delete_lmdb(self.database, &time_bytes, None).unwrap();
     }
 
     pub fn iter<'txn>(

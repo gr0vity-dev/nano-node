@@ -85,10 +85,7 @@ impl WalletWriteTxnSHIM {
         self.inner.clear_db(database.into()).map_err(Into::into)
     }
 
-    pub fn open_rw_cursor(
-        &mut self,
-        database: StoreDatabase,
-    ) -> StoreResult<StoreRwCursor<'_>> {
+    pub fn open_rw_cursor(&mut self, database: StoreDatabase) -> StoreResult<StoreRwCursor<'_>> {
         self.inner
             .open_rw_cursor(database.into())
             .map(StoreRwCursor::new)

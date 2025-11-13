@@ -31,16 +31,14 @@ use rsnano_work_validation::WorkThresholds;
 
 use crate::{
     BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, GenerateCacheFlags,
-    LedgerConstants, LedgerReadTxnSHIM, LedgerSet, LedgerStore, LedgerTxnSHIM, LedgerWriteTxnSHIM,
-    OwningAnySet, OwningConfirmedSet, OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater,
-    RollbackError, begin_write_txn_SHIM,
+    LedgerConstants, LedgerSet, LedgerStore, OwningAnySet, OwningConfirmedSet,
+    OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater, RollbackError,
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
-    refresh_write_txn_SHIM,
     vote_verifier::VoteVerifier,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use store_traits::ledger::LedgerStoreFactory;
+use store_traits::{LedgerReadTxn, LedgerWriteTxn, ledger::LedgerStoreFactory};
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, EnumCount, EnumIter, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
@@ -310,15 +308,12 @@ impl Ledger {
         thread_count: usize,
         generate_cache: &GenerateCacheFlags,
     ) -> anyhow::Result<()> {
-        if self
-            .store
-            .account()
-            .iter(&self.store.begin_read())
-            .next()
-            .is_none()
-        {
-            let mut txn = begin_write_txn_SHIM(self.store_ref());
-            self.add_genesis_block(&mut txn);
+        if {
+            let tx = self.store.begin_read();
+            self.store.account().iter(tx.as_ref()).next().is_none()
+        } {
+            let mut txn = self.store_ref().begin_write();
+            self.add_genesis_block(txn.as_mut());
             txn.commit();
         }
 
@@ -367,7 +362,7 @@ impl Ledger {
         Ok(())
     }
 
-    fn add_genesis_block(&self, txn: &mut LedgerWriteTxnSHIM) {
+    fn add_genesis_block(&self, txn: &mut dyn LedgerWriteTxn) {
         let genesis_hash = self.constants.genesis_block.hash();
         let genesis_account = self.constants.genesis_account;
         self.store.block().put(txn, &self.constants.genesis_block);
@@ -401,12 +396,12 @@ impl Ledger {
     }
 
     pub fn confirmed(&self) -> OwningConfirmedSet<'_> {
-        let tx = LedgerReadTxnSHIM::new(self.store.begin_read());
+        let tx = self.store_ref().begin_read();
         OwningConfirmedSet::new(self.store_ref(), tx)
     }
 
     pub fn unconfirmed(&self) -> impl LedgerSet + use<'_> {
-        let tx = LedgerReadTxnSHIM::new(self.store.begin_read());
+        let tx = self.store_ref().begin_read();
         OwningUnconfirmedSet::new(self.store_ref(), tx)
     }
 
@@ -435,7 +430,7 @@ impl Ledger {
 
     pub(crate) fn update_account(
         &self,
-        txn: &mut LedgerWriteTxnSHIM,
+        txn: &mut dyn LedgerWriteTxn,
         account: &Account,
         old_info: &AccountInfo,
         new_info: &AccountInfo,
@@ -491,7 +486,7 @@ impl Ledger {
         let mut rolled_back_count = 0;
         let mut results = RollbackResults::new();
         {
-            let mut txn = begin_write_txn_SHIM(self.store_ref());
+            let mut txn = self.store_ref().begin_write();
 
             for hash in targets {
                 // Skip the rollback if the block is being used by the node, this should be race free as it's checked while holding the ledger write lock
@@ -508,14 +503,15 @@ impl Ledger {
                 }
 
                 // Here we check that the block is still OK to rollback, there could be a delay between gathering the targets and performing the rollbacks
-                if let Some(block) = self.store.block().get(&txn, hash) {
+                if let Some(block) = self.store.block().get(txn.as_ref(), hash) {
                     debug!(
                         "Rolling back: {}, account: {}",
                         hash,
                         block.account().encode_account()
                     );
 
-                    let (rollback_list, error) = self.roll_back_with_tx(&mut txn, &block.hash());
+                    let (rollback_list, error) =
+                        self.roll_back_with_tx(txn.as_mut(), &block.hash());
                     if error.is_none() {
                         self.stats
                             .inc(StatType::BoundedBacklog, DetailType::Rollback);
@@ -556,7 +552,7 @@ impl Ledger {
 
     fn roll_back_with_tx(
         &self,
-        tx: &mut LedgerWriteTxnSHIM,
+        tx: &mut dyn LedgerWriteTxn,
         block: &BlockHash,
     ) -> (Vec<SavedBlock>, Option<RollbackError>) {
         let mut performer = BlockRollbackPerformer::new(self, tx);
@@ -589,7 +585,7 @@ impl Ledger {
                 let any = BorrowingAnySet {
                     constants: &self.constants,
                     store: self.store_ref(),
-                    tx: &tx,
+                    tx: tx.as_ref(),
                 };
                 let validator =
                     BlockValidatorFactory::new(&any, &self.constants, block).create_validator();
@@ -601,12 +597,12 @@ impl Ledger {
         // Insert blocks
         let mut processed = Vec::with_capacity(validation_results.len());
         {
-            let mut txn = begin_write_txn_SHIM(self.store_ref());
+            let mut txn = self.store_ref().begin_write();
             for (result, block) in validation_results {
                 match result {
                     Ok(instructions) => {
                         if let Some(saved_block) =
-                            BlockInserter::new(self, &mut txn, block, &instructions).insert()
+                            BlockInserter::new(self, txn.as_mut(), block, &instructions).insert()
                         {
                             processed.push((Ok(()), Some(saved_block.clone())));
                         } else {
@@ -632,7 +628,7 @@ impl Ledger {
     {
         let mut rolled_back = RollbackResults::new();
         {
-            let mut txn = begin_write_txn_SHIM(self.store_ref());
+            let mut txn = self.store_ref().begin_write();
             for block in blocks {
                 if txn.is_refresh_needed() {
                     txn.commit();
@@ -640,9 +636,9 @@ impl Ledger {
                         rolled_back_callback(rolled_back);
                         rolled_back = RollbackResults::new();
                     }
-                    txn = begin_write_txn_SHIM(self.store_ref());
+                    txn = self.store_ref().begin_write();
                 }
-                let rolled_back_blocks = self.rollback_competitor(&mut txn, block);
+                let rolled_back_blocks = self.rollback_competitor(txn.as_mut(), block);
                 if !rolled_back_blocks.is_empty() {
                     rolled_back.push(RollbackResult {
                         target_hash: block.hash(),
@@ -661,7 +657,7 @@ impl Ledger {
 
     fn rollback_competitor(
         &self,
-        tx: &mut LedgerWriteTxnSHIM,
+        tx: &mut dyn LedgerWriteTxn,
         fork_block: &Block,
     ) -> Vec<SavedBlock> {
         let mut rollback_list = Vec::new();
@@ -691,7 +687,7 @@ impl Ledger {
 
     fn block_successor_by_qualified_root(
         &self,
-        tx: &dyn LedgerTxnSHIM,
+        tx: &dyn LedgerReadTxn,
         root: &QualifiedRoot,
     ) -> Option<BlockHash> {
         if !root.previous.is_zero() {
@@ -705,7 +701,7 @@ impl Ledger {
     }
 
     pub fn confirm(&self, hash: BlockHash) -> Vec<SavedBlock> {
-        let txn = begin_write_txn_SHIM(self.store_ref());
+        let txn = self.store_ref().begin_write();
         let (txn, blocks) = self.confirm_max(txn, hash, 1024 * 128);
         txn.commit();
         blocks
@@ -715,10 +711,10 @@ impl Ledger {
     /// Callers must ensure that the target block was confirmed, and if not, call this function multiple times
     fn confirm_max(
         &self,
-        txn: LedgerWriteTxnSHIM,
+        txn: Box<dyn LedgerWriteTxn>,
         target_hash: BlockHash,
         max_blocks: usize,
-    ) -> (LedgerWriteTxnSHIM, Vec<SavedBlock>) {
+    ) -> (Box<dyn LedgerWriteTxn>, Vec<SavedBlock>) {
         BlockCementer::new(self.store_ref(), &self.constants, &self.stats).confirm(
             txn,
             target_hash,
@@ -738,13 +734,14 @@ impl Ledger {
         let mut confirmed = Vec::new();
         let mut blocks_confirmed = 0;
         {
-            let mut txn = begin_write_txn_SHIM(self.store_ref());
+            let mut txn = self.store_ref().begin_write();
 
             for confirmation_root in batch.into_iter() {
                 let mut success = false;
                 loop {
                     if txn.is_refresh_needed() {
-                        txn = refresh_write_txn_SHIM(self.store_ref(), txn);
+                        txn.commit();
+                        txn = self.store_ref().begin_write();
                     }
 
                     // Cementing deep dependency chains might take a long time, allow for graceful shutdown, ignore notifications
@@ -761,14 +758,14 @@ impl Ledger {
                             .inc(StatType::ConfirmingSet, DetailType::NotifyIntermediate);
                         cementing_observer.batch_confirmed(confirmed);
                         confirmed = Vec::new();
-                        txn = begin_write_txn_SHIM(self.store_ref());
+                        txn = self.store_ref().begin_write();
                     }
 
                     self.stats
                         .inc(StatType::ConfirmingSet, DetailType::Cementing);
 
                     // The block might be rolled back before it's fully confirmed
-                    if !self.store.block().exists(&txn, confirmation_root) {
+                    if !self.store.block().exists(txn.as_ref(), confirmation_root) {
                         self.stats
                             .inc(StatType::ConfirmingSet, DetailType::MissingBlock);
                         break;
@@ -788,7 +785,7 @@ impl Ledger {
                         for block in added {
                             confirmed.push((block, *confirmation_root));
                         }
-                    } else if BorrowingConfirmedSet::new(self.store_ref(), &txn)
+                    } else if BorrowingConfirmedSet::new(self.store_ref(), txn.as_ref())
                         .block_exists(&confirmation_root)
                     {
                         self.stats
@@ -797,9 +794,12 @@ impl Ledger {
                     }
 
                     success = {
-                        if let Some(block) = self.store.block().get(&txn, confirmation_root) {
-                            if let Some(conf_info) =
-                                self.store.confirmation_height().get(&txn, &block.account())
+                        if let Some(block) = self.store.block().get(txn.as_ref(), confirmation_root)
+                        {
+                            if let Some(conf_info) = self
+                                .store
+                                .confirmation_height()
+                                .get(txn.as_ref(), &block.account())
                             {
                                 block.height() <= conf_info.height
                             } else {
@@ -893,7 +893,7 @@ impl Ledger {
 
     pub fn version(&self) -> u32 {
         let tx = self.store.begin_read();
-        self.store.version().get(&tx).unwrap_or_default() as u32
+        self.store.version().get(tx.as_ref()).unwrap_or_default() as u32
     }
 
     pub fn store_vendor(&self) -> String {
@@ -907,8 +907,8 @@ impl Ledger {
 
     #[cfg(feature = "ledger_snapshots")]
     pub fn mark_fork(&self, root: &QualifiedRoot, snapshot_number: SnapshotNumber) {
-        let mut tx = begin_write_txn_SHIM(self.store_ref());
-        self.store.forks().put(&mut tx, root, snapshot_number);
+        let mut tx = self.store_ref().begin_write();
+        self.store.forks().put(tx.as_mut(), root, snapshot_number);
         tx.commit();
     }
 
@@ -930,9 +930,9 @@ impl Ledger {
             }
         }
 
-        let mut txn = begin_write_txn_SHIM(self.store_ref());
+        let mut txn = self.store_ref().begin_write();
         for (_, root) in forks_to_roll_back {
-            self.store.forks().del(&mut txn, &root);
+            self.store.forks().del(txn.as_mut(), &root);
         }
         txn.commit();
     }
@@ -943,12 +943,12 @@ impl Ledger {
         let any = BorrowingAnySet {
             constants: &self.constants,
             store: self.store_ref(),
-            tx: &tx,
+            tx: tx.as_ref(),
         };
 
         self.store
             .forks()
-            .iter(&tx)
+            .iter(tx.as_ref())
             .filter_map(|(root, snap_no)| {
                 if snap_no < snapshot_number {
                     use crate::AnySet;
