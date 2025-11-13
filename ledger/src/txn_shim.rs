@@ -1,11 +1,14 @@
 use std::time::Duration;
 
 use crate::LedgerStore;
-use rsnano_nullable_lmdb::{
-    LmdbDatabase, ReadTransaction, RoCursor, RwCursor, Transaction as LmdbTransaction, WriteFlags,
-    WriteTransaction,
+use rsnano_nullable_lmdb::{ReadTransaction, WriteTransaction};
+use store_traits::{
+    transaction::{LedgerReadTxn, LedgerWriteTxn},
+    types::{
+        StoreBackendTransaction, StoreDatabase, StoreRoCursor, StoreRwCursor, StoreWriteFlags,
+        StoreWriteTransaction,
+    },
 };
-use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
 /// Temporary shim over `rsnano_nullable_lmdb::ReadTransaction` for ledger logic.
 pub struct LedgerReadTxnSHIM {
@@ -32,29 +35,29 @@ impl LedgerReadTxnSHIM {
     }
 
     pub fn is_refresh_needed(&self) -> bool {
-        LmdbTransaction::is_refresh_needed(&self.inner)
+        StoreBackendTransaction::is_refresh_needed(&self.inner)
     }
 }
 
-impl LmdbTransaction for LedgerReadTxnSHIM {
+impl StoreBackendTransaction for LedgerReadTxnSHIM {
     fn is_refresh_needed(&self) -> bool {
-        LmdbTransaction::is_refresh_needed(&self.inner)
+        StoreBackendTransaction::is_refresh_needed(&self.inner)
     }
 
     fn is_refresh_needed_with(&self, max_duration: Duration) -> bool {
         self.inner.is_refresh_needed_with(max_duration)
     }
 
-    fn get(&self, database: LmdbDatabase, key: &[u8]) -> lmdb::Result<&[u8]> {
-        LmdbTransaction::get(&self.inner, database, key)
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> lmdb::Result<&[u8]> {
+        StoreBackendTransaction::get(&self.inner, database, key)
     }
 
-    fn open_ro_cursor(&self, database: LmdbDatabase) -> lmdb::Result<RoCursor<'_>> {
-        LmdbTransaction::open_ro_cursor(&self.inner, database)
+    fn open_ro_cursor(&self, database: StoreDatabase) -> lmdb::Result<StoreRoCursor<'_>> {
+        StoreBackendTransaction::open_ro_cursor(&self.inner, database)
     }
 
-    fn count(&self, database: LmdbDatabase) -> u64 {
-        LmdbTransaction::count(&self.inner, database)
+    fn count(&self, database: StoreDatabase) -> u64 {
+        StoreBackendTransaction::count(&self.inner, database)
     }
 }
 
@@ -77,29 +80,29 @@ impl LedgerWriteTxnSHIM {
     }
 
     pub fn is_refresh_needed(&self) -> bool {
-        LmdbTransaction::is_refresh_needed(&self.inner)
+        StoreBackendTransaction::is_refresh_needed(&self.inner)
     }
 }
 
-impl LmdbTransaction for LedgerWriteTxnSHIM {
+impl StoreBackendTransaction for LedgerWriteTxnSHIM {
     fn is_refresh_needed(&self) -> bool {
-        LmdbTransaction::is_refresh_needed(&self.inner)
+        StoreBackendTransaction::is_refresh_needed(&self.inner)
     }
 
     fn is_refresh_needed_with(&self, max_duration: Duration) -> bool {
         self.inner.is_refresh_needed_with(max_duration)
     }
 
-    fn get(&self, database: LmdbDatabase, key: &[u8]) -> lmdb::Result<&[u8]> {
-        LmdbTransaction::get(&self.inner, database, key)
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> lmdb::Result<&[u8]> {
+        StoreBackendTransaction::get(&self.inner, database, key)
     }
 
-    fn open_ro_cursor(&self, database: LmdbDatabase) -> lmdb::Result<RoCursor<'_>> {
-        LmdbTransaction::open_ro_cursor(&self.inner, database)
+    fn open_ro_cursor(&self, database: StoreDatabase) -> lmdb::Result<StoreRoCursor<'_>> {
+        StoreBackendTransaction::open_ro_cursor(&self.inner, database)
     }
 
-    fn count(&self, database: LmdbDatabase) -> u64 {
-        LmdbTransaction::count(&self.inner, database)
+    fn count(&self, database: StoreDatabase) -> u64 {
+        StoreBackendTransaction::count(&self.inner, database)
     }
 }
 
@@ -110,20 +113,23 @@ impl LedgerReadTxn for LedgerReadTxnSHIM {
         self.is_refresh_needed()
     }
 
-    fn as_lmdb_txn_shim(&self) -> &dyn LmdbTransaction {
+    fn as_lmdb_txn_shim(&self) -> &dyn StoreBackendTransaction {
         &self.inner
     }
 
-    fn get(&self, database: LmdbDatabase, key: &[u8]) -> rsnano_nullable_lmdb::Result<&[u8]> {
-        LmdbTransaction::get(&self.inner, database, key)
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> rsnano_nullable_lmdb::Result<&[u8]> {
+        StoreBackendTransaction::get(&self.inner, database, key)
     }
 
-    fn open_ro_cursor(&self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
-        LmdbTransaction::open_ro_cursor(&self.inner, database)
+    fn open_ro_cursor(
+        &self,
+        database: StoreDatabase,
+    ) -> rsnano_nullable_lmdb::Result<StoreRoCursor<'_>> {
+        StoreBackendTransaction::open_ro_cursor(&self.inner, database)
     }
 
-    fn count(&self, database: LmdbDatabase) -> u64 {
-        LmdbTransaction::count(&self.inner, database)
+    fn count(&self, database: StoreDatabase) -> u64 {
+        StoreBackendTransaction::count(&self.inner, database)
     }
 }
 
@@ -132,66 +138,69 @@ impl LedgerReadTxn for LedgerWriteTxnSHIM {
         self.is_refresh_needed()
     }
 
-    fn as_lmdb_txn_shim(&self) -> &dyn LmdbTransaction {
+    fn as_lmdb_txn_shim(&self) -> &dyn StoreBackendTransaction {
         &self.inner
     }
 
-    fn get(&self, database: LmdbDatabase, key: &[u8]) -> rsnano_nullable_lmdb::Result<&[u8]> {
-        LmdbTransaction::get(&self.inner, database, key)
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> rsnano_nullable_lmdb::Result<&[u8]> {
+        StoreBackendTransaction::get(&self.inner, database, key)
     }
 
-    fn open_ro_cursor(&self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
-        LmdbTransaction::open_ro_cursor(&self.inner, database)
+    fn open_ro_cursor(
+        &self,
+        database: StoreDatabase,
+    ) -> rsnano_nullable_lmdb::Result<StoreRoCursor<'_>> {
+        StoreBackendTransaction::open_ro_cursor(&self.inner, database)
     }
 
-    fn count(&self, database: LmdbDatabase) -> u64 {
-        LmdbTransaction::count(&self.inner, database)
+    fn count(&self, database: StoreDatabase) -> u64 {
+        StoreBackendTransaction::count(&self.inner, database)
     }
 }
 
 impl LedgerWriteTxn for LedgerWriteTxnSHIM {
-    fn as_lmdb_write_txn_shim(&mut self) -> &mut WriteTransaction {
+    fn as_lmdb_write_txn_shim(&mut self) -> &mut StoreWriteTransaction {
         &mut self.inner
     }
 
     fn put(
         &mut self,
-        database: LmdbDatabase,
+        database: StoreDatabase,
         key: &[u8],
         value: &[u8],
-        flags: WriteFlags,
+        flags: StoreWriteFlags,
     ) -> rsnano_nullable_lmdb::Result<()> {
         self.inner.put(database, key, value, flags)
     }
 
     fn delete(
         &mut self,
-        database: LmdbDatabase,
+        database: StoreDatabase,
         key: &[u8],
         value: Option<&[u8]>,
     ) -> rsnano_nullable_lmdb::Result<()> {
         self.inner.delete(database, key, value)
     }
 
-    fn clear_db(&mut self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<()> {
+    fn clear_db(&mut self, database: StoreDatabase) -> rsnano_nullable_lmdb::Result<()> {
         self.inner.clear_db(database)
     }
 
     fn open_rw_cursor(
         &mut self,
-        database: LmdbDatabase,
-    ) -> rsnano_nullable_lmdb::Result<RwCursor<'_>> {
+        database: StoreDatabase,
+    ) -> rsnano_nullable_lmdb::Result<StoreRwCursor<'_>> {
         self.inner.open_rw_cursor(database)
     }
 
-    unsafe fn drop_db(&mut self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<()> {
+    unsafe fn drop_db(&mut self, database: StoreDatabase) -> rsnano_nullable_lmdb::Result<()> {
         unsafe { self.inner.drop_db(database) }
     }
 }
 
-pub trait LedgerTxnSHIM: LedgerReadTxn + LmdbTransaction {}
+pub trait LedgerTxnSHIM: LedgerReadTxn + StoreBackendTransaction {}
 
-impl<T> LedgerTxnSHIM for T where T: LedgerReadTxn + LmdbTransaction + ?Sized {}
+impl<T> LedgerTxnSHIM for T where T: LedgerReadTxn + StoreBackendTransaction + ?Sized {}
 
 /// Adapter that turns a borrowed LMDB transaction reference into something that
 /// implements `LedgerTxnSHIM` without leaking the LMDB trait to logic
