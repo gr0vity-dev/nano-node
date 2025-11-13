@@ -113,7 +113,7 @@ impl RepWeightsUpdater {
 mod tests {
     use super::*;
     use rsnano_nullable_lmdb::LmdbEnvironment;
-    use rsnano_store_lmdb::{ConfiguredRepWeightDatabaseBuilder, LmdbRepWeightStore};
+    use rsnano_store_lmdb::LmdbRepWeightStore;
 
     #[test]
     fn representation_changes() {
@@ -137,20 +137,16 @@ mod tests {
         let representative = PublicKey::from(1);
         let weight = Amount::from(100);
 
-        let env = Arc::new(
-            LmdbEnvironment::null_builder()
-                .configured_database(ConfiguredRepWeightDatabaseBuilder::create(vec![(
-                    representative,
-                    weight,
-                )]))
-                .build(),
-        );
+        let env = Arc::new(LmdbEnvironment::new_null());
         let lmdb_store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
         let delete_tracker = lmdb_store.track_deletions();
         let store: Arc<dyn RepWeightStore> = lmdb_store.clone();
         let rep_weights = RepWeightCache::new();
         let rep_weights_updater = RepWeightsUpdater::new(store, Amount::ZERO, &rep_weights);
         rep_weights_updater.representation_put(representative, weight);
+        let mut txn = env.begin_write();
+        lmdb_store.put(&mut txn, representative, weight);
+        txn.commit();
         let mut txn = env.begin_write();
 
         // set weight to 0
@@ -171,14 +167,7 @@ mod tests {
         let rep2 = PublicKey::from(2);
         let weight = Amount::from(100);
 
-        let env = Arc::new(
-            LmdbEnvironment::null_builder()
-                .configured_database(ConfiguredRepWeightDatabaseBuilder::create(vec![
-                    (rep1, weight),
-                    (rep2, weight),
-                ]))
-                .build(),
-        );
+        let env = Arc::new(LmdbEnvironment::new_null());
         let lmdb_store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
         let delete_tracker = lmdb_store.track_deletions();
         let store: Arc<dyn RepWeightStore> = lmdb_store.clone();
@@ -186,6 +175,10 @@ mod tests {
         let rep_weights_updater = RepWeightsUpdater::new(store, Amount::ZERO, &rep_weights);
         rep_weights_updater.representation_put(rep1, weight);
         rep_weights_updater.representation_put(rep2, weight);
+        let mut txn = env.begin_write();
+        lmdb_store.put(&mut txn, rep1, weight);
+        lmdb_store.put(&mut txn, rep2, weight);
+        txn.commit();
         let mut txn = env.begin_write();
 
         // set weight to 0
@@ -225,15 +218,13 @@ mod tests {
     fn fall_below_min_weight() {
         let representative = PublicKey::from(1);
         let weight = Amount::from(11);
-        let env = Arc::new(
-            LmdbEnvironment::null_builder()
-                .configured_database(ConfiguredRepWeightDatabaseBuilder::create(vec![(
-                    representative,
-                    weight,
-                )]))
-                .build(),
-        );
+        let env = Arc::new(LmdbEnvironment::new_null());
         let store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
+        {
+            let mut seed_txn = env.begin_write();
+            store.put(&mut seed_txn, representative, weight);
+            seed_txn.commit();
+        }
         let put_tracker = store.track_puts();
         let mut txn = env.begin_write();
         let min_weight = Amount::from(10);

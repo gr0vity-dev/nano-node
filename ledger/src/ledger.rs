@@ -11,14 +11,7 @@ use std::{
 
 use tracing::debug;
 
-#[cfg(feature = "ledger_snapshots")]
-use rsnano_store_lmdb::forks_store::ConfiguredForksDatabaseBuilder;
-use rsnano_store_lmdb::{
-    ConfiguredAccountDatabaseBuilder, ConfiguredBlockDatabaseBuilder,
-    ConfiguredConfirmationHeightDatabaseBuilder, ConfiguredPeersDatabaseBuilder,
-    ConfiguredPendingDatabaseBuilder, LmdbLedgerStoreFactory, MemoryStats,
-    create_null_store_with_databases,
-};
+use rsnano_store_lmdb::{LmdbLedgerStoreFactory, MemoryStats};
 use rsnano_types::{
     Account, AccountInfo, Amount, Block, BlockHash, ConfirmationHeightInfo, Epoch, Link,
     PendingInfo, PendingKey, PublicKey, QualifiedRoot, Root, SavedBlock, UnixTimestamp,
@@ -125,67 +118,74 @@ pub struct Ledger {
 }
 
 pub struct NullLedgerBuilder {
-    blocks: ConfiguredBlockDatabaseBuilder,
-    accounts: ConfiguredAccountDatabaseBuilder,
-    pending: ConfiguredPendingDatabaseBuilder,
-    peers: ConfiguredPeersDatabaseBuilder,
+    store_factory: Arc<dyn LedgerStoreFactory>,
+    blocks: Vec<SavedBlock>,
+    accounts: Vec<(Account, AccountInfo)>,
+    pending: Vec<(PendingKey, PendingInfo)>,
+    peers: Vec<(SocketAddrV6, SystemTime)>,
     #[cfg(feature = "ledger_snapshots")]
-    forks: ConfiguredForksDatabaseBuilder,
-    confirmation_height: ConfiguredConfirmationHeightDatabaseBuilder,
+    forks: Vec<(QualifiedRoot, SnapshotNumber)>,
+    confirmation_height: Vec<(Account, ConfirmationHeightInfo)>,
     min_rep_weight: Amount,
 }
 
 impl NullLedgerBuilder {
     fn new() -> Self {
         Self {
-            blocks: ConfiguredBlockDatabaseBuilder::new(),
-            accounts: ConfiguredAccountDatabaseBuilder::new(),
-            pending: ConfiguredPendingDatabaseBuilder::new(),
-            peers: ConfiguredPeersDatabaseBuilder::new(),
+            store_factory: Arc::new(LmdbLedgerStoreFactory::new_null()),
+            blocks: Vec::new(),
+            accounts: Vec::new(),
+            pending: Vec::new(),
+            peers: Vec::new(),
             #[cfg(feature = "ledger_snapshots")]
-            forks: ConfiguredForksDatabaseBuilder::new(),
-            confirmation_height: ConfiguredConfirmationHeightDatabaseBuilder::new(),
+            forks: Vec::new(),
+            confirmation_height: Vec::new(),
             min_rep_weight: Amount::ZERO,
         }
     }
 
+    pub fn store_factory(mut self, factory: Arc<dyn LedgerStoreFactory>) -> Self {
+        self.store_factory = factory;
+        self
+    }
+
     pub fn block(mut self, block: &SavedBlock) -> Self {
-        self.blocks = self.blocks.block(block);
+        self.blocks.push(block.clone());
         self
     }
 
     pub fn blocks<'a>(mut self, blocks: impl IntoIterator<Item = &'a SavedBlock>) -> Self {
         for b in blocks.into_iter() {
-            self.blocks = self.blocks.block(b);
+            self.blocks.push(b.clone());
         }
         self
     }
 
     pub fn peers(mut self, peers: impl IntoIterator<Item = (SocketAddrV6, SystemTime)>) -> Self {
         for (peer, time) in peers.into_iter() {
-            self.peers = self.peers.peer(peer, time)
+            self.peers.push((peer, time))
         }
         self
     }
 
     pub fn confirmation_height(mut self, account: &Account, info: &ConfirmationHeightInfo) -> Self {
-        self.confirmation_height = self.confirmation_height.height(account, info);
+        self.confirmation_height.push((*account, info.clone()));
         self
     }
 
     pub fn account_info(mut self, account: &Account, info: &AccountInfo) -> Self {
-        self.accounts = self.accounts.account(account, info);
+        self.accounts.push((*account, info.clone()));
         self
     }
 
     pub fn pending(mut self, key: &PendingKey, info: &PendingInfo) -> Self {
-        self.pending = self.pending.pending(key, info);
+        self.pending.push((key.clone(), info.clone()));
         self
     }
 
     #[cfg(feature = "ledger_snapshots")]
     pub fn fork(mut self, root: &QualifiedRoot, snapshot_number: SnapshotNumber) -> Self {
-        self.forks = self.forks.fork(root, snapshot_number);
+        self.forks.push((root.clone(), snapshot_number));
         self
     }
 
@@ -219,35 +219,101 @@ impl NullLedgerBuilder {
     }
 
     pub fn finish(self) -> Ledger {
-        let (block_index, block_data) = self.blocks.build();
+        let Self {
+            store_factory,
+            blocks,
+            accounts,
+            pending,
+            peers,
+            #[cfg(feature = "ledger_snapshots")]
+            forks,
+            confirmation_height,
+            min_rep_weight,
+        } = self;
+
         let rep_weights = Arc::new(RepWeightCache::new());
-        #[allow(unused_mut)]
-        let mut databases = vec![
-            block_index,
-            block_data,
-            self.accounts.build(),
-            self.pending.build(),
-            self.confirmation_height.build(),
-            self.peers.build(),
-        ];
-
-        #[cfg(feature = "ledger_snapshots")]
-        {
-            databases.push(self.forks.build());
-        }
-
-        let store: Arc<dyn LedgerStore> =
-            create_null_store_with_databases(databases, rep_weights.ledger_cache.clone()).unwrap();
+        let store = store_factory
+            .create_null_store(rep_weights.ledger_cache.clone())
+            .unwrap();
+        Self::seed_store(
+            store.as_ref(),
+            &blocks,
+            &accounts,
+            &pending,
+            &peers,
+            &confirmation_height,
+            #[cfg(feature = "ledger_snapshots")]
+            &forks,
+        );
 
         Ledger::new(
             store,
             LedgerConstants::unit_test(),
-            self.min_rep_weight,
+            min_rep_weight,
             rep_weights,
             Arc::new(Stats::default()),
             1,
         )
         .unwrap()
+    }
+
+    fn seed_store(
+        store: &dyn LedgerStore,
+        blocks: &[SavedBlock],
+        accounts: &[(Account, AccountInfo)],
+        pending: &[(PendingKey, PendingInfo)],
+        peers: &[(SocketAddrV6, SystemTime)],
+        confirmation_height: &[(Account, ConfirmationHeightInfo)],
+        #[cfg(feature = "ledger_snapshots")] forks: &[(QualifiedRoot, SnapshotNumber)],
+    ) {
+        #[cfg(feature = "ledger_snapshots")]
+        let has_forks = !forks.is_empty();
+        #[cfg(not(feature = "ledger_snapshots"))]
+        let has_forks: bool = false;
+
+        if blocks.is_empty()
+            && accounts.is_empty()
+            && pending.is_empty()
+            && peers.is_empty()
+            && confirmation_height.is_empty()
+            && !has_forks
+        {
+            return;
+        }
+
+        let mut txn = store.begin_write();
+
+        for block in blocks {
+            store.block().put(txn.as_mut(), block);
+            if !block.previous().is_zero() {
+                store
+                    .successors()
+                    .put(txn.as_mut(), &block.previous(), &block.hash());
+            }
+        }
+
+        for (account, info) in accounts {
+            store.account().put(txn.as_mut(), account, info);
+        }
+
+        for (account, info) in confirmation_height {
+            store.confirmation_height().put(txn.as_mut(), account, info);
+        }
+
+        for (key, info) in pending {
+            store.pending().put(txn.as_mut(), key, info);
+        }
+
+        for (peer, time) in peers {
+            store.peer().put(txn.as_mut(), peer.clone(), time.clone());
+        }
+
+        #[cfg(feature = "ledger_snapshots")]
+        for (root, snapshot_number) in forks {
+            store.forks().put(txn.as_mut(), root, *snapshot_number);
+        }
+
+        txn.commit();
     }
 }
 
