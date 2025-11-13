@@ -86,15 +86,19 @@ impl LmdbBlockStore {
             self.put_listener.emit(block.clone());
         }
 
-        self.raw_put(txn, &block.serialize_with_sideband(), &block.hash());
+        self.write_block(txn, &block.serialize_with_sideband(), &block.hash());
     }
 
     pub fn exists(&self, transaction: &dyn LedgerReadTxn, hash: &BlockHash) -> bool {
-        transaction.raw_exists(self.index_db, hash.as_bytes())
+        match transaction.get(self.index_db, hash.as_bytes()) {
+            Ok(_) => true,
+            Err(Error::NotFound) => false,
+            Err(e) => panic!("Could not check block index: {:?}", e),
+        }
     }
 
     pub fn get(&self, txn: &dyn LedgerReadTxn, hash: &BlockHash) -> Option<SavedBlock> {
-        self.block_raw_get(txn, hash).map(|mut block_bytes| {
+        self.load_block_bytes(txn, hash).map(|mut block_bytes| {
             SavedBlock::deserialize(&mut block_bytes)
                 .unwrap_or_else(|e| panic!("Could not deserialize block {}: {:?}", hash, e))
         })
@@ -162,7 +166,7 @@ impl LmdbBlockStore {
         })
     }
 
-    fn raw_put(&self, txn: &mut dyn LedgerWriteTxn, data: &[u8], hash: &BlockHash) {
+    fn write_block(&self, txn: &mut dyn LedgerWriteTxn, data: &[u8], hash: &BlockHash) {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
 
         txn.put(
@@ -177,7 +181,11 @@ impl LmdbBlockStore {
             .expect("Couldn't insert into block data table'");
     }
 
-    fn block_raw_get<'a>(&self, txn: &'a dyn LedgerReadTxn, hash: &BlockHash) -> Option<&'a [u8]> {
+    fn load_block_bytes<'a>(
+        &self,
+        txn: &'a dyn LedgerReadTxn,
+        hash: &BlockHash,
+    ) -> Option<&'a [u8]> {
         match txn.get(self.index_db, hash.as_bytes()) {
             Err(Error::NotFound) => None,
             Ok(id_bytes) => Some(

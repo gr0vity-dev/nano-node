@@ -61,7 +61,11 @@ impl LmdbPeerStore {
     }
 
     pub fn exists(&self, txn: &dyn LedgerReadTxn, endpoint: SocketAddrV6) -> bool {
-        txn.raw_exists(self.database, &EndpointBytes::from(endpoint))
+        match txn.get(self.database, &EndpointBytes::from(endpoint)) {
+            Ok(_) => true,
+            Err(rsnano_nullable_lmdb::Error::NotFound) => false,
+            Err(e) => panic!("Could not check peer entry: {:?}", e),
+        }
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {

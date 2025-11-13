@@ -58,7 +58,11 @@ impl LmdbConfirmationHeightStore {
     }
 
     pub fn exists(&self, txn: &dyn LedgerReadTxn, account: &Account) -> bool {
-        txn.raw_exists(self.database, account.as_bytes())
+        match txn.get(self.database, account.as_bytes()) {
+            Ok(_) => true,
+            Err(Error::NotFound) => false,
+            Err(e) => panic!("Could not check confirmation height entry: {:?}", e),
+        }
     }
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, account: &Account) {
