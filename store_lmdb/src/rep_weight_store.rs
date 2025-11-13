@@ -8,7 +8,10 @@ use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{Amount, PublicKey};
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
-use crate::REP_WEIGHT_TEST_DATABASE;
+use crate::{
+    REP_WEIGHT_TEST_DATABASE,
+    store_utils::{lmdb_ro_cursor_from_store, store_write_flags_from},
+};
 
 pub struct LmdbRepWeightStore {
     database: LmdbDatabase,
@@ -52,7 +55,7 @@ impl LmdbRepWeightStore {
             self.database.into(),
             representative.as_bytes(),
             &weight.to_be_bytes(),
-            WriteFlags::empty().into(),
+            store_write_flags_from(WriteFlags::empty()),
         )
         .unwrap();
     }
@@ -69,10 +72,8 @@ impl LmdbRepWeightStore {
     }
 
     pub fn iter<'a>(&self, txn: &'a dyn LedgerReadTxn) -> RepWeightIterator<'a> {
-        let cursor = txn
-            .open_ro_cursor(self.database.into())
-            .unwrap()
-            .into_inner();
+        let cursor = txn.open_ro_cursor(self.database.into()).unwrap();
+        let cursor = lmdb_ro_cursor_from_store(cursor);
         RepWeightIterator {
             cursor,
             operation: MDB_FIRST,

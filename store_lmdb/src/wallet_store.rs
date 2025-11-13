@@ -19,7 +19,10 @@ use store_traits::{
     wallet::{KeyType, WalletStore, WalletStoreIterator, WalletValue},
 };
 
-use crate::{Fan, LmdbDatabase, LmdbRangeIterator};
+use crate::{
+    Fan, LmdbDatabase, LmdbRangeIterator,
+    store_utils::{lmdb_ro_cursor_from_store, store_write_flags_from},
+};
 
 pub struct Fans {
     pub password: Fan,
@@ -252,7 +255,7 @@ impl LmdbWalletStore {
             self.store_db(),
             pub_key.as_bytes(),
             &entry.to_bytes(),
-            WriteFlags::empty().into(),
+            store_write_flags_from(WriteFlags::empty()),
         )
         .unwrap();
     }
@@ -374,7 +377,8 @@ impl LmdbWalletStore {
     where
         R: RangeBounds<PublicKey> + 'static,
     {
-        let cursor = tx.open_ro_cursor(self.store_db()).unwrap().into_inner();
+        let cursor = tx.open_ro_cursor(self.store_db()).unwrap();
+        let cursor = lmdb_ro_cursor_from_store(cursor);
         LmdbRangeIterator::new(
             cursor,
             range.start_bound().map(|b| b.as_bytes().to_vec()),

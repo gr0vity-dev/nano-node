@@ -1,7 +1,7 @@
 use rsnano_nullable_lmdb::{DatabaseFlags, LmdbEnvironment, WriteFlags};
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
-use crate::{LmdbDatabase, STORE_VERSION_CURRENT};
+use crate::{LmdbDatabase, STORE_VERSION_CURRENT, store_utils::store_write_flags_from};
 
 pub struct LmdbVersionStore {
     /// U256 (arbitrary key) -> blob
@@ -58,7 +58,7 @@ impl LmdbVersionStore {
             db.into(),
             &key_bytes,
             &value_bytes,
-            WriteFlags::empty().into(),
+            store_write_flags_from(WriteFlags::empty()),
         )
         .unwrap();
     }

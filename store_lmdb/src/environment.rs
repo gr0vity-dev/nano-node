@@ -11,6 +11,8 @@ use store_traits::environment::{
 };
 use store_traits::types::{StoreDatabase, StoreError, StoreResult, StoreWriteFlags};
 
+use crate::store_utils::{lmdb_env_flags_from, lmdb_write_flags_from};
+
 pub struct LmdbCursor<'txn> {
     inner: rsnano_nullable_lmdb::RoCursor<'txn>,
     started: bool,
@@ -178,7 +180,7 @@ impl<'env> StoreWriteTxn<'env> for LmdbWriteTxn<'env> {
         flags: StoreWriteFlags,
     ) -> StoreResult<()> {
         self.inner
-            .put(database.into(), key, value, flags.into())
+            .put(database.into(), key, value, lmdb_write_flags_from(flags))
             .map_err(Into::into)
     }
 
@@ -286,7 +288,7 @@ impl LmdbStoreEnvironmentFactory {
         EnvironmentOptions {
             max_dbs: options.max_databases,
             map_size: options.map_size,
-            flags: options.flags.into(),
+            flags: lmdb_env_flags_from(options.flags),
             path: options.path,
         }
     }

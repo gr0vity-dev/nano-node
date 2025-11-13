@@ -10,7 +10,11 @@ use store_traits::{
     WalletReadTxn, WalletWriteTxn, wallet::WalletEnvironment as WalletEnvironmentTrait,
 };
 
-use crate::{WalletReadTxnSHIM, WalletWriteTxnSHIM, wallet_factory::LmdbWalletStoreFactory};
+use crate::{
+    store_utils::store_write_flags_from,
+    wallet_factory::LmdbWalletStoreFactory,
+    wallet_txn_shim::{WalletReadTxnSHIM, WalletWriteTxnSHIM},
+};
 
 pub struct LmdbWalletEnvironment {
     env: Arc<LmdbEnvironment>,
@@ -85,7 +89,7 @@ impl WalletEnvironmentTrait for LmdbWalletEnvironment {
             self.send_action_ids.into(),
             id.as_bytes(),
             hash.as_bytes(),
-            WriteFlags::empty().into(),
+            store_write_flags_from(WriteFlags::empty()),
         )?;
         Ok(())
     }

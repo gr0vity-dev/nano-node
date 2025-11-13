@@ -14,7 +14,10 @@ use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{BlockHash, SavedBlock};
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
-use crate::{BLOCK_DATA_DATABASE, BLOCK_INDEX_DATABASE, LmdbIterator, LmdbRangeIterator};
+use crate::{
+    BLOCK_DATA_DATABASE, BLOCK_INDEX_DATABASE, LmdbIterator, LmdbRangeIterator,
+    store_utils::{lmdb_ro_cursor_from_store, store_write_flags_from},
+};
 
 pub struct LmdbBlockStore {
     /// block hash => id
@@ -127,8 +130,8 @@ impl LmdbBlockStore {
     ) -> impl Iterator<Item = SavedBlock> + 'tx {
         let cursor = tx
             .open_ro_cursor(self.index_db.into())
-            .expect("Could not open cursor for block index table")
-            .into_inner();
+            .expect("Could not open cursor for block index table");
+        let cursor = lmdb_ro_cursor_from_store(cursor);
 
         LmdbIterator::new(cursor, read_block_index_record).map(move |(_, id)| {
             let mut data = tx
@@ -149,8 +152,8 @@ impl LmdbBlockStore {
     {
         let cursor = tx
             .open_ro_cursor(self.index_db.into())
-            .expect("Could not open cursor for block table")
-            .into_inner();
+            .expect("Could not open cursor for block table");
+        let cursor = lmdb_ro_cursor_from_store(cursor);
 
         LmdbRangeIterator::<BlockHash, u64>::new(
             cursor,
@@ -175,7 +178,7 @@ impl LmdbBlockStore {
             self.index_db.into(),
             hash.as_bytes(),
             &id.to_be_bytes(),
-            WriteFlags::NO_OVERWRITE.into(),
+            store_write_flags_from(WriteFlags::NO_OVERWRITE),
         )
         .expect("Couldn't insert into block index table");
 
@@ -183,7 +186,7 @@ impl LmdbBlockStore {
             self.block_db.into(),
             &id.to_be_bytes(),
             data,
-            WriteFlags::APPEND.into(),
+            store_write_flags_from(WriteFlags::APPEND),
         )
         .expect("Couldn't insert into block data table'");
     }

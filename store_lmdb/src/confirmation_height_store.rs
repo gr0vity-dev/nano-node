@@ -10,6 +10,7 @@ use store_traits::transaction::{
 
 use crate::{
     CONFIRMATION_HEIGHT_TEST_DATABASE, LmdbIterator, LmdbRangeIterator, parallel_traversal,
+    store_utils::store_write_flags_from,
 };
 
 pub struct LmdbConfirmationHeightStore {
@@ -37,7 +38,7 @@ impl LmdbConfirmationHeightStore {
             self.database.into(),
             account.as_bytes(),
             &info.to_bytes(),
-            WriteFlags::empty().into(),
+            store_write_flags_from(WriteFlags::empty()),
         )
         .unwrap();
     }

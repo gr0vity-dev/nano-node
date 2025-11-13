@@ -3,7 +3,10 @@ use std::sync::Arc;
 use rsnano_nullable_lmdb::{DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags};
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::BlockHash;
-use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
+use store_traits::{
+    transaction::{LedgerReadTxn, LedgerWriteTxn},
+    types::StoreErrorKind,
+};
 
 /// Stores the hash of the successor block for a given block hash
 pub struct LmdbSuccessorStore {
@@ -33,7 +36,7 @@ impl LmdbSuccessorStore {
             self.database.into(),
             block.as_bytes(),
             successor.as_bytes(),
-            WriteFlags::empty().into(),
+            crate::store_utils::store_write_flags_from(WriteFlags::empty()),
         )
         .unwrap();
     }
@@ -47,8 +50,8 @@ impl LmdbSuccessorStore {
         match tx.get(self.database.into(), block.as_bytes()) {
             Ok(bytes) => BlockHash::from_slice(bytes),
             Err(e) if e.is_not_found() => None,
-            Err(e) => match e.as_lmdb_error() {
-                rsnano_nullable_lmdb::Error::PageNotFound => {
+            Err(e) => match e.kind() {
+                StoreErrorKind::PageNotFound => {
                     panic!("Could not load successor hash: PageNotFound")
                 }
                 _ => panic!("Could not load successor hash: {}", e),

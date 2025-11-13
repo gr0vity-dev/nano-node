@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use crate::types::{
     StoreDatabase, StoreError, StoreResult, StoreRoCursor, StoreRwCursor, StoreWriteFlags,
 };
@@ -5,6 +7,48 @@ use rsnano_nullable_lmdb::{
     LmdbDatabase, RoCursor as LmdbRoCursor, RwCursor as LmdbRwCursor, Transaction as LmdbTxn,
     WriteFlags,
 };
+
+fn store_ro_cursor_from_lmdb<'txn>(cursor: LmdbRoCursor<'txn>) -> StoreRoCursor<'txn> {
+    let raw = Box::into_raw(Box::new(cursor)) as usize;
+    let handle = unsafe { NonZeroUsize::new_unchecked(raw) };
+    unsafe { StoreRoCursor::from_raw_parts(handle, drop_lmdb_ro_cursor) }
+}
+
+fn store_rw_cursor_from_lmdb<'txn>(cursor: LmdbRwCursor<'txn>) -> StoreRwCursor<'txn> {
+    let raw = Box::into_raw(Box::new(cursor)) as usize;
+    let handle = unsafe { NonZeroUsize::new_unchecked(raw) };
+    unsafe { StoreRwCursor::from_raw_parts(handle, drop_lmdb_rw_cursor) }
+}
+
+fn store_ro_cursor_into_lmdb<'txn>(cursor: StoreRoCursor<'txn>) -> LmdbRoCursor<'txn> {
+    let (handle, _) = cursor.into_raw_parts();
+    let ptr = handle.get() as *mut LmdbRoCursor<'txn>;
+    *unsafe { Box::from_raw(ptr) }
+}
+
+fn store_rw_cursor_into_lmdb<'txn>(cursor: StoreRwCursor<'txn>) -> LmdbRwCursor<'txn> {
+    let (handle, _) = cursor.into_raw_parts();
+    let ptr = handle.get() as *mut LmdbRwCursor<'txn>;
+    *unsafe { Box::from_raw(ptr) }
+}
+
+unsafe fn drop_lmdb_ro_cursor(handle: NonZeroUsize) {
+    let ptr = handle.get() as *mut LmdbRoCursor<'static>;
+    drop(unsafe { Box::from_raw(ptr) });
+}
+
+unsafe fn drop_lmdb_rw_cursor(handle: NonZeroUsize) {
+    let ptr = handle.get() as *mut LmdbRwCursor<'static>;
+    drop(unsafe { Box::from_raw(ptr) });
+}
+
+fn to_lmdb_write_flags(flags: StoreWriteFlags) -> WriteFlags {
+    WriteFlags::from_bits_truncate(flags.bits())
+}
+
+fn from_lmdb_write_flags(flags: WriteFlags) -> StoreWriteFlags {
+    StoreWriteFlags::from_bits(flags.bits())
+}
 
 pub trait LedgerReadTxn {
     fn is_refresh_needed(&self) -> bool;
@@ -86,7 +130,7 @@ impl LedgerReadTxn for rsnano_nullable_lmdb::ReadTransaction {
 
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
         LmdbTxn::open_ro_cursor(self, database.into())
-            .map(StoreRoCursor::new)
+            .map(store_ro_cursor_from_lmdb)
             .map_err(Into::into)
     }
 
@@ -106,7 +150,7 @@ impl LedgerReadTxn for rsnano_nullable_lmdb::WriteTransaction {
 
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
         LmdbTxn::open_ro_cursor(self, database.into())
-            .map(StoreRoCursor::new)
+            .map(store_ro_cursor_from_lmdb)
             .map_err(Into::into)
     }
 
@@ -123,7 +167,7 @@ impl LedgerWriteTxn for rsnano_nullable_lmdb::WriteTransaction {
         value: &[u8],
         flags: StoreWriteFlags,
     ) -> StoreResult<()> {
-        self.put(database.into(), key, value, flags.into())
+        self.put(database.into(), key, value, to_lmdb_write_flags(flags))
             .map_err(StoreError::from)
     }
 
@@ -143,7 +187,7 @@ impl LedgerWriteTxn for rsnano_nullable_lmdb::WriteTransaction {
 
     fn open_rw_cursor(&mut self, database: StoreDatabase) -> StoreResult<StoreRwCursor<'_>> {
         self.open_rw_cursor(database.into())
-            .map(StoreRwCursor::new)
+            .map(store_rw_cursor_from_lmdb)
             .map_err(StoreError::from)
     }
 
@@ -195,7 +239,7 @@ impl<T: WalletReadTxn + ?Sized> WalletReadTxnLmdbExt for T {
 
     fn open_ro_cursor_lmdb(&self, database: LmdbDatabase) -> StoreResult<LmdbRoCursor<'_>> {
         self.open_ro_cursor(database.into())
-            .map(|cursor| cursor.into_inner())
+            .map(store_ro_cursor_into_lmdb)
     }
 
     fn count_lmdb(&self, database: LmdbDatabase) -> u64 {
@@ -230,7 +274,7 @@ impl<T: WalletWriteTxn + ?Sized> WalletWriteTxnLmdbExt for T {
         value: &[u8],
         flags: WriteFlags,
     ) -> StoreResult<()> {
-        self.put(database.into(), key, value, StoreWriteFlags::from(flags))
+        self.put(database.into(), key, value, from_lmdb_write_flags(flags))
     }
 
     fn delete_lmdb(
@@ -248,7 +292,7 @@ impl<T: WalletWriteTxn + ?Sized> WalletWriteTxnLmdbExt for T {
 
     fn open_rw_cursor_lmdb(&mut self, database: LmdbDatabase) -> StoreResult<LmdbRwCursor<'_>> {
         self.open_rw_cursor(database.into())
-            .map(|cursor| cursor.into_inner())
+            .map(store_rw_cursor_into_lmdb)
     }
 
     unsafe fn drop_db_lmdb(&mut self, database: LmdbDatabase) -> StoreResult<()> {
@@ -269,7 +313,7 @@ impl<T: LedgerReadTxn + ?Sized> LedgerReadTxnLmdbExt for T {
 
     fn open_ro_cursor_lmdb(&self, database: LmdbDatabase) -> StoreResult<LmdbRoCursor<'_>> {
         self.open_ro_cursor(database.into())
-            .map(|cursor| cursor.into_inner())
+            .map(store_ro_cursor_into_lmdb)
     }
 
     fn count_lmdb(&self, database: LmdbDatabase) -> u64 {
@@ -306,7 +350,7 @@ impl<T: LedgerWriteTxn + ?Sized> LedgerWriteTxnLmdbExt for T {
         value: &[u8],
         flags: WriteFlags,
     ) -> StoreResult<()> {
-        self.put(database.into(), key, value, StoreWriteFlags::from(flags))
+        self.put(database.into(), key, value, from_lmdb_write_flags(flags))
     }
 
     fn delete_lmdb(
@@ -324,7 +368,7 @@ impl<T: LedgerWriteTxn + ?Sized> LedgerWriteTxnLmdbExt for T {
 
     fn open_rw_cursor_lmdb(&mut self, database: LmdbDatabase) -> StoreResult<LmdbRwCursor<'_>> {
         self.open_rw_cursor(database.into())
-            .map(|cursor| cursor.into_inner())
+            .map(store_rw_cursor_into_lmdb)
     }
 
     unsafe fn drop_db_lmdb(&mut self, database: LmdbDatabase) -> StoreResult<()> {
@@ -339,7 +383,7 @@ impl WalletReadTxn for rsnano_nullable_lmdb::ReadTransaction {
 
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
         LmdbTxn::open_ro_cursor(self, database.into())
-            .map(StoreRoCursor::new)
+            .map(store_ro_cursor_from_lmdb)
             .map_err(Into::into)
     }
 
@@ -359,7 +403,7 @@ impl WalletReadTxn for rsnano_nullable_lmdb::WriteTransaction {
 
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
         LmdbTxn::open_ro_cursor(self, database.into())
-            .map(StoreRoCursor::new)
+            .map(store_ro_cursor_from_lmdb)
             .map_err(Into::into)
     }
 
@@ -380,7 +424,7 @@ impl WalletWriteTxn for rsnano_nullable_lmdb::WriteTransaction {
         value: &[u8],
         flags: StoreWriteFlags,
     ) -> StoreResult<()> {
-        self.put(database.into(), key, value, flags.into())
+        self.put(database.into(), key, value, to_lmdb_write_flags(flags))
             .map_err(StoreError::from)
     }
 
@@ -400,7 +444,7 @@ impl WalletWriteTxn for rsnano_nullable_lmdb::WriteTransaction {
 
     fn open_rw_cursor(&mut self, database: StoreDatabase) -> StoreResult<StoreRwCursor<'_>> {
         self.open_rw_cursor(database.into())
-            .map(StoreRwCursor::new)
+            .map(store_rw_cursor_from_lmdb)
             .map_err(StoreError::from)
     }
 

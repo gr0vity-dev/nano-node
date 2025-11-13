@@ -18,6 +18,7 @@ mod peer_store;
 mod pending_store;
 mod rep_weight_store;
 mod store;
+mod store_utils;
 mod successor_store;
 mod upgrades;
 mod vacuum;

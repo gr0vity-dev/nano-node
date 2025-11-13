@@ -11,6 +11,7 @@ use crate::{
     ACCOUNT_TEST_DATABASE,
     iterator::{LmdbIterator, LmdbRangeIterator},
     parallel_traversal,
+    store_utils::{lmdb_ro_cursor_from_store, store_write_flags_from},
 };
 
 pub struct LmdbAccountStore {
@@ -46,7 +47,7 @@ impl LmdbAccountStore {
                 self.database.into(),
                 account.as_bytes(),
                 &info.to_bytes(),
-                WriteFlags::empty().into(),
+                store_write_flags_from(WriteFlags::empty()),
             )
             .unwrap();
     }
@@ -72,8 +73,8 @@ impl LmdbAccountStore {
     ) -> impl Iterator<Item = (Account, AccountInfo)> + 'txn + use<'txn> {
         let cursor = tx
             .open_ro_cursor(self.database.into())
-            .expect("could not read from account store")
-            .into_inner();
+            .expect("could not read from account store");
+        let cursor = lmdb_ro_cursor_from_store(cursor);
 
         LmdbIterator::new(cursor, read_account_info_record)
     }
@@ -83,10 +84,8 @@ impl LmdbAccountStore {
         tx: &'txn dyn LedgerReadTxn,
         range: impl RangeBounds<Account> + 'static,
     ) -> Box<dyn Iterator<Item = (Account, AccountInfo)> + 'txn> {
-        let cursor = tx
-            .open_ro_cursor(self.database.into())
-            .unwrap()
-            .into_inner();
+        let cursor = tx.open_ro_cursor(self.database.into()).unwrap();
+        let cursor = lmdb_ro_cursor_from_store(cursor);
         let start = range.start_bound().map(|b| b.as_bytes().to_vec());
         let end = range.end_bound().map(|b| b.as_bytes().to_vec());
         Box::new(LmdbRangeIterator::new(

@@ -1,3 +1,6 @@
+use crate::store_utils::{
+    lmdb_write_flags_from, store_ro_cursor_from_lmdb, store_rw_cursor_from_lmdb,
+};
 use rsnano_nullable_lmdb::{ReadTransaction, Transaction as LmdbTransaction, WriteTransaction};
 use store_traits::{
     transaction::{WalletReadTxn, WalletWriteTxn},
@@ -31,7 +34,7 @@ impl WalletReadTxnSHIM {
 
     pub fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
         LmdbTransaction::open_ro_cursor(&self.inner, database.into())
-            .map(StoreRoCursor::new)
+            .map(store_ro_cursor_from_lmdb)
             .map_err(Into::into)
     }
 
@@ -66,7 +69,7 @@ impl WalletWriteTxnSHIM {
         flags: StoreWriteFlags,
     ) -> StoreResult<()> {
         self.inner
-            .put(database.into(), key, value, flags.into())
+            .put(database.into(), key, value, lmdb_write_flags_from(flags))
             .map_err(Into::into)
     }
 
@@ -88,7 +91,7 @@ impl WalletWriteTxnSHIM {
     pub fn open_rw_cursor(&mut self, database: StoreDatabase) -> StoreResult<StoreRwCursor<'_>> {
         self.inner
             .open_rw_cursor(database.into())
-            .map(StoreRwCursor::new)
+            .map(store_rw_cursor_from_lmdb)
             .map_err(Into::into)
     }
 
@@ -126,7 +129,7 @@ impl WalletReadTxn for WalletWriteTxnSHIM {
 
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
         LmdbTransaction::open_ro_cursor(&self.inner, database.into())
-            .map(StoreRoCursor::new)
+            .map(store_ro_cursor_from_lmdb)
             .map_err(Into::into)
     }
 
