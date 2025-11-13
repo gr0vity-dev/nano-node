@@ -41,7 +41,7 @@ impl LmdbPeerStore {
 
     pub fn put(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6, time: SystemTime) {
         self.put_listener.emit((endpoint.clone(), time));
-        txn.raw_put(
+        txn.put(
             self.database,
             &EndpointBytes::from(endpoint),
             &TimeBytes::from(time),
@@ -56,7 +56,7 @@ impl LmdbPeerStore {
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6) {
         self.delete_listener.emit(endpoint);
-        txn.raw_delete(self.database, &EndpointBytes::from(endpoint), None)
+        txn.delete(self.database, &EndpointBytes::from(endpoint), None)
             .unwrap();
     }
 
@@ -65,11 +65,11 @@ impl LmdbPeerStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.raw_count(self.database)
+        txn.count(self.database)
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.raw_clear_db(self.database).unwrap();
+        txn.clear_db(self.database).unwrap();
     }
 
     pub fn iter<'a>(
@@ -77,7 +77,7 @@ impl LmdbPeerStore {
         txn: &'a dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (SocketAddrV6, SystemTime)> + 'a + use<'a> {
         let cursor = txn
-            .raw_open_ro_cursor(self.database)
+            .open_ro_cursor(self.database)
             .expect("Could not read peer store database");
         PeerIterator(LmdbIterator::new(cursor, |k, v| {
             (

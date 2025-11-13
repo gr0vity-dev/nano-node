@@ -21,7 +21,7 @@ impl LmdbOnlineWeightStore {
     pub fn put(&self, txn: &mut dyn LedgerWriteTxn, time: u64, amount: &Amount) {
         let time_bytes = time.to_be_bytes();
         let amount_bytes = amount.to_be_bytes();
-        txn.raw_put(
+        txn.put(
             self.database,
             &time_bytes,
             &amount_bytes,
@@ -32,14 +32,14 @@ impl LmdbOnlineWeightStore {
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, time: u64) {
         let time_bytes = time.to_be_bytes();
-        txn.raw_delete(self.database, &time_bytes, None).unwrap();
+        txn.delete(self.database, &time_bytes, None).unwrap();
     }
 
     pub fn iter<'txn>(
         &self,
         tx: &'txn dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (u64, Amount)> + 'txn + use<'txn> {
-        let cursor = tx.raw_open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor(self.database).unwrap();
 
         LmdbIterator::new(cursor, |key, value| {
             let time = u64::from_be_bytes(key.try_into().unwrap());
@@ -53,7 +53,7 @@ impl LmdbOnlineWeightStore {
         &self,
         tx: &'txn dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (u64, Amount)> + 'txn + use<'txn> {
-        let cursor = tx.raw_open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor(self.database).unwrap();
 
         LmdbIterator::new_descending(cursor, |key, value| {
             let time = u64::from_be_bytes(key.try_into().unwrap());
@@ -63,11 +63,11 @@ impl LmdbOnlineWeightStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.raw_count(self.database)
+        txn.count(self.database)
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.raw_clear_db(self.database).unwrap();
+        txn.clear_db(self.database).unwrap();
     }
 }
 

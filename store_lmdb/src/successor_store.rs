@@ -29,7 +29,7 @@ impl LmdbSuccessorStore {
             self.put_listener.emit((*block, *successor));
         }
 
-        tx.raw_put(
+        tx.put(
             self.database,
             block.as_bytes(),
             successor.as_bytes(),
@@ -39,12 +39,11 @@ impl LmdbSuccessorStore {
     }
 
     pub fn del(&self, tx: &mut dyn LedgerWriteTxn, block: &BlockHash) {
-        tx.raw_delete(self.database, block.as_bytes(), None)
-            .unwrap();
+        tx.delete(self.database, block.as_bytes(), None).unwrap();
     }
 
     pub fn get(&self, tx: &dyn LedgerReadTxn, block: &BlockHash) -> Option<BlockHash> {
-        match tx.raw_get(self.database, block.as_bytes()) {
+        match tx.get(self.database, block.as_bytes()) {
             Ok(bytes) => BlockHash::from_slice(bytes),
             Err(Error::NotFound) => None,
             Err(e) => panic!("Could not load successor hash: {:?}", e),
@@ -52,7 +51,7 @@ impl LmdbSuccessorStore {
     }
 
     pub fn count(&self, tx: &dyn LedgerReadTxn) -> u64 {
-        tx.raw_count(self.database)
+        tx.count(self.database)
     }
 }
 

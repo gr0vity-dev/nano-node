@@ -42,7 +42,7 @@ impl LmdbPendingStore {
         self.put_listener.emit((key.clone(), pending.clone()));
         let key_bytes = key.to_bytes();
         let pending_bytes = pending.to_bytes();
-        txn.raw_put(
+        txn.put(
             self.database,
             &key_bytes,
             &pending_bytes,
@@ -54,12 +54,12 @@ impl LmdbPendingStore {
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, key: &PendingKey) {
         self.delete_listener.emit(key.clone());
         let key_bytes = key.to_bytes();
-        txn.raw_delete(self.database, &key_bytes, None).unwrap();
+        txn.delete(self.database, &key_bytes, None).unwrap();
     }
 
     pub fn get(&self, txn: &dyn LedgerReadTxn, key: &PendingKey) -> Option<PendingInfo> {
         let key_bytes = key.to_bytes();
-        match txn.raw_get(self.database, &key_bytes) {
+        match txn.get(self.database, &key_bytes) {
             Ok(mut bytes) => {
                 Some(PendingInfo::deserialize(&mut bytes).expect("Should be valid pending info"))
             }
@@ -74,7 +74,7 @@ impl LmdbPendingStore {
         &self,
         tx: &'tx dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (PendingKey, PendingInfo)> + 'tx + use<'tx> {
-        let cursor = tx.raw_open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor(self.database).unwrap();
         LmdbIterator::new(cursor, read_pending_record)
     }
 
@@ -83,7 +83,7 @@ impl LmdbPendingStore {
         tx: &'tx dyn LedgerReadTxn,
         range: impl RangeBounds<PendingKey> + 'static,
     ) -> impl Iterator<Item = (PendingKey, PendingInfo)> + 'tx {
-        let cursor = tx.raw_open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor(self.database).unwrap();
         LmdbRangeIterator::new(
             cursor,
             range.start_bound().map(|b| b.to_bytes().to_vec()),

@@ -31,9 +31,9 @@ impl LmdbFinalVoteStore {
         hash: &BlockHash,
     ) -> bool {
         let root_bytes = root.to_bytes();
-        match txn.raw_get(self.database, &root_bytes) {
+        match txn.get(self.database, &root_bytes) {
             Err(Error::NotFound) => {
-                txn.raw_put(
+                txn.put(
                     self.database,
                     &root_bytes,
                     hash.as_bytes(),
@@ -53,7 +53,7 @@ impl LmdbFinalVoteStore {
         &self,
         tx: &'tx dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (QualifiedRoot, BlockHash)> + 'tx + use<'tx> {
-        let cursor = tx.raw_open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor(self.database).unwrap();
         LmdbIterator::new(cursor, read_final_vote_record)
     }
 
@@ -62,7 +62,7 @@ impl LmdbFinalVoteStore {
         tx: &'tx dyn LedgerReadTxn,
         range: impl RangeBounds<QualifiedRoot> + 'static,
     ) -> impl Iterator<Item = (QualifiedRoot, BlockHash)> + 'tx {
-        let cursor = tx.raw_open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor(self.database).unwrap();
         LmdbRangeIterator::new(
             cursor,
             range.start_bound().map(|b| b.to_bytes().to_vec()),
@@ -72,7 +72,7 @@ impl LmdbFinalVoteStore {
     }
 
     pub fn get(&self, tx: &dyn LedgerReadTxn, root: &QualifiedRoot) -> Option<BlockHash> {
-        let result = tx.raw_get(self.database, &root.to_bytes());
+        let result = tx.get(self.database, &root.to_bytes());
         match result {
             Err(Error::NotFound) => None,
             Ok(mut bytes) => {
@@ -84,15 +84,15 @@ impl LmdbFinalVoteStore {
 
     pub fn del(&self, tx: &mut dyn LedgerWriteTxn, root: &QualifiedRoot) {
         let root_bytes = root.to_bytes();
-        tx.raw_delete(self.database, &root_bytes, None).unwrap();
+        tx.delete(self.database, &root_bytes, None).unwrap();
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.raw_count(self.database)
+        txn.count(self.database)
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.raw_clear_db(self.database).unwrap();
+        txn.clear_db(self.database).unwrap();
     }
 }
 

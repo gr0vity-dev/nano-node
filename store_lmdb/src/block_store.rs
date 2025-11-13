@@ -101,20 +101,20 @@ impl LmdbBlockStore {
     }
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, hash: &BlockHash) {
-        let id = match txn.raw_get(self.index_db, hash.as_bytes()) {
+        let id = match txn.get(self.index_db, hash.as_bytes()) {
             Ok(id_bytes) => get_block_id(id_bytes),
             Err(Error::NotFound) => return,
             Err(e) => panic!("Could not delete block: {e:?} (hash: {hash})"),
         };
 
-        txn.raw_delete(self.block_db, &id.to_be_bytes(), None)
+        txn.delete(self.block_db, &id.to_be_bytes(), None)
             .expect("Could not delete block data (ID: {id})");
-        txn.raw_delete(self.index_db, hash.as_bytes(), None)
+        txn.delete(self.index_db, hash.as_bytes(), None)
             .expect("Could not delete block index (hash: {hash})");
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.raw_count(self.index_db)
+        txn.count(self.index_db)
     }
 
     pub fn iter<'tx>(
@@ -122,12 +122,12 @@ impl LmdbBlockStore {
         tx: &'tx dyn LedgerReadTxn,
     ) -> impl Iterator<Item = SavedBlock> + 'tx {
         let cursor = tx
-            .raw_open_ro_cursor(self.index_db)
+            .open_ro_cursor(self.index_db)
             .expect("Could not open cursor for block index table");
 
         LmdbIterator::new(cursor, read_block_index_record).map(move |(_, id)| {
             let mut data = tx
-                .raw_get(self.block_db, &id.to_be_bytes())
+                .get(self.block_db, &id.to_be_bytes())
                 .expect("Block data should exist");
 
             SavedBlock::deserialize(&mut data).expect("Block data should be valid")
@@ -143,7 +143,7 @@ impl LmdbBlockStore {
         R: RangeBounds<BlockHash> + 'static,
     {
         let cursor = tx
-            .raw_open_ro_cursor(self.index_db)
+            .open_ro_cursor(self.index_db)
             .expect("Could not open cursor for block table");
 
         LmdbRangeIterator::<BlockHash, u64>::new(
@@ -154,7 +154,7 @@ impl LmdbBlockStore {
         )
         .map(move |(_, id)| {
             let mut data = tx
-                .raw_get(self.block_db, &id.to_be_bytes())
+                .get(self.block_db, &id.to_be_bytes())
                 .expect("Block data should exist");
 
             let block = SavedBlock::deserialize(&mut data).expect("Block data should be valid");
@@ -165,7 +165,7 @@ impl LmdbBlockStore {
     fn raw_put(&self, txn: &mut dyn LedgerWriteTxn, data: &[u8], hash: &BlockHash) {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
 
-        txn.raw_put(
+        txn.put(
             self.index_db,
             hash.as_bytes(),
             &id.to_be_bytes(),
@@ -173,15 +173,15 @@ impl LmdbBlockStore {
         )
         .expect("Couldn't insert into block index table");
 
-        txn.raw_put(self.block_db, &id.to_be_bytes(), data, WriteFlags::APPEND)
+        txn.put(self.block_db, &id.to_be_bytes(), data, WriteFlags::APPEND)
             .expect("Couldn't insert into block data table'");
     }
 
     fn block_raw_get<'a>(&self, txn: &'a dyn LedgerReadTxn, hash: &BlockHash) -> Option<&'a [u8]> {
-        match txn.raw_get(self.index_db, hash.as_bytes()) {
+        match txn.get(self.index_db, hash.as_bytes()) {
             Err(Error::NotFound) => None,
             Ok(id_bytes) => Some(
-                txn.raw_get(self.block_db, id_bytes)
+                txn.get(self.block_db, id_bytes)
                     .expect("Block data missing"),
             ),
             Err(e) => panic!("Could not load block. {:?}", e),
@@ -191,7 +191,7 @@ impl LmdbBlockStore {
 
 fn find_next_free_id(env: &LmdbEnvironment, block_db: LmdbDatabase) -> Result<u64, anyhow::Error> {
     let tx = env.begin_read();
-    let cursor = tx.open_ro_cursor(block_db)?;
+    let cursor = Transaction::open_ro_cursor(&tx, block_db)?;
     match cursor.get(None, None, MDB_LAST) {
         Ok((Some(key), _)) => Ok(get_block_id(key) + 1),
         Ok((None, _)) => panic!("No key!"),

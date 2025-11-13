@@ -31,7 +31,7 @@ impl LmdbConfirmationHeightStore {
         account: &Account,
         info: &ConfirmationHeightInfo,
     ) {
-        txn.raw_put(
+        txn.put(
             self.database,
             account.as_bytes(),
             &info.to_bytes(),
@@ -45,7 +45,7 @@ impl LmdbConfirmationHeightStore {
         txn: &dyn LedgerReadTxn,
         account: &Account,
     ) -> Option<ConfirmationHeightInfo> {
-        match txn.raw_get(self.database, account.as_bytes()) {
+        match txn.get(self.database, account.as_bytes()) {
             Err(Error::NotFound) => None,
             Ok(mut bytes) => Some(
                 ConfirmationHeightInfo::deserialize(&mut bytes)
@@ -62,23 +62,22 @@ impl LmdbConfirmationHeightStore {
     }
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, account: &Account) {
-        txn.raw_delete(self.database, account.as_bytes(), None)
-            .unwrap();
+        txn.delete(self.database, account.as_bytes(), None).unwrap();
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.raw_count(self.database)
+        txn.count(self.database)
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.raw_clear_db(self.database).unwrap()
+        txn.clear_db(self.database).unwrap()
     }
 
     pub fn iter<'tx>(
         &self,
         tx: &'tx dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (Account, ConfirmationHeightInfo)> + 'tx + use<'tx> {
-        let cursor = tx.raw_open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor(self.database).unwrap();
         LmdbIterator::new(cursor, read_conf_height_record)
     }
 
@@ -87,7 +86,7 @@ impl LmdbConfirmationHeightStore {
         tx: &'txn dyn LedgerReadTxn,
         range: impl RangeBounds<Account> + 'static,
     ) -> impl Iterator<Item = (Account, ConfirmationHeightInfo)> + 'txn {
-        let cursor = tx.raw_open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor(self.database).unwrap();
         LmdbRangeIterator::new(
             cursor,
             range.start_bound().map(|b| b.as_bytes().to_vec()),

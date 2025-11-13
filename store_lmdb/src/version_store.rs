@@ -54,7 +54,7 @@ impl LmdbVersionStore {
         let key_bytes = version_key();
         let value_bytes = value_bytes(version);
 
-        txn.raw_put(db, &key_bytes, &value_bytes, WriteFlags::empty())
+        txn.put(db, &key_bytes, &value_bytes, WriteFlags::empty())
             .unwrap();
     }
 
@@ -66,7 +66,7 @@ impl LmdbVersionStore {
 
 fn load_version(txn: &dyn LedgerReadTxn, db: LmdbDatabase) -> Option<i32> {
     let key_bytes = version_key();
-    match txn.raw_get(db, &key_bytes) {
+    match txn.get(db, &key_bytes) {
         Ok(value) => Some(i32::from_be_bytes(value[28..].try_into().unwrap())),
         Err(Error::NotFound) => None,
         Err(_) => panic!("Error while loading db version"),

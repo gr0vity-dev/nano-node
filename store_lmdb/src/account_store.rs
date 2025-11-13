@@ -42,7 +42,7 @@ impl LmdbAccountStore {
             self.put_listener.emit((*account, info.clone()));
         }
         transaction
-            .raw_put(
+            .put(
                 self.database,
                 account.as_bytes(),
                 &info.to_bytes(),
@@ -52,7 +52,7 @@ impl LmdbAccountStore {
     }
 
     pub fn get(&self, transaction: &dyn LedgerReadTxn, account: &Account) -> Option<AccountInfo> {
-        let result = transaction.raw_get(self.database, account.as_bytes());
+        let result = transaction.get(self.database, account.as_bytes());
         match result {
             Err(Error::NotFound) => None,
             Ok(mut bytes) => AccountInfo::deserialize(&mut bytes).ok(),
@@ -62,7 +62,7 @@ impl LmdbAccountStore {
 
     pub fn del(&self, transaction: &mut dyn LedgerWriteTxn, account: &Account) {
         transaction
-            .raw_delete(self.database, account.as_bytes(), None)
+            .delete(self.database, account.as_bytes(), None)
             .unwrap();
     }
 
@@ -71,7 +71,7 @@ impl LmdbAccountStore {
         tx: &'txn dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (Account, AccountInfo)> + 'txn + use<'txn> {
         let cursor = tx
-            .raw_open_ro_cursor(self.database)
+            .open_ro_cursor(self.database)
             .expect("could not read from account store");
 
         LmdbIterator::new(cursor, read_account_info_record)
@@ -82,7 +82,7 @@ impl LmdbAccountStore {
         tx: &'txn dyn LedgerReadTxn,
         range: impl RangeBounds<Account> + 'static,
     ) -> Box<dyn Iterator<Item = (Account, AccountInfo)> + 'txn> {
-        let cursor = tx.raw_open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor(self.database).unwrap();
         let start = range.start_bound().map(|b| b.as_bytes().to_vec());
         let end = range.end_bound().map(|b| b.as_bytes().to_vec());
         Box::new(LmdbRangeIterator::new(
@@ -115,7 +115,7 @@ impl LmdbAccountStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.raw_count(self.database)
+        txn.count(self.database)
     }
 }
 
