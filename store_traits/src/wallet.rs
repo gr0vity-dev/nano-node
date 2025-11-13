@@ -14,11 +14,8 @@ use rsnano_types::{
 pub type WalletStoreIterator<'a> = Box<dyn Iterator<Item = (PublicKey, WalletValue)> + 'a>;
 
 pub trait WalletEnvironment: Send + Sync {
-    type ReadTxn: WalletReadTxn;
-    type WriteTxn: WalletWriteTxn;
-
-    fn begin_read_txn(&self) -> Self::ReadTxn;
-    fn begin_write_txn(&self) -> Self::WriteTxn;
+    fn begin_read_txn(&self) -> Box<dyn WalletReadTxn>;
+    fn begin_write_txn(&self) -> Box<dyn WalletWriteTxn>;
     fn sync(&self) -> Result<()>;
     fn ensure_initialized(&self) -> Result<()>;
     fn get_send_action_hash(&self, txn: &dyn WalletReadTxn, id: &str) -> Result<Option<BlockHash>>;

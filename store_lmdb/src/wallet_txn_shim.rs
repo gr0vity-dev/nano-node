@@ -60,10 +60,7 @@ impl LmdbTransaction for WalletReadTxnSHIM {
         self.inner.get(database, key)
     }
 
-    fn open_ro_cursor(
-        &self,
-        database: LmdbDatabase,
-    ) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
+    fn open_ro_cursor(&self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
         self.inner.open_ro_cursor(database)
     }
 
@@ -127,10 +124,7 @@ impl LmdbTransaction for WalletWriteTxnSHIM {
         self.inner.get(database, key)
     }
 
-    fn open_ro_cursor(
-        &self,
-        database: LmdbDatabase,
-    ) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
+    fn open_ro_cursor(&self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
         self.inner.open_ro_cursor(database)
     }
 
@@ -159,6 +153,10 @@ impl WalletReadTxn for WalletReadTxnSHIM {
     fn raw_count(&self, database: LmdbDatabase) -> u64 {
         self.inner.count(database)
     }
+
+    fn commit(self: Box<Self>) {
+        WalletReadTxnSHIM::commit(*self);
+    }
 }
 
 impl WalletReadTxn for WalletWriteTxnSHIM {
@@ -179,6 +177,10 @@ impl WalletReadTxn for WalletWriteTxnSHIM {
 
     fn raw_count(&self, database: LmdbDatabase) -> u64 {
         self.inner.count(database)
+    }
+
+    fn commit(self: Box<Self>) {
+        WalletWriteTxnSHIM::commit(*self);
     }
 }
 

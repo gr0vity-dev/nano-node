@@ -125,6 +125,7 @@ pub trait WalletReadTxn {
     fn raw_get(&self, database: LmdbDatabase, key: &[u8]) -> LmdbResult<&[u8]>;
     fn raw_open_ro_cursor(&self, database: LmdbDatabase) -> LmdbResult<RoCursor<'_>>;
     fn raw_count(&self, database: LmdbDatabase) -> u64;
+    fn commit(self: Box<Self>);
 }
 
 pub trait WalletWriteTxn: WalletReadTxn {
@@ -163,6 +164,10 @@ impl WalletReadTxn for rsnano_nullable_lmdb::ReadTransaction {
     fn raw_count(&self, database: LmdbDatabase) -> u64 {
         self.count(database)
     }
+
+    fn commit(self: Box<Self>) {
+        (*self).commit();
+    }
 }
 
 impl WalletReadTxn for rsnano_nullable_lmdb::WriteTransaction {
@@ -180,6 +185,10 @@ impl WalletReadTxn for rsnano_nullable_lmdb::WriteTransaction {
 
     fn raw_count(&self, database: LmdbDatabase) -> u64 {
         self.count(database)
+    }
+
+    fn commit(self: Box<Self>) {
+        (*self).commit();
     }
 }
 

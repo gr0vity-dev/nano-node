@@ -36,15 +36,12 @@ impl LmdbWalletEnvironment {
 }
 
 impl WalletEnvironmentTrait for LmdbWalletEnvironment {
-    type ReadTxn = WalletReadTxnSHIM;
-    type WriteTxn = WalletWriteTxnSHIM;
-
-    fn begin_read_txn(&self) -> Self::ReadTxn {
-        WalletReadTxnSHIM::new(self.env.begin_read())
+    fn begin_read_txn(&self) -> Box<dyn WalletReadTxn> {
+        Box::new(WalletReadTxnSHIM::new(self.env.begin_read()))
     }
 
-    fn begin_write_txn(&self) -> Self::WriteTxn {
-        WalletWriteTxnSHIM::new(self.env.begin_write())
+    fn begin_write_txn(&self) -> Box<dyn WalletWriteTxn> {
+        Box::new(WalletWriteTxnSHIM::new(self.env.begin_write()))
     }
 
     fn sync(&self) -> Result<()> {
@@ -83,7 +80,7 @@ impl WalletEnvironmentTrait for LmdbWalletEnvironment {
 
     fn clear_send_action_hashes(&self) -> Result<()> {
         let mut txn = self.begin_write_txn();
-        WalletWriteTxn::raw_clear_db(&mut txn, self.send_action_ids)?;
+        txn.raw_clear_db(self.send_action_ids)?;
         txn.commit();
         Ok(())
     }
