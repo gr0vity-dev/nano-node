@@ -3,23 +3,10 @@ use std::sync::Arc;
 use anyhow::Result;
 use rsnano_nullable_lmdb::{DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags};
 use rsnano_types::BlockHash;
+use store_traits::wallet::WalletEnvironment as WalletEnvironmentTrait;
+use store_traits::{WalletReadTxn, WalletWriteTxn};
 
-use crate::{WalletReadTxnSHIM, WalletTxnSHIM, WalletWriteTxnSHIM};
-
-pub trait WalletEnvironment: Send + Sync {
-    fn begin_read_txn(&self) -> WalletReadTxnSHIM;
-    fn begin_write_txn(&self) -> WalletWriteTxnSHIM;
-    fn sync(&self) -> Result<()>;
-    fn ensure_initialized(&self) -> Result<()>;
-    fn get_send_action_hash(&self, txn: &dyn WalletTxnSHIM, id: &str) -> Result<Option<BlockHash>>;
-    fn set_send_action_hash(
-        &self,
-        txn: &mut WalletWriteTxnSHIM,
-        id: &str,
-        hash: &BlockHash,
-    ) -> Result<()>;
-    fn clear_send_action_hashes(&self) -> Result<()>;
-}
+use crate::{WalletReadTxnSHIM, WalletWriteTxnSHIM};
 
 pub struct LmdbWalletEnvironment {
     env: Arc<LmdbEnvironment>,
@@ -48,12 +35,15 @@ impl LmdbWalletEnvironment {
     }
 }
 
-impl WalletEnvironment for LmdbWalletEnvironment {
-    fn begin_read_txn(&self) -> WalletReadTxnSHIM {
+impl WalletEnvironmentTrait for LmdbWalletEnvironment {
+    type ReadTxn = WalletReadTxnSHIM;
+    type WriteTxn = WalletWriteTxnSHIM;
+
+    fn begin_read_txn(&self) -> Self::ReadTxn {
         WalletReadTxnSHIM::new(self.env.begin_read())
     }
 
-    fn begin_write_txn(&self) -> WalletWriteTxnSHIM {
+    fn begin_write_txn(&self) -> Self::WriteTxn {
         WalletWriteTxnSHIM::new(self.env.begin_write())
     }
 
@@ -65,8 +55,8 @@ impl WalletEnvironment for LmdbWalletEnvironment {
         Ok(())
     }
 
-    fn get_send_action_hash(&self, txn: &dyn WalletTxnSHIM, id: &str) -> Result<Option<BlockHash>> {
-        match txn.get(self.send_action_ids, id.as_bytes()) {
+    fn get_send_action_hash(&self, txn: &dyn WalletReadTxn, id: &str) -> Result<Option<BlockHash>> {
+        match txn.raw_get(self.send_action_ids, id.as_bytes()) {
             Ok(bytes) => Ok(Some(
                 BlockHash::from_slice(bytes)
                     .ok_or_else(|| anyhow::anyhow!("invalid block hash"))?,
@@ -78,11 +68,11 @@ impl WalletEnvironment for LmdbWalletEnvironment {
 
     fn set_send_action_hash(
         &self,
-        txn: &mut WalletWriteTxnSHIM,
+        txn: &mut dyn WalletWriteTxn,
         id: &str,
         hash: &BlockHash,
     ) -> Result<()> {
-        txn.put(
+        txn.raw_put(
             self.send_action_ids,
             id.as_bytes(),
             hash.as_bytes(),
@@ -92,8 +82,8 @@ impl WalletEnvironment for LmdbWalletEnvironment {
     }
 
     fn clear_send_action_hashes(&self) -> Result<()> {
-        let mut txn = WalletWriteTxnSHIM::new(self.env.begin_write());
-        txn.clear_db(self.send_action_ids)?;
+        let mut txn = self.begin_write_txn();
+        WalletWriteTxn::raw_clear_db(&mut txn, self.send_action_ids)?;
         txn.commit();
         Ok(())
     }

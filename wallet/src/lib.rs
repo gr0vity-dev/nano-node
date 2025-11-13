@@ -6,10 +6,8 @@ mod delayed_work_queue;
 mod promises;
 mod receivable_search;
 mod store_traits;
-mod txn_shim;
 mod wallet;
 mod wallet_backup;
-mod wallet_env;
 mod wallets;
 
 use serde::{Deserialize, Serialize};
@@ -17,12 +15,13 @@ use serde::{Deserialize, Serialize};
 pub use config::{WalletsConfig, default_preconfigured_representatives_for_live};
 pub use promises::*;
 pub use receivable_search::ReceivableSearch;
+pub use rsnano_store_lmdb::{
+    LmdbWalletEnvironment, WalletReadTxnSHIM, WalletTxnSHIM, WalletWriteTxnSHIM,
+};
 pub use store_traits::*;
-pub use txn_shim::{WalletReadTxnSHIM, WalletTxnSHIM, WalletWriteTxnSHIM};
 pub use wallet::Wallet;
 pub use wallet_backup::WalletBackup;
-pub use wallet_env::{LmdbWalletEnvironment, WalletEnvironment};
-pub use wallets::{Wallets, WalletsTicker};
+pub use wallets::{WalletEnvHandle, Wallets, WalletsTicker};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub enum WalletsError {

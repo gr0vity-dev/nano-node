@@ -27,11 +27,14 @@ impl WalletReadTxnSHIM {
         }
     }
 
-    pub fn get(&self, database: LmdbDatabase, key: &[u8]) -> lmdb::Result<&[u8]> {
+    pub fn get(&self, database: LmdbDatabase, key: &[u8]) -> rsnano_nullable_lmdb::Result<&[u8]> {
         self.inner.get(database, key)
     }
 
-    pub fn open_ro_cursor(&self, database: LmdbDatabase) -> lmdb::Result<RoCursor<'_>> {
+    pub fn open_ro_cursor(
+        &self,
+        database: LmdbDatabase,
+    ) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
         self.inner.open_ro_cursor(database)
     }
 
@@ -53,11 +56,14 @@ impl LmdbTransaction for WalletReadTxnSHIM {
         self.inner.is_refresh_needed_with(max_duration)
     }
 
-    fn get(&self, database: LmdbDatabase, key: &[u8]) -> lmdb::Result<&[u8]> {
+    fn get(&self, database: LmdbDatabase, key: &[u8]) -> rsnano_nullable_lmdb::Result<&[u8]> {
         self.inner.get(database, key)
     }
 
-    fn open_ro_cursor(&self, database: LmdbDatabase) -> lmdb::Result<RoCursor<'_>> {
+    fn open_ro_cursor(
+        &self,
+        database: LmdbDatabase,
+    ) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
         self.inner.open_ro_cursor(database)
     }
 
@@ -86,7 +92,7 @@ impl WalletWriteTxnSHIM {
         key: &[u8],
         value: &[u8],
         flags: WriteFlags,
-    ) -> lmdb::Result<()> {
+    ) -> rsnano_nullable_lmdb::Result<()> {
         self.inner.put(database, key, value, flags)
     }
 
@@ -95,11 +101,11 @@ impl WalletWriteTxnSHIM {
         database: LmdbDatabase,
         key: &[u8],
         value: Option<&[u8]>,
-    ) -> lmdb::Result<()> {
+    ) -> rsnano_nullable_lmdb::Result<()> {
         self.inner.delete(database, key, value)
     }
 
-    pub fn clear_db(&mut self, database: LmdbDatabase) -> lmdb::Result<()> {
+    pub fn clear_db(&mut self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<()> {
         self.inner.clear_db(database)
     }
 
@@ -117,11 +123,14 @@ impl LmdbTransaction for WalletWriteTxnSHIM {
         self.inner.is_refresh_needed_with(max_duration)
     }
 
-    fn get(&self, database: LmdbDatabase, key: &[u8]) -> lmdb::Result<&[u8]> {
+    fn get(&self, database: LmdbDatabase, key: &[u8]) -> rsnano_nullable_lmdb::Result<&[u8]> {
         self.inner.get(database, key)
     }
 
-    fn open_ro_cursor(&self, database: LmdbDatabase) -> lmdb::Result<RoCursor<'_>> {
+    fn open_ro_cursor(
+        &self,
+        database: LmdbDatabase,
+    ) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
         self.inner.open_ro_cursor(database)
     }
 

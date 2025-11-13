@@ -20,8 +20,10 @@ mod successor_store;
 mod upgrades;
 mod vacuum;
 mod version_store;
+mod wallet_env;
 mod wallet_factory;
 mod wallet_store;
+mod wallet_txn_shim;
 
 use primitive_types::U256;
 
@@ -47,8 +49,10 @@ pub use successor_store::LmdbSuccessorStore;
 pub use upgrades::create_and_update_lmdb_env;
 pub use vacuum::vacuum;
 pub use version_store::LmdbVersionStore;
+pub use wallet_env::LmdbWalletEnvironment;
 pub use wallet_factory::LmdbWalletStoreFactory;
 pub use wallet_store::{Fans, LmdbWalletStore};
+pub use wallet_txn_shim::{WalletReadTxnSHIM, WalletTxnSHIM, WalletWriteTxnSHIM};
 
 struct Split {
     start: U256,

@@ -7,9 +7,29 @@ use std::{
 use crate::{WalletReadTxn, WalletWriteTxn};
 use anyhow::Result;
 use num_derive::FromPrimitive;
-use rsnano_types::{DeserializationError, PublicKey, RawKey, WalletId, WorkNonce, read_u64_ne};
+use rsnano_types::{
+    BlockHash, DeserializationError, PublicKey, RawKey, WalletId, WorkNonce, read_u64_ne,
+};
 
 pub type WalletStoreIterator<'a> = Box<dyn Iterator<Item = (PublicKey, WalletValue)> + 'a>;
+
+pub trait WalletEnvironment: Send + Sync {
+    type ReadTxn: WalletReadTxn;
+    type WriteTxn: WalletWriteTxn;
+
+    fn begin_read_txn(&self) -> Self::ReadTxn;
+    fn begin_write_txn(&self) -> Self::WriteTxn;
+    fn sync(&self) -> Result<()>;
+    fn ensure_initialized(&self) -> Result<()>;
+    fn get_send_action_hash(&self, txn: &dyn WalletReadTxn, id: &str) -> Result<Option<BlockHash>>;
+    fn set_send_action_hash(
+        &self,
+        txn: &mut dyn WalletWriteTxn,
+        id: &str,
+        hash: &BlockHash,
+    ) -> Result<()>;
+    fn clear_send_action_hashes(&self) -> Result<()>;
+}
 
 pub trait WalletStore: Send + Sync {
     fn password(&self) -> RawKey;

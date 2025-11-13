@@ -39,8 +39,11 @@ enum PreparedSend {
     New(Block, BlockDetails),
 }
 
+pub type WalletEnvHandle =
+    dyn WalletEnvironment<ReadTxn = WalletReadTxnSHIM, WriteTxn = WalletWriteTxnSHIM>;
+
 pub struct Wallets {
-    env: Arc<dyn WalletEnvironment>,
+    env: Arc<WalletEnvHandle>,
     wallets: Mutex<HashMap<WalletId, Arc<Wallet>>>,
     wallets_config: WalletsConfig,
     ledger: Arc<Ledger>,
@@ -62,7 +65,7 @@ enum WorkItem {
 impl Wallets {
     pub fn new(
         wallets_config: WalletsConfig,
-        env: Arc<dyn WalletEnvironment>,
+        env: Arc<WalletEnvHandle>,
         ledger: Arc<Ledger>,
         work: WorkThresholds,
         clock: Arc<SteadyClock>,
@@ -87,7 +90,7 @@ impl Wallets {
     pub fn new_null() -> Self {
         let network = Networks::NanoLiveNetwork;
         let lmdb_env = Arc::new(LmdbEnvironment::new_null());
-        let wallet_env = Arc::new(
+        let wallet_env: Arc<WalletEnvHandle> = Arc::new(
             LmdbWalletEnvironment::new(Arc::clone(&lmdb_env))
                 .expect("Failed to initialize LMDB wallet environment"),
         );
@@ -1661,7 +1664,7 @@ mod tests {
         fn new(args: FixtureArgs) -> Self {
             let network = Networks::NanoLiveNetwork;
             let lmdb_env = Arc::new(LmdbEnvironment::new_null());
-            let wallet_env = Arc::new(
+            let wallet_env: Arc<WalletEnvHandle> = Arc::new(
                 LmdbWalletEnvironment::new(Arc::clone(&lmdb_env))
                     .expect("Failed to initialize wallet environment"),
             );
