@@ -19,6 +19,7 @@ use rsnano_types::{
     PublicKey, QualifiedRoot, SavedBlock,
 };
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// Simple representation of the start/end bounds used for ranged queries.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -274,4 +275,15 @@ impl LedgerCache {
         self.block_count.store(0, Ordering::SeqCst);
         self.account_count.store(0, Ordering::SeqCst);
     }
+}
+
+pub trait LedgerStoreFactory: Send + Sync {
+    fn create_store(
+        &self,
+        path: PathBuf,
+        config: crate::config::LedgerStoreConfig,
+        cache: Arc<LedgerCache>,
+    ) -> anyhow::Result<Arc<dyn LedgerStore>>;
+
+    fn create_null_store(&self, cache: Arc<LedgerCache>) -> anyhow::Result<Arc<dyn LedgerStore>>;
 }

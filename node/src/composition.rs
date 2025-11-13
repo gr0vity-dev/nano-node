@@ -18,6 +18,7 @@ use rsnano_network_protocol::{
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_nullable_fs::NullableFilesystem;
 use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
+use rsnano_store_lmdb::LmdbLedgerStoreFactory;
 use rsnano_types::{Networks, NodeId, Peer, PrivateKey};
 use rsnano_utils::{
     container_info::ContainerInfoFactory,
@@ -168,6 +169,12 @@ pub(crate) fn build_foundation(
     let mut ledger_path = application_path.clone();
     ledger_path.push("data.ldb");
 
+    let lmdb_store_factory = if is_nulled {
+        LmdbLedgerStoreFactory::new(LmdbEnvironmentFactory::new_null())
+    } else {
+        LmdbLedgerStoreFactory::default()
+    };
+
     let lmdb_env_factory = if is_nulled {
         LmdbEnvironmentFactory::new_null()
     } else {
@@ -177,7 +184,7 @@ pub(crate) fn build_foundation(
     info!("LMDB sync strategy: {:?}", config.lmdb_config.sync);
     info!("Loading ledger, this may take a while...");
     let ledger = LedgerBuilder::new(&ledger_path)
-        .env_factory(&lmdb_env_factory)
+        .store_factory(&lmdb_store_factory)
         .config(config.lmdb_config.clone())
         .constants(network_params.ledger.clone())
         .min_rep_weight(config.representative_vote_weight_minimum)

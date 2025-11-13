@@ -5,4 +5,5 @@ pub type StoreRoCursor<'txn> = rsnano_nullable_lmdb::RoCursor<'txn>;
 pub type StoreRwCursor<'txn> = rsnano_nullable_lmdb::RwCursor<'txn>;
 pub type StoreWriteFlags = rsnano_nullable_lmdb::WriteFlags;
 pub type StoreWriteTransaction = rsnano_nullable_lmdb::WriteTransaction;
+pub type StoreEnvironmentFlags = rsnano_nullable_lmdb::EnvironmentFlags;
 pub use rsnano_nullable_lmdb::Transaction as StoreBackendTransaction;

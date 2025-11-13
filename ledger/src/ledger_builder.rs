@@ -4,21 +4,18 @@ use std::{
     sync::Arc,
 };
 
-use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
-use rsnano_store_lmdb::{
-    EnvironmentOptions, LedgerCache, LmdbConfig, LmdbStore, create_and_update_lmdb_env,
-    get_lmdb_flags,
-};
+use rsnano_store_lmdb::{LedgerCache, LmdbConfig, LmdbLedgerStoreFactory};
 use rsnano_types::Amount;
 use rsnano_utils::get_cpu_count;
 use rsnano_utils::stats::Stats;
+use store_traits::ledger::LedgerStoreFactory;
 
-use crate::{BootstrapWeights, Ledger, LedgerConstants, LedgerStore, RepWeightCache};
+use crate::{BootstrapWeights, Ledger, LedgerConstants, RepWeightCache};
 
 pub struct LedgerBuilder<'a> {
     path: PathBuf,
     config: Option<LmdbConfig>,
-    env_factory: Option<&'a LmdbEnvironmentFactory>,
+    store_factory: Option<&'a dyn LedgerStoreFactory>,
     bootstrap_weights: Option<BootstrapWeights>,
     stats: Option<Arc<Stats>>,
     min_rep_weight: Amount,
@@ -31,7 +28,7 @@ impl<'a> LedgerBuilder<'a> {
         Self {
             path: path.into(),
             config: None,
-            env_factory: None,
+            store_factory: None,
             bootstrap_weights: None,
             stats: None,
             min_rep_weight: Amount::ZERO,
@@ -40,8 +37,8 @@ impl<'a> LedgerBuilder<'a> {
         }
     }
 
-    pub fn env_factory(mut self, env_factory: &'a LmdbEnvironmentFactory) -> Self {
-        self.env_factory = Some(env_factory);
+    pub fn store_factory(mut self, store_factory: &'a dyn LedgerStoreFactory) -> Self {
+        self.store_factory = Some(store_factory);
         self
     }
 
@@ -85,15 +82,8 @@ impl<'a> LedgerBuilder<'a> {
         ));
 
         let config = self.config.unwrap_or_default();
-        let default_env_factory = LmdbEnvironmentFactory::default();
-        let env_factory = self.env_factory.unwrap_or(&default_env_factory);
-
-        let env_options = EnvironmentOptions {
-            max_dbs: config.max_databases,
-            map_size: config.map_size,
-            flags: get_lmdb_flags(&config),
-            path: self.path,
-        };
+        let default_store_factory = LmdbLedgerStoreFactory::default();
+        let store_factory = self.store_factory.unwrap_or(&default_store_factory);
 
         let stats = self.stats.unwrap_or_else(|| Arc::new(Stats::default()));
         let ledger_constants = self
@@ -105,10 +95,8 @@ impl<'a> LedgerBuilder<'a> {
             self.thread_count = max(10, min(40, 11 * get_cpu_count()));
         }
 
-        let env = create_and_update_lmdb_env(&env_factory, env_options)?;
-        let mut store_impl = LmdbStore::new(env)?;
-        store_impl.cache = rep_weights.ledger_cache.clone();
-        let store: Arc<dyn LedgerStore> = Arc::new(store_impl);
+        let store =
+            store_factory.create_store(self.path, config, rep_weights.ledger_cache.clone())?;
 
         Ledger::new(
             store,
