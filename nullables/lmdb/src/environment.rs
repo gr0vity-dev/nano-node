@@ -296,21 +296,23 @@ impl EnvironmentStub {
 
     fn create_db(&self, name: Option<&str>, _flags: DatabaseFlags) -> lmdb::Result<LmdbDatabase> {
         let mut guard = self.databases.lock().unwrap();
-        if let Some(db) = guard.iter().find(|x| name == Some(&x.db_name)) {
+        let needle = name.unwrap_or("");
+        if let Some(db) = guard.iter().find(|x| x.db_name == needle) {
             return Ok(db.dbi);
         }
 
         let dbi = create_dbi(&guard);
-        guard.push(ConfiguredDatabase::new(dbi, name.unwrap().to_owned()));
+        guard.push(ConfiguredDatabase::new(dbi, needle.to_owned()));
         Ok(dbi)
     }
 
     fn open_db(&self, name: Option<&str>) -> lmdb::Result<LmdbDatabase> {
+        let needle = name.unwrap_or("");
         self.databases
             .lock()
             .unwrap()
             .iter()
-            .find(|x| name == Some(&x.db_name))
+            .find(|x| x.db_name == needle)
             .map(|x| x.dbi)
             .ok_or(lmdb::Error::NotFound)
     }

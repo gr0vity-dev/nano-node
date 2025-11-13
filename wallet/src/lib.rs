@@ -9,6 +9,7 @@ mod store_traits;
 mod txn_shim;
 mod wallet;
 mod wallet_backup;
+mod wallet_env;
 mod wallets;
 
 use serde::{Deserialize, Serialize};
@@ -20,6 +21,7 @@ pub use store_traits::*;
 pub use txn_shim::{WalletReadTxnSHIM, WalletTxnSHIM, WalletWriteTxnSHIM};
 pub use wallet::Wallet;
 pub use wallet_backup::WalletBackup;
+pub use wallet_env::{LmdbWalletEnvironment, WalletEnvironment};
 pub use wallets::{Wallets, WalletsTicker};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]

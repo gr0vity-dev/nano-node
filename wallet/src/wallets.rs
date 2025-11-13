@@ -12,7 +12,7 @@ use tracing::{debug, info, warn};
 
 use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_nullable_lmdb::{DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags};
+use rsnano_nullable_lmdb::LmdbEnvironment;
 use rsnano_store_lmdb::{KeyType, LmdbWalletStoreFactory};
 use rsnano_types::{
     Account, Amount, Block, BlockDetails, BlockHash, Epoch, KeyDerivationFunction, Link, Networks,
@@ -30,7 +30,9 @@ use super::{
     BlockPromise, MultiBlockPromise, Wallet, WalletStoreFactory, WalletsConfig, WalletsError,
     delayed_work_queue::DelayedWorkQueue,
 };
-use crate::{WalletReadTxnSHIM, WalletTxnSHIM, WalletWriteTxnSHIM};
+use crate::{
+    LmdbWalletEnvironment, WalletEnvironment, WalletReadTxnSHIM, WalletTxnSHIM, WalletWriteTxnSHIM,
+};
 
 enum PreparedSend {
     Cached(SavedBlock),
@@ -38,9 +40,7 @@ enum PreparedSend {
 }
 
 pub struct Wallets {
-    db: Option<LmdbDatabase>,
-    send_action_ids_handle: Option<LmdbDatabase>,
-    env: Arc<LmdbEnvironment>,
+    env: Arc<dyn WalletEnvironment>,
     wallets: Mutex<HashMap<WalletId, Arc<Wallet>>>,
     wallets_config: WalletsConfig,
     ledger: Arc<Ledger>,
@@ -62,15 +62,13 @@ enum WorkItem {
 impl Wallets {
     pub fn new(
         wallets_config: WalletsConfig,
-        env: Arc<LmdbEnvironment>,
+        env: Arc<dyn WalletEnvironment>,
         ledger: Arc<Ledger>,
         work: WorkThresholds,
         clock: Arc<SteadyClock>,
         store_factory: Arc<dyn WalletStoreFactory>,
     ) -> Self {
         Self {
-            db: None,
-            send_action_ids_handle: None,
             wallets: Mutex::new(HashMap::new()),
             env,
             wallets_config,
@@ -88,18 +86,29 @@ impl Wallets {
 
     pub fn new_null() -> Self {
         let network = Networks::NanoLiveNetwork;
-        let env = Arc::new(LmdbEnvironment::new_null());
+        let lmdb_env = Arc::new(LmdbEnvironment::new_null());
+        let wallet_env = Arc::new(
+            LmdbWalletEnvironment::new(Arc::clone(&lmdb_env))
+                .expect("Failed to initialize LMDB wallet environment"),
+        );
         let ledger = Arc::new(Ledger::new_null());
         let wallets_config = WalletsConfig::default();
         let work = WorkThresholds::default_for(network);
         let clock = Arc::new(SteadyClock::new_null());
         let kdf = KeyDerivationFunction::new(wallets_config.kdf_work);
         let store_factory = Arc::new(LmdbWalletStoreFactory::new(
-            Arc::clone(&env),
+            Arc::clone(&lmdb_env),
             wallets_config.password_fanout as usize,
             kdf,
         ));
-        Self::new(wallets_config, env, ledger, work, clock, store_factory)
+        Self::new(
+            wallets_config,
+            wallet_env,
+            ledger,
+            work,
+            clock,
+            store_factory,
+        )
     }
 
     pub fn stop(&self) {
@@ -155,12 +164,12 @@ impl Wallets {
     pub fn enter_initial_password(&self, wallet: &Arc<Wallet>) {
         let password = wallet.store.password();
         if password.is_zero() {
-            let mut txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+            let mut txn = self.env.begin_write_txn();
             if wallet.store.valid_password(&txn) {
                 // Newly created wallets have a zero key
                 let _ = wallet.store.rekey(&mut txn, "");
             } else {
-                let read_txn = WalletReadTxnSHIM::new(self.env.begin_read());
+                let read_txn = self.env.begin_read_txn();
                 let _ = self.enter_password_wallet(wallet, &read_txn, "");
                 read_txn.commit();
             }
@@ -186,18 +195,9 @@ impl Wallets {
     pub fn initialize(&mut self) -> anyhow::Result<()> {
         {
             let mut guard = self.wallets.lock().unwrap();
-            self.db = Some(self.env.create_db(None, DatabaseFlags::empty())?);
-            self.send_action_ids_handle = Some(
-                self.env
-                    .create_db(Some("send_action_ids"), DatabaseFlags::empty())?,
-            );
+            self.env.ensure_initialized()?;
 
-            let wallet_ids = {
-                let txn = WalletWriteTxnSHIM::new(self.env.begin_write());
-                let ids = self.get_wallet_ids_with_tx(&txn);
-                txn.commit();
-                ids
-            };
+            let wallet_ids = self.list_wallet_ids();
 
             for id in wallet_ids {
                 assert!(!guard.contains_key(&id));
@@ -236,13 +236,7 @@ impl Wallets {
         txn: &impl WalletTxnSHIM,
         id: &str,
     ) -> anyhow::Result<Option<BlockHash>> {
-        match txn.get(self.send_action_ids_handle.unwrap(), id.as_bytes()) {
-            Ok(bytes) => Ok(Some(
-                BlockHash::from_slice(bytes).ok_or_else(|| anyhow!("invalid block hash"))?,
-            )),
-            Err(rsnano_nullable_lmdb::Error::NotFound) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        self.env.get_send_action_hash(txn, id)
     }
 
     pub fn set_block_hash(
@@ -251,26 +245,20 @@ impl Wallets {
         id: &str,
         hash: &BlockHash,
     ) -> anyhow::Result<()> {
-        txn.put(
-            self.send_action_ids_handle.unwrap(),
-            id.as_bytes(),
-            hash.as_bytes(),
-            WriteFlags::empty(),
-        )?;
-        Ok(())
+        self.env.set_send_action_hash(txn, id, hash)
     }
 
     pub fn clear_send_ids(&self) {
-        let mut txn = WalletWriteTxnSHIM::new(self.env.begin_write());
-        txn.clear_db(self.send_action_ids_handle.unwrap()).unwrap();
-        txn.commit();
+        self.env
+            .clear_send_action_hashes()
+            .expect("Failed to clear send action IDs");
     }
 
     pub fn get_all_pub_keys(&self) -> Vec<PublicKey> {
         let mut wallet_keys = Vec::new();
         {
             let wallets_guard = self.wallets.lock().unwrap();
-            let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+            let txn = self.env.begin_read_txn();
             for (_, wallet) in wallets_guard.iter() {
                 for (pub_key, _) in wallet.store.iter(&txn) {
                     wallet_keys.push(pub_key);
@@ -285,7 +273,7 @@ impl Wallets {
     pub fn get_all_private_keys(&self) -> Vec<PrivateKey> {
         let mut all_priv_keys: Vec<PrivateKey> = Vec::new();
         {
-            let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+            let txn = self.env.begin_read_txn();
             let lock = self.wallets.lock().unwrap();
             for (_, wallet) in lock.iter() {
                 if wallet.store.valid_password(&txn) {
@@ -319,7 +307,7 @@ impl Wallets {
     ) -> Result<(), WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Self::get_wallet_guard(&guard, wallet_id)?;
-        let mut txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+        let mut txn = self.env.begin_write_txn();
         if !wallet.store.valid_password(&txn) {
             return Err(WalletsError::WalletLocked);
         }
@@ -341,7 +329,7 @@ impl Wallets {
     pub fn valid_password(&self, wallet_id: &WalletId) -> Result<bool, WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Self::get_wallet_guard(&guard, wallet_id)?;
-        let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+        let txn = self.env.begin_read_txn();
         let valid = wallet.store.valid_password(&txn);
         txn.commit();
         Ok(valid)
@@ -354,7 +342,7 @@ impl Wallets {
     ) -> Result<(), WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Self::get_wallet_guard(&guard, wallet_id)?;
-        let txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+        let txn = self.env.begin_write_txn();
         if wallet.store.attempt_password(&txn, password.as_ref()) {
             txn.commit();
             Ok(())
@@ -377,7 +365,7 @@ impl Wallets {
     ) -> Result<(), WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Self::get_wallet_guard(&guard, wallet_id)?;
-        let mut txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+        let mut txn = self.env.begin_write_txn();
         if !wallet.store.valid_password(&txn) {
             return Err(WalletsError::WalletLocked);
         }
@@ -392,7 +380,7 @@ impl Wallets {
 
     pub fn exists(&self, pub_key: &PublicKey) -> bool {
         let guard = self.wallets.lock().unwrap();
-        let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+        let txn = self.env.begin_read_txn();
         let exists = guard
             .values()
             .any(|wallet| wallet.store.exists(&txn, pub_key));
@@ -405,7 +393,7 @@ impl Wallets {
         let mut stored_items = HashSet::new();
 
         let wallet_ids = {
-            let txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+            let txn = self.env.begin_write_txn();
             let ids = self.get_wallet_ids_with_tx(&txn);
             txn.commit();
             ids
@@ -439,7 +427,7 @@ impl Wallets {
 
     pub fn destroy(&self, id: &WalletId) {
         let mut guard = self.wallets.lock().unwrap();
-        let mut txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+        let mut txn = self.env.begin_write_txn();
         let wallet = guard.remove(id).unwrap();
         wallet.store.destroy(&mut txn);
         txn.commit();
@@ -452,7 +440,7 @@ impl Wallets {
     ) -> Result<(), WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Self::get_wallet_guard(&guard, wallet_id)?;
-        let mut txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+        let mut txn = self.env.begin_write_txn();
         if !wallet.store.valid_password(&txn) {
             return Err(WalletsError::WalletLocked);
         }
@@ -472,7 +460,7 @@ impl Wallets {
     ) -> Result<(), WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Self::get_wallet_guard(&guard, wallet_id)?;
-        let mut txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+        let mut txn = self.env.begin_write_txn();
         if wallet.store.find(&txn, pub_key).is_none() {
             return Err(WalletsError::AccountNotFound);
         }
@@ -490,7 +478,7 @@ impl Wallets {
         let guard = self.wallets.lock().unwrap();
         let source = Self::get_wallet_guard(&guard, source_id)?;
         let target = Self::get_wallet_guard(&guard, target_id)?;
-        let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+        let txn = self.env.begin_read_txn();
         let is_locked = !source.store.valid_password(&txn) || !target.store.valid_password(&txn);
         txn.commit();
 
@@ -498,7 +486,7 @@ impl Wallets {
             return Err(WalletsError::WalletLocked);
         }
 
-        let mut txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+        let mut txn = self.env.begin_write_txn();
         let result = Self::move_accounts_between_stores(target, source, accounts, &mut txn);
         txn.commit();
         result
@@ -506,7 +494,7 @@ impl Wallets {
 
     pub fn backup(&self, path: &Path) -> anyhow::Result<()> {
         let guard = self.wallets.lock().unwrap();
-        let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+        let txn = self.env.begin_read_txn();
         for (id, wallet) in guard.iter() {
             std::fs::create_dir_all(path)?;
             std::fs::set_permissions(path, Permissions::from_mode(0o700))?;
@@ -521,7 +509,7 @@ impl Wallets {
     pub fn deterministic_index_get(&self, wallet_id: &WalletId) -> Result<u32, WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Self::get_wallet_guard(&guard, wallet_id)?;
-        let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+        let txn = self.env.begin_read_txn();
         let index = wallet.store.deterministic_index_get(&txn);
         txn.commit();
         Ok(index)
@@ -644,7 +632,7 @@ impl Wallets {
         let Some(wallet) = guard.get(&wallet_id) else {
             return 1.into();
         };
-        let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+        let txn = self.env.begin_read_txn();
         let work = wallet.store.work_get(&txn, pub_key).unwrap_or(1.into());
         txn.commit();
         work
@@ -656,7 +644,7 @@ impl Wallets {
         pub_key: &PublicKey,
     ) -> Result<WorkNonce, WalletsError> {
         let guard = self.wallets.lock().unwrap();
-        let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+        let txn = self.env.begin_read_txn();
         let wallet = Self::get_wallet_guard(&guard, wallet_id)?;
         if wallet.store.find(&txn, pub_key).is_none() {
             return Err(WalletsError::AccountNotFound);
@@ -667,7 +655,7 @@ impl Wallets {
     pub fn get_accounts(&self, max_results: usize) -> Vec<Account> {
         let mut accounts = Vec::new();
         let guard = self.wallets.lock().unwrap();
-        let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+        let txn = self.env.begin_read_txn();
         for wallet in guard.values() {
             for (pub_key, _) in wallet.store.iter(&txn) {
                 if accounts.len() >= max_results {
@@ -687,7 +675,7 @@ impl Wallets {
     ) -> Result<Vec<Account>, WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Self::get_wallet_guard(&guard, wallet_id)?;
-        let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+        let txn = self.env.begin_read_txn();
         let mut accounts = Vec::new();
         for (account, _) in wallet.store.iter(&txn) {
             accounts.push(account.into());
@@ -699,7 +687,7 @@ impl Wallets {
     pub fn fetch(&self, wallet_id: &WalletId, pub_key: &PublicKey) -> Result<RawKey, WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Self::get_wallet_guard(&guard, wallet_id)?;
-        let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+        let txn = self.env.begin_read_txn();
         if !wallet.store.valid_password(&txn) {
             return Err(WalletsError::WalletLocked);
         }
@@ -733,7 +721,7 @@ impl Wallets {
         let id = WalletId::from_bytes(rand::rng().random());
         let temp = self.store_factory.create_from_json(id, json)?;
 
-        let mut txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+        let mut txn = self.env.begin_write_txn();
         let result = if temp.attempt_password(&txn, password) {
             existing.store.import_wallet(&mut txn, temp.as_ref())
         } else {
@@ -747,7 +735,7 @@ impl Wallets {
     pub fn get_seed(&self, wallet_id: WalletId) -> Result<RawKey, WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Self::get_wallet_guard(&guard, &wallet_id)?;
-        let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+        let txn = self.env.begin_read_txn();
         if !wallet.store.valid_password(&txn) {
             return Err(WalletsError::WalletLocked);
         }
@@ -760,7 +748,7 @@ impl Wallets {
         let guard = self.wallets.lock().unwrap();
         match guard.get(&wallet_id) {
             Some(wallet) => {
-                let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+                let txn = self.env.begin_read_txn();
                 let key_type = wallet.store.get_key_type(&txn, pub_key);
                 txn.commit();
                 key_type
@@ -772,14 +760,14 @@ impl Wallets {
     pub fn get_representative(&self, wallet_id: WalletId) -> Result<PublicKey, WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Self::get_wallet_guard(&guard, &wallet_id)?;
-        let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+        let txn = self.env.begin_read_txn();
         Ok(wallet.store.representative(&txn))
     }
 
     pub fn decrypt(&self, wallet_id: WalletId) -> Result<Vec<(PublicKey, RawKey)>, WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Self::get_wallet_guard(&guard, &wallet_id)?;
-        let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+        let txn = self.env.begin_read_txn();
         if !wallet.store.valid_password(&txn) {
             return Err(WalletsError::WalletLocked);
         }
@@ -800,7 +788,7 @@ impl Wallets {
     pub fn serialize(&self, wallet_id: WalletId) -> Result<String, WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Self::get_wallet_guard(&guard, &wallet_id)?;
-        let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+        let txn = self.env.begin_read_txn();
         let json = wallet.store.serialize_json(&txn);
         txn.commit();
         Ok(json)
@@ -925,7 +913,7 @@ impl Wallets {
     ) -> Result<PublicKey, WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Wallets::get_wallet_guard(&guard, wallet_id)?;
-        let mut txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+        let mut txn = self.env.begin_write_txn();
         if !wallet.store.valid_password(&txn) {
             return Err(WalletsError::WalletLocked);
         }
@@ -947,7 +935,7 @@ impl Wallets {
     ) -> Result<PublicKey, WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Wallets::get_wallet_guard(&guard, wallet_id)?;
-        let mut txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+        let mut txn = self.env.begin_write_txn();
         if !wallet.store.valid_password(&txn) {
             return Err(WalletsError::WalletLocked);
         }
@@ -962,7 +950,7 @@ impl Wallets {
         key: &RawKey,
         generate_work: bool,
     ) -> PublicKey {
-        let mut tx = WalletWriteTxnSHIM::new(self.env.begin_write());
+        let mut tx = self.env.begin_write_txn();
         if !wallet.store.valid_password(&tx) {
             return PublicKey::ZERO;
         }
@@ -987,7 +975,7 @@ impl Wallets {
     ) -> Result<PublicKey, WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Wallets::get_wallet_guard(&guard, wallet_id)?;
-        let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+        let txn = self.env.begin_read_txn();
         if !wallet.store.valid_password(&txn) {
             return Err(WalletsError::WalletLocked);
         }
@@ -1003,7 +991,7 @@ impl Wallets {
     ) -> Result<(u32, Account), WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Wallets::get_wallet_guard(&guard, &wallet_id)?;
-        let mut txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+        let mut txn = self.env.begin_write_txn();
         if !wallet.store.valid_password(&txn) {
             return Err(WalletsError::WalletLocked);
         }
@@ -1041,7 +1029,7 @@ impl Wallets {
             Ok(w) => w,
             Err(e) => return BlockPromise::new_failed(e),
         };
-        let txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+        let txn = self.env.begin_write_txn();
         if !wallet.store.valid_password(&txn) {
             return BlockPromise::new_failed(WalletsError::WalletLocked);
         }
@@ -1054,7 +1042,7 @@ impl Wallets {
 
         let result = match &id {
             Some(id) => {
-                let mut txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+                let mut txn = self.env.begin_write_txn();
                 let result = self.prepare_send_with_id(
                     &mut txn,
                     &id,
@@ -1068,7 +1056,7 @@ impl Wallets {
                 result
             }
             None => {
-                let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+                let txn = self.env.begin_read_txn();
                 self.prepare_send(&txn, &wallet, source, destination, amount, work)
             }
         };
@@ -1113,7 +1101,7 @@ impl Wallets {
         let epoch: Epoch;
         let block: Block;
         {
-            let wallet_tx = WalletReadTxnSHIM::new(self.env.begin_read());
+            let wallet_tx = self.env.begin_read_txn();
             let any = self.ledger.any();
             if !wallet.store.valid_password(&wallet_tx) {
                 warn!(
@@ -1201,7 +1189,7 @@ impl Wallets {
         let mut block: Option<Block> = None;
         let mut epoch = Epoch::Epoch0;
         let any = self.ledger.any();
-        let wallet_tx = WalletReadTxnSHIM::new(self.env.begin_read());
+        let wallet_tx = self.env.begin_read_txn();
         if any.block_exists(&send_hash) {
             if let Some(pending_info) = any.get_pending(&PendingKey::new(account, send_hash)) {
                 if let Ok(prv) = wallet.store.fetch(&wallet_tx, &account.into()) {
@@ -1298,7 +1286,7 @@ impl Wallets {
     pub fn enter_password(&self, wallet_id: WalletId, password: &str) -> Result<(), WalletsError> {
         let guard = self.wallets.lock().unwrap();
         let wallet = Wallets::get_wallet_guard(&guard, &wallet_id)?;
-        let tx = WalletWriteTxnSHIM::new(self.env.begin_write());
+        let tx = self.env.begin_write_txn();
         let result = self
             .enter_password_wallet(wallet, &tx, password)
             .map_err(|_| WalletsError::InvalidPassword);
@@ -1315,7 +1303,7 @@ impl Wallets {
         let Some(existing) = guard.get(&wallet_id) else {
             return false;
         };
-        let txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+        let txn = self.env.begin_write_txn();
         let mut valid = existing.store.valid_password(&txn);
         if !valid {
             valid = self.enter_password_wallet(existing, &txn, password).is_ok();
@@ -1342,7 +1330,7 @@ impl Wallets {
             };
 
             {
-                let mut txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+                let mut txn = self.env.begin_write_txn();
                 if update_existing_accounts && !wallet.store.valid_password(&txn) {
                     return MultiBlockPromise::new_failed(WalletsError::WalletLocked);
                 }
@@ -1353,7 +1341,7 @@ impl Wallets {
 
             // Change representative for all wallet accounts
             if update_existing_accounts {
-                let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+                let txn = self.env.begin_read_txn();
                 let any = self.ledger.any();
                 for (account, _) in wallet.store.iter(&txn) {
                     if let Some(info) = any.get_account(&account.into()) {
@@ -1389,7 +1377,7 @@ impl Wallets {
             None => return MultiBlockPromise::new_failed(WalletsError::WalletNotFound),
         };
 
-        let txn = WalletReadTxnSHIM::new(self.env.begin_read());
+        let txn = self.env.begin_read_txn();
         if !wallet.store.valid_password(&txn) {
             info!(
                 "Unable to search receivable blocks, wallet is locked. Blocks won't be auto-received until the wallet is unlocked"
@@ -1460,7 +1448,7 @@ impl Wallets {
                 if let Some(work) = work {
                     if let Some(wallet) = self.get_wallet(&wallet_id) {
                         let pub_key = PublicKey::from(account);
-                        let mut txn = WalletWriteTxnSHIM::new(self.env.begin_write());
+                        let mut txn = self.env.begin_write_txn();
                         if wallet.live() && wallet.store.exists(&txn, &pub_key) {
                             let latest = self.ledger.any().latest_root(&account);
                             if latest == *root {
@@ -1672,21 +1660,25 @@ mod tests {
     impl Fixture {
         fn new(args: FixtureArgs) -> Self {
             let network = Networks::NanoLiveNetwork;
-            let env = Arc::new(LmdbEnvironment::new_null());
+            let lmdb_env = Arc::new(LmdbEnvironment::new_null());
+            let wallet_env = Arc::new(
+                LmdbWalletEnvironment::new(Arc::clone(&lmdb_env))
+                    .expect("Failed to initialize wallet environment"),
+            );
             let wallets_config = WalletsConfig::default();
             let work = WorkThresholds::default_for(network);
             let ledger = Arc::new(args.ledger.unwrap_or_else(|| Ledger::new_null()));
             let clock = Arc::new(SteadyClock::new_null());
             let kdf = KeyDerivationFunction::new(wallets_config.kdf_work);
             let store_factory = Arc::new(LmdbWalletStoreFactory::new(
-                Arc::clone(&env),
+                Arc::clone(&lmdb_env),
                 wallets_config.password_fanout as usize,
                 kdf,
             ));
 
             let wallets = Arc::new(Wallets::new(
                 wallets_config,
-                env,
+                wallet_env,
                 ledger,
                 work,
                 clock,

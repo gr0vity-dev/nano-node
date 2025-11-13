@@ -36,7 +36,9 @@ use rsnano_utils::{
     thread_pool::ThreadPool,
     ticker::{Tickable, TickerPool, TimerThread},
 };
-use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
+use rsnano_wallet::{
+    LmdbWalletEnvironment, ReceivableSearch, WalletBackup, Wallets, WalletsTicker,
+};
 
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
@@ -349,7 +351,7 @@ fn build_infrastructure(
     let mut wallets_path = application_path.clone();
     wallets_path.push("wallets.ldb");
 
-    let wallets_env = if is_nulled {
+    let wallets_lmdb_env = if is_nulled {
         Arc::new(LmdbEnvironment::new_null())
     } else {
         let options = EnvironmentOptions {
@@ -367,18 +369,23 @@ fn build_infrastructure(
         )
     };
 
+    let wallet_env = Arc::new(
+        LmdbWalletEnvironment::new(Arc::clone(&wallets_lmdb_env))
+            .context("Failed to initialize wallet environment")?,
+    );
+
     let wallets_config = global_config.wallets_config();
 
     let kdf = KeyDerivationFunction::new(wallets_config.kdf_work);
     let wallet_store_factory = Arc::new(LmdbWalletStoreFactory::new(
-        Arc::clone(&wallets_env),
+        Arc::clone(&wallets_lmdb_env),
         wallets_config.password_fanout as usize,
         kdf,
     ));
 
     let mut wallets = Wallets::new(
         wallets_config.clone(),
-        wallets_env,
+        wallet_env,
         ledger.clone(),
         network_params.work.clone(),
         steady_clock.clone(),
