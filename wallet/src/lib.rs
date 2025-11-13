@@ -6,6 +6,8 @@ mod delayed_work_queue;
 mod promises;
 mod receivable_search;
 mod store_traits;
+#[cfg(test)]
+pub mod test_helpers;
 mod wallet;
 mod wallet_backup;
 mod wallets;

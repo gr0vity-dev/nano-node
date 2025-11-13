@@ -1562,6 +1562,7 @@ impl Tickable for WalletsTicker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::WalletEnvTestHarness;
     use rsnano_types::PendingInfo;
     use std::time::Duration;
 
@@ -1674,18 +1675,13 @@ mod tests {
     impl Fixture {
         fn new(args: FixtureArgs) -> Self {
             let network = Networks::NanoLiveNetwork;
-            let wallet_env_impl = Arc::new(
-                LmdbWalletEnvironment::new_null().expect("Failed to initialize wallet environment"),
-            );
-            let wallet_env: Arc<WalletEnvHandle> = wallet_env_impl.clone();
             let wallets_config = WalletsConfig::default();
+            let env_harness = WalletEnvTestHarness::from_config(&wallets_config);
+            let wallet_env = env_harness.env();
             let work = WorkThresholds::default_for(network);
             let ledger = Arc::new(args.ledger.unwrap_or_else(|| Ledger::new_null()));
             let clock = Arc::new(SteadyClock::new_null());
-            let kdf = KeyDerivationFunction::new(wallets_config.kdf_work);
-            let store_factory: Arc<dyn WalletStoreFactory> = Arc::new(
-                wallet_env_impl.create_store_factory(wallets_config.password_fanout as usize, kdf),
-            );
+            let store_factory = env_harness.store_factory();
 
             let wallets = Arc::new(Wallets::new(
                 wallets_config,
