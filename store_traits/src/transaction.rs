@@ -1,8 +1,7 @@
 use rsnano_nullable_lmdb::{
     Error as LmdbError, LmdbDatabase, Result as LmdbResult, RoCursor, RwCursor,
-    Transaction as LmdbTransaction, WriteFlags,
+    Transaction as LmdbTransaction, WriteFlags, WriteTransaction,
 };
-use std::any::Any;
 
 pub trait LedgerReadTxn {
     fn is_refresh_needed(&self) -> bool;
@@ -50,15 +49,15 @@ impl LedgerReadTxn for rsnano_nullable_lmdb::ReadTransaction {
     }
 
     fn raw_get(&self, database: LmdbDatabase, key: &[u8]) -> LmdbResult<&[u8]> {
-        self.get(database, key)
+        LmdbTransaction::get(self, database, key)
     }
 
     fn raw_open_ro_cursor(&self, database: LmdbDatabase) -> LmdbResult<RoCursor<'_>> {
-        self.open_ro_cursor(database)
+        LmdbTransaction::open_ro_cursor(self, database)
     }
 
     fn raw_count(&self, database: LmdbDatabase) -> u64 {
-        self.count(database)
+        LmdbTransaction::count(self, database)
     }
 }
 
@@ -72,15 +71,15 @@ impl LedgerReadTxn for rsnano_nullable_lmdb::WriteTransaction {
     }
 
     fn raw_get(&self, database: LmdbDatabase, key: &[u8]) -> LmdbResult<&[u8]> {
-        self.get(database, key)
+        LmdbTransaction::get(self, database, key)
     }
 
     fn raw_open_ro_cursor(&self, database: LmdbDatabase) -> LmdbResult<RoCursor<'_>> {
-        self.open_ro_cursor(database)
+        LmdbTransaction::open_ro_cursor(self, database)
     }
 
     fn raw_count(&self, database: LmdbDatabase) -> u64 {
-        self.count(database)
+        LmdbTransaction::count(self, database)
     }
 }
 
@@ -96,7 +95,7 @@ impl LedgerWriteTxn for rsnano_nullable_lmdb::WriteTransaction {
         value: &[u8],
         flags: WriteFlags,
     ) -> LmdbResult<()> {
-        self.put(database, key, value, flags)
+        WriteTransaction::put(self, database, key, value, flags)
     }
 
     fn raw_delete(
@@ -105,34 +104,59 @@ impl LedgerWriteTxn for rsnano_nullable_lmdb::WriteTransaction {
         key: &[u8],
         value: Option<&[u8]>,
     ) -> LmdbResult<()> {
-        self.delete(database, key, value)
+        WriteTransaction::delete(self, database, key, value)
     }
 
     fn raw_clear_db(&mut self, database: LmdbDatabase) -> LmdbResult<()> {
-        self.clear_db(database)
+        WriteTransaction::clear_db(self, database)
     }
 
     fn raw_open_rw_cursor(&mut self, database: LmdbDatabase) -> LmdbResult<RwCursor<'_>> {
-        self.open_rw_cursor(database)
+        WriteTransaction::open_rw_cursor(self, database)
     }
 
     unsafe fn raw_drop_db(&mut self, database: LmdbDatabase) -> LmdbResult<()> {
-        unsafe { self.drop_db(database) }
+        unsafe { WriteTransaction::drop_db(self, database) }
     }
 }
 
-pub trait WalletReadTxn: Any {
-    fn as_any(&self) -> &dyn Any;
+pub trait WalletReadTxn {
+    fn get(&self, database: LmdbDatabase, key: &[u8]) -> LmdbResult<&[u8]>;
+    fn open_ro_cursor(&self, database: LmdbDatabase) -> LmdbResult<RoCursor<'_>>;
+    fn count(&self, database: LmdbDatabase) -> u64;
     fn commit(self: Box<Self>);
 }
 
 pub trait WalletWriteTxn: WalletReadTxn {
-    fn as_any_mut(&mut self) -> &mut dyn Any;
+    fn put(
+        &mut self,
+        database: LmdbDatabase,
+        key: &[u8],
+        value: &[u8],
+        flags: WriteFlags,
+    ) -> LmdbResult<()>;
+    fn delete(
+        &mut self,
+        database: LmdbDatabase,
+        key: &[u8],
+        value: Option<&[u8]>,
+    ) -> LmdbResult<()>;
+    fn clear_db(&mut self, database: LmdbDatabase) -> LmdbResult<()>;
+    fn open_rw_cursor(&mut self, database: LmdbDatabase) -> LmdbResult<RwCursor<'_>>;
+    unsafe fn drop_db(&mut self, database: LmdbDatabase) -> LmdbResult<()>;
 }
 
 impl WalletReadTxn for rsnano_nullable_lmdb::ReadTransaction {
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn get(&self, database: LmdbDatabase, key: &[u8]) -> LmdbResult<&[u8]> {
+        LmdbTransaction::get(self, database, key)
+    }
+
+    fn open_ro_cursor(&self, database: LmdbDatabase) -> LmdbResult<RoCursor<'_>> {
+        LmdbTransaction::open_ro_cursor(self, database)
+    }
+
+    fn count(&self, database: LmdbDatabase) -> u64 {
+        LmdbTransaction::count(self, database)
     }
 
     fn commit(self: Box<Self>) {
@@ -141,8 +165,16 @@ impl WalletReadTxn for rsnano_nullable_lmdb::ReadTransaction {
 }
 
 impl WalletReadTxn for rsnano_nullable_lmdb::WriteTransaction {
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn get(&self, database: LmdbDatabase, key: &[u8]) -> LmdbResult<&[u8]> {
+        LmdbTransaction::get(self, database, key)
+    }
+
+    fn open_ro_cursor(&self, database: LmdbDatabase) -> LmdbResult<RoCursor<'_>> {
+        LmdbTransaction::open_ro_cursor(self, database)
+    }
+
+    fn count(&self, database: LmdbDatabase) -> u64 {
+        LmdbTransaction::count(self, database)
     }
 
     fn commit(self: Box<Self>) {
@@ -151,7 +183,34 @@ impl WalletReadTxn for rsnano_nullable_lmdb::WriteTransaction {
 }
 
 impl WalletWriteTxn for rsnano_nullable_lmdb::WriteTransaction {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
+    fn put(
+        &mut self,
+        database: LmdbDatabase,
+        key: &[u8],
+        value: &[u8],
+        flags: WriteFlags,
+    ) -> LmdbResult<()> {
+        WriteTransaction::put(self, database, key, value, flags)
+    }
+
+    fn delete(
+        &mut self,
+        database: LmdbDatabase,
+        key: &[u8],
+        value: Option<&[u8]>,
+    ) -> LmdbResult<()> {
+        WriteTransaction::delete(self, database, key, value)
+    }
+
+    fn clear_db(&mut self, database: LmdbDatabase) -> LmdbResult<()> {
+        WriteTransaction::clear_db(self, database)
+    }
+
+    fn open_rw_cursor(&mut self, database: LmdbDatabase) -> LmdbResult<RwCursor<'_>> {
+        WriteTransaction::open_rw_cursor(self, database)
+    }
+
+    unsafe fn drop_db(&mut self, database: LmdbDatabase) -> LmdbResult<()> {
+        unsafe { WriteTransaction::drop_db(self, database) }
     }
 }

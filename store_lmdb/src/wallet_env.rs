@@ -6,10 +6,7 @@ use rsnano_types::BlockHash;
 use store_traits::wallet::WalletEnvironment as WalletEnvironmentTrait;
 use store_traits::{WalletReadTxn, WalletWriteTxn};
 
-use crate::{
-    WalletReadTxnSHIM, WalletWriteTxnSHIM,
-    wallet_txn_shim::{wallet_lmdb_read_txn, wallet_lmdb_write_txn},
-};
+use crate::{WalletReadTxnSHIM, WalletWriteTxnSHIM};
 
 pub struct LmdbWalletEnvironment {
     env: Arc<LmdbEnvironment>,
@@ -56,8 +53,7 @@ impl WalletEnvironmentTrait for LmdbWalletEnvironment {
     }
 
     fn get_send_action_hash(&self, txn: &dyn WalletReadTxn, id: &str) -> Result<Option<BlockHash>> {
-        let lmdb_txn = wallet_lmdb_read_txn(txn);
-        match lmdb_txn.get(self.send_action_ids, id.as_bytes()) {
+        match txn.get(self.send_action_ids, id.as_bytes()) {
             Ok(bytes) => Ok(Some(
                 BlockHash::from_slice(bytes)
                     .ok_or_else(|| anyhow::anyhow!("invalid block hash"))?,
@@ -73,8 +69,7 @@ impl WalletEnvironmentTrait for LmdbWalletEnvironment {
         id: &str,
         hash: &BlockHash,
     ) -> Result<()> {
-        let lmdb_txn = wallet_lmdb_write_txn(txn);
-        lmdb_txn.put(
+        txn.put(
             self.send_action_ids,
             id.as_bytes(),
             hash.as_bytes(),
@@ -85,10 +80,7 @@ impl WalletEnvironmentTrait for LmdbWalletEnvironment {
 
     fn clear_send_action_hashes(&self) -> Result<()> {
         let mut txn = self.begin_write_txn();
-        {
-            let lmdb_txn = wallet_lmdb_write_txn(txn.as_mut());
-            lmdb_txn.clear_db(self.send_action_ids)?;
-        }
+        txn.as_mut().clear_db(self.send_action_ids)?;
         txn.commit();
         Ok(())
     }
