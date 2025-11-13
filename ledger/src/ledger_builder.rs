@@ -6,13 +6,14 @@ use std::{
 
 use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
 use rsnano_store_lmdb::{
-    EnvironmentOptions, LedgerCache, LmdbConfig, create_and_update_lmdb_env, get_lmdb_flags,
+    EnvironmentOptions, LedgerCache, LmdbConfig, LmdbStore, create_and_update_lmdb_env,
+    get_lmdb_flags,
 };
 use rsnano_types::Amount;
 use rsnano_utils::get_cpu_count;
 use rsnano_utils::stats::Stats;
 
-use crate::{BootstrapWeights, Ledger, LedgerConstants, RepWeightCache};
+use crate::{BootstrapWeights, Ledger, LedgerConstants, LedgerStore, RepWeightCache};
 
 pub struct LedgerBuilder<'a> {
     path: PathBuf,
@@ -105,9 +106,12 @@ impl<'a> LedgerBuilder<'a> {
         }
 
         let env = create_and_update_lmdb_env(&env_factory, env_options)?;
+        let mut store_impl = LmdbStore::new(env)?;
+        store_impl.cache = rep_weights.ledger_cache.clone();
+        let store: Arc<dyn LedgerStore> = Arc::new(store_impl);
 
         Ledger::new(
-            env,
+            store,
             ledger_constants,
             self.min_rep_weight,
             rep_weights.clone(),

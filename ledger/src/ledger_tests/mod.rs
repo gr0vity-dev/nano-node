@@ -5,7 +5,7 @@ use std::{
 };
 
 use rsnano_nullable_lmdb::LmdbEnvironment;
-use rsnano_store_lmdb::LmdbAccountStore;
+use rsnano_store_lmdb::{LmdbAccountStore, LmdbStore};
 use rsnano_types::{
     Account, AccountInfo, Amount, BlockHash, DEV_GENESIS_KEY, PrivateKey, PublicKey, Root,
     SavedBlock, TestBlockBuilder, UnixMillisTimestamp,
@@ -13,7 +13,8 @@ use rsnano_types::{
 use rsnano_utils::stats::Stats;
 
 use crate::{
-    AnySet, DEV_GENESIS_HASH, Ledger, LedgerConstants, LedgerInserter, LedgerSet, RepWeightCache,
+    AnySet, DEV_GENESIS_HASH, Ledger, LedgerConstants, LedgerInserter, LedgerSet, LedgerStore,
+    RepWeightCache,
     ledger_constants::{DEV_GENESIS_BLOCK, DEV_GENESIS_PUB_KEY},
     test_helpers::SavedBlockLatticeBuilder,
 };
@@ -331,11 +332,16 @@ fn ledger_cache() {
         txn.commit();
     }
 
+    let rep_weights = Arc::new(RepWeightCache::new());
+    let mut store_impl = LmdbStore::new(env).unwrap();
+    store_impl.cache = rep_weights.ledger_cache.clone();
+    let store: Arc<dyn LedgerStore> = Arc::new(store_impl);
+
     let ledger = Ledger::new(
-        env,
+        store,
         LedgerConstants::live(),
         Amount::ZERO,
-        RepWeightCache::new().into(),
+        rep_weights,
         Arc::new(Stats::default()),
         1,
     )

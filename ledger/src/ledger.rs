@@ -234,12 +234,16 @@ impl NullLedgerBuilder {
             env_builder = env_builder.configured_database(self.forks.build())
         }
         let env = env_builder.build();
+        let rep_weights = Arc::new(RepWeightCache::new());
+        let mut store_impl = LmdbStore::new(env).unwrap();
+        store_impl.cache = rep_weights.ledger_cache.clone();
+        let store: Arc<dyn LedgerStore> = Arc::new(store_impl);
 
         Ledger::new(
-            env,
+            store,
             LedgerConstants::unit_test(),
             self.min_rep_weight,
-            Arc::new(RepWeightCache::new()),
+            rep_weights,
             Arc::new(Stats::default()),
             1,
         )
@@ -249,11 +253,17 @@ impl NullLedgerBuilder {
 
 impl Ledger {
     pub fn new_null() -> Self {
+        let env = LmdbEnvironment::new_null();
+        let rep_weights = Arc::new(RepWeightCache::new());
+        let mut store_impl = LmdbStore::new(env).unwrap();
+        store_impl.cache = rep_weights.ledger_cache.clone();
+        let store: Arc<dyn LedgerStore> = Arc::new(store_impl);
+
         Self::new(
-            LmdbEnvironment::new_null(),
+            store,
             LedgerConstants::unit_test(),
             Amount::ZERO,
-            Arc::new(RepWeightCache::new()),
+            rep_weights,
             Arc::new(Stats::default()),
             1,
         )
@@ -269,18 +279,13 @@ impl Ledger {
     }
 
     pub(crate) fn new(
-        env: LmdbEnvironment,
+        store: Arc<dyn LedgerStore>,
         constants: LedgerConstants,
         min_rep_weight: Amount,
         rep_weights: Arc<RepWeightCache>,
         stats: Arc<Stats>,
         thread_count: usize,
     ) -> anyhow::Result<Self> {
-        let mut store_impl = LmdbStore::new(env)?;
-        store_impl.cache = rep_weights.ledger_cache.clone();
-        let store_impl = Arc::new(store_impl);
-        let store: Arc<dyn LedgerStore> = store_impl;
-
         let rep_weights_updater =
             RepWeightsUpdater::new(store.rep_weight_store(), min_rep_weight, &rep_weights);
 
