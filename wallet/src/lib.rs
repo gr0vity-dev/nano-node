@@ -15,9 +15,7 @@ use serde::{Deserialize, Serialize};
 pub use config::{WalletsConfig, default_preconfigured_representatives_for_live};
 pub use promises::*;
 pub use receivable_search::ReceivableSearch;
-pub use rsnano_store_lmdb::{
-    LmdbWalletEnvironment, WalletReadTxnSHIM, WalletTxnSHIM, WalletWriteTxnSHIM,
-};
+pub use rsnano_store_lmdb::LmdbWalletEnvironment;
 pub use store_traits::*;
 pub use wallet::Wallet;
 pub use wallet_backup::WalletBackup;

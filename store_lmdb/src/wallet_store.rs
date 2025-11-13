@@ -18,7 +18,10 @@ use store_traits::{
     wallet::{KeyType, WalletStore, WalletStoreIterator, WalletValue},
 };
 
-use crate::{Fan, LmdbDatabase, LmdbRangeIterator};
+use crate::{
+    Fan, LmdbDatabase, LmdbRangeIterator,
+    wallet_txn_shim::{wallet_lmdb_read_txn, wallet_lmdb_write_txn},
+};
 
 pub struct Fans {
     pub password: Fan,
@@ -168,7 +171,8 @@ impl LmdbWalletStore {
     }
 
     fn ensure_key_exists(&self, txn: &dyn WalletReadTxn, key: &PublicKey) -> anyhow::Result<()> {
-        txn.raw_get(self.db_handle(), key.as_bytes())?;
+        let lmdb_txn = wallet_lmdb_read_txn(txn);
+        lmdb_txn.get(self.db_handle(), key.as_bytes())?;
         Ok(())
     }
 
@@ -227,7 +231,8 @@ impl LmdbWalletStore {
     }
 
     pub fn entry_get_raw(&self, txn: &dyn WalletReadTxn, pub_key: &PublicKey) -> WalletValue {
-        match txn.raw_get(self.db_handle(), pub_key.as_bytes()) {
+        let lmdb_txn = wallet_lmdb_read_txn(txn);
+        match lmdb_txn.get(self.db_handle(), pub_key.as_bytes()) {
             Ok(mut bytes) => {
                 WalletValue::deserialize(&mut bytes).expect("Should be a valid wallet value")
             }
@@ -241,13 +246,15 @@ impl LmdbWalletStore {
         pub_key: &PublicKey,
         entry: &WalletValue,
     ) {
-        txn.raw_put(
-            self.db_handle(),
-            pub_key.as_bytes(),
-            &entry.to_bytes(),
-            WriteFlags::empty(),
-        )
-        .unwrap();
+        let lmdb_txn = wallet_lmdb_write_txn(txn);
+        lmdb_txn
+            .put(
+                self.db_handle(),
+                pub_key.as_bytes(),
+                &entry.to_bytes(),
+                WriteFlags::empty(),
+            )
+            .unwrap();
     }
 
     pub fn check(&self, txn: &dyn WalletReadTxn) -> RawKey {
@@ -367,7 +374,9 @@ impl LmdbWalletStore {
     where
         R: RangeBounds<PublicKey> + 'static,
     {
-        let cursor = tx.raw_open_ro_cursor(self.db_handle()).unwrap();
+        let cursor = wallet_lmdb_read_txn(tx)
+            .open_ro_cursor(self.db_handle())
+            .unwrap();
         LmdbRangeIterator::new(
             cursor,
             range.start_bound().map(|b| b.as_bytes().to_vec()),
@@ -392,7 +401,8 @@ impl LmdbWalletStore {
     }
 
     pub fn erase(&self, txn: &mut dyn WalletWriteTxn, pub_key: &PublicKey) {
-        txn.raw_delete(self.db_handle(), pub_key.as_bytes(), None)
+        wallet_lmdb_write_txn(txn)
+            .delete(self.db_handle(), pub_key.as_bytes(), None)
             .unwrap();
     }
 
@@ -673,7 +683,9 @@ impl LmdbWalletStore {
 
     pub fn destroy(&self, txn: &mut dyn WalletWriteTxn) {
         unsafe {
-            txn.raw_drop_db(self.db_handle()).unwrap();
+            wallet_lmdb_write_txn(txn)
+                .drop_db(self.db_handle())
+                .unwrap();
         }
         *self.db_handle.lock().unwrap() = None;
     }

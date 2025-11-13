@@ -52,7 +52,7 @@ pub use version_store::LmdbVersionStore;
 pub use wallet_env::LmdbWalletEnvironment;
 pub use wallet_factory::LmdbWalletStoreFactory;
 pub use wallet_store::{Fans, LmdbWalletStore};
-pub use wallet_txn_shim::{WalletReadTxnSHIM, WalletTxnSHIM, WalletWriteTxnSHIM};
+pub use wallet_txn_shim::{WalletReadTxnSHIM, WalletWriteTxnSHIM};
 
 struct Split {
     start: U256,

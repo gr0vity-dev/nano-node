@@ -1,7 +1,7 @@
-use std::time::Duration;
+use std::{any::Any, time::Duration};
 
 use rsnano_nullable_lmdb::{
-    LmdbDatabase, ReadTransaction, RoCursor, RwCursor, Transaction as LmdbTransaction, WriteFlags,
+    LmdbDatabase, ReadTransaction, RoCursor, Transaction as LmdbTransaction, WriteFlags,
     WriteTransaction,
 };
 use store_traits::transaction::{WalletReadTxn, WalletWriteTxn};
@@ -15,6 +15,10 @@ pub struct WalletReadTxnSHIM {
 impl WalletReadTxnSHIM {
     pub fn new(inner: ReadTransaction) -> Self {
         Self { inner }
+    }
+
+    pub(crate) fn inner(&self) -> &ReadTransaction {
+        &self.inner
     }
 
     pub fn commit(self) {
@@ -79,6 +83,14 @@ impl WalletWriteTxnSHIM {
         Self { inner }
     }
 
+    pub(crate) fn inner(&self) -> &WriteTransaction {
+        &self.inner
+    }
+
+    pub(crate) fn inner_mut(&mut self) -> &mut WriteTransaction {
+        &mut self.inner
+    }
+
     pub fn commit(self) {
         self.inner.commit();
     }
@@ -135,23 +147,8 @@ impl LmdbTransaction for WalletWriteTxnSHIM {
 
 /// Temporary trait alias letting wallet logic accept either shim without naming LMDB types.
 impl WalletReadTxn for WalletReadTxnSHIM {
-    fn as_lmdb_txn_shim(&self) -> &dyn LmdbTransaction {
-        &self.inner
-    }
-
-    fn raw_get(&self, database: LmdbDatabase, key: &[u8]) -> rsnano_nullable_lmdb::Result<&[u8]> {
-        self.inner.get(database, key)
-    }
-
-    fn raw_open_ro_cursor(
-        &self,
-        database: LmdbDatabase,
-    ) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
-        self.inner.open_ro_cursor(database)
-    }
-
-    fn raw_count(&self, database: LmdbDatabase) -> u64 {
-        self.inner.count(database)
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
     fn commit(self: Box<Self>) {
@@ -160,23 +157,8 @@ impl WalletReadTxn for WalletReadTxnSHIM {
 }
 
 impl WalletReadTxn for WalletWriteTxnSHIM {
-    fn as_lmdb_txn_shim(&self) -> &dyn LmdbTransaction {
-        &self.inner
-    }
-
-    fn raw_get(&self, database: LmdbDatabase, key: &[u8]) -> rsnano_nullable_lmdb::Result<&[u8]> {
-        self.inner.get(database, key)
-    }
-
-    fn raw_open_ro_cursor(
-        &self,
-        database: LmdbDatabase,
-    ) -> rsnano_nullable_lmdb::Result<RoCursor<'_>> {
-        self.inner.open_ro_cursor(database)
-    }
-
-    fn raw_count(&self, database: LmdbDatabase) -> u64 {
-        self.inner.count(database)
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
     fn commit(self: Box<Self>) {
@@ -185,46 +167,39 @@ impl WalletReadTxn for WalletWriteTxnSHIM {
 }
 
 impl WalletWriteTxn for WalletWriteTxnSHIM {
-    fn as_lmdb_write_txn_shim(&mut self) -> &mut WriteTransaction {
-        &mut self.inner
-    }
-
-    fn raw_put(
-        &mut self,
-        database: LmdbDatabase,
-        key: &[u8],
-        value: &[u8],
-        flags: WriteFlags,
-    ) -> rsnano_nullable_lmdb::Result<()> {
-        self.inner.put(database, key, value, flags)
-    }
-
-    fn raw_delete(
-        &mut self,
-        database: LmdbDatabase,
-        key: &[u8],
-        value: Option<&[u8]>,
-    ) -> rsnano_nullable_lmdb::Result<()> {
-        self.inner.delete(database, key, value)
-    }
-
-    fn raw_clear_db(&mut self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<()> {
-        self.inner.clear_db(database)
-    }
-
-    fn raw_open_rw_cursor(
-        &mut self,
-        database: LmdbDatabase,
-    ) -> rsnano_nullable_lmdb::Result<RwCursor<'_>> {
-        self.inner.open_rw_cursor(database)
-    }
-
-    unsafe fn raw_drop_db(&mut self, database: LmdbDatabase) -> rsnano_nullable_lmdb::Result<()> {
-        unsafe { self.inner.drop_db(database) }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 
-pub trait WalletTxnSHIM: WalletReadTxn + LmdbTransaction {}
+fn downcast_read<T: 'static>(txn: &dyn WalletReadTxn) -> Option<&T> {
+    txn.as_any().downcast_ref::<T>()
+}
 
-impl WalletTxnSHIM for WalletReadTxnSHIM {}
-impl WalletTxnSHIM for WalletWriteTxnSHIM {}
+pub(crate) fn wallet_lmdb_read_txn(txn: &dyn WalletReadTxn) -> &dyn LmdbTransaction {
+    if let Some(shim) = downcast_read::<WalletReadTxnSHIM>(txn) {
+        shim.inner()
+    } else if let Some(shim) = downcast_read::<WalletWriteTxnSHIM>(txn) {
+        shim.inner()
+    } else if let Some(raw) = downcast_read::<ReadTransaction>(txn) {
+        raw
+    } else if let Some(raw) = downcast_read::<WriteTransaction>(txn) {
+        raw
+    } else {
+        panic!("Unsupported wallet read transaction type");
+    }
+}
+
+pub(crate) fn wallet_lmdb_write_txn(txn: &mut dyn WalletWriteTxn) -> &mut WriteTransaction {
+    if txn.as_any().is::<WalletWriteTxnSHIM>() {
+        let shim = txn
+            .as_any_mut()
+            .downcast_mut::<WalletWriteTxnSHIM>()
+            .expect("wallet txn shim downcast failed");
+        shim.inner_mut()
+    } else {
+        txn.as_any_mut()
+            .downcast_mut::<WriteTransaction>()
+            .expect("Unsupported wallet write transaction type")
+    }
+}
