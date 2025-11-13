@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rsnano_nullable_lmdb::{DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, WriteFlags};
+use rsnano_nullable_lmdb::{DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags};
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::BlockHash;
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
@@ -30,28 +30,34 @@ impl LmdbSuccessorStore {
         }
 
         tx.put(
-            self.database,
+            self.database.into(),
             block.as_bytes(),
             successor.as_bytes(),
-            WriteFlags::empty(),
+            WriteFlags::empty().into(),
         )
         .unwrap();
     }
 
     pub fn del(&self, tx: &mut dyn LedgerWriteTxn, block: &BlockHash) {
-        tx.delete(self.database, block.as_bytes(), None).unwrap();
+        tx.delete(self.database.into(), block.as_bytes(), None)
+            .unwrap();
     }
 
     pub fn get(&self, tx: &dyn LedgerReadTxn, block: &BlockHash) -> Option<BlockHash> {
-        match tx.get(self.database, block.as_bytes()) {
+        match tx.get(self.database.into(), block.as_bytes()) {
             Ok(bytes) => BlockHash::from_slice(bytes),
-            Err(Error::NotFound) => None,
-            Err(e) => panic!("Could not load successor hash: {:?}", e),
+            Err(e) if e.is_not_found() => None,
+            Err(e) => match e.as_lmdb_error() {
+                rsnano_nullable_lmdb::Error::PageNotFound => {
+                    panic!("Could not load successor hash: PageNotFound")
+                }
+                _ => panic!("Could not load successor hash: {}", e),
+            },
         }
     }
 
     pub fn count(&self, tx: &dyn LedgerReadTxn) -> u64 {
-        tx.count(self.database)
+        tx.count(self.database.into())
     }
 }
 
@@ -60,7 +66,7 @@ const TABLE_NAME: &str = "successors";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsnano_nullable_lmdb::{DeleteEvent, PutEvent};
+    use rsnano_nullable_lmdb::{DeleteEvent, Error, PutEvent};
 
     #[test]
     fn initialize() {

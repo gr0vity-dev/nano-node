@@ -6,8 +6,9 @@ use rsnano_nullable_lmdb::{
     WriteFlags,
 };
 use rsnano_types::{BlockHash, KeyDerivationFunction};
-use store_traits::wallet::WalletEnvironment as WalletEnvironmentTrait;
-use store_traits::{WalletReadTxn, WalletWriteTxn};
+use store_traits::{
+    wallet::WalletEnvironment as WalletEnvironmentTrait, WalletReadTxn, WalletWriteTxn,
+};
 
 use crate::{WalletReadTxnSHIM, WalletWriteTxnSHIM, wallet_factory::LmdbWalletStoreFactory};
 
@@ -64,12 +65,12 @@ impl WalletEnvironmentTrait for LmdbWalletEnvironment {
     }
 
     fn get_send_action_hash(&self, txn: &dyn WalletReadTxn, id: &str) -> Result<Option<BlockHash>> {
-        match txn.get(self.send_action_ids, id.as_bytes()) {
+        match txn.get(self.send_action_ids.into(), id.as_bytes()) {
             Ok(bytes) => Ok(Some(
                 BlockHash::from_slice(bytes)
                     .ok_or_else(|| anyhow::anyhow!("invalid block hash"))?,
             )),
-            Err(rsnano_nullable_lmdb::Error::NotFound) => Ok(None),
+            Err(e) if e.is_not_found() => Ok(None),
             Err(e) => Err(e.into()),
         }
     }
@@ -81,17 +82,17 @@ impl WalletEnvironmentTrait for LmdbWalletEnvironment {
         hash: &BlockHash,
     ) -> Result<()> {
         txn.put(
-            self.send_action_ids,
+            self.send_action_ids.into(),
             id.as_bytes(),
             hash.as_bytes(),
-            WriteFlags::empty(),
+            WriteFlags::empty().into(),
         )?;
         Ok(())
     }
 
     fn clear_send_action_hashes(&self) -> Result<()> {
         let mut txn = self.begin_write_txn();
-        txn.as_mut().clear_db(self.send_action_ids)?;
+        txn.as_mut().clear_db(self.send_action_ids.into())?;
         txn.commit();
         Ok(())
     }

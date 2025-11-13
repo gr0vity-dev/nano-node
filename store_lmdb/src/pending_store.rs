@@ -1,11 +1,13 @@
 use std::{ops::RangeBounds, sync::Arc};
 
 use rsnano_nullable_lmdb::{
-    ConfiguredDatabase, DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, WriteFlags,
+    ConfiguredDatabase, DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{Account, BlockHash, PendingInfo, PendingKey};
-use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
+use store_traits::transaction::{
+    LedgerReadTxn, LedgerReadTxnLmdbExt, LedgerWriteTxn, LedgerWriteTxnLmdbExt,
+};
 
 use crate::{LmdbIterator, PENDING_TEST_DATABASE, iterator::LmdbRangeIterator};
 
@@ -42,7 +44,7 @@ impl LmdbPendingStore {
         self.put_listener.emit((key.clone(), pending.clone()));
         let key_bytes = key.to_bytes();
         let pending_bytes = pending.to_bytes();
-        txn.put(
+        txn.put_lmdb(
             self.database,
             &key_bytes,
             &pending_bytes,
@@ -54,16 +56,17 @@ impl LmdbPendingStore {
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, key: &PendingKey) {
         self.delete_listener.emit(key.clone());
         let key_bytes = key.to_bytes();
-        txn.delete(self.database, &key_bytes, None).unwrap();
+        txn.delete_lmdb(self.database, &key_bytes, None)
+            .unwrap();
     }
 
     pub fn get(&self, txn: &dyn LedgerReadTxn, key: &PendingKey) -> Option<PendingInfo> {
         let key_bytes = key.to_bytes();
-        match txn.get(self.database, &key_bytes) {
+        match txn.get_lmdb(self.database, &key_bytes) {
             Ok(mut bytes) => {
                 Some(PendingInfo::deserialize(&mut bytes).expect("Should be valid pending info"))
             }
-            Err(Error::NotFound) => None,
+            Err(e) if e.is_not_found() => None,
             Err(e) => {
                 panic!("Could not load pending info: {:?}", e);
             }
@@ -74,7 +77,7 @@ impl LmdbPendingStore {
         &self,
         tx: &'tx dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (PendingKey, PendingInfo)> + 'tx + use<'tx> {
-        let cursor = tx.open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor_lmdb(self.database).unwrap();
         LmdbIterator::new(cursor, read_pending_record)
     }
 
@@ -83,7 +86,7 @@ impl LmdbPendingStore {
         tx: &'tx dyn LedgerReadTxn,
         range: impl RangeBounds<PendingKey> + 'static,
     ) -> impl Iterator<Item = (PendingKey, PendingInfo)> + 'tx {
-        let cursor = tx.open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor_lmdb(self.database).unwrap();
         LmdbRangeIterator::new(
             cursor,
             range.start_bound().map(|b| b.to_bytes().to_vec()),

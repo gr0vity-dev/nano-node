@@ -29,16 +29,16 @@ impl LmdbForksStore {
         snapshot_number: SnapshotNumber,
     ) {
         txn.put(
-            self.database,
+            self.database.into(),
             &root.to_bytes(),
             &snapshot_number.to_be_bytes(),
-            WriteFlags::empty(),
+            WriteFlags::empty().into(),
         )
         .expect("This should never fail");
     }
 
     pub fn get(&self, tx: &dyn LedgerReadTxn, root: &QualifiedRoot) -> Option<SnapshotNumber> {
-        let result = tx.get(self.database, &root.to_bytes());
+        let result = tx.get(self.database.into(), &root.to_bytes());
         match result {
             Err(Error::NotFound) => None,
             Ok(mut bytes) => Some(read_u32_be(&mut bytes).unwrap()),
@@ -48,14 +48,14 @@ impl LmdbForksStore {
 
     pub fn del(&self, tx: &mut dyn LedgerWriteTxn, root: &QualifiedRoot) {
         let root_bytes = root.to_bytes();
-        tx.delete(self.database, &root_bytes, None).unwrap();
+        tx.delete(self.database.into(), &root_bytes, None).unwrap();
     }
 
     pub fn iter<'tx>(
         &self,
         tx: &'tx dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (QualifiedRoot, SnapshotNumber)> + 'tx + use<'tx> {
-        let cursor = tx.open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor(self.database.into()).unwrap().into_inner();
         LmdbIterator::new(cursor, read_fork_record)
     }
 }

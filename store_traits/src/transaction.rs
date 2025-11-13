@@ -2,6 +2,9 @@ use crate::types::{
     StoreBackendTransaction, StoreDatabase, StoreError, StoreResult, StoreRoCursor, StoreRwCursor,
     StoreWriteFlags, StoreWriteTransaction,
 };
+use rsnano_nullable_lmdb::{
+    LmdbDatabase, RoCursor as LmdbRoCursor, RwCursor as LmdbRwCursor, WriteFlags,
+};
 
 pub trait LedgerReadTxn {
     fn is_refresh_needed(&self) -> bool;
@@ -11,7 +14,7 @@ pub trait LedgerReadTxn {
     fn raw_exists(&self, database: StoreDatabase, key: &[u8]) -> bool {
         match self.get(database, key) {
             Ok(_) => true,
-            Err(StoreError::NotFound) => false,
+            Err(e) if e.is_not_found() => false,
             Err(e) => panic!("exists failed: {:?}", e),
         }
     }
@@ -29,7 +32,7 @@ pub trait LedgerReadTxn {
 }
 
 pub trait LedgerWriteTxn: LedgerReadTxn {
-    fn as_lmdb_write_txn_shim(&mut self) -> &mut StoreWriteTransaction;
+    fn as_lmdb_write_txn_shim(&mut self) -> StoreWriteTransaction<'_>;
     fn put(
         &mut self,
         database: StoreDatabase,
@@ -79,7 +82,7 @@ impl LedgerReadTxn for rsnano_nullable_lmdb::ReadTransaction {
         StoreBackendTransaction::is_refresh_needed(self)
     }
 
-    fn as_lmdb_txn_shim(&self) -> &dyn rsnano_nullable_lmdb::Transaction {
+    fn as_lmdb_txn_shim(&self) -> &dyn StoreBackendTransaction {
         self
     }
 
@@ -101,7 +104,7 @@ impl LedgerReadTxn for rsnano_nullable_lmdb::WriteTransaction {
         StoreBackendTransaction::is_refresh_needed(self)
     }
 
-    fn as_lmdb_txn_shim(&self) -> &dyn rsnano_nullable_lmdb::Transaction {
+    fn as_lmdb_txn_shim(&self) -> &dyn StoreBackendTransaction {
         self
     }
 
@@ -119,8 +122,8 @@ impl LedgerReadTxn for rsnano_nullable_lmdb::WriteTransaction {
 }
 
 impl LedgerWriteTxn for rsnano_nullable_lmdb::WriteTransaction {
-    fn as_lmdb_write_txn_shim(&mut self) -> &mut rsnano_nullable_lmdb::WriteTransaction {
-        self
+    fn as_lmdb_write_txn_shim(&mut self) -> StoreWriteTransaction<'_> {
+        StoreWriteTransaction::new(self)
     }
 
     fn put(
@@ -130,7 +133,8 @@ impl LedgerWriteTxn for rsnano_nullable_lmdb::WriteTransaction {
         value: &[u8],
         flags: StoreWriteFlags,
     ) -> StoreResult<()> {
-        StoreWriteTransaction::put(self, database, key, value, flags)
+        self.put(database.into(), key, value, flags.into())
+            .map_err(StoreError::from)
     }
 
     fn delete(
@@ -139,19 +143,22 @@ impl LedgerWriteTxn for rsnano_nullable_lmdb::WriteTransaction {
         key: &[u8],
         value: Option<&[u8]>,
     ) -> StoreResult<()> {
-        StoreWriteTransaction::delete(self, database, key, value)
+        self.delete(database.into(), key, value)
+            .map_err(StoreError::from)
     }
 
     fn clear_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
-        StoreWriteTransaction::clear_db(self, database)
+        self.clear_db(database.into()).map_err(StoreError::from)
     }
 
     fn open_rw_cursor(&mut self, database: StoreDatabase) -> StoreResult<StoreRwCursor<'_>> {
-        StoreWriteTransaction::open_rw_cursor(self, database)
+        self.open_rw_cursor(database.into())
+            .map(StoreRwCursor::new)
+            .map_err(StoreError::from)
     }
 
     unsafe fn drop_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
-        unsafe { StoreWriteTransaction::drop_db(self, database) }
+        unsafe { self.drop_db(database.into()) }.map_err(StoreError::from)
     }
 }
 
@@ -179,6 +186,178 @@ pub trait WalletWriteTxn: WalletReadTxn {
     fn clear_db(&mut self, database: StoreDatabase) -> StoreResult<()>;
     fn open_rw_cursor(&mut self, database: StoreDatabase) -> StoreResult<StoreRwCursor<'_>>;
     unsafe fn drop_db(&mut self, database: StoreDatabase) -> StoreResult<()>;
+}
+
+pub trait WalletReadTxnLmdbExt {
+    fn get_lmdb(&self, database: LmdbDatabase, key: &[u8]) -> StoreResult<&[u8]>;
+    fn open_ro_cursor_lmdb(
+        &self,
+        database: LmdbDatabase,
+    ) -> StoreResult<LmdbRoCursor<'_>>;
+    fn count_lmdb(&self, database: LmdbDatabase) -> u64;
+}
+
+impl<T: WalletReadTxn + ?Sized> WalletReadTxnLmdbExt for T {
+    fn get_lmdb(&self, database: LmdbDatabase, key: &[u8]) -> StoreResult<&[u8]> {
+        self.get(database.into(), key)
+    }
+
+    fn open_ro_cursor_lmdb(
+        &self,
+        database: LmdbDatabase,
+    ) -> StoreResult<LmdbRoCursor<'_>> {
+        self.open_ro_cursor(database.into())
+            .map(|cursor| cursor.into_inner())
+    }
+
+    fn count_lmdb(&self, database: LmdbDatabase) -> u64 {
+        self.count(database.into())
+    }
+}
+
+pub trait WalletWriteTxnLmdbExt: WalletReadTxnLmdbExt {
+    fn put_lmdb(
+        &mut self,
+        database: LmdbDatabase,
+        key: &[u8],
+        value: &[u8],
+        flags: WriteFlags,
+    ) -> StoreResult<()>;
+    fn delete_lmdb(
+        &mut self,
+        database: LmdbDatabase,
+        key: &[u8],
+        value: Option<&[u8]>,
+    ) -> StoreResult<()>;
+    fn clear_db_lmdb(&mut self, database: LmdbDatabase) -> StoreResult<()>;
+    fn open_rw_cursor_lmdb(
+        &mut self,
+        database: LmdbDatabase,
+    ) -> StoreResult<LmdbRwCursor<'_>>;
+    unsafe fn drop_db_lmdb(&mut self, database: LmdbDatabase) -> StoreResult<()>;
+}
+
+impl<T: WalletWriteTxn + ?Sized> WalletWriteTxnLmdbExt for T {
+    fn put_lmdb(
+        &mut self,
+        database: LmdbDatabase,
+        key: &[u8],
+        value: &[u8],
+        flags: WriteFlags,
+    ) -> StoreResult<()> {
+        self.put(database.into(), key, value, StoreWriteFlags::from(flags))
+    }
+
+    fn delete_lmdb(
+        &mut self,
+        database: LmdbDatabase,
+        key: &[u8],
+        value: Option<&[u8]>,
+    ) -> StoreResult<()> {
+        self.delete(database.into(), key, value)
+    }
+
+    fn clear_db_lmdb(&mut self, database: LmdbDatabase) -> StoreResult<()> {
+        self.clear_db(database.into())
+    }
+
+    fn open_rw_cursor_lmdb(
+        &mut self,
+        database: LmdbDatabase,
+    ) -> StoreResult<LmdbRwCursor<'_>> {
+        self.open_rw_cursor(database.into())
+            .map(|cursor| cursor.into_inner())
+    }
+
+    unsafe fn drop_db_lmdb(&mut self, database: LmdbDatabase) -> StoreResult<()> {
+        unsafe { self.drop_db(database.into()) }
+    }
+}
+
+pub trait LedgerReadTxnLmdbExt {
+    fn get_lmdb(&self, database: LmdbDatabase, key: &[u8]) -> StoreResult<&[u8]>;
+    fn open_ro_cursor_lmdb(&self, database: LmdbDatabase)
+        -> StoreResult<LmdbRoCursor<'_>>;
+    fn count_lmdb(&self, database: LmdbDatabase) -> u64;
+}
+
+impl<T: LedgerReadTxn + ?Sized> LedgerReadTxnLmdbExt for T {
+    fn get_lmdb(&self, database: LmdbDatabase, key: &[u8]) -> StoreResult<&[u8]> {
+        self.get(database.into(), key)
+    }
+
+    fn open_ro_cursor_lmdb(
+        &self,
+        database: LmdbDatabase,
+    ) -> StoreResult<LmdbRoCursor<'_>> {
+        self.open_ro_cursor(database.into())
+            .map(|cursor| cursor.into_inner())
+    }
+
+    fn count_lmdb(&self, database: LmdbDatabase) -> u64 {
+        self.count(database.into())
+    }
+}
+
+pub trait LedgerWriteTxnLmdbExt: LedgerReadTxnLmdbExt {
+    fn put_lmdb(
+        &mut self,
+        database: LmdbDatabase,
+        key: &[u8],
+        value: &[u8],
+        flags: WriteFlags,
+    ) -> StoreResult<()>;
+
+    fn delete_lmdb(
+        &mut self,
+        database: LmdbDatabase,
+        key: &[u8],
+        value: Option<&[u8]>,
+    ) -> StoreResult<()>;
+
+    fn clear_db_lmdb(&mut self, database: LmdbDatabase) -> StoreResult<()>;
+    fn open_rw_cursor_lmdb(
+        &mut self,
+        database: LmdbDatabase,
+    ) -> StoreResult<LmdbRwCursor<'_>>;
+    unsafe fn drop_db_lmdb(&mut self, database: LmdbDatabase) -> StoreResult<()>;
+}
+
+impl<T: LedgerWriteTxn + ?Sized> LedgerWriteTxnLmdbExt for T {
+    fn put_lmdb(
+        &mut self,
+        database: LmdbDatabase,
+        key: &[u8],
+        value: &[u8],
+        flags: WriteFlags,
+    ) -> StoreResult<()> {
+        self.put(database.into(), key, value, StoreWriteFlags::from(flags))
+    }
+
+    fn delete_lmdb(
+        &mut self,
+        database: LmdbDatabase,
+        key: &[u8],
+        value: Option<&[u8]>,
+    ) -> StoreResult<()> {
+        self.delete(database.into(), key, value)
+    }
+
+    fn clear_db_lmdb(&mut self, database: LmdbDatabase) -> StoreResult<()> {
+        self.clear_db(database.into())
+    }
+
+    fn open_rw_cursor_lmdb(
+        &mut self,
+        database: LmdbDatabase,
+    ) -> StoreResult<LmdbRwCursor<'_>> {
+        self.open_rw_cursor(database.into())
+            .map(|cursor| cursor.into_inner())
+    }
+
+    unsafe fn drop_db_lmdb(&mut self, database: LmdbDatabase) -> StoreResult<()> {
+        unsafe { self.drop_db(database.into()) }
+    }
 }
 
 impl WalletReadTxn for rsnano_nullable_lmdb::ReadTransaction {
@@ -225,7 +404,8 @@ impl WalletWriteTxn for rsnano_nullable_lmdb::WriteTransaction {
         value: &[u8],
         flags: StoreWriteFlags,
     ) -> StoreResult<()> {
-        StoreWriteTransaction::put(self, database, key, value, flags)
+        self.put(database.into(), key, value, flags.into())
+            .map_err(StoreError::from)
     }
 
     fn delete(
@@ -234,18 +414,21 @@ impl WalletWriteTxn for rsnano_nullable_lmdb::WriteTransaction {
         key: &[u8],
         value: Option<&[u8]>,
     ) -> StoreResult<()> {
-        StoreWriteTransaction::delete(self, database, key, value)
+        self.delete(database.into(), key, value)
+            .map_err(StoreError::from)
     }
 
     fn clear_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
-        StoreWriteTransaction::clear_db(self, database)
+        self.clear_db(database.into()).map_err(StoreError::from)
     }
 
     fn open_rw_cursor(&mut self, database: StoreDatabase) -> StoreResult<StoreRwCursor<'_>> {
-        StoreWriteTransaction::open_rw_cursor(self, database)
+        self.open_rw_cursor(database.into())
+            .map(StoreRwCursor::new)
+            .map_err(StoreError::from)
     }
 
     unsafe fn drop_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
-        unsafe { StoreWriteTransaction::drop_db(self, database) }
+        unsafe { self.drop_db(database.into()) }.map_err(StoreError::from)
     }
 }

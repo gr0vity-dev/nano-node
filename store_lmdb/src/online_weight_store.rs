@@ -1,6 +1,8 @@
 use rsnano_nullable_lmdb::{DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags};
 use rsnano_types::Amount;
-use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
+use store_traits::transaction::{
+    LedgerReadTxn, LedgerReadTxnLmdbExt, LedgerWriteTxn, LedgerWriteTxnLmdbExt,
+};
 
 use crate::LmdbIterator;
 
@@ -21,7 +23,7 @@ impl LmdbOnlineWeightStore {
     pub fn put(&self, txn: &mut dyn LedgerWriteTxn, time: u64, amount: &Amount) {
         let time_bytes = time.to_be_bytes();
         let amount_bytes = amount.to_be_bytes();
-        txn.put(
+        txn.put_lmdb(
             self.database,
             &time_bytes,
             &amount_bytes,
@@ -32,14 +34,15 @@ impl LmdbOnlineWeightStore {
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, time: u64) {
         let time_bytes = time.to_be_bytes();
-        txn.delete(self.database, &time_bytes, None).unwrap();
+        txn.delete_lmdb(self.database, &time_bytes, None)
+            .unwrap();
     }
 
     pub fn iter<'txn>(
         &self,
         tx: &'txn dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (u64, Amount)> + 'txn + use<'txn> {
-        let cursor = tx.open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor_lmdb(self.database).unwrap();
 
         LmdbIterator::new(cursor, |key, value| {
             let time = u64::from_be_bytes(key.try_into().unwrap());
@@ -53,7 +56,7 @@ impl LmdbOnlineWeightStore {
         &self,
         tx: &'txn dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (u64, Amount)> + 'txn + use<'txn> {
-        let cursor = tx.open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor_lmdb(self.database).unwrap();
 
         LmdbIterator::new_descending(cursor, |key, value| {
             let time = u64::from_be_bytes(key.try_into().unwrap());
@@ -63,11 +66,11 @@ impl LmdbOnlineWeightStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.database)
+        txn.count_lmdb(self.database)
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.clear_db(self.database).unwrap();
+        txn.clear_db_lmdb(self.database).unwrap();
     }
 }
 

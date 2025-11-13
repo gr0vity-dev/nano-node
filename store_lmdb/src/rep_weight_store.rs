@@ -36,9 +36,9 @@ impl LmdbRepWeightStore {
     }
 
     pub fn get(&self, txn: &dyn LedgerReadTxn, pub_key: &PublicKey) -> Option<Amount> {
-        match txn.get(self.database, pub_key.as_bytes()) {
+        match txn.get(self.database.into(), pub_key.as_bytes()) {
             Ok(mut bytes) => Some(Amount::deserialize(&mut bytes).expect("Should be valid amount")),
-            Err(rsnano_nullable_lmdb::Error::NotFound) => None,
+            Err(e) if e.is_not_found() => None,
             Err(e) => {
                 panic!("Could not load rep_weight: {:?}", e);
             }
@@ -49,10 +49,10 @@ impl LmdbRepWeightStore {
         self.put_listener.emit((representative, weight));
 
         txn.put(
-            self.database,
+            self.database.into(),
             representative.as_bytes(),
             &weight.to_be_bytes(),
-            WriteFlags::empty(),
+            WriteFlags::empty().into(),
         )
         .unwrap();
     }
@@ -60,16 +60,16 @@ impl LmdbRepWeightStore {
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, representative: &PublicKey) {
         self.delete_listener.emit(*representative);
 
-        txn.delete(self.database, representative.as_bytes(), None)
+        txn.delete(self.database.into(), representative.as_bytes(), None)
             .unwrap();
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.database)
+        txn.count(self.database.into())
     }
 
     pub fn iter<'a>(&self, txn: &'a dyn LedgerReadTxn) -> RepWeightIterator<'a> {
-        let cursor = txn.open_ro_cursor(self.database).unwrap();
+        let cursor = txn.open_ro_cursor(self.database.into()).unwrap().into_inner();
         RepWeightIterator {
             cursor,
             operation: MDB_FIRST,

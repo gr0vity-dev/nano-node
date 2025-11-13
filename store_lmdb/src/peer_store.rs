@@ -10,7 +10,9 @@ use rsnano_nullable_lmdb::{
     ConfiguredDatabase, DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
+use store_traits::transaction::{
+    LedgerReadTxn, LedgerReadTxnLmdbExt, LedgerWriteTxn, LedgerWriteTxnLmdbExt,
+};
 
 use crate::{PEERS_TEST_DATABASE, iterator::LmdbIterator};
 
@@ -41,7 +43,7 @@ impl LmdbPeerStore {
 
     pub fn put(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6, time: SystemTime) {
         self.put_listener.emit((endpoint.clone(), time));
-        txn.put(
+        txn.put_lmdb(
             self.database,
             &EndpointBytes::from(endpoint),
             &TimeBytes::from(time),
@@ -56,24 +58,24 @@ impl LmdbPeerStore {
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6) {
         self.delete_listener.emit(endpoint);
-        txn.delete(self.database, &EndpointBytes::from(endpoint), None)
+        txn.delete_lmdb(self.database, &EndpointBytes::from(endpoint), None)
             .unwrap();
     }
 
     pub fn exists(&self, txn: &dyn LedgerReadTxn, endpoint: SocketAddrV6) -> bool {
-        match txn.get(self.database, &EndpointBytes::from(endpoint)) {
+        match txn.get_lmdb(self.database, &EndpointBytes::from(endpoint)) {
             Ok(_) => true,
-            Err(rsnano_nullable_lmdb::Error::NotFound) => false,
+            Err(e) if e.is_not_found() => false,
             Err(e) => panic!("Could not check peer entry: {:?}", e),
         }
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.database)
+        txn.count_lmdb(self.database)
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.clear_db(self.database).unwrap();
+        txn.clear_db_lmdb(self.database).unwrap();
     }
 
     pub fn iter<'a>(
@@ -81,7 +83,7 @@ impl LmdbPeerStore {
         txn: &'a dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (SocketAddrV6, SystemTime)> + 'a + use<'a> {
         let cursor = txn
-            .open_ro_cursor(self.database)
+            .open_ro_cursor_lmdb(self.database)
             .expect("Could not read peer store database");
         PeerIterator(LmdbIterator::new(cursor, |k, v| {
             (

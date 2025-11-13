@@ -1,7 +1,7 @@
 use std::{ops::RangeBounds, sync::Arc};
 
 use rsnano_nullable_lmdb::{
-    ConfiguredDatabase, DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, WriteFlags,
+    ConfiguredDatabase, DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{Account, AccountInfo};
@@ -43,18 +43,18 @@ impl LmdbAccountStore {
         }
         transaction
             .put(
-                self.database,
+                self.database.into(),
                 account.as_bytes(),
                 &info.to_bytes(),
-                WriteFlags::empty(),
+                WriteFlags::empty().into(),
             )
             .unwrap();
     }
 
     pub fn get(&self, transaction: &dyn LedgerReadTxn, account: &Account) -> Option<AccountInfo> {
-        let result = transaction.get(self.database, account.as_bytes());
+        let result = transaction.get(self.database.into(), account.as_bytes());
         match result {
-            Err(Error::NotFound) => None,
+            Err(e) if e.is_not_found() => None,
             Ok(mut bytes) => AccountInfo::deserialize(&mut bytes).ok(),
             Err(e) => panic!("Could not load account info {:?}", e),
         }
@@ -62,7 +62,7 @@ impl LmdbAccountStore {
 
     pub fn del(&self, transaction: &mut dyn LedgerWriteTxn, account: &Account) {
         transaction
-            .delete(self.database, account.as_bytes(), None)
+            .delete(self.database.into(), account.as_bytes(), None)
             .unwrap();
     }
 
@@ -71,8 +71,9 @@ impl LmdbAccountStore {
         tx: &'txn dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (Account, AccountInfo)> + 'txn + use<'txn> {
         let cursor = tx
-            .open_ro_cursor(self.database)
-            .expect("could not read from account store");
+            .open_ro_cursor(self.database.into())
+            .expect("could not read from account store")
+            .into_inner();
 
         LmdbIterator::new(cursor, read_account_info_record)
     }
@@ -82,7 +83,7 @@ impl LmdbAccountStore {
         tx: &'txn dyn LedgerReadTxn,
         range: impl RangeBounds<Account> + 'static,
     ) -> Box<dyn Iterator<Item = (Account, AccountInfo)> + 'txn> {
-        let cursor = tx.open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor(self.database.into()).unwrap().into_inner();
         let start = range.start_bound().map(|b| b.as_bytes().to_vec());
         let end = range.end_bound().map(|b| b.as_bytes().to_vec());
         Box::new(LmdbRangeIterator::new(
@@ -115,7 +116,7 @@ impl LmdbAccountStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.database)
+        txn.count(self.database.into())
     }
 }
 

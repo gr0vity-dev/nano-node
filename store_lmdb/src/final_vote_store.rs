@@ -1,8 +1,10 @@
 use std::ops::RangeBounds;
 
-use rsnano_nullable_lmdb::{DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, WriteFlags};
+use rsnano_nullable_lmdb::{DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags};
 use rsnano_types::{BlockHash, QualifiedRoot};
-use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
+use store_traits::transaction::{
+    LedgerReadTxn, LedgerReadTxnLmdbExt, LedgerWriteTxn, LedgerWriteTxnLmdbExt,
+};
 
 use crate::{LmdbIterator, LmdbRangeIterator};
 
@@ -31,9 +33,9 @@ impl LmdbFinalVoteStore {
         hash: &BlockHash,
     ) -> bool {
         let root_bytes = root.to_bytes();
-        match txn.get(self.database, &root_bytes) {
-            Err(Error::NotFound) => {
-                txn.put(
+        match txn.get_lmdb(self.database, &root_bytes) {
+            Err(e) if e.is_not_found() => {
+                txn.put_lmdb(
                     self.database,
                     &root_bytes,
                     hash.as_bytes(),
@@ -53,7 +55,7 @@ impl LmdbFinalVoteStore {
         &self,
         tx: &'tx dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (QualifiedRoot, BlockHash)> + 'tx + use<'tx> {
-        let cursor = tx.open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor_lmdb(self.database).unwrap();
         LmdbIterator::new(cursor, read_final_vote_record)
     }
 
@@ -62,7 +64,7 @@ impl LmdbFinalVoteStore {
         tx: &'tx dyn LedgerReadTxn,
         range: impl RangeBounds<QualifiedRoot> + 'static,
     ) -> impl Iterator<Item = (QualifiedRoot, BlockHash)> + 'tx {
-        let cursor = tx.open_ro_cursor(self.database).unwrap();
+        let cursor = tx.open_ro_cursor_lmdb(self.database).unwrap();
         LmdbRangeIterator::new(
             cursor,
             range.start_bound().map(|b| b.to_bytes().to_vec()),
@@ -72,9 +74,9 @@ impl LmdbFinalVoteStore {
     }
 
     pub fn get(&self, tx: &dyn LedgerReadTxn, root: &QualifiedRoot) -> Option<BlockHash> {
-        let result = tx.get(self.database, &root.to_bytes());
+        let result = tx.get_lmdb(self.database, &root.to_bytes());
         match result {
-            Err(Error::NotFound) => None,
+            Err(e) if e.is_not_found() => None,
             Ok(mut bytes) => {
                 Some(BlockHash::deserialize(&mut bytes).expect("Should be valid block hash data"))
             }
@@ -84,15 +86,15 @@ impl LmdbFinalVoteStore {
 
     pub fn del(&self, tx: &mut dyn LedgerWriteTxn, root: &QualifiedRoot) {
         let root_bytes = root.to_bytes();
-        tx.delete(self.database, &root_bytes, None).unwrap();
+        tx.delete_lmdb(self.database, &root_bytes, None).unwrap();
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.database)
+        txn.count_lmdb(self.database)
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.clear_db(self.database).unwrap();
+        txn.clear_db_lmdb(self.database).unwrap();
     }
 }
 
