@@ -26,6 +26,10 @@ mod rollback_legacy_receive;
 mod rollback_legacy_send;
 mod rollback_state;
 
+fn begin_write_txn(env: &LmdbEnvironment) -> rsnano_store_lmdb::LmdbLedgerWriteTxn {
+    rsnano_store_lmdb::LmdbLedgerWriteTxn::new(env.begin_write())
+}
+
 #[test]
 fn ledger_successor() {
     let ledger = Ledger::new_null();
@@ -324,12 +328,12 @@ fn ledger_cache() {
     let env = LmdbEnvironment::null_builder().build();
     {
         let accounts = LmdbAccountStore::new(&env).unwrap();
-        let mut txn = env.begin_write();
+        let mut txn = begin_write_txn(&env);
 
         accounts.put(&mut txn, &1.into(), &AccountInfo::new_test_instance());
         accounts.put(&mut txn, &2.into(), &AccountInfo::new_test_instance());
         accounts.put(&mut txn, &3.into(), &AccountInfo::new_test_instance());
-        txn.commit();
+        txn.into_inner().commit();
     }
 
     let rep_weights = Arc::new(RepWeightCache::new());

@@ -12,6 +12,7 @@ use crate::{
     iterator::{LmdbIterator, LmdbRangeIterator},
     parallel_traversal,
     store_utils::{lmdb_ro_cursor_from_store, store_write_flags_from},
+    transaction::LmdbLedgerReadTxn,
 };
 
 pub struct LmdbAccountStore {
@@ -103,7 +104,7 @@ impl LmdbAccountStore {
         action: impl Fn(&mut dyn Iterator<Item = (Account, AccountInfo)>) + Send + Sync,
     ) {
         parallel_traversal(thread_count, &|start, end, is_last| {
-            let txn = env.begin_read();
+            let txn = LmdbLedgerReadTxn::new(env.begin_read());
             let start_account = Account::from(start);
             let end_account = Account::from(end);
             if is_last {
@@ -113,7 +114,7 @@ impl LmdbAccountStore {
                 let mut iter = self.iter_range(&txn, start_account..end_account);
                 action(&mut iter);
             }
-            txn.commit();
+            txn.into_inner().commit();
         })
     }
 
@@ -163,6 +164,7 @@ mod tests {
     use rsnano_nullable_lmdb::{DeleteEvent, PutEvent};
     use rsnano_types::{Amount, BlockHash};
     use std::sync::Mutex;
+    use crate::transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn};
 
     struct Fixture {
         env: Arc<LmdbEnvironment>,
@@ -187,12 +189,20 @@ mod tests {
 
             Fixture { env, store }
         }
+
+        fn begin_read_txn(&self) -> LmdbLedgerReadTxn {
+            LmdbLedgerReadTxn::new(self.env.begin_read())
+        }
+
+        fn begin_write_txn(&self) -> LmdbLedgerWriteTxn {
+            LmdbLedgerWriteTxn::new(self.env.begin_write())
+        }
     }
 
     #[test]
     fn empty_store() {
         let fixture = Fixture::new();
-        let txn = fixture.env.begin_read();
+        let txn = fixture.begin_read_txn();
         let account = Account::from(1);
         let result = fixture.store.get(&txn, &account);
         assert_eq!(result, None);
@@ -202,8 +212,8 @@ mod tests {
     #[test]
     fn add_one_account() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.begin_write();
-        let put_tracker = txn.track_puts();
+        let mut txn = fixture.begin_write_txn();
+        let put_tracker = txn.as_inner_mut().track_puts();
 
         let account = Account::from(1);
         let info = AccountInfo::new_test_instance();
@@ -225,7 +235,7 @@ mod tests {
         let account = Account::from(1);
         let info = AccountInfo::new_test_instance();
         let fixture = Fixture::with_stored_accounts(vec![(account.clone(), info.clone())]);
-        let txn = fixture.env.begin_read();
+        let txn = fixture.begin_read_txn();
 
         let result = fixture.store.get(&txn, &account);
 
@@ -238,7 +248,7 @@ mod tests {
             (Account::from(1), AccountInfo::new_test_instance()),
             (Account::from(2), AccountInfo::new_test_instance()),
         ]);
-        let txn = fixture.env.begin_read();
+        let txn = fixture.begin_read_txn();
 
         let count = fixture.store.count(&txn);
 
@@ -248,8 +258,8 @@ mod tests {
     #[test]
     fn delete_account() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.begin_write();
-        let delete_tracker = txn.track_deletions();
+        let mut txn = fixture.begin_write_txn();
+        let delete_tracker = txn.as_inner_mut().track_deletions();
 
         let account = Account::from(1);
         fixture.store.del(&mut txn, &account);
@@ -266,7 +276,7 @@ mod tests {
     #[test]
     fn begin_empty_store_nullable() {
         let fixture = Fixture::new();
-        let txn = fixture.env.begin_read();
+        let txn = fixture.begin_read_txn();
         let mut it = fixture.store.iter(&txn);
         assert_eq!(it.next(), None);
     }
@@ -288,7 +298,7 @@ mod tests {
             (account1.clone(), info1.clone()),
             (account2.clone(), info2.clone()),
         ]);
-        let txn = fixture.env.begin_read();
+        let txn = fixture.begin_read_txn();
 
         let mut it = fixture.store.iter(&txn);
         assert_eq!(it.next(), Some((account1, info1)));
@@ -313,7 +323,7 @@ mod tests {
             (account1.clone(), info1.clone()),
             (account3.clone(), info3.clone()),
         ]);
-        let txn = fixture.env.begin_read();
+        let txn = fixture.begin_read_txn();
 
         let mut it = fixture.store.iter_range(&txn, Account::from(2)..);
 
@@ -352,7 +362,7 @@ mod tests {
     fn track_inserted_account_info() {
         let fixture = Fixture::new();
         let put_tracker = fixture.store.track_puts();
-        let mut txn = fixture.env.begin_write();
+        let mut txn = fixture.begin_write_txn();
         let account = Account::from(1);
         let info = AccountInfo::new_test_instance();
 

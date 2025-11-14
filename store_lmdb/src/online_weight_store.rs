@@ -1,10 +1,11 @@
 use rsnano_nullable_lmdb::{DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags};
 use rsnano_types::Amount;
-use store_traits::transaction::{
-    LedgerReadTxn, LedgerReadTxnLmdbExt, LedgerWriteTxn, LedgerWriteTxnLmdbExt,
-};
+use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
-use crate::LmdbIterator;
+use crate::{
+    LmdbIterator,
+    store_utils::{lmdb_ro_cursor_from_store, store_write_flags_from},
+};
 
 pub struct LmdbOnlineWeightStore {
     database: LmdbDatabase,
@@ -23,25 +24,26 @@ impl LmdbOnlineWeightStore {
     pub fn put(&self, txn: &mut dyn LedgerWriteTxn, time: u64, amount: &Amount) {
         let time_bytes = time.to_be_bytes();
         let amount_bytes = amount.to_be_bytes();
-        txn.put_lmdb(
-            self.database,
+        txn.put(
+            self.database.into(),
             &time_bytes,
             &amount_bytes,
-            WriteFlags::empty(),
+            store_write_flags_from(WriteFlags::empty()),
         )
         .unwrap();
     }
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, time: u64) {
         let time_bytes = time.to_be_bytes();
-        txn.delete_lmdb(self.database, &time_bytes, None).unwrap();
+        txn.delete(self.database.into(), &time_bytes, None).unwrap();
     }
 
     pub fn iter<'txn>(
         &self,
         tx: &'txn dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (u64, Amount)> + 'txn + use<'txn> {
-        let cursor = tx.open_ro_cursor_lmdb(self.database).unwrap();
+        let cursor = tx.open_ro_cursor(self.database.into()).unwrap();
+        let cursor = lmdb_ro_cursor_from_store(cursor);
 
         LmdbIterator::new(cursor, |key, value| {
             let time = u64::from_be_bytes(key.try_into().unwrap());
@@ -55,7 +57,8 @@ impl LmdbOnlineWeightStore {
         &self,
         tx: &'txn dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (u64, Amount)> + 'txn + use<'txn> {
-        let cursor = tx.open_ro_cursor_lmdb(self.database).unwrap();
+        let cursor = tx.open_ro_cursor(self.database.into()).unwrap();
+        let cursor = lmdb_ro_cursor_from_store(cursor);
 
         LmdbIterator::new_descending(cursor, |key, value| {
             let time = u64::from_be_bytes(key.try_into().unwrap());
@@ -65,11 +68,11 @@ impl LmdbOnlineWeightStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count_lmdb(self.database)
+        txn.count(self.database.into())
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.clear_db_lmdb(self.database).unwrap();
+        txn.clear_db(self.database.into()).unwrap();
     }
 }
 
@@ -78,6 +81,7 @@ mod tests {
     use super::*;
     use rsnano_nullable_lmdb::{DeleteEvent, PutEvent};
     use std::sync::Arc;
+    use crate::transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn};
 
     struct Fixture {
         env: Arc<LmdbEnvironment>,
@@ -107,12 +111,20 @@ mod tests {
                 env,
             }
         }
+
+        fn begin_read(&self) -> LmdbLedgerReadTxn {
+            LmdbLedgerReadTxn::new(self.env.begin_read())
+        }
+
+        fn begin_write(&self) -> LmdbLedgerWriteTxn {
+            LmdbLedgerWriteTxn::new(self.env.begin_write())
+        }
     }
 
     #[test]
     fn empty_store() {
         let fixture = Fixture::new();
-        let tx = fixture.env.begin_read();
+        let tx = fixture.begin_read();
         let store = &fixture.store;
         assert_eq!(store.count(&tx), 0);
         assert!(store.iter(&tx).next().is_none());
@@ -122,7 +134,7 @@ mod tests {
     #[test]
     fn count() {
         let fixture = Fixture::with_stored_data(vec![(1, Amount::raw(100)), (2, Amount::raw(200))]);
-        let txn = fixture.env.begin_read();
+        let txn = fixture.begin_read();
 
         let count = fixture.store.count(&txn);
 
@@ -132,8 +144,8 @@ mod tests {
     #[test]
     fn add() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.begin_write();
-        let put_tracker = txn.track_puts();
+        let mut txn = fixture.begin_write();
+        let put_tracker = txn.as_inner_mut().track_puts();
 
         let time = 1;
         let amount = Amount::raw(2);
@@ -153,7 +165,7 @@ mod tests {
     #[test]
     fn iterate_ascending() {
         let fixture = Fixture::with_stored_data(vec![(1, Amount::raw(100)), (2, Amount::raw(200))]);
-        let txn = fixture.env.begin_read();
+        let txn = fixture.begin_read();
 
         let mut it = fixture.store.iter(&txn);
         assert_eq!(it.next(), Some((1, Amount::raw(100))));
@@ -164,7 +176,7 @@ mod tests {
     #[test]
     fn iterate_descending() {
         let fixture = Fixture::with_stored_data(vec![(1, Amount::raw(100)), (2, Amount::raw(200))]);
-        let txn = fixture.env.begin_read();
+        let txn = fixture.begin_read();
 
         let mut it = fixture.store.iter_rev(&txn);
         assert_eq!(it.next(), Some((2, Amount::raw(200))));
@@ -175,8 +187,8 @@ mod tests {
     #[test]
     fn delete() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.begin_write();
-        let delete_tracker = txn.track_deletions();
+        let mut txn = fixture.begin_write();
+        let delete_tracker = txn.as_inner_mut().track_deletions();
 
         let time = 1;
         fixture.store.del(&mut txn, time);

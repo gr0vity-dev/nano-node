@@ -5,9 +5,11 @@ use crate::{
     LmdbOnlineWeightStore, LmdbPeerStore, LmdbPendingStore, LmdbRepWeightStore, LmdbVersionStore,
     successor_store::LmdbSuccessorStore,
 };
-use rsnano_nullable_lmdb::{LmdbEnvironment, ReadTransaction, WriteTransaction};
+use rsnano_nullable_lmdb::LmdbEnvironment;
 use std::sync::Arc;
 use store_traits::ledger::{LedgerCache, MemoryStats};
+
+use crate::transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn};
 
 pub struct LmdbStore {
     pub env: LmdbEnvironment,
@@ -63,12 +65,12 @@ impl LmdbStore {
         })
     }
 
-    pub fn begin_read(&self) -> ReadTransaction {
-        self.env.begin_read()
+    pub fn begin_read(&self) -> LmdbLedgerReadTxn {
+        LmdbLedgerReadTxn::new(self.env.begin_read())
     }
 
-    pub fn begin_write(&self) -> WriteTransaction {
-        self.env.begin_write()
+    pub fn begin_write(&self) -> LmdbLedgerWriteTxn {
+        LmdbLedgerWriteTxn::new(self.env.begin_write())
     }
 
     pub fn block(&self) -> &LmdbBlockStore {

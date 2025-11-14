@@ -1,6 +1,8 @@
 use crate::store_utils::{
     lmdb_write_flags_from, store_ro_cursor_from_lmdb, store_rw_cursor_from_lmdb,
 };
+use std::ops::{Deref, DerefMut};
+
 use rsnano_nullable_lmdb::{ReadTransaction, Transaction as LmdbTransaction, WriteTransaction};
 use store_traits::{
     transaction::{WalletReadTxn, WalletWriteTxn},
@@ -44,6 +46,20 @@ impl WalletReadTxnSHIM {
 
     pub fn into_inner(self) -> ReadTransaction {
         self.inner
+    }
+}
+
+impl Deref for WalletReadTxnSHIM {
+    type Target = ReadTransaction;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl AsRef<ReadTransaction> for WalletReadTxnSHIM {
+    fn as_ref(&self) -> &ReadTransaction {
+        &self.inner
     }
 }
 
@@ -101,6 +117,32 @@ impl WalletWriteTxnSHIM {
 
     pub fn into_inner(self) -> WriteTransaction {
         self.inner
+    }
+}
+
+impl Deref for WalletWriteTxnSHIM {
+    type Target = WriteTransaction;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for WalletWriteTxnSHIM {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl AsRef<WriteTransaction> for WalletWriteTxnSHIM {
+    fn as_ref(&self) -> &WriteTransaction {
+        &self.inner
+    }
+}
+
+impl AsMut<WriteTransaction> for WalletWriteTxnSHIM {
+    fn as_mut(&mut self) -> &mut WriteTransaction {
+        &mut self.inner
     }
 }
 

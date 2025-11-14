@@ -3,7 +3,9 @@ use clap::{ArgGroup, Parser};
 
 use rsnano_ledger::LedgerConstants;
 use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
-use rsnano_store_lmdb::{LmdbConfirmationHeightStore, default_ledger_lmdb_options};
+use rsnano_store_lmdb::{
+    LmdbConfirmationHeightStore, LmdbLedgerWriteTxn, default_ledger_lmdb_options,
+};
 use rsnano_types::{Account, ConfirmationHeightInfo, Networks};
 
 use crate::cli::GlobalArgs;
@@ -41,7 +43,7 @@ impl ConfirmationHeightArgs {
         let env = env_factory.create(options)?;
         let confirmation_height_store = LmdbConfirmationHeightStore::new(&env)?;
 
-        let mut txn = env.begin_write();
+        let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
 
         if let Some(account_hex) = &self.account {
             let account = Account::parse(account_hex).ok_or_else(|| anyhow!("Invalid account"))?;

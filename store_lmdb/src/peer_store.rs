@@ -10,11 +10,13 @@ use rsnano_nullable_lmdb::{
     ConfiguredDatabase, DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use store_traits::transaction::{
-    LedgerReadTxn, LedgerReadTxnLmdbExt, LedgerWriteTxn, LedgerWriteTxnLmdbExt,
-};
+use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
-use crate::{PEERS_TEST_DATABASE, iterator::LmdbIterator};
+use crate::{
+    PEERS_TEST_DATABASE,
+    iterator::LmdbIterator,
+    store_utils::{lmdb_ro_cursor_from_store, store_write_flags_from},
+};
 
 pub struct LmdbPeerStore {
     database: LmdbDatabase,
@@ -43,11 +45,11 @@ impl LmdbPeerStore {
 
     pub fn put(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6, time: SystemTime) {
         self.put_listener.emit((endpoint.clone(), time));
-        txn.put_lmdb(
-            self.database,
+        txn.put(
+            self.database.into(),
             &EndpointBytes::from(endpoint),
             &TimeBytes::from(time),
-            WriteFlags::empty(),
+            store_write_flags_from(WriteFlags::empty()),
         )
         .unwrap();
     }
@@ -58,12 +60,12 @@ impl LmdbPeerStore {
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6) {
         self.delete_listener.emit(endpoint);
-        txn.delete_lmdb(self.database, &EndpointBytes::from(endpoint), None)
+        txn.delete(self.database.into(), &EndpointBytes::from(endpoint), None)
             .unwrap();
     }
 
     pub fn exists(&self, txn: &dyn LedgerReadTxn, endpoint: SocketAddrV6) -> bool {
-        match txn.get_lmdb(self.database, &EndpointBytes::from(endpoint)) {
+        match txn.get(self.database.into(), &EndpointBytes::from(endpoint)) {
             Ok(_) => true,
             Err(e) if e.is_not_found() => false,
             Err(e) => panic!("Could not check peer entry: {:?}", e),
@@ -71,11 +73,11 @@ impl LmdbPeerStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count_lmdb(self.database)
+        txn.count(self.database.into())
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.clear_db_lmdb(self.database).unwrap();
+        txn.clear_db(self.database.into()).unwrap();
     }
 
     pub fn iter<'a>(
@@ -83,8 +85,9 @@ impl LmdbPeerStore {
         txn: &'a dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (SocketAddrV6, SystemTime)> + 'a + use<'a> {
         let cursor = txn
-            .open_ro_cursor_lmdb(self.database)
+            .open_ro_cursor(self.database.into())
             .expect("Could not read peer store database");
+        let cursor = lmdb_ro_cursor_from_store(cursor);
         PeerIterator(LmdbIterator::new(cursor, |k, v| {
             (
                 EndpointBytes::try_from(k).unwrap().into(),
@@ -211,11 +214,12 @@ mod tests {
         net::Ipv6Addr,
         time::{Duration, UNIX_EPOCH},
     };
+    use crate::transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn};
 
     #[test]
     fn empty_store() {
         let fixture = Fixture::new();
-        let txn = fixture.env.begin_read();
+        let txn = fixture.begin_read();
         let store = &fixture.store;
         assert_eq!(store.count(&txn), 0);
         assert_eq!(store.exists(&txn, TEST_PEER_A), false);
@@ -225,8 +229,8 @@ mod tests {
     #[test]
     fn add_one_endpoint() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.begin_write();
-        let put_tracker = txn.track_puts();
+        let mut txn = fixture.begin_write();
+        let put_tracker = txn.as_inner_mut().track_puts();
 
         let key = TEST_PEER_A;
         let time = UNIX_EPOCH + Duration::from_secs(1261440000);
@@ -247,7 +251,7 @@ mod tests {
     fn exists() {
         let fixture = Fixture::with_stored_data(vec![TEST_PEER_A.clone(), TEST_PEER_B.clone()]);
 
-        let txn = fixture.env.begin_read();
+        let txn = fixture.begin_read();
 
         assert_eq!(fixture.store.exists(&txn, TEST_PEER_A), true);
         assert_eq!(fixture.store.exists(&txn, TEST_PEER_B), true);
@@ -257,15 +261,15 @@ mod tests {
     #[test]
     fn count() {
         let fixture = Fixture::with_stored_data(vec![TEST_PEER_A, TEST_PEER_B]);
-        let txn = fixture.env.begin_read();
+        let txn = fixture.begin_read();
         assert_eq!(fixture.store.count(&txn), 2);
     }
 
     #[test]
     fn delete() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.begin_write();
-        let delete_tracker = txn.track_deletions();
+        let mut txn = fixture.begin_write();
+        let delete_tracker = txn.as_inner_mut().track_deletions();
 
         fixture.store.del(&mut txn, TEST_PEER_A);
 
@@ -281,7 +285,7 @@ mod tests {
     #[test]
     fn track_puts() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.begin_write();
+        let mut txn = fixture.begin_write();
         let time = UNIX_EPOCH + Duration::from_secs(1261440000);
         let put_tracker = fixture.store.track_puts();
 
@@ -294,7 +298,7 @@ mod tests {
     #[test]
     fn track_deletes() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.begin_write();
+        let mut txn = fixture.begin_write();
         let delete_tracker = fixture.store.track_deletions();
 
         fixture.store.del(&mut txn, TEST_PEER_A);
@@ -339,6 +343,14 @@ mod tests {
                 store: LmdbPeerStore::new(&env).unwrap(),
                 env,
             }
+        }
+
+        fn begin_read(&self) -> LmdbLedgerReadTxn {
+            LmdbLedgerReadTxn::new(self.env.begin_read())
+        }
+
+        fn begin_write(&self) -> LmdbLedgerWriteTxn {
+            LmdbLedgerWriteTxn::new(self.env.begin_write())
         }
     }
 }

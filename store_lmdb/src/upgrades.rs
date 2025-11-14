@@ -12,8 +12,12 @@ use crate::{
     FIRST_INCOMPATIBLE_STORE_VERSION, LmdbVersionStore, STORE_VERSION_CURRENT,
     STORE_VERSION_MINIMUM,
     block_store::{BLOCK_DATA_DB_NAME, BLOCK_INDEX_DB_NAME},
+    transaction::LmdbLedgerWriteTxn,
     vacuum::vacuum,
 };
+
+#[cfg(test)]
+use crate::transaction::LmdbLedgerReadTxn;
 
 pub fn create_and_update_lmdb_env(
     env_factory: &LmdbEnvironmentFactory,
@@ -46,7 +50,7 @@ fn do_upgrades(env: &mut LmdbEnvironment) -> anyhow::Result<bool> {
     let version_store = LmdbVersionStore::new(env)?;
 
     let mut version = {
-        let mut txn = env.begin_write();
+        let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
         let version = match version_store.get(&txn) {
             Some(v) => v,
             None => {
@@ -56,7 +60,7 @@ fn do_upgrades(env: &mut LmdbEnvironment) -> anyhow::Result<bool> {
                 new_version
             }
         };
-        txn.commit();
+        txn.into_inner().commit();
         version
     };
 
@@ -102,9 +106,9 @@ fn do_upgrades(env: &mut LmdbEnvironment) -> anyhow::Result<bool> {
 
         version = next_version(version);
 
-        let mut txn = env.begin_write();
+        let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
         version_store.put(&mut txn, version);
-        txn.commit();
+        txn.into_inner().commit();
     }
 
     if needs_vacuuming {
@@ -341,7 +345,7 @@ mod tests {
     fn writes_db_version_for_new_store() {
         let mut env = LmdbEnvironment::new_null();
         upgrade_if_needed(&mut env).unwrap();
-        let txn = env.begin_read();
+        let txn = LmdbLedgerReadTxn::new(env.begin_read());
         let version_store = LmdbVersionStore::new(&env).unwrap();
         assert_eq!(version_store.get(&txn), Some(STORE_VERSION_CURRENT));
     }
@@ -358,9 +362,9 @@ mod tests {
 
     fn set_store_version(env: &LmdbEnvironment, current_version: i32) -> Result<(), anyhow::Error> {
         let version_store = LmdbVersionStore::new(env)?;
-        let mut txn = env.begin_write();
+        let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
         version_store.put(&mut txn, current_version);
-        txn.commit();
+        txn.into_inner().commit();
         Ok(())
     }
 }

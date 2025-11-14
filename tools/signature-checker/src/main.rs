@@ -11,7 +11,12 @@ use std::{
 use ed25519_dalek_blake2b::SignatureError;
 use rsnano_ledger::LedgerConstants;
 use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
-use rsnano_store_lmdb::{EnvironmentFlags, EnvironmentOptions, LmdbBlockStore};
+use rsnano_store_lmdb::{
+    EnvironmentFlags,
+    EnvironmentOptions,
+    LmdbBlockStore,
+    LmdbLedgerReadTxn,
+};
 use rsnano_types::{Epochs, PublicKey, SavedBlock, Signature};
 
 fn main() {
@@ -39,7 +44,7 @@ fn check_ledger_file(ledger_file: impl Into<PathBuf>) {
         .unwrap();
     let block_store = LmdbBlockStore::new(&env).unwrap();
 
-    let tx = env.begin_read();
+    let tx = LmdbLedgerReadTxn::new(env.begin_read());
     let total_blocks = block_store.count(&tx);
     let mut checked: u64 = 0;
     let problematic = Mutex::new(Vec::new());

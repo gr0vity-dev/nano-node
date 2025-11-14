@@ -15,8 +15,9 @@ use rsnano_node::{
     unique_path,
 };
 use rsnano_nullable_lmdb::{LmdbEnvironment, LmdbEnvironmentFactory};
-use rsnano_store_lmdb::LmdbWalletStoreFactory;
-use rsnano_store_lmdb::{EnvironmentFlags, EnvironmentOptions};
+use rsnano_store_lmdb::{
+    EnvironmentFlags, EnvironmentOptions, LmdbWalletStoreFactory, WalletWriteTxnSHIM,
+};
 use rsnano_types::{
     Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, Epoch, EpochBlockArgs,
     KeyDerivationFunction, PrivateKey, PublicKey, RawKey, WalletId, deterministic_key,
@@ -77,6 +78,11 @@ impl TestFixture {
             .create_from_json(self.wallet_id(name), json)
             .unwrap()
     }
+
+    fn begin_write_txn(&self) -> WalletWriteTxnSHIM {
+        WalletWriteTxnSHIM::new(self.env.begin_write())
+    }
+
 }
 
 impl Drop for TestFixture {
@@ -99,7 +105,7 @@ fn wallet_id_from_name(name: &str) -> WalletId {
 fn no_special_keys_accounts() {
     let fixture = TestFixture::new();
     let wallet = fixture.create_wallet("0");
-    let mut txn = fixture.env.begin_write();
+    let mut txn = fixture.begin_write_txn();
     let key = PrivateKey::from(42);
     assert!(!wallet.exists(&txn, &key.public_key()));
     wallet.insert_adhoc(&mut txn, &key.raw_key());
@@ -114,7 +120,7 @@ fn no_special_keys_accounts() {
 fn no_key() {
     let fixture = TestFixture::new();
     let wallet = fixture.create_wallet("0");
-    let txn = fixture.env.begin_write();
+    let txn = fixture.begin_write_txn();
     assert!(wallet.fetch(&txn, &PublicKey::from(42)).is_err());
     assert!(wallet.valid_password(&txn));
 }
@@ -123,7 +129,7 @@ fn no_key() {
 fn fetch_locked() {
     let fixture = TestFixture::new();
     let wallet = fixture.create_wallet("0");
-    let mut txn = fixture.env.begin_write();
+    let mut txn = fixture.begin_write_txn();
     assert!(wallet.valid_password(&txn));
     let key1 = PrivateKey::from(42);
     assert_eq!(
@@ -144,7 +150,7 @@ fn fetch_locked() {
 fn retrieval() {
     let fixture = TestFixture::new();
     let wallet = fixture.create_wallet("0");
-    let mut txn = fixture.env.begin_write();
+    let mut txn = fixture.begin_write_txn();
     let key1 = PrivateKey::from(42);
     wallet.insert_adhoc(&mut txn, &key1.raw_key());
     let prv1 = wallet.fetch(&txn, &key1.public_key()).unwrap();
@@ -161,7 +167,7 @@ fn retrieval() {
 fn empty_iteration() {
     let fixture = TestFixture::new();
     let wallet = fixture.create_wallet("0");
-    let txn = fixture.env.begin_write();
+    let txn = fixture.begin_write_txn();
     assert!(wallet.iter(&txn).next().is_none());
 }
 
@@ -169,7 +175,7 @@ fn empty_iteration() {
 fn one_item_iteration() {
     let fixture = TestFixture::new();
     let wallet = fixture.create_wallet("0");
-    let mut txn = fixture.env.begin_write();
+    let mut txn = fixture.begin_write_txn();
     let key1 = PrivateKey::from(42);
     wallet.insert_adhoc(&mut txn, &key1.raw_key());
     for (k, _) in wallet.iter(&txn) {
@@ -187,7 +193,7 @@ fn two_item_iteration() {
     let mut pubs = HashSet::new();
     let mut prvs = HashSet::new();
     let wallet = fixture.create_wallet("0");
-    let mut txn = fixture.env.begin_write();
+    let mut txn = fixture.begin_write_txn();
     wallet.insert_adhoc(&mut txn, &key1.raw_key());
     wallet.insert_adhoc(&mut txn, &key2.raw_key());
     for (k, _) in wallet.iter(&txn) {
@@ -401,7 +407,7 @@ fn spend_no_previous() {
 fn find_none() {
     let fixture = TestFixture::new();
     let wallet = fixture.create_wallet("0");
-    let txn = fixture.env.begin_write();
+    let txn = fixture.begin_write_txn();
     assert!(wallet.find(&txn, &PublicKey::from(1000)).is_none());
 }
 
@@ -409,7 +415,7 @@ fn find_none() {
 fn find_existing() {
     let fixture = TestFixture::new();
     let wallet = fixture.create_wallet("0");
-    let mut txn = fixture.env.begin_write();
+    let mut txn = fixture.begin_write_txn();
     let key1 = PrivateKey::new();
     assert_eq!(wallet.exists(&txn, &key1.public_key()), false);
     wallet.insert_adhoc(&mut txn, &key1.raw_key());
@@ -423,7 +429,7 @@ fn rekey() {
     let store = fixture.create_wallet("0");
     let password = store.password();
     assert!(password.is_zero());
-    let mut txn = fixture.env.begin_write();
+    let mut txn = fixture.begin_write_txn();
     let key1 = PrivateKey::new();
     store.insert_adhoc(&mut txn, &key1.raw_key());
     assert_eq!(
@@ -442,7 +448,7 @@ fn rekey() {
 fn hash_password() {
     let fixture = TestFixture::new();
     let store = fixture.create_wallet("0");
-    let mut txn = fixture.env.begin_write();
+    let mut txn = fixture.begin_write_txn();
     store.rekey(&mut txn, "").unwrap();
     let hash1 = store.password();
     store.rekey(&mut txn, "").unwrap();
@@ -458,25 +464,25 @@ fn reopen_default_password() {
     let fixture = TestFixture::new();
     {
         let store = fixture.create_wallet("0");
-        let txn = fixture.env.begin_write();
+        let txn = fixture.begin_write_txn();
         assert!(store.valid_password(&txn));
         txn.commit();
     }
     {
         let store = fixture.open_wallet("0");
-        let txn = fixture.env.begin_write();
+        let txn = fixture.begin_write_txn();
         assert!(store.valid_password(&txn));
     }
     {
         let store = fixture.open_wallet("0");
-        let mut txn = fixture.env.begin_write();
+        let mut txn = fixture.begin_write_txn();
         store.rekey(&mut txn, "").unwrap();
         assert!(store.valid_password(&txn));
         txn.commit();
     }
     {
         let store = fixture.open_wallet("0");
-        let txn = fixture.env.begin_write();
+        let txn = fixture.begin_write_txn();
         assert_eq!(store.valid_password(&txn), false);
         store.attempt_password(&txn, " ");
         assert_eq!(store.valid_password(&txn), false);
@@ -489,7 +495,7 @@ fn reopen_default_password() {
 fn representative() {
     let fixture = TestFixture::new();
     let store = fixture.create_wallet("0");
-    let mut txn = fixture.env.begin_write();
+    let mut txn = fixture.begin_write_txn();
     assert_eq!(store.exists(&txn, &store.representative(&txn)), false);
     assert_eq!(store.representative(&txn), *DEV_GENESIS_PUB_KEY);
     let key = PrivateKey::new();
@@ -505,11 +511,11 @@ fn serialize_json_empty() {
     let fixture = TestFixture::new();
     let store1 = fixture.create_wallet("0");
     let serialized = {
-        let txn = fixture.env.begin_write();
+        let txn = fixture.begin_write_txn();
         store1.serialize_json(&txn)
     };
     let store2 = fixture.wallet_from_json("1", &serialized);
-    let txn = fixture.env.begin_write();
+    let txn = fixture.begin_write_txn();
     assert_eq!(store1.password(), store2.password());
     assert_eq!(store1.representative(&txn), store2.representative(&txn));
     assert!(store1.iter(&txn).next().is_none());
@@ -522,7 +528,7 @@ fn serialize_json_one() {
     let store1 = fixture.create_wallet("0");
     let key = PrivateKey::new();
     let serialized = {
-        let mut txn = fixture.env.begin_write();
+        let mut txn = fixture.begin_write_txn();
         store1.insert_adhoc(&mut txn, &key.raw_key());
         let json = store1.serialize_json(&txn);
         txn.commit();
@@ -530,7 +536,7 @@ fn serialize_json_one() {
     };
 
     let store2 = fixture.wallet_from_json("1", &serialized);
-    let txn = fixture.env.begin_write();
+    let txn = fixture.begin_write_txn();
     assert_eq!(store1.password(), store2.password());
     assert_eq!(store1.representative(&txn), store2.representative(&txn));
     assert!(store2.exists(&txn, &key.public_key()));
@@ -544,7 +550,7 @@ fn serialize_json_password() {
     let wallet1 = fixture.create_wallet("0");
     let key = PrivateKey::new();
     let serialized = {
-        let mut txn = fixture.env.begin_write();
+        let mut txn = fixture.begin_write_txn();
         wallet1.rekey(&mut txn, "password").unwrap();
         wallet1.insert_adhoc(&mut txn, &key.raw_key());
         let json = wallet1.serialize_json(&txn);
@@ -552,7 +558,7 @@ fn serialize_json_password() {
         json
     };
     let wallet2 = fixture.wallet_from_json("1", &serialized);
-    let txn = fixture.env.begin_write();
+    let txn = fixture.begin_write_txn();
     assert_eq!(wallet2.valid_password(&txn), false);
     assert!(wallet2.attempt_password(&txn, "password"));
     assert_eq!(wallet2.valid_password(&txn), true);
@@ -569,12 +575,12 @@ fn wallet_store_move() {
     let wallet1 = fixture.create_wallet("0");
     let key = PrivateKey::new();
     {
-        let mut txn = fixture.env.begin_write();
+        let mut txn = fixture.begin_write_txn();
         wallet1.insert_adhoc(&mut txn, &key.raw_key());
         txn.commit();
     }
     let wallet2 = fixture.create_wallet("1");
-    let mut txn = fixture.env.begin_write();
+    let mut txn = fixture.begin_write_txn();
     let key2 = PrivateKey::new();
     wallet2.insert_adhoc(&mut txn, &key2.raw_key());
     assert_eq!(wallet1.exists(&txn, &key2.public_key()), false);
@@ -829,7 +835,7 @@ fn insert_locked() {
 fn deterministic_keys() {
     let fixture = TestFixture::new();
     let wallet = fixture.create_wallet("0");
-    let mut txn = fixture.env.begin_write();
+    let mut txn = fixture.begin_write_txn();
     let key1 = wallet.deterministic_key(&txn, 0);
     let key2 = wallet.deterministic_key(&txn, 0);
     assert_eq!(key1, key2);
@@ -868,7 +874,7 @@ fn reseed() {
     let fixture = TestFixture::new();
     let wallet = fixture.create_wallet("0");
 
-    let mut txn = fixture.env.begin_write();
+    let mut txn = fixture.begin_write_txn();
     let seed1 = RawKey::from(1);
     let seed2 = RawKey::from(2);
     wallet.set_seed(&mut txn, &seed1);

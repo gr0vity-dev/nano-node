@@ -15,6 +15,8 @@ use store_traits::ledger::{
 };
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
+use crate::transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn};
+
 #[cfg(feature = "ledger_snapshots")]
 use crate::forks_store::LmdbForksStore;
 use crate::{
@@ -70,11 +72,11 @@ impl LedgerStore for LmdbStore {
     }
 
     fn begin_read(&self) -> Box<dyn LedgerReadTxn> {
-        Box::new(self.env.begin_read())
+        Box::new(LmdbLedgerReadTxn::new(self.env.begin_read()))
     }
 
     fn begin_write(&self) -> Box<dyn LedgerWriteTxn> {
-        Box::new(self.env.begin_write())
+        Box::new(LmdbLedgerWriteTxn::new(self.env.begin_write()))
     }
 
     fn sync(&self) -> anyhow::Result<()> {

@@ -113,7 +113,7 @@ impl RepWeightsUpdater {
 mod tests {
     use super::*;
     use rsnano_nullable_lmdb::LmdbEnvironment;
-    use rsnano_store_lmdb::LmdbRepWeightStore;
+    use rsnano_store_lmdb::{LmdbLedgerWriteTxn, LmdbRepWeightStore};
 
     #[test]
     fn representation_changes() {
@@ -144,10 +144,10 @@ mod tests {
         let rep_weights = RepWeightCache::new();
         let rep_weights_updater = RepWeightsUpdater::new(store, Amount::ZERO, &rep_weights);
         rep_weights_updater.representation_put(representative, weight);
-        let mut txn = env.begin_write();
+        let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
         lmdb_store.put(&mut txn, representative, weight);
-        txn.commit();
-        let mut txn = env.begin_write();
+        txn.into_inner().commit();
+        let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
 
         // set weight to 0
         rep_weights_updater.representation_add(
@@ -155,7 +155,7 @@ mod tests {
             representative,
             Amount::ZERO.wrapping_sub(weight),
         );
-        txn.commit();
+        txn.into_inner().commit();
 
         assert_eq!(rep_weights.len(), 0);
         assert_eq!(delete_tracker.output(), vec![representative]);
@@ -175,11 +175,11 @@ mod tests {
         let rep_weights_updater = RepWeightsUpdater::new(store, Amount::ZERO, &rep_weights);
         rep_weights_updater.representation_put(rep1, weight);
         rep_weights_updater.representation_put(rep2, weight);
-        let mut txn = env.begin_write();
+        let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
         lmdb_store.put(&mut txn, rep1, weight);
         lmdb_store.put(&mut txn, rep2, weight);
-        txn.commit();
-        let mut txn = env.begin_write();
+        txn.into_inner().commit();
+        let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
 
         // set weight to 0
         rep_weights_updater.representation_add_dual(
@@ -189,7 +189,7 @@ mod tests {
             rep2,
             Amount::ZERO.wrapping_sub(weight),
         );
-        txn.commit();
+        txn.into_inner().commit();
 
         assert_eq!(rep_weights.len(), 0);
         assert_eq!(delete_tracker.output(), vec![rep1, rep2]);
@@ -200,7 +200,7 @@ mod tests {
         let env = Arc::new(LmdbEnvironment::new_null());
         let store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
         let put_tracker = store.track_puts();
-        let mut txn = env.begin_write();
+        let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
         let representative = PublicKey::from(1);
         let min_weight = Amount::from(10);
         let rep_weight = Amount::from(9);
@@ -208,7 +208,7 @@ mod tests {
         let rep_weights_updater = RepWeightsUpdater::new(store, min_weight, &rep_weights);
 
         rep_weights_updater.representation_add(&mut txn, representative, rep_weight);
-        txn.commit();
+        txn.into_inner().commit();
 
         assert_eq!(rep_weights.len(), 0);
         assert_eq!(put_tracker.output(), vec![(representative, rep_weight)]);
@@ -221,12 +221,12 @@ mod tests {
         let env = Arc::new(LmdbEnvironment::new_null());
         let store = Arc::new(LmdbRepWeightStore::new(&env).unwrap());
         {
-            let mut seed_txn = env.begin_write();
+            let mut seed_txn = LmdbLedgerWriteTxn::new(env.begin_write());
             store.put(&mut seed_txn, representative, weight);
-            seed_txn.commit();
+            seed_txn.into_inner().commit();
         }
         let put_tracker = store.track_puts();
-        let mut txn = env.begin_write();
+        let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
         let min_weight = Amount::from(10);
         let rep_weights = RepWeightCache::new();
         let rep_weights_updater = RepWeightsUpdater::new(store, min_weight, &rep_weights);
@@ -236,7 +236,7 @@ mod tests {
             representative,
             Amount::ZERO.wrapping_sub(Amount::from(2)),
         );
-        txn.commit();
+        txn.into_inner().commit();
 
         assert_eq!(rep_weights.len(), 0);
         assert_eq!(put_tracker.output(), vec![(representative, 9.into())]);

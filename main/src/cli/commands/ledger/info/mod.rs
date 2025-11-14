@@ -1,6 +1,8 @@
 use clap::{CommandFactory, Parser, Subcommand};
 
-use rsnano_store_lmdb::{LmdbPeerStore, default_ledger_lmdb_options};
+use rsnano_store_lmdb::{
+    LmdbLedgerReadTxn, LmdbPeerStore, default_ledger_lmdb_options,
+};
 
 use crate::cli::GlobalArgs;
 use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
@@ -32,7 +34,7 @@ impl InfoCommand {
         let options = default_ledger_lmdb_options(path);
         let env = LmdbEnvironmentFactory::default().create(options)?;
         let peer_store = LmdbPeerStore::new(&env)?;
-        let txn = env.begin_read();
+        let txn = LmdbLedgerReadTxn::new(env.begin_read());
 
         for peer in peer_store.iter(&txn) {
             println!("{:?}", peer.0);

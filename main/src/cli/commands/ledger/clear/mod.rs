@@ -4,7 +4,9 @@ mod final_vote;
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 
-use rsnano_store_lmdb::{LmdbOnlineWeightStore, LmdbPeerStore, default_ledger_lmdb_options};
+use rsnano_store_lmdb::{
+    LmdbLedgerWriteTxn, LmdbOnlineWeightStore, LmdbPeerStore, default_ledger_lmdb_options,
+};
 
 use crate::cli::GlobalArgs;
 use confirmation_height::ConfirmationHeightArgs;
@@ -49,7 +51,7 @@ impl ClearCommand {
         let options = default_ledger_lmdb_options(path);
         let env = LmdbEnvironmentFactory::default().create(options)?;
         let online_weight_store = LmdbOnlineWeightStore::new(&env)?;
-        let mut txn = env.begin_write();
+        let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
 
         online_weight_store.clear(&mut txn);
         txn.commit();
@@ -63,7 +65,7 @@ impl ClearCommand {
         let options = default_ledger_lmdb_options(path);
         let env = LmdbEnvironmentFactory::default().create(options)?;
         let peer_store = LmdbPeerStore::new(&env)?;
-        let mut txn = env.begin_write();
+        let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
 
         peer_store.clear(&mut txn);
         txn.commit();

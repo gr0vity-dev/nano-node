@@ -70,33 +70,34 @@ const TABLE_NAME: &str = "successors";
 mod tests {
     use super::*;
     use rsnano_nullable_lmdb::{DeleteEvent, Error, PutEvent};
+    use std::sync::Arc;
 
     #[test]
     fn initialize() {
-        let (store, _) = create_test_store(&[]);
-        assert_eq!(store.database, TEST_DATABASE);
+        let fixture = Fixture::with_entries(&[]);
+        assert_eq!(fixture.store.database, TEST_DATABASE);
     }
 
     #[test]
     fn count() {
-        let (store, env) = create_test_store(&[
+        let fixture = Fixture::with_entries(&[
             (1.into(), 2.into()),
             (3.into(), 4.into()),
             (5.into(), 6.into()),
         ]);
-        let tx = env.begin_read();
-        assert_eq!(store.count(&tx), 3);
+        let tx = fixture.begin_read_txn();
+        assert_eq!(fixture.store.count(&tx), 3);
     }
 
     #[test]
     fn put() {
-        let (store, env) = create_test_store(&[]);
-        let mut tx = env.begin_write();
-        let put_tracker = tx.track_puts();
+        let fixture = Fixture::with_entries(&[]);
+        let mut tx = fixture.begin_write_txn();
+        let put_tracker = tx.as_inner_mut().track_puts();
         let block = BlockHash::from(1);
         let successor = BlockHash::from(2);
 
-        store.put(&mut tx, &block, &successor);
+        fixture.store.put(&mut tx, &block, &successor);
 
         assert_eq!(
             put_tracker.output(),
@@ -111,36 +112,36 @@ mod tests {
 
     #[test]
     fn track_puts() {
-        let (store, env) = create_test_store(&[]);
-        let put_tracker = store.track_puts();
-        let mut tx = env.begin_write();
+        let fixture = Fixture::with_entries(&[]);
+        let put_tracker = fixture.store.track_puts();
+        let mut tx = fixture.begin_write_txn();
         let block = BlockHash::from(1);
         let successor = BlockHash::from(2);
 
-        store.put(&mut tx, &block, &successor);
+        fixture.store.put(&mut tx, &block, &successor);
 
         assert_eq!(put_tracker.output(), vec![(block, successor)]);
     }
 
     #[test]
     fn get() {
-        let (store, env) = create_test_store(&[
+        let fixture = Fixture::with_entries(&[
             (1.into(), 2.into()),
             (3.into(), 4.into()),
             (5.into(), 6.into()),
         ]);
 
-        let tx = env.begin_read();
-        let successor = store.get(&tx, &3.into());
+        let tx = fixture.begin_read_txn();
+        let successor = fixture.store.get(&tx, &3.into());
         assert_eq!(successor, Some(4.into()))
     }
 
     #[test]
     fn no_successor_found() {
-        let (store, env) = create_test_store(&[]);
+        let fixture = Fixture::with_entries(&[]);
 
-        let tx = env.begin_read();
-        let successor = store.get(&tx, &3.into());
+        let tx = fixture.begin_read_txn();
+        let successor = fixture.store.get(&tx, &3.into());
         assert_eq!(successor, None);
     }
 
@@ -153,19 +154,19 @@ mod tests {
             .error(block_hash.as_bytes(), Error::PageNotFound)
             .build()
             .build();
-        let store = LmdbSuccessorStore::new(&env).unwrap();
-        let tx = env.begin_read();
-        store.get(&tx, &block_hash);
+        let fixture = Fixture::with_env(env);
+        let tx = fixture.begin_read_txn();
+        fixture.store.get(&tx, &block_hash);
     }
 
     #[test]
     fn delete() {
-        let (store, env) = create_test_store(&[]);
-        let mut tx = env.begin_write();
-        let delete_tracker = tx.track_deletions();
+        let fixture = Fixture::with_entries(&[]);
+        let mut tx = fixture.begin_write_txn();
+        let delete_tracker = tx.as_inner_mut().track_deletions();
 
         let block_hash = BlockHash::from(123);
-        store.del(&mut tx, &block_hash);
+        fixture.store.del(&mut tx, &block_hash);
 
         assert_eq!(
             delete_tracker.output(),
@@ -178,17 +179,35 @@ mod tests {
 
     const TEST_DATABASE: LmdbDatabase = LmdbDatabase::new_null(42);
 
-    fn create_test_store(
-        entries: &[(BlockHash, BlockHash)],
-    ) -> (LmdbSuccessorStore, LmdbEnvironment) {
-        let mut env_builder = LmdbEnvironment::null_builder().database(TABLE_NAME, TEST_DATABASE);
+    struct Fixture {
+        env: Arc<LmdbEnvironment>,
+        store: LmdbSuccessorStore,
+    }
 
-        for (block_hash, successor) in entries {
-            env_builder = env_builder.entry(block_hash.as_bytes(), successor.as_bytes());
+    impl Fixture {
+        fn with_entries(entries: &[(BlockHash, BlockHash)]) -> Self {
+            let mut builder =
+                LmdbEnvironment::null_builder().database(TABLE_NAME, TEST_DATABASE);
+
+            for (block_hash, successor) in entries {
+                builder = builder.entry(block_hash.as_bytes(), successor.as_bytes());
+            }
+
+            Self::with_env(builder.build().build())
         }
 
-        let lmdb_env = env_builder.build().build();
-        let store = LmdbSuccessorStore::new(&lmdb_env).unwrap();
-        (store, lmdb_env)
+        fn with_env(env: LmdbEnvironment) -> Self {
+            let env = Arc::new(env);
+            let store = LmdbSuccessorStore::new(&env).unwrap();
+            Self { env, store }
+        }
+
+        fn begin_read_txn(&self) -> crate::transaction::LmdbLedgerReadTxn {
+            crate::transaction::LmdbLedgerReadTxn::new(self.env.begin_read())
+        }
+
+        fn begin_write_txn(&self) -> crate::transaction::LmdbLedgerWriteTxn {
+            crate::transaction::LmdbLedgerWriteTxn::new(self.env.begin_write())
+        }
     }
 }

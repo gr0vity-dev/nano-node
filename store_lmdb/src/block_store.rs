@@ -254,13 +254,21 @@ mod tests {
                 store: LmdbBlockStore::new(&env).unwrap(),
             }
         }
+
+        fn begin_read(&self) -> crate::transaction::LmdbLedgerReadTxn {
+            crate::transaction::LmdbLedgerReadTxn::new(self.env.begin_read())
+        }
+
+        fn begin_write(&self) -> crate::transaction::LmdbLedgerWriteTxn {
+            crate::transaction::LmdbLedgerWriteTxn::new(self.env.begin_write())
+        }
     }
 
     #[test]
     fn empty() {
         let fixture = Fixture::new();
         let store = &fixture.store;
-        let txn = fixture.env.begin_read();
+        let txn = fixture.begin_read();
 
         assert!(store.get(&txn, &BlockHash::from(1)).is_none());
         assert_eq!(store.exists(&txn, &BlockHash::from(1)), false);
@@ -281,7 +289,7 @@ mod tests {
             .build();
 
         let fixture = Fixture::with_env(env);
-        let txn = fixture.env.begin_read();
+        let txn = fixture.begin_read();
 
         let result = fixture.store.get(&txn, &block.hash());
         assert_eq!(result, Some(block));
@@ -290,8 +298,8 @@ mod tests {
     #[test]
     fn add_block() {
         let fixture = Fixture::new();
-        let mut txn = fixture.env.begin_write();
-        let put_tracker = txn.track_puts();
+        let mut txn = fixture.begin_write();
+        let put_tracker = txn.as_inner_mut().track_puts();
         let block = SavedBlock::new_test_open_block();
 
         fixture.store.put(&mut txn, &block);
@@ -319,7 +327,7 @@ mod tests {
     fn track_inserted_blocks() {
         let fixture = Fixture::new();
         let block = SavedBlock::new_test_open_block();
-        let mut txn = fixture.env.begin_write();
+        let mut txn = fixture.begin_write();
         let put_tracker = fixture.store.track_puts();
 
         fixture.store.put(&mut txn, &block);
@@ -337,7 +345,7 @@ mod tests {
             .configured_database(block_index)
             .configured_database(block_data)
             .build();
-        let txn = env.begin_read();
+        let txn = crate::transaction::LmdbLedgerReadTxn::new(env.begin_read());
         let block_store = LmdbBlockStore::new(&env).unwrap();
         assert_eq!(block_store.get(&txn, &block.hash()), Some(block));
     }

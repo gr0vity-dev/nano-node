@@ -1,7 +1,10 @@
 use rsnano_nullable_lmdb::{DatabaseFlags, LmdbEnvironment, WriteFlags};
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
-use crate::{LmdbDatabase, STORE_VERSION_CURRENT, store_utils::store_write_flags_from};
+use crate::{
+    LmdbDatabase, STORE_VERSION_CURRENT, store_utils::store_write_flags_from,
+    transaction::LmdbLedgerReadTxn,
+};
 
 pub struct LmdbVersionStore {
     /// U256 (arbitrary key) -> blob
@@ -23,7 +26,7 @@ impl LmdbVersionStore {
     pub fn try_read_version(env: &LmdbEnvironment) -> Option<i32> {
         match env.open_db(Some("meta")) {
             Ok(db) => {
-                let txn = env.begin_read();
+                let txn = LmdbLedgerReadTxn::new(env.begin_read());
                 load_version(&txn, db)
             }
             Err(_) => None,

@@ -3,7 +3,9 @@ use clap::Parser;
 use rsnano_nullable_console::Console;
 use rsnano_nullable_fs::NullableFilesystem;
 use rsnano_nullable_lmdb::{LmdbEnvironment, LmdbEnvironmentFactory};
-use rsnano_store_lmdb::{EnvironmentFlags, EnvironmentOptions, LmdbStore};
+use rsnano_store_lmdb::{
+    EnvironmentFlags, EnvironmentOptions, LmdbLedgerReadTxn, LmdbStore,
+};
 use rsnano_types::{Account, AccountInfo, BlockHash};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -27,8 +29,8 @@ impl LedgerDiff {
         let env_right = self.open_ledger(args.right)?;
         let store_left = LmdbStore::new(env_left)?;
         let store_right = LmdbStore::new(env_right)?;
-        let txn_l = store_left.env.begin_read();
-        let txn_r = store_right.env.begin_read();
+        let txn_l = LmdbLedgerReadTxn::new(store_left.env.begin_read());
+        let txn_r = LmdbLedgerReadTxn::new(store_right.env.begin_read());
         let mut acc_iter_l = store_left.account.iter(&txn_l).fuse();
         let mut acc_iter_r = store_right.account.iter(&txn_r).fuse();
         let mut current_l = acc_iter_l.next();

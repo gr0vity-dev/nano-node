@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use clap::{ArgGroup, Parser};
 
-use rsnano_store_lmdb::{LmdbFinalVoteStore, default_ledger_lmdb_options};
+use rsnano_store_lmdb::{LmdbFinalVoteStore, LmdbLedgerWriteTxn, default_ledger_lmdb_options};
 use rsnano_types::QualifiedRoot;
 
 use crate::cli::GlobalArgs;
@@ -26,7 +26,7 @@ impl FinalVoteArgs {
         let options = default_ledger_lmdb_options(path);
         let env = LmdbEnvironmentFactory::default().create(options)?;
         let final_vote_store = LmdbFinalVoteStore::new(&env)?;
-        let mut txn = env.begin_write();
+        let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
 
         if let Some(root) = &self.root {
             let root_decoded =
