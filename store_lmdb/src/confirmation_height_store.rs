@@ -4,11 +4,16 @@ use rsnano_nullable_lmdb::{
     ConfiguredDatabase, DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags,
 };
 use rsnano_types::{Account, ConfirmationHeightInfo};
-use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
+use store_traits::{
+    transaction::{LedgerReadTxn, LedgerWriteTxn},
+    types::StoreDatabase,
+};
 
 use crate::{
     CONFIRMATION_HEIGHT_TEST_DATABASE, LmdbIterator, LmdbRangeIterator, parallel_traversal,
-    store_utils::{lmdb_ro_cursor_from_store, store_write_flags_from},
+    store_utils::{
+        lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from,
+    },
     transaction::LmdbLedgerReadTxn,
 };
 
@@ -27,6 +32,10 @@ impl LmdbConfirmationHeightStore {
         self.database
     }
 
+    fn store_database(&self) -> StoreDatabase {
+        store_database_from_lmdb(self.database)
+    }
+
     pub fn put(
         &self,
         txn: &mut dyn LedgerWriteTxn,
@@ -34,7 +43,7 @@ impl LmdbConfirmationHeightStore {
         info: &ConfirmationHeightInfo,
     ) {
         txn.put(
-            self.database.into(),
+            self.store_database(),
             account.as_bytes(),
             &info.to_bytes(),
             store_write_flags_from(WriteFlags::empty()),
@@ -47,7 +56,7 @@ impl LmdbConfirmationHeightStore {
         txn: &dyn LedgerReadTxn,
         account: &Account,
     ) -> Option<ConfirmationHeightInfo> {
-        match txn.get(self.database.into(), account.as_bytes()) {
+        match txn.get(self.store_database(), account.as_bytes()) {
             Err(e) if e.is_not_found() => None,
             Ok(mut bytes) => Some(
                 ConfirmationHeightInfo::deserialize(&mut bytes)
@@ -60,7 +69,7 @@ impl LmdbConfirmationHeightStore {
     }
 
     pub fn exists(&self, txn: &dyn LedgerReadTxn, account: &Account) -> bool {
-        match txn.get(self.database.into(), account.as_bytes()) {
+        match txn.get(self.store_database(), account.as_bytes()) {
             Ok(_) => true,
             Err(e) if e.is_not_found() => false,
             Err(e) => panic!("Could not check confirmation height entry: {:?}", e),
@@ -68,23 +77,23 @@ impl LmdbConfirmationHeightStore {
     }
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, account: &Account) {
-        txn.delete(self.database.into(), account.as_bytes(), None)
+        txn.delete(self.store_database(), account.as_bytes(), None)
             .unwrap();
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.database.into())
+        txn.count(self.store_database())
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.clear_db(self.database.into()).unwrap()
+        txn.clear_db(self.store_database()).unwrap()
     }
 
     pub fn iter<'tx>(
         &self,
         tx: &'tx dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (Account, ConfirmationHeightInfo)> + 'tx + use<'tx> {
-        let cursor = tx.open_ro_cursor(self.database.into()).unwrap();
+        let cursor = tx.open_ro_cursor(self.store_database()).unwrap();
         let cursor = lmdb_ro_cursor_from_store(cursor);
         LmdbIterator::new(cursor, read_conf_height_record)
     }
@@ -94,7 +103,7 @@ impl LmdbConfirmationHeightStore {
         tx: &'txn dyn LedgerReadTxn,
         range: impl RangeBounds<Account> + 'static,
     ) -> impl Iterator<Item = (Account, ConfirmationHeightInfo)> + 'txn {
-        let cursor = tx.open_ro_cursor(self.database.into()).unwrap();
+        let cursor = tx.open_ro_cursor(self.store_database()).unwrap();
         let cursor = lmdb_ro_cursor_from_store(cursor);
         LmdbRangeIterator::new(
             cursor,

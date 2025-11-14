@@ -21,7 +21,7 @@ use store_traits::{
 
 use crate::{
     Fan, LmdbDatabase, LmdbRangeIterator,
-    store_utils::{lmdb_ro_cursor_from_store, store_write_flags_from},
+    store_utils::{lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from},
     wallet_txn_shim::WalletWriteTxnSHIM,
 };
 
@@ -234,7 +234,7 @@ impl LmdbWalletStore {
     }
 
     fn store_db(&self) -> StoreDatabase {
-        self.db_handle().into()
+        store_database_from_lmdb(self.db_handle())
     }
 
     pub fn entry_get_raw(&self, txn: &dyn WalletReadTxn, pub_key: &PublicKey) -> WalletValue {

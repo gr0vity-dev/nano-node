@@ -6,11 +6,16 @@ use rsnano_nullable_lmdb::{
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{Amount, PublicKey};
-use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
+use store_traits::{
+    transaction::{LedgerReadTxn, LedgerWriteTxn},
+    types::StoreDatabase,
+};
 
 use crate::{
     REP_WEIGHT_TEST_DATABASE,
-    store_utils::{lmdb_ro_cursor_from_store, store_write_flags_from},
+    store_utils::{
+        lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from,
+    },
 };
 
 pub struct LmdbRepWeightStore {
@@ -38,8 +43,12 @@ impl LmdbRepWeightStore {
         self.put_listener.track()
     }
 
+    fn store_database(&self) -> StoreDatabase {
+        store_database_from_lmdb(self.database)
+    }
+
     pub fn get(&self, txn: &dyn LedgerReadTxn, pub_key: &PublicKey) -> Option<Amount> {
-        match txn.get(self.database.into(), pub_key.as_bytes()) {
+        match txn.get(self.store_database(), pub_key.as_bytes()) {
             Ok(mut bytes) => Some(Amount::deserialize(&mut bytes).expect("Should be valid amount")),
             Err(e) if e.is_not_found() => None,
             Err(e) => {
@@ -52,7 +61,7 @@ impl LmdbRepWeightStore {
         self.put_listener.emit((representative, weight));
 
         txn.put(
-            self.database.into(),
+            self.store_database(),
             representative.as_bytes(),
             &weight.to_be_bytes(),
             store_write_flags_from(WriteFlags::empty()),
@@ -63,16 +72,16 @@ impl LmdbRepWeightStore {
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, representative: &PublicKey) {
         self.delete_listener.emit(*representative);
 
-        txn.delete(self.database.into(), representative.as_bytes(), None)
+        txn.delete(self.store_database(), representative.as_bytes(), None)
             .unwrap();
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.database.into())
+        txn.count(self.store_database())
     }
 
     pub fn iter<'a>(&self, txn: &'a dyn LedgerReadTxn) -> RepWeightIterator<'a> {
-        let cursor = txn.open_ro_cursor(self.database.into()).unwrap();
+        let cursor = txn.open_ro_cursor(self.store_database()).unwrap();
         let cursor = lmdb_ro_cursor_from_store(cursor);
         RepWeightIterator {
             cursor,

@@ -9,9 +9,12 @@ use store_traits::environment::{
     StoreCursor, StoreEnvironment, StoreEnvironmentFactory, StoreEnvironmentOptions, StoreReadTxn,
     StoreWriteTxn,
 };
-use store_traits::types::{StoreDatabase, StoreError, StoreResult, StoreWriteFlags};
+use store_traits::types::{StoreDatabase, StoreResult, StoreWriteFlags};
 
-use crate::store_utils::{lmdb_env_flags_from, lmdb_write_flags_from};
+use crate::store_utils::{
+    lmdb_database_from_store, lmdb_env_flags_from, lmdb_write_flags_from,
+    store_database_from_lmdb, store_error_from_lmdb,
+};
 
 pub struct LmdbCursor<'txn> {
     inner: rsnano_nullable_lmdb::RoCursor<'txn>,
@@ -35,7 +38,7 @@ impl<'txn> StoreCursor<'txn> for LmdbCursor<'txn> {
             Ok((Some(key), value)) => Ok(Some((key, value))),
             Ok((None, _)) => Ok(None),
             Err(rsnano_nullable_lmdb::Error::NotFound) => Ok(None),
-            Err(e) => Err(e.into()),
+            Err(e) => Err(store_error_from_lmdb(e)),
         }
     }
 }
@@ -62,7 +65,7 @@ impl<'txn> StoreCursor<'txn> for LmdbMutCursor<'txn> {
             Ok((Some(key), value)) => Ok(Some((key, value))),
             Ok((None, _)) => Ok(None),
             Err(rsnano_nullable_lmdb::Error::NotFound) => Ok(None),
-            Err(e) => Err(e.into()),
+            Err(e) => Err(store_error_from_lmdb(e)),
         }
     }
 }
@@ -92,19 +95,20 @@ impl<'env> StoreReadTxn<'env> for LmdbReadTxn<'env> {
     where
         'env: 'txn,
     {
-        LmdbTxn::get(&self.inner, database.into(), key).map_err(Into::into)
+        LmdbTxn::get(&self.inner, lmdb_database_from_store(database), key)
+            .map_err(store_error_from_lmdb)
     }
 
     fn count(&self, database: StoreDatabase) -> u64 {
-        LmdbTxn::count(&self.inner, database.into())
+        LmdbTxn::count(&self.inner, lmdb_database_from_store(database))
     }
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
     where
         'env: 'txn,
     {
-        let cursor =
-            LmdbTxn::open_ro_cursor(&self.inner, database.into()).map_err(StoreError::from)?;
+        let cursor = LmdbTxn::open_ro_cursor(&self.inner, lmdb_database_from_store(database))
+            .map_err(store_error_from_lmdb)?;
         Ok(LmdbCursor::new(cursor))
     }
 
@@ -141,19 +145,20 @@ impl<'env> StoreReadTxn<'env> for LmdbWriteTxn<'env> {
     where
         'env: 'txn,
     {
-        LmdbTxn::get(&self.inner, database.into(), key).map_err(Into::into)
+        LmdbTxn::get(&self.inner, lmdb_database_from_store(database), key)
+            .map_err(store_error_from_lmdb)
     }
 
     fn count(&self, database: StoreDatabase) -> u64 {
-        LmdbTxn::count(&self.inner, database.into())
+        LmdbTxn::count(&self.inner, lmdb_database_from_store(database))
     }
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
     where
         'env: 'txn,
     {
-        let cursor =
-            LmdbTxn::open_ro_cursor(&self.inner, database.into()).map_err(StoreError::from)?;
+        let cursor = LmdbTxn::open_ro_cursor(&self.inner, lmdb_database_from_store(database))
+            .map_err(store_error_from_lmdb)?;
         Ok(LmdbCursor::new(cursor))
     }
 
@@ -180,8 +185,13 @@ impl<'env> StoreWriteTxn<'env> for LmdbWriteTxn<'env> {
         flags: StoreWriteFlags,
     ) -> StoreResult<()> {
         self.inner
-            .put(database.into(), key, value, lmdb_write_flags_from(flags))
-            .map_err(Into::into)
+            .put(
+                lmdb_database_from_store(database),
+                key,
+                value,
+                lmdb_write_flags_from(flags),
+            )
+            .map_err(store_error_from_lmdb)
     }
 
     fn delete(
@@ -191,12 +201,14 @@ impl<'env> StoreWriteTxn<'env> for LmdbWriteTxn<'env> {
         value: Option<&[u8]>,
     ) -> StoreResult<()> {
         self.inner
-            .delete(database.into(), key, value)
-            .map_err(Into::into)
+            .delete(lmdb_database_from_store(database), key, value)
+            .map_err(store_error_from_lmdb)
     }
 
     fn clear_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
-        self.inner.clear_db(database.into()).map_err(Into::into)
+        self.inner
+            .clear_db(lmdb_database_from_store(database))
+            .map_err(store_error_from_lmdb)
     }
 
     fn open_rw_cursor<'txn>(
@@ -207,13 +219,14 @@ impl<'env> StoreWriteTxn<'env> for LmdbWriteTxn<'env> {
         'env: 'txn,
     {
         self.inner
-            .open_rw_cursor(database.into())
+            .open_rw_cursor(lmdb_database_from_store(database))
             .map(LmdbMutCursor::new)
-            .map_err(Into::into)
+            .map_err(store_error_from_lmdb)
     }
 
     unsafe fn drop_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
-        unsafe { self.inner.drop_db(database.into()) }.map_err(Into::into)
+        unsafe { self.inner.drop_db(lmdb_database_from_store(database)) }
+            .map_err(store_error_from_lmdb)
     }
 }
 
@@ -258,12 +271,12 @@ impl StoreEnvironment for LmdbStoreEnvironment {
     fn open_db(&self, name: Option<&str>) -> StoreResult<StoreDatabase> {
         self.inner
             .open_db(name)
-            .map(StoreDatabase::from)
-            .map_err(Into::into)
+            .map(store_database_from_lmdb)
+            .map_err(store_error_from_lmdb)
     }
 
     fn sync(&self) -> StoreResult<()> {
-        self.inner.sync().map_err(Into::into)
+        self.inner.sync().map_err(store_error_from_lmdb)
     }
 }
 

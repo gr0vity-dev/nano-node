@@ -1,10 +1,15 @@
 use rsnano_nullable_lmdb::{DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags};
 use rsnano_types::Amount;
-use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
+use store_traits::{
+    transaction::{LedgerReadTxn, LedgerWriteTxn},
+    types::StoreDatabase,
+};
 
 use crate::{
     LmdbIterator,
-    store_utils::{lmdb_ro_cursor_from_store, store_write_flags_from},
+    store_utils::{
+        lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from,
+    },
 };
 
 pub struct LmdbOnlineWeightStore {
@@ -21,11 +26,15 @@ impl LmdbOnlineWeightStore {
         self.database
     }
 
+    fn store_database(&self) -> StoreDatabase {
+        store_database_from_lmdb(self.database)
+    }
+
     pub fn put(&self, txn: &mut dyn LedgerWriteTxn, time: u64, amount: &Amount) {
         let time_bytes = time.to_be_bytes();
         let amount_bytes = amount.to_be_bytes();
         txn.put(
-            self.database.into(),
+            self.store_database(),
             &time_bytes,
             &amount_bytes,
             store_write_flags_from(WriteFlags::empty()),
@@ -35,14 +44,14 @@ impl LmdbOnlineWeightStore {
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, time: u64) {
         let time_bytes = time.to_be_bytes();
-        txn.delete(self.database.into(), &time_bytes, None).unwrap();
+        txn.delete(self.store_database(), &time_bytes, None).unwrap();
     }
 
     pub fn iter<'txn>(
         &self,
         tx: &'txn dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (u64, Amount)> + 'txn + use<'txn> {
-        let cursor = tx.open_ro_cursor(self.database.into()).unwrap();
+        let cursor = tx.open_ro_cursor(self.store_database()).unwrap();
         let cursor = lmdb_ro_cursor_from_store(cursor);
 
         LmdbIterator::new(cursor, |key, value| {
@@ -57,7 +66,7 @@ impl LmdbOnlineWeightStore {
         &self,
         tx: &'txn dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (u64, Amount)> + 'txn + use<'txn> {
-        let cursor = tx.open_ro_cursor(self.database.into()).unwrap();
+        let cursor = tx.open_ro_cursor(self.store_database()).unwrap();
         let cursor = lmdb_ro_cursor_from_store(cursor);
 
         LmdbIterator::new_descending(cursor, |key, value| {
@@ -68,11 +77,11 @@ impl LmdbOnlineWeightStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.database.into())
+        txn.count(self.store_database())
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.clear_db(self.database.into()).unwrap();
+        txn.clear_db(self.store_database()).unwrap();
     }
 }
 

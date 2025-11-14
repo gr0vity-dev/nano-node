@@ -1,5 +1,6 @@
 use crate::store_utils::{
-    lmdb_write_flags_from, store_ro_cursor_from_lmdb, store_rw_cursor_from_lmdb,
+    lmdb_database_from_store, lmdb_write_flags_from, store_error_from_lmdb,
+    store_ro_cursor_from_lmdb, store_rw_cursor_from_lmdb,
 };
 use std::ops::{Deref, DerefMut};
 
@@ -31,17 +32,18 @@ impl WalletReadTxnSHIM {
     }
 
     pub fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
-        LmdbTransaction::get(&self.inner, database.into(), key).map_err(Into::into)
+        LmdbTransaction::get(&self.inner, lmdb_database_from_store(database), key)
+            .map_err(store_error_from_lmdb)
     }
 
     pub fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
-        LmdbTransaction::open_ro_cursor(&self.inner, database.into())
+        LmdbTransaction::open_ro_cursor(&self.inner, lmdb_database_from_store(database))
             .map(store_ro_cursor_from_lmdb)
-            .map_err(Into::into)
+            .map_err(store_error_from_lmdb)
     }
 
     pub fn count(&self, database: StoreDatabase) -> u64 {
-        LmdbTransaction::count(&self.inner, database.into())
+        LmdbTransaction::count(&self.inner, lmdb_database_from_store(database))
     }
 
     pub fn into_inner(self) -> ReadTransaction {
@@ -85,8 +87,13 @@ impl WalletWriteTxnSHIM {
         flags: StoreWriteFlags,
     ) -> StoreResult<()> {
         self.inner
-            .put(database.into(), key, value, lmdb_write_flags_from(flags))
-            .map_err(Into::into)
+            .put(
+                lmdb_database_from_store(database),
+                key,
+                value,
+                lmdb_write_flags_from(flags),
+            )
+            .map_err(store_error_from_lmdb)
     }
 
     pub fn delete(
@@ -96,23 +103,26 @@ impl WalletWriteTxnSHIM {
         value: Option<&[u8]>,
     ) -> StoreResult<()> {
         self.inner
-            .delete(database.into(), key, value)
-            .map_err(Into::into)
+            .delete(lmdb_database_from_store(database), key, value)
+            .map_err(store_error_from_lmdb)
     }
 
     pub fn clear_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
-        self.inner.clear_db(database.into()).map_err(Into::into)
+        self.inner
+            .clear_db(lmdb_database_from_store(database))
+            .map_err(store_error_from_lmdb)
     }
 
     pub fn open_rw_cursor(&mut self, database: StoreDatabase) -> StoreResult<StoreRwCursor<'_>> {
         self.inner
-            .open_rw_cursor(database.into())
+            .open_rw_cursor(lmdb_database_from_store(database))
             .map(store_rw_cursor_from_lmdb)
-            .map_err(Into::into)
+            .map_err(store_error_from_lmdb)
     }
 
     pub unsafe fn drop_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
-        unsafe { self.inner.drop_db(database.into()) }.map_err(Into::into)
+        unsafe { self.inner.drop_db(lmdb_database_from_store(database)) }
+            .map_err(store_error_from_lmdb)
     }
 
     pub fn into_inner(self) -> WriteTransaction {
@@ -166,17 +176,18 @@ impl WalletReadTxn for WalletReadTxnSHIM {
 
 impl WalletReadTxn for WalletWriteTxnSHIM {
     fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
-        LmdbTransaction::get(&self.inner, database.into(), key).map_err(Into::into)
+        LmdbTransaction::get(&self.inner, lmdb_database_from_store(database), key)
+            .map_err(store_error_from_lmdb)
     }
 
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
-        LmdbTransaction::open_ro_cursor(&self.inner, database.into())
+        LmdbTransaction::open_ro_cursor(&self.inner, lmdb_database_from_store(database))
             .map(store_ro_cursor_from_lmdb)
-            .map_err(Into::into)
+            .map_err(store_error_from_lmdb)
     }
 
     fn count(&self, database: StoreDatabase) -> u64 {
-        LmdbTransaction::count(&self.inner, database.into())
+        LmdbTransaction::count(&self.inner, lmdb_database_from_store(database))
     }
 
     fn commit(self: Box<Self>) {

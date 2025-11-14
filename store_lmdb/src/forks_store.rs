@@ -1,9 +1,15 @@
-use crate::{FORKS_TEST_DATABASE, LmdbIterator};
+use crate::{
+    FORKS_TEST_DATABASE, LmdbIterator,
+    store_utils::{store_database_from_lmdb, store_error_from_lmdb},
+};
 use rsnano_nullable_lmdb::{
     ConfiguredDatabase, DatabaseFlags, Error, LmdbDatabase, LmdbEnvironment, WriteFlags,
 };
 use rsnano_types::{QualifiedRoot, SnapshotNumber, read_u32_be};
-use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
+use store_traits::{
+    transaction::{LedgerReadTxn, LedgerWriteTxn},
+    types::StoreDatabase,
+};
 
 /// Maps the qualified roots to the snapshot number when the fork was detected
 pub struct LmdbForksStore {
@@ -21,6 +27,10 @@ impl LmdbForksStore {
         self.database
     }
 
+    fn store_database(&self) -> StoreDatabase {
+        store_database_from_lmdb(self.database)
+    }
+
     /// Returns *true* if root was inserted or the same root was already in the database
     pub fn put(
         &self,
@@ -29,7 +39,7 @@ impl LmdbForksStore {
         snapshot_number: SnapshotNumber,
     ) {
         txn.put(
-            self.database.into(),
+            self.store_database(),
             &root.to_bytes(),
             &snapshot_number.to_be_bytes(),
             WriteFlags::empty().into(),
@@ -38,7 +48,7 @@ impl LmdbForksStore {
     }
 
     pub fn get(&self, tx: &dyn LedgerReadTxn, root: &QualifiedRoot) -> Option<SnapshotNumber> {
-        let result = tx.get(self.database.into(), &root.to_bytes());
+        let result = tx.get(self.store_database(), &root.to_bytes());
         match result {
             Err(Error::NotFound) => None,
             Ok(mut bytes) => Some(read_u32_be(&mut bytes).unwrap()),
@@ -48,7 +58,7 @@ impl LmdbForksStore {
 
     pub fn del(&self, tx: &mut dyn LedgerWriteTxn, root: &QualifiedRoot) {
         let root_bytes = root.to_bytes();
-        tx.delete(self.database.into(), &root_bytes, None).unwrap();
+        tx.delete(self.store_database(), &root_bytes, None).unwrap();
     }
 
     pub fn iter<'tx>(
@@ -56,7 +66,8 @@ impl LmdbForksStore {
         tx: &'tx dyn LedgerReadTxn,
     ) -> impl Iterator<Item = (QualifiedRoot, SnapshotNumber)> + 'tx + use<'tx> {
         let cursor = tx
-            .open_ro_cursor(self.database.into())
+            .open_ro_cursor(self.store_database())
+            .map_err(store_error_from_lmdb)
             .unwrap()
             .into_inner();
         LmdbIterator::new(cursor, read_fork_record)

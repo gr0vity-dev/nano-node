@@ -12,11 +12,16 @@ use rsnano_nullable_lmdb::{
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{BlockHash, SavedBlock};
-use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
+use store_traits::{
+    transaction::{LedgerReadTxn, LedgerWriteTxn},
+    types::StoreDatabase,
+};
 
 use crate::{
     BLOCK_DATA_DATABASE, BLOCK_INDEX_DATABASE, LmdbIterator, LmdbRangeIterator,
-    store_utils::{lmdb_ro_cursor_from_store, store_write_flags_from},
+    store_utils::{
+        lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from,
+    },
 };
 
 pub struct LmdbBlockStore {
@@ -84,6 +89,14 @@ impl LmdbBlockStore {
         self.put_listener.track()
     }
 
+    fn index_db_handle(&self) -> StoreDatabase {
+        store_database_from_lmdb(self.index_db)
+    }
+
+    fn block_db_handle(&self) -> StoreDatabase {
+        store_database_from_lmdb(self.block_db)
+    }
+
     pub fn put(&self, txn: &mut dyn LedgerWriteTxn, block: &SavedBlock) {
         if self.put_listener.is_tracked() {
             self.put_listener.emit(block.clone());
@@ -93,7 +106,7 @@ impl LmdbBlockStore {
     }
 
     pub fn exists(&self, transaction: &dyn LedgerReadTxn, hash: &BlockHash) -> bool {
-        match transaction.get(self.index_db.into(), hash.as_bytes()) {
+        match transaction.get(self.index_db_handle(), hash.as_bytes()) {
             Ok(_) => true,
             Err(e) if e.is_not_found() => false,
             Err(e) => panic!("Could not check block index: {:?}", e),
@@ -108,20 +121,20 @@ impl LmdbBlockStore {
     }
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, hash: &BlockHash) {
-        let id = match txn.get(self.index_db.into(), hash.as_bytes()) {
+        let id = match txn.get(self.index_db_handle(), hash.as_bytes()) {
             Ok(id_bytes) => get_block_id(id_bytes),
             Err(e) if e.is_not_found() => return,
             Err(e) => panic!("Could not delete block: {e:?} (hash: {hash})"),
         };
 
-        txn.delete(self.block_db.into(), &id.to_be_bytes(), None)
+        txn.delete(self.block_db_handle(), &id.to_be_bytes(), None)
             .expect("Could not delete block data (ID: {id})");
-        txn.delete(self.index_db.into(), hash.as_bytes(), None)
+        txn.delete(self.index_db_handle(), hash.as_bytes(), None)
             .expect("Could not delete block index (hash: {hash})");
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.index_db.into())
+        txn.count(self.index_db_handle())
     }
 
     pub fn iter<'tx>(
@@ -129,13 +142,13 @@ impl LmdbBlockStore {
         tx: &'tx dyn LedgerReadTxn,
     ) -> impl Iterator<Item = SavedBlock> + 'tx {
         let cursor = tx
-            .open_ro_cursor(self.index_db.into())
+            .open_ro_cursor(self.index_db_handle())
             .expect("Could not open cursor for block index table");
         let cursor = lmdb_ro_cursor_from_store(cursor);
 
         LmdbIterator::new(cursor, read_block_index_record).map(move |(_, id)| {
             let mut data = tx
-                .get(self.block_db.into(), &id.to_be_bytes())
+                .get(self.block_db_handle(), &id.to_be_bytes())
                 .expect("Block data should exist");
 
             SavedBlock::deserialize(&mut data).expect("Block data should be valid")
@@ -151,7 +164,7 @@ impl LmdbBlockStore {
         R: RangeBounds<BlockHash> + 'static,
     {
         let cursor = tx
-            .open_ro_cursor(self.index_db.into())
+            .open_ro_cursor(self.index_db_handle())
             .expect("Could not open cursor for block table");
         let cursor = lmdb_ro_cursor_from_store(cursor);
 
@@ -163,7 +176,7 @@ impl LmdbBlockStore {
         )
         .map(move |(_, id)| {
             let mut data = tx
-                .get(self.block_db.into(), &id.to_be_bytes())
+                .get(self.block_db_handle(), &id.to_be_bytes())
                 .expect("Block data should exist");
 
             let block = SavedBlock::deserialize(&mut data).expect("Block data should be valid");
@@ -175,7 +188,7 @@ impl LmdbBlockStore {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
 
         txn.put(
-            self.index_db.into(),
+            self.index_db_handle(),
             hash.as_bytes(),
             &id.to_be_bytes(),
             store_write_flags_from(WriteFlags::NO_OVERWRITE),
@@ -183,7 +196,7 @@ impl LmdbBlockStore {
         .expect("Couldn't insert into block index table");
 
         txn.put(
-            self.block_db.into(),
+            self.block_db_handle(),
             &id.to_be_bytes(),
             data,
             store_write_flags_from(WriteFlags::APPEND),
@@ -196,10 +209,10 @@ impl LmdbBlockStore {
         txn: &'a dyn LedgerReadTxn,
         hash: &BlockHash,
     ) -> Option<&'a [u8]> {
-        match txn.get(self.index_db.into(), hash.as_bytes()) {
+        match txn.get(self.index_db_handle(), hash.as_bytes()) {
             Err(e) if e.is_not_found() => None,
             Ok(id_bytes) => Some(
-                txn.get(self.block_db.into(), id_bytes)
+                txn.get(self.block_db_handle(), id_bytes)
                     .expect("Block data missing"),
             ),
             Err(e) => panic!("Could not load block. {:?}", e),

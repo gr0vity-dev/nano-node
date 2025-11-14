@@ -5,10 +5,11 @@ use std::{
     ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign},
 };
 
-use rsnano_nullable_lmdb::{Error as LmdbError, LmdbDatabase};
-
 pub type StoreResult<T> = Result<T, StoreError>;
 
+/// Backend database handles are encoded as opaque `NonZeroUsize` values.  Backends
+/// must use `from_raw`/`into_raw` to wrap and unwrap their own representations,
+/// keeping the meaning of the bits private to the backend crate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StoreDatabase(NonZeroUsize);
 
@@ -31,40 +32,6 @@ impl StoreDatabase {
     pub fn from_usize(value: usize) -> Option<Self> {
         NonZeroUsize::new(value).map(Self)
     }
-}
-
-const HANDLE_STUB_FLAG: usize = 1;
-
-impl From<LmdbDatabase> for StoreDatabase {
-    fn from(value: LmdbDatabase) -> Self {
-        let (is_stub, id) = value.to_raw_parts();
-        let encoded = encode_handle(id, is_stub);
-        unsafe { Self::from_raw(encoded) }
-    }
-}
-
-impl From<StoreDatabase> for LmdbDatabase {
-    fn from(value: StoreDatabase) -> Self {
-        let (id, is_stub) = decode_handle(value.into_raw());
-        if is_stub {
-            LmdbDatabase::from_raw_parts(true, id)
-        } else {
-            LmdbDatabase::from_raw_parts(false, id)
-        }
-    }
-}
-
-fn encode_handle(id: u32, is_stub: bool) -> NonZeroUsize {
-    let mut raw = ((id as usize) << 1) | if is_stub { HANDLE_STUB_FLAG } else { 0 };
-    raw += 1;
-    NonZeroUsize::new(raw).expect("raw handles are always incremented")
-}
-
-fn decode_handle(raw: NonZeroUsize) -> (u32, bool) {
-    let mut value = raw.get() - 1;
-    let is_stub = (value & HANDLE_STUB_FLAG) == HANDLE_STUB_FLAG;
-    value >>= 1;
-    (value as u32, is_stub)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,30 +82,6 @@ impl fmt::Display for StoreError {
 }
 
 impl std::error::Error for StoreError {}
-
-impl From<LmdbError> for StoreError {
-    fn from(value: LmdbError) -> Self {
-        match value {
-            LmdbError::NotFound => StoreError::not_found(),
-            LmdbError::MapFull => {
-                StoreError::new(StoreErrorKind::MapFull, value.to_string().into_boxed_str())
-            }
-            LmdbError::Invalid => StoreError::new(
-                StoreErrorKind::InvalidArgument,
-                value.to_string().into_boxed_str(),
-            ),
-            LmdbError::Corrupted => StoreError::new(
-                StoreErrorKind::Corruption,
-                value.to_string().into_boxed_str(),
-            ),
-            LmdbError::PageNotFound => StoreError::new(
-                StoreErrorKind::PageNotFound,
-                value.to_string().into_boxed_str(),
-            ),
-            _ => StoreError::backend(value.to_string()),
-        }
-    }
-}
 
 type CursorDropper = unsafe fn(NonZeroUsize);
 

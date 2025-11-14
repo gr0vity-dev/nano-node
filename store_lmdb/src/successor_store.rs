@@ -5,8 +5,9 @@ use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::BlockHash;
 use store_traits::{
     transaction::{LedgerReadTxn, LedgerWriteTxn},
-    types::StoreErrorKind,
+    types::{StoreDatabase, StoreErrorKind},
 };
+use crate::store_utils::{store_database_from_lmdb, store_write_flags_from};
 
 /// Stores the hash of the successor block for a given block hash
 pub struct LmdbSuccessorStore {
@@ -27,27 +28,31 @@ impl LmdbSuccessorStore {
         self.put_listener.track()
     }
 
+    fn store_database(&self) -> StoreDatabase {
+        store_database_from_lmdb(self.database)
+    }
+
     pub fn put(&self, tx: &mut dyn LedgerWriteTxn, block: &BlockHash, successor: &BlockHash) {
         if self.put_listener.is_tracked() {
             self.put_listener.emit((*block, *successor));
         }
 
         tx.put(
-            self.database.into(),
+            self.store_database(),
             block.as_bytes(),
             successor.as_bytes(),
-            crate::store_utils::store_write_flags_from(WriteFlags::empty()),
+            store_write_flags_from(WriteFlags::empty()),
         )
         .unwrap();
     }
 
     pub fn del(&self, tx: &mut dyn LedgerWriteTxn, block: &BlockHash) {
-        tx.delete(self.database.into(), block.as_bytes(), None)
+        tx.delete(self.store_database(), block.as_bytes(), None)
             .unwrap();
     }
 
     pub fn get(&self, tx: &dyn LedgerReadTxn, block: &BlockHash) -> Option<BlockHash> {
-        match tx.get(self.database.into(), block.as_bytes()) {
+        match tx.get(self.store_database(), block.as_bytes()) {
             Ok(bytes) => BlockHash::from_slice(bytes),
             Err(e) if e.is_not_found() => None,
             Err(e) => match e.kind() {
@@ -60,7 +65,7 @@ impl LmdbSuccessorStore {
     }
 
     pub fn count(&self, tx: &dyn LedgerReadTxn) -> u64 {
-        tx.count(self.database.into())
+        tx.count(self.store_database())
     }
 }
 
