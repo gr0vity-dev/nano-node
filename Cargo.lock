@@ -5081,7 +5081,6 @@ dependencies = [
  "anyhow",
  "num-derive",
  "num-traits 0.1.43",
- "rsnano_nullable_lmdb",
  "rsnano_output_tracker",
  "rsnano_types",
  "serde",
