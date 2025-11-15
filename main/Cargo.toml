@@ -24,6 +24,7 @@ rsnano_nullable_console = { path = "../nullables/console" }
 rsnano_nullable_tracing_subscriber = { path = "../nullables/tracing_subscriber" }
 rsnano_nullable_lmdb = { path = "../nullables/lmdb" }
 rsnano_nullable_fs = { path = "../nullables/fs" }
+store_traits = { path = "../store_traits" }
 tracing = "0.1"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1.0.99"

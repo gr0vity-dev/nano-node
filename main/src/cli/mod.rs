@@ -11,6 +11,7 @@ use rsnano_node::{Node, NodeBuilder, working_path_for};
 use rsnano_nullable_console::Console;
 use rsnano_types::{Networks, PrivateKeyFactory};
 use std::{path::PathBuf, str::FromStr};
+use store_traits::config::{LedgerBackend, LmdbConfig};
 
 mod commands;
 
@@ -23,6 +24,10 @@ pub(crate) struct CommandLineArgs {
     /// Uses the supplied path as the data directory
     #[arg(long)]
     data_path: Option<String>,
+
+    /// Storage backend to use (lmdb | rocksdb)
+    #[arg(long)]
+    storage_backend: Option<String>,
 
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -66,7 +71,12 @@ impl Cli {
     fn get_global_args(&self, args: &CommandLineArgs) -> anyhow::Result<GlobalArgs> {
         let network = self.get_network(args)?;
         let data_path = self.get_data_path(args)?;
-        Ok(GlobalArgs { network, data_path })
+        let storage_backend = self.get_storage_backend(args)?;
+        Ok(GlobalArgs {
+            network,
+            data_path,
+            storage_backend,
+        })
     }
 
     fn get_network(&self, args: &CommandLineArgs) -> anyhow::Result<Networks> {
@@ -75,6 +85,14 @@ impl Cli {
             .map(|str| Networks::from_str(str).map_err(|e| anyhow!(e)))
             .transpose()
             .map(|net| net.unwrap_or(Networks::NanoLiveNetwork))
+    }
+
+    fn get_storage_backend(&self, args: &CommandLineArgs) -> anyhow::Result<Option<LedgerBackend>> {
+        match args.storage_backend.as_deref() {
+            None => Ok(None),
+            Some("lmdb") => Ok(Some(LedgerBackend::Lmdb(LmdbConfig::default()))),
+            Some(other) => Err(anyhow!("Unsupported storage backend '{other}'")),
+        }
     }
 
     fn get_data_path(&self, args: &CommandLineArgs) -> anyhow::Result<PathBuf> {
@@ -88,12 +106,17 @@ impl Cli {
 pub(crate) struct GlobalArgs {
     pub network: Networks,
     pub data_path: PathBuf,
+    pub storage_backend: Option<LedgerBackend>,
 }
 
 pub(crate) fn build_node(args: &GlobalArgs) -> anyhow::Result<Node> {
-    NodeBuilder::new(args.network)
-        .data_path(&args.data_path)
-        .finish()
+    let builder = NodeBuilder::new(args.network).data_path(&args.data_path);
+    let builder = if let Some(backend) = &args.storage_backend {
+        builder.storage_backend(backend.clone())
+    } else {
+        builder
+    };
+    builder.finish()
 }
 
 #[derive(Default)]

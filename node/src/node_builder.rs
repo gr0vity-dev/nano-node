@@ -91,6 +91,7 @@ use crate::{
     work::WorkFactory,
     working_path_for,
 };
+use store_traits::config::LedgerBackend;
 
 #[derive(Default)]
 pub struct NodeCallbacks {
@@ -149,6 +150,7 @@ pub struct NodeBuilder {
     flags: Option<NodeFlags>,
     callbacks: Option<NodeCallbacks>,
     event_sink: Option<SyncSender<NodeEvent>>,
+    storage_backend: Option<LedgerBackend>,
 }
 
 pub(crate) struct ComposedNode {
@@ -182,6 +184,7 @@ impl NodeBuilder {
             flags: None,
             callbacks: None,
             event_sink: None,
+            storage_backend: None,
         }
     }
 
@@ -192,6 +195,11 @@ impl NodeBuilder {
 
     pub fn config(mut self, config: NodeConfig) -> Self {
         self.config = Some(config);
+        self
+    }
+
+    pub fn storage_backend(mut self, backend: LedgerBackend) -> Self {
+        self.storage_backend = Some(backend);
         self
     }
 
@@ -229,7 +237,7 @@ impl NodeBuilder {
             .network_params
             .unwrap_or_else(|| NetworkParams::new(self.network));
 
-        let config = match self.config {
+        let mut config = match self.config {
             Some(c) => c,
             None => {
                 let cpu_count = get_cpu_count();
@@ -243,6 +251,10 @@ impl NodeBuilder {
                 daemon_config.node
             }
         };
+
+        if let Some(selection) = self.storage_backend {
+            config.ledger_store_config.backend = selection;
+        }
 
         let flags = self.flags.unwrap_or_default();
         let callbacks = self.callbacks.unwrap_or_default();

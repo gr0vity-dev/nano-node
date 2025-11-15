@@ -4497,6 +4497,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "store_traits",
  "tokio",
  "toml 0.9.5",
  "tracing",
