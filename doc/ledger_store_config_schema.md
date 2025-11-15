@@ -15,12 +15,17 @@ pub struct LedgerStoreConfig {
 
 pub enum LedgerBackend {
     Lmdb(LmdbConfig),
+    RocksDb(RocksDbConfig),
 }
 
 pub struct LmdbConfig {
     pub max_databases: u32,
     pub map_size: usize,
     pub mem_init: bool,
+}
+
+pub struct RocksDbConfig {
+    pub max_open_files: Option<i32>,
 }
 ```
 
@@ -30,6 +35,8 @@ pub struct LmdbConfig {
   options for that backend.
 - `LmdbConfig` exposes the knobs that used to live on `LedgerStoreConfig`
   directly, so logic/application crates never import LMDB-specific types.
+- `RocksDbConfig` will expand as the adapter gains tunables; today it only
+  wires the most common option (`max_open_files`).
 
 ## TOML Example
 
@@ -38,12 +45,15 @@ pub struct LmdbConfig {
 backend = { kind = "lmdb" }
 sync = "nosync"
 
-[node.storage.lmdb]
-map_size_gb = 128
-mem_init = true
+[node.storage.backend]
+kind = "rocksdb"
+
+[node.storage.rocksdb]
+max_open_files = 2000
 ```
 
-Only LMDB is wired today, but the enum leaves room for future adapters once a
-real RocksDB factory exists. The application layer forwards the selected backend
-and its typed config directly into the `LedgerStoreFactory`. Tests should
-exercise real backends through these APIs instead of poking at JSON blobs.
+The application layer forwards the selected backend and its typed config
+directly into the `LedgerStoreFactory`. Tests should exercise real backends
+through these APIs instead of poking at JSON blobs. RocksDB support is under
+active development; until the adapter lands, selecting `rocksdb` will return an
+explicit error.

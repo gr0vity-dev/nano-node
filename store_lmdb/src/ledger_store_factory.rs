@@ -1,5 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
+use anyhow::bail;
 use rsnano_nullable_lmdb::{
     ConfiguredDatabase, EnvironmentOptions, LmdbEnvironment, LmdbEnvironmentFactory,
 };
@@ -61,7 +62,9 @@ impl LedgerStoreFactory for LmdbLedgerStoreFactory {
         cache: Arc<LedgerCache>,
     ) -> anyhow::Result<Arc<dyn LedgerStore>> {
         let LedgerStoreConfig { sync, backend } = config;
-        let LedgerBackend::Lmdb(lmdb_config) = backend;
+        let LedgerBackend::Lmdb(lmdb_config) = backend else {
+            bail!("LMDB factory requires LMDB backend config");
+        };
         let env_options = Self::env_options(path, sync, &lmdb_config);
         let env = create_and_update_lmdb_env(&self.env_factory, env_options)?;
         self.build_store(env, cache)

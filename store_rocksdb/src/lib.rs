@@ -8,6 +8,7 @@ use std::{
     sync::Arc,
 };
 
+use anyhow::bail;
 use parking_lot::RwLock;
 use rocksdb::{
     BoundColumnFamily, ColumnFamilyDescriptor, DBIteratorWithThreadMode, DBWithThreadMode,
@@ -17,6 +18,7 @@ use store_traits::environment::{
     StoreCursor, StoreEnvironment, StoreEnvironmentFactory, StoreEnvironmentOptions, StoreReadTxn,
     StoreWriteTxn,
 };
+use store_traits::ledger::{LedgerCache, LedgerStore, LedgerStoreFactory};
 use store_traits::types::{
     StoreDatabase, StoreEnvironmentFlags, StoreError, StoreErrorKind, StoreResult, StoreWriteFlags,
 };
@@ -96,6 +98,35 @@ impl StoreEnvironmentFactory for RocksdbStoreEnvironmentFactory {
         let env = RocksdbStoreEnvironment::open(path, flags, Some(temp_dir))
             .expect("temp RocksDB environment");
         Arc::new(env)
+    }
+}
+
+pub struct RocksdbLedgerStoreFactory;
+
+impl Default for RocksdbLedgerStoreFactory {
+    fn default() -> Self {
+        Self
+    }
+}
+
+impl RocksdbLedgerStoreFactory {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl LedgerStoreFactory for RocksdbLedgerStoreFactory {
+    fn create_store(
+        &self,
+        _path: PathBuf,
+        _config: store_traits::config::LedgerStoreConfig,
+        _cache: Arc<LedgerCache>,
+    ) -> anyhow::Result<Arc<dyn LedgerStore>> {
+        bail!("RocksDB ledger store not implemented yet")
+    }
+
+    fn create_null_store(&self, _cache: Arc<LedgerCache>) -> anyhow::Result<Arc<dyn LedgerStore>> {
+        bail!("RocksDB ledger store not implemented yet")
     }
 }
 

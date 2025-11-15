@@ -11,7 +11,7 @@ use rsnano_node::{Node, NodeBuilder, working_path_for};
 use rsnano_nullable_console::Console;
 use rsnano_types::{Networks, PrivateKeyFactory};
 use std::{path::PathBuf, str::FromStr};
-use store_traits::config::{LedgerBackend, LmdbConfig};
+use store_traits::config::{LedgerBackend, LmdbConfig, RocksDbConfig};
 
 mod commands;
 
@@ -91,6 +91,7 @@ impl Cli {
         match args.storage_backend.as_deref() {
             None => Ok(None),
             Some("lmdb") => Ok(Some(LedgerBackend::Lmdb(LmdbConfig::default()))),
+            Some("rocksdb") => Ok(Some(LedgerBackend::RocksDb(RocksDbConfig::default()))),
             Some(other) => Err(anyhow!("Unsupported storage backend '{other}'")),
         }
     }

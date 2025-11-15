@@ -4460,6 +4460,7 @@ dependencies = [
  "serde_json",
  "serde_variant",
  "static_assertions",
+ "store_rocksdb",
  "store_traits",
  "strum 0.27.2",
  "strum_macros 0.27.2",
