@@ -36,6 +36,7 @@ rsnano_nullable_random = { path = "../nullables/random" }
 rsnano_nullable_http_client = { path = "../nullables/http_client" }
 rsnano_nullable_env = { path = "../nullables/env" }
 rsnano_ledger = { path = "../ledger" }
+store_traits = { path = "../store_traits" }
 rsnano_websocket_messages = { path = "../websocket/messages" }
 anyhow = "1"
 bitvec = "1"

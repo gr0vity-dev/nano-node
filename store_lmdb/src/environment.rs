@@ -12,8 +12,8 @@ use store_traits::environment::{
 use store_traits::types::{StoreDatabase, StoreResult, StoreWriteFlags};
 
 use crate::store_utils::{
-    lmdb_database_from_store, lmdb_env_flags_from, lmdb_write_flags_from,
-    store_database_from_lmdb, store_error_from_lmdb,
+    lmdb_database_from_store, lmdb_env_flags_from, lmdb_write_flags_from, store_database_from_lmdb,
+    store_error_from_lmdb,
 };
 
 pub struct LmdbCursor<'txn> {

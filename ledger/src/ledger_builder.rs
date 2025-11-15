@@ -4,17 +4,20 @@ use std::{
     sync::Arc,
 };
 
-use rsnano_store_lmdb::{LedgerCache, LmdbConfig, LmdbLedgerStoreFactory};
+use anyhow::anyhow;
 use rsnano_types::Amount;
 use rsnano_utils::get_cpu_count;
 use rsnano_utils::stats::Stats;
-use store_traits::ledger::LedgerStoreFactory;
+use store_traits::{
+    config::LedgerStoreConfig,
+    ledger::{LedgerCache, LedgerStoreFactory},
+};
 
 use crate::{BootstrapWeights, Ledger, LedgerConstants, RepWeightCache};
 
 pub struct LedgerBuilder<'a> {
     path: PathBuf,
-    config: Option<LmdbConfig>,
+    config: Option<LedgerStoreConfig>,
     store_factory: Option<&'a dyn LedgerStoreFactory>,
     bootstrap_weights: Option<BootstrapWeights>,
     stats: Option<Arc<Stats>>,
@@ -42,7 +45,7 @@ impl<'a> LedgerBuilder<'a> {
         self
     }
 
-    pub fn config(mut self, config: LmdbConfig) -> Self {
+    pub fn config(mut self, config: LedgerStoreConfig) -> Self {
         self.config = Some(config);
         self
     }
@@ -82,8 +85,9 @@ impl<'a> LedgerBuilder<'a> {
         ));
 
         let config = self.config.unwrap_or_default();
-        let default_store_factory = LmdbLedgerStoreFactory::default();
-        let store_factory = self.store_factory.unwrap_or(&default_store_factory);
+        let store_factory = self
+            .store_factory
+            .ok_or_else(|| anyhow!("ledger store factory not configured"))?;
 
         let stats = self.stats.unwrap_or_else(|| Arc::new(Stats::default()));
         let ledger_constants = self

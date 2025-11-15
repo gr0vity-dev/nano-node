@@ -14,9 +14,7 @@ use crate::{
     ACCOUNT_TEST_DATABASE,
     iterator::{LmdbIterator, LmdbRangeIterator},
     parallel_traversal,
-    store_utils::{
-        lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from,
-    },
+    store_utils::{lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from},
     transaction::LmdbLedgerReadTxn,
 };
 
@@ -170,10 +168,10 @@ fn read_account_info_record(key: &[u8], mut value: &[u8]) -> (Account, AccountIn
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn};
     use rsnano_nullable_lmdb::{DeleteEvent, PutEvent};
     use rsnano_types::{Amount, BlockHash};
     use std::sync::Mutex;
-    use crate::transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn};
 
     struct Fixture {
         env: Arc<LmdbEnvironment>,

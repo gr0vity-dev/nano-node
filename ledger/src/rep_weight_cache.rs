@@ -8,9 +8,9 @@ use std::{
     },
 };
 
-use rsnano_store_lmdb::LedgerCache;
 use rsnano_types::{Account, Amount, PublicKey};
 use rsnano_utils::container_info::ContainerInfo;
+use store_traits::ledger::LedgerCache;
 
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct RepWeights(HashMap<PublicKey, Amount>);

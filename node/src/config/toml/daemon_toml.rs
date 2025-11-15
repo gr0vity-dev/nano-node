@@ -540,17 +540,19 @@ mod tests {
 
         // LMDB section
         assert_ne!(
-            deserialized.node.lmdb_config.sync,
-            default_cfg.node.lmdb_config.sync
+            deserialized.node.ledger_store_config.sync,
+            default_cfg.node.ledger_store_config.sync
         );
-        assert_ne!(
-            deserialized.node.lmdb_config.max_databases,
-            default_cfg.node.lmdb_config.max_databases
-        );
-        assert_ne!(
-            deserialized.node.lmdb_config.map_size,
-            default_cfg.node.lmdb_config.map_size
-        );
+        let deser_lmdb = match &deserialized.node.ledger_store_config.backend {
+            store_traits::config::LedgerBackend::Lmdb(cfg) => cfg,
+            _ => panic!("expected LMDB backend"),
+        };
+        let default_lmdb = match &default_cfg.node.ledger_store_config.backend {
+            store_traits::config::LedgerBackend::Lmdb(cfg) => cfg,
+            _ => panic!("expected LMDB backend"),
+        };
+        assert_ne!(deser_lmdb.max_databases, default_lmdb.max_databases);
+        assert_ne!(deser_lmdb.map_size, default_lmdb.map_size);
 
         // Optimistic Scheduler section
         assert_ne!(

@@ -1,10 +1,11 @@
 use std::{path::PathBuf, sync::Arc};
 
+use anyhow::anyhow;
 use rsnano_nullable_lmdb::{
     ConfiguredDatabase, EnvironmentOptions, LmdbEnvironment, LmdbEnvironmentFactory,
 };
 use store_traits::{
-    config::LedgerStoreConfig,
+    config::{LedgerBackend, LedgerStoreConfig, LmdbConfig, StoreSyncStrategy},
     ledger::{LedgerCache, LedgerStore, LedgerStoreFactory},
 };
 
@@ -29,11 +30,15 @@ impl LmdbLedgerStoreFactory {
         Self::new(LmdbEnvironmentFactory::new_null())
     }
 
-    fn env_options(path: PathBuf, config: &LedgerStoreConfig) -> EnvironmentOptions {
+    fn env_options(
+        path: PathBuf,
+        sync: StoreSyncStrategy,
+        config: &LmdbConfig,
+    ) -> EnvironmentOptions {
         EnvironmentOptions {
             max_dbs: config.max_databases,
             map_size: config.map_size,
-            flags: get_lmdb_flags(config),
+            flags: get_lmdb_flags(sync, config),
             path,
         }
     }
@@ -56,7 +61,11 @@ impl LedgerStoreFactory for LmdbLedgerStoreFactory {
         config: LedgerStoreConfig,
         cache: Arc<LedgerCache>,
     ) -> anyhow::Result<Arc<dyn LedgerStore>> {
-        let env_options = Self::env_options(path, &config);
+        let (sync, lmdb_config) = match config.backend {
+            LedgerBackend::Lmdb(cfg) => (config.sync, cfg),
+            _ => return Err(anyhow!("LMDB factory requires LMDB backend config")),
+        };
+        let env_options = Self::env_options(path, sync, &lmdb_config);
         let env = create_and_update_lmdb_env(&self.env_factory, env_options)?;
         self.build_store(env, cache)
     }

@@ -37,7 +37,8 @@ impl LedgerReadTxn for LmdbLedgerReadTxn {
     }
 
     fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
-        LmdbTxn::get(&self.inner, lmdb_database_from_store(database), key).map_err(store_error_from_lmdb)
+        LmdbTxn::get(&self.inner, lmdb_database_from_store(database), key)
+            .map_err(store_error_from_lmdb)
     }
 
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
@@ -83,7 +84,8 @@ impl LedgerReadTxn for LmdbLedgerWriteTxn {
     }
 
     fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
-        LmdbTxn::get(&self.inner, lmdb_database_from_store(database), key).map_err(store_error_from_lmdb)
+        LmdbTxn::get(&self.inner, lmdb_database_from_store(database), key)
+            .map_err(store_error_from_lmdb)
     }
 
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
@@ -106,7 +108,12 @@ impl LedgerWriteTxn for LmdbLedgerWriteTxn {
         flags: StoreWriteFlags,
     ) -> StoreResult<()> {
         self.inner
-            .put(lmdb_database_from_store(database), key, value, lmdb_write_flags_from(flags))
+            .put(
+                lmdb_database_from_store(database),
+                key,
+                value,
+                lmdb_write_flags_from(flags),
+            )
             .map_err(store_error_from_lmdb)
     }
 
@@ -135,7 +142,8 @@ impl LedgerWriteTxn for LmdbLedgerWriteTxn {
     }
 
     unsafe fn drop_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
-        unsafe { self.inner.drop_db(lmdb_database_from_store(database)) }.map_err(store_error_from_lmdb)
+        unsafe { self.inner.drop_db(lmdb_database_from_store(database)) }
+            .map_err(store_error_from_lmdb)
     }
 
     fn commit(self: Box<Self>) {
@@ -145,7 +153,8 @@ impl LedgerWriteTxn for LmdbLedgerWriteTxn {
 
 impl WalletReadTxn for LmdbLedgerReadTxn {
     fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
-        LmdbTxn::get(&self.inner, lmdb_database_from_store(database), key).map_err(store_error_from_lmdb)
+        LmdbTxn::get(&self.inner, lmdb_database_from_store(database), key)
+            .map_err(store_error_from_lmdb)
     }
 
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
@@ -165,7 +174,8 @@ impl WalletReadTxn for LmdbLedgerReadTxn {
 
 impl WalletReadTxn for LmdbLedgerWriteTxn {
     fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
-        LmdbTxn::get(&self.inner, lmdb_database_from_store(database), key).map_err(store_error_from_lmdb)
+        LmdbTxn::get(&self.inner, lmdb_database_from_store(database), key)
+            .map_err(store_error_from_lmdb)
     }
 
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
@@ -192,7 +202,12 @@ impl WalletWriteTxn for LmdbLedgerWriteTxn {
         flags: StoreWriteFlags,
     ) -> StoreResult<()> {
         self.inner
-            .put(lmdb_database_from_store(database), key, value, lmdb_write_flags_from(flags))
+            .put(
+                lmdb_database_from_store(database),
+                key,
+                value,
+                lmdb_write_flags_from(flags),
+            )
             .map_err(store_error_from_lmdb)
     }
 
@@ -221,6 +236,7 @@ impl WalletWriteTxn for LmdbLedgerWriteTxn {
     }
 
     unsafe fn drop_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
-        unsafe { self.inner.drop_db(lmdb_database_from_store(database)) }.map_err(store_error_from_lmdb)
+        unsafe { self.inner.drop_db(lmdb_database_from_store(database)) }
+            .map_err(store_error_from_lmdb)
     }
 }

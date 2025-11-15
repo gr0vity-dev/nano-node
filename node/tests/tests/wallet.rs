@@ -82,7 +82,6 @@ impl TestFixture {
     fn begin_write_txn(&self) -> WalletWriteTxnSHIM {
         WalletWriteTxnSHIM::new(self.env.begin_write())
     }
-
 }
 
 impl Drop for TestFixture {

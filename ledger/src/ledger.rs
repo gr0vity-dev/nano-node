@@ -11,7 +11,6 @@ use std::{
 
 use tracing::debug;
 
-use rsnano_store_lmdb::{LmdbLedgerStoreFactory, MemoryStats};
 use rsnano_types::{
     Account, AccountInfo, Amount, Block, BlockHash, ConfirmationHeightInfo, Epoch, Link,
     PendingInfo, PendingKey, PublicKey, QualifiedRoot, Root, SavedBlock, UnixTimestamp,
@@ -31,6 +30,7 @@ use crate::{
     vote_verifier::VoteVerifier,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
+use rsnano_store_lmdb::{LmdbLedgerStoreFactory, MemoryStats};
 use store_traits::{LedgerReadTxn, LedgerWriteTxn, ledger::LedgerStoreFactory};
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, EnumCount, EnumIter, IntoStaticStr)]

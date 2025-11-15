@@ -14,6 +14,7 @@ rsnano_node = { path = "../../node", features = ["output_tracking"] }
 rsnano_rpc_client = { path = "../../rpc/client" }
 rsnano_rpc_server = { path = "../../rpc/server" }
 rsnano_websocket_server = { path = "../../websocket/server" }
+store_traits = { path = "../../store_traits" }
 mock_instant = "0"
 axum = "0"
 tracing-test = "0"

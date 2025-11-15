@@ -1,8 +1,6 @@
 use clap::{CommandFactory, Parser, Subcommand};
 
-use rsnano_store_lmdb::{
-    LmdbLedgerReadTxn, LmdbPeerStore, default_ledger_lmdb_options,
-};
+use rsnano_store_lmdb::{LmdbLedgerReadTxn, LmdbPeerStore, default_ledger_lmdb_options};
 
 use crate::cli::GlobalArgs;
 use rsnano_nullable_lmdb::LmdbEnvironmentFactory;

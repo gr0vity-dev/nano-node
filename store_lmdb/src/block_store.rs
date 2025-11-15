@@ -19,9 +19,7 @@ use store_traits::{
 
 use crate::{
     BLOCK_DATA_DATABASE, BLOCK_INDEX_DATABASE, LmdbIterator, LmdbRangeIterator,
-    store_utils::{
-        lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from,
-    },
+    store_utils::{lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from},
 };
 
 pub struct LmdbBlockStore {

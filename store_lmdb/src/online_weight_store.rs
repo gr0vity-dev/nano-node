@@ -7,9 +7,7 @@ use store_traits::{
 
 use crate::{
     LmdbIterator,
-    store_utils::{
-        lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from,
-    },
+    store_utils::{lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from},
 };
 
 pub struct LmdbOnlineWeightStore {
@@ -44,7 +42,8 @@ impl LmdbOnlineWeightStore {
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, time: u64) {
         let time_bytes = time.to_be_bytes();
-        txn.delete(self.store_database(), &time_bytes, None).unwrap();
+        txn.delete(self.store_database(), &time_bytes, None)
+            .unwrap();
     }
 
     pub fn iter<'txn>(
@@ -88,9 +87,9 @@ impl LmdbOnlineWeightStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn};
     use rsnano_nullable_lmdb::{DeleteEvent, PutEvent};
     use std::sync::Arc;
-    use crate::transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn};
 
     struct Fixture {
         env: Arc<LmdbEnvironment>,

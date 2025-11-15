@@ -284,7 +284,7 @@ impl NodeConfig {
             self.websocket_config.merge_toml(&websocket_config_toml);
         }
         if let Some(lmdb_config_toml) = &toml.lmdb {
-            self.lmdb_config = lmdb_config_toml.into();
+            self.ledger_store_config = lmdb_config_toml.into();
         }
         if let Some(vote_cache_toml) = &toml.vote_cache {
             self.vote_cache = vote_cache_toml.into();
@@ -497,7 +497,7 @@ impl From<&NodeConfig> for NodeToml {
             bootstrap: Some((&config.bootstrap).into()),
             bootstrap_server: Some(config.into()),
             websocket: Some((&config.websocket_config).into()),
-            lmdb: Some((&config.lmdb_config).into()),
+            lmdb: Some((&config.ledger_store_config).into()),
             vote_cache: Some((&config.vote_cache).into()),
             block_processor: Some(config.into()),
             active_elections: Some(config.into()),

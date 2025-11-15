@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::store_utils::{store_database_from_lmdb, store_write_flags_from};
 use rsnano_nullable_lmdb::{DatabaseFlags, LmdbDatabase, LmdbEnvironment, WriteFlags};
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::BlockHash;
@@ -7,7 +8,6 @@ use store_traits::{
     transaction::{LedgerReadTxn, LedgerWriteTxn},
     types::{StoreDatabase, StoreErrorKind},
 };
-use crate::store_utils::{store_database_from_lmdb, store_write_flags_from};
 
 /// Stores the hash of the successor block for a given block hash
 pub struct LmdbSuccessorStore {
@@ -191,8 +191,7 @@ mod tests {
 
     impl Fixture {
         fn with_entries(entries: &[(BlockHash, BlockHash)]) -> Self {
-            let mut builder =
-                LmdbEnvironment::null_builder().database(TABLE_NAME, TEST_DATABASE);
+            let mut builder = LmdbEnvironment::null_builder().database(TABLE_NAME, TEST_DATABASE);
 
             for (block_hash, successor) in entries {
                 builder = builder.entry(block_hash.as_bytes(), successor.as_bytes());

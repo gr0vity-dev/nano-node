@@ -34,7 +34,7 @@ members = [
 	"tools/nanospam", 
 	"tools/test_helpers", 
 	"tools/signature-checker", 
-	"tools/insight", 
+	"tools/insight", "store_rocksdb", 
 	]
 
 resolver = "2"

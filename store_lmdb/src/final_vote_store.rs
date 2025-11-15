@@ -9,9 +9,7 @@ use store_traits::{
 
 use crate::{
     LmdbIterator, LmdbRangeIterator,
-    store_utils::{
-        lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from,
-    },
+    store_utils::{lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from},
 };
 
 /// Maps root to block hash for generated final votes.
@@ -119,9 +117,9 @@ fn read_final_vote_record(mut key: &[u8], mut value: &[u8]) -> (QualifiedRoot, B
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn};
     use rsnano_nullable_lmdb::DeleteEvent;
     use std::sync::Arc;
-    use crate::transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn};
 
     const TEST_DATABASE: LmdbDatabase = LmdbDatabase::new_null(100);
 

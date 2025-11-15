@@ -5,10 +5,10 @@ use once_cell::sync::Lazy;
 use rsnano_network::NetworkConfig;
 use rsnano_nullable_env::get_env_or_default_string;
 use rsnano_nullable_http_client::Url;
-use rsnano_store_lmdb::LmdbConfig;
 use rsnano_types::{Account, Amount, Peer, PublicKey};
 use rsnano_wallet::default_preconfigured_representatives_for_live;
 use rsnano_work::OpenClConfig;
+use store_traits::config::LedgerStoreConfig;
 
 use super::{DEV_NETWORK_PARAMS, NetworkParams, Networks, websocket_config::WebsocketConfig};
 use crate::{
@@ -82,7 +82,7 @@ pub struct NodeConfig {
     pub callback_port: u16,
     pub callback_target: String,
     pub websocket_config: WebsocketConfig,
-    pub lmdb_config: LmdbConfig,
+    pub ledger_store_config: LedgerStoreConfig,
     pub vote_cache: VoteCacheConfig,
     pub rep_crawler_query_timeout: Duration,
     pub block_processor: ProcessQueueConfig,
@@ -234,7 +234,7 @@ impl NodeConfig {
             callback_port: 0,
             callback_target: String::new(),
             websocket_config: WebsocketConfig::new(&network_params.network),
-            lmdb_config: LmdbConfig::new(),
+            ledger_store_config: LedgerStoreConfig::default(),
             optimistic_scheduler: OptimisticSchedulerConfig::new(),
             hinted_scheduler: if network_params.network.is_dev_network() {
                 HintedSchedulerConfig::default_for_dev_network()

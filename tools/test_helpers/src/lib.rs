@@ -17,11 +17,11 @@ use rsnano_node::{
 };
 use rsnano_rpc_client::{NanoRpcClient, Url};
 use rsnano_rpc_server::run_rpc_server;
-use rsnano_store_lmdb::SyncStrategy;
 use rsnano_types::{
     Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, Epoch, Networks, PrivateKey, PublicKey,
     SavedBlock, StateBlockArgs, WalletId,
 };
+use store_traits::config::StoreSyncStrategy;
 
 pub struct System {
     pub network_params: NetworkParams,
@@ -49,7 +49,7 @@ impl System {
         let mut config = NodeConfig::new(Some(port), &network_params, 1);
         config.representative_vote_weight_minimum = Amount::ZERO;
         config.io_threads = 1;
-        config.lmdb_config.sync = SyncStrategy::NosyncUnsafeWriteMap;
+        config.ledger_store_config.sync = StoreSyncStrategy::NosyncUnsafeWriteMap;
         // process blocks sequentially
         config.block_processor.batch_size = 1;
         config.block_processor_threads = 1;

@@ -18,9 +18,7 @@ use store_traits::{
 use crate::{
     PEERS_TEST_DATABASE,
     iterator::LmdbIterator,
-    store_utils::{
-        lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from,
-    },
+    store_utils::{lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from},
 };
 
 pub struct LmdbPeerStore {
@@ -218,12 +216,12 @@ impl ConfiguredPeersDatabaseBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn};
     use rsnano_nullable_lmdb::{DeleteEvent, PutEvent};
     use std::{
         net::Ipv6Addr,
         time::{Duration, UNIX_EPOCH},
     };
-    use crate::transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn};
 
     #[test]
     fn empty_store() {

@@ -2,11 +2,11 @@ use rsnano_nullable_lmdb::{
     EnvironmentFlags, Error as LmdbError, LmdbDatabase, RoCursor as LmdbRoCursor,
     RwCursor as LmdbRwCursor, WriteFlags,
 };
+use std::num::NonZeroUsize;
 use store_traits::types::{
     StoreDatabase, StoreEnvironmentFlags, StoreError, StoreErrorKind, StoreRoCursor, StoreRwCursor,
     StoreWriteFlags,
 };
-use std::num::NonZeroUsize;
 
 pub(crate) fn store_ro_cursor_from_lmdb<'txn>(cursor: LmdbRoCursor<'txn>) -> StoreRoCursor<'txn> {
     let raw = Box::into_raw(Box::new(cursor)) as usize;

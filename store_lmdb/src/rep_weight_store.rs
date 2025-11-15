@@ -13,9 +13,7 @@ use store_traits::{
 
 use crate::{
     REP_WEIGHT_TEST_DATABASE,
-    store_utils::{
-        lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from,
-    },
+    store_utils::{lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from},
 };
 
 pub struct LmdbRepWeightStore {

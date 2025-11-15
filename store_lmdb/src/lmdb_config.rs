@@ -1,20 +1,18 @@
 use std::path::PathBuf;
 
 use rsnano_nullable_lmdb::{EnvironmentFlags, EnvironmentOptions};
-use store_traits::config::StoreSyncStrategy;
+use store_traits::config::{LmdbConfig, StoreSyncStrategy};
 
-pub use store_traits::config::{
-    LedgerStoreConfig as LmdbConfig, StoreSyncStrategy as SyncStrategy,
-};
+pub type SyncStrategy = StoreSyncStrategy;
 
-pub fn get_lmdb_flags(config: &LmdbConfig) -> EnvironmentFlags {
+pub fn get_lmdb_flags(sync: StoreSyncStrategy, config: &LmdbConfig) -> EnvironmentFlags {
     // It seems if there's ever more threads than mdb_env_set_maxreaders has read slots available, we get failures on transaction creation unless MDB_NOTLS is specified
     // This can happen if something like 256 io_threads are specified in the node config
     // MDB_NORDAHEAD will allow platforms that support it to load the DB in memory as needed.
     // MDB_NOMEMINIT prevents zeroing malloc'ed pages. Can provide improvement for non-sensitive data but may make memory checkers noisy (e.g valgrind).
     let mut flags = EnvironmentFlags::NO_SUB_DIR | EnvironmentFlags::NO_TLS;
 
-    match config.sync {
+    match sync {
         StoreSyncStrategy::NosyncSafe => {
             flags |= EnvironmentFlags::NO_META_SYNC;
         }

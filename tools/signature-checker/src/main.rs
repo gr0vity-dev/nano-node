@@ -11,12 +11,7 @@ use std::{
 use ed25519_dalek_blake2b::SignatureError;
 use rsnano_ledger::LedgerConstants;
 use rsnano_nullable_lmdb::LmdbEnvironmentFactory;
-use rsnano_store_lmdb::{
-    EnvironmentFlags,
-    EnvironmentOptions,
-    LmdbBlockStore,
-    LmdbLedgerReadTxn,
-};
+use rsnano_store_lmdb::{EnvironmentFlags, EnvironmentOptions, LmdbBlockStore, LmdbLedgerReadTxn};
 use rsnano_types::{Epochs, PublicKey, SavedBlock, Signature};
 
 fn main() {

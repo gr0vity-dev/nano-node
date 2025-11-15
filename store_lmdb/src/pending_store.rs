@@ -13,9 +13,7 @@ use store_traits::{
 use crate::{
     LmdbIterator, PENDING_TEST_DATABASE,
     iterator::LmdbRangeIterator,
-    store_utils::{
-        lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from,
-    },
+    store_utils::{lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from},
 };
 
 pub struct LmdbPendingStore {
@@ -161,8 +159,8 @@ pub fn read_pending_record(mut key: &[u8], mut value: &[u8]) -> (PendingKey, Pen
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsnano_nullable_lmdb::{DeleteEvent, PutEvent};
     use crate::transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn};
+    use rsnano_nullable_lmdb::{DeleteEvent, PutEvent};
 
     struct Fixture {
         env: Arc<LmdbEnvironment>,

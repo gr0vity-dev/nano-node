@@ -168,10 +168,19 @@ pub(crate) fn build_foundation(
     let mut ledger_path = application_path.clone();
     ledger_path.push("data.ldb");
 
-    let lmdb_store_factory = if is_nulled {
-        LmdbLedgerStoreFactory::new_null()
-    } else {
-        LmdbLedgerStoreFactory::default()
+    let ledger_store_config = config.ledger_store_config.clone();
+    let ledger_backend_name = ledger_store_config.backend_name();
+    let lmdb_store_factory = match ledger_store_config.backend {
+        store_traits::config::LedgerBackend::Lmdb(_) => {
+            if is_nulled {
+                LmdbLedgerStoreFactory::new_null()
+            } else {
+                LmdbLedgerStoreFactory::default()
+            }
+        }
+        _ => {
+            anyhow::bail!("Unsupported ledger backend: {ledger_backend_name}. Only LMDB is wired.")
+        }
     };
 
     let wallet_env_factory = if is_nulled {
@@ -180,11 +189,14 @@ pub(crate) fn build_foundation(
         LmdbWalletEnvironmentFactory::default()
     };
 
-    info!("LMDB sync strategy: {:?}", config.lmdb_config.sync);
+    info!(
+        "Ledger backend: {} (sync: {:?})",
+        ledger_backend_name, config.ledger_store_config.sync
+    );
     info!("Loading ledger, this may take a while...");
     let ledger = LedgerBuilder::new(&ledger_path)
         .store_factory(&lmdb_store_factory)
-        .config(config.lmdb_config.clone())
+        .config(config.ledger_store_config.clone())
         .constants(network_params.ledger.clone())
         .min_rep_weight(config.representative_vote_weight_minimum)
         .bootstrap_weights(bootstrap_weights)

@@ -1,0 +1,11 @@
+[package]
+name = "store_rocksdb"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rocksdb = { version = "0.22", features = ["multi-threaded-cf"] }
+parking_lot = "0.12"
+store_traits = { path = "../store_traits" }
+anyhow = "1"
+tempfile = "3"

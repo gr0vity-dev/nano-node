@@ -1,4 +1,6 @@
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+use serde::{Deserialize, Serialize};
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum StoreSyncStrategy {
     /// Always flush to disk on commit. This is default.
     Always,
@@ -12,18 +14,73 @@ pub enum StoreSyncStrategy {
     NosyncUnsafeWriteMap,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LedgerStoreConfig {
     pub sync: StoreSyncStrategy,
-    pub max_databases: u32,
-    pub map_size: usize,
-    pub mem_init: bool,
+    pub backend: LedgerBackend,
 }
 
 impl Default for LedgerStoreConfig {
     fn default() -> Self {
         Self {
             sync: StoreSyncStrategy::Always,
+            backend: LedgerBackend::Lmdb(LmdbConfig::default()),
+        }
+    }
+}
+
+impl LedgerStoreConfig {
+    pub fn new(backend: LedgerBackend) -> Self {
+        Self {
+            backend,
+            ..Default::default()
+        }
+    }
+
+    pub fn backend_name(&self) -> &'static str {
+        self.backend.name()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LedgerBackend {
+    Lmdb(LmdbConfig),
+    RocksDb(RocksDbConfig),
+}
+
+impl LedgerBackend {
+    pub fn name(&self) -> &'static str {
+        match self {
+            LedgerBackend::Lmdb(_) => "lmdb",
+            LedgerBackend::RocksDb(_) => "rocksdb",
+        }
+    }
+
+    pub fn as_lmdb(&self) -> Option<&LmdbConfig> {
+        match self {
+            LedgerBackend::Lmdb(cfg) => Some(cfg),
+            _ => None,
+        }
+    }
+
+    pub fn as_lmdb_mut(&mut self) -> Option<&mut LmdbConfig> {
+        match self {
+            LedgerBackend::Lmdb(cfg) => Some(cfg),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LmdbConfig {
+    pub max_databases: u32,
+    pub map_size: usize,
+    pub mem_init: bool,
+}
+
+impl Default for LmdbConfig {
+    fn default() -> Self {
+        Self {
             max_databases: 128,
             map_size: 256 * 1024 * 1024 * 1024,
             mem_init: false,
@@ -31,8 +88,21 @@ impl Default for LedgerStoreConfig {
     }
 }
 
-impl LedgerStoreConfig {
+impl LmdbConfig {
     pub fn new() -> Self {
         Self::default()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RocksDbConfig {
+    pub max_open_files: Option<i32>,
+}
+
+impl Default for RocksDbConfig {
+    fn default() -> Self {
+        Self {
+            max_open_files: None,
+        }
     }
 }

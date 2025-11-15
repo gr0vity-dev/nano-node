@@ -11,9 +11,7 @@ use store_traits::{
 
 use crate::{
     CONFIRMATION_HEIGHT_TEST_DATABASE, LmdbIterator, LmdbRangeIterator, parallel_traversal,
-    store_utils::{
-        lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from,
-    },
+    store_utils::{lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from},
     transaction::LmdbLedgerReadTxn,
 };
 
@@ -176,10 +174,10 @@ fn read_conf_height_record(key: &[u8], mut value: &[u8]) -> (Account, Confirmati
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn};
     use rsnano_nullable_lmdb::PutEvent;
     use rsnano_types::BlockHash;
     use std::sync::Arc;
-    use crate::transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn};
 
     struct Fixture {
         env: Arc<LmdbEnvironment>,
