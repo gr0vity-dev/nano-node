@@ -14,6 +14,7 @@ use rocksdb::{
     BoundColumnFamily, ColumnFamilyDescriptor, DBIteratorWithThreadMode, DBWithThreadMode,
     Error as RocksError, IteratorMode, MultiThreaded, Options, SnapshotWithThreadMode, WriteBatch,
 };
+use store_traits::config::{LedgerBackend, LedgerStoreConfig, RocksDbConfig};
 use store_traits::environment::{
     StoreCursor, StoreEnvironment, StoreEnvironmentFactory, StoreEnvironmentOptions, StoreReadTxn,
     StoreWriteTxn,
@@ -22,6 +23,7 @@ use store_traits::ledger::{LedgerCache, LedgerStore, LedgerStoreFactory};
 use store_traits::types::{
     StoreDatabase, StoreEnvironmentFlags, StoreError, StoreErrorKind, StoreResult, StoreWriteFlags,
 };
+use tempfile::tempdir;
 
 pub struct RocksdbStoreEnvironment {
     inner: Arc<RocksDbInner>,
@@ -33,8 +35,9 @@ impl RocksdbStoreEnvironment {
         path: PathBuf,
         _flags: StoreEnvironmentFlags,
         temp_dir: Option<tempfile::TempDir>,
+        config: Option<&RocksDbConfig>,
     ) -> anyhow::Result<Self> {
-        let inner = RocksDbInner::open(&path)?;
+        let inner = RocksDbInner::open(&path, config.and_then(|c| c.max_open_files))?;
         Ok(Self {
             inner: Arc::new(inner),
             _temp_dir: temp_dir,
@@ -82,7 +85,7 @@ impl StoreEnvironmentFactory for RocksdbStoreEnvironmentFactory {
 
     fn create(&self, options: StoreEnvironmentOptions) -> anyhow::Result<Arc<Self::Environment>> {
         let StoreEnvironmentOptions { path, flags, .. } = options;
-        let env = RocksdbStoreEnvironment::open(path, flags, None)?;
+        let env = RocksdbStoreEnvironment::open(path, flags, None, None)?;
         Ok(Arc::new(env))
     }
 
@@ -95,7 +98,7 @@ impl StoreEnvironmentFactory for RocksdbStoreEnvironmentFactory {
             flags: StoreEnvironmentFlags::empty(),
         };
         let StoreEnvironmentOptions { path, flags, .. } = options;
-        let env = RocksdbStoreEnvironment::open(path, flags, Some(temp_dir))
+        let env = RocksdbStoreEnvironment::open(path, flags, Some(temp_dir), None)
             .expect("temp RocksDB environment");
         Arc::new(env)
     }
@@ -118,14 +121,31 @@ impl RocksdbLedgerStoreFactory {
 impl LedgerStoreFactory for RocksdbLedgerStoreFactory {
     fn create_store(
         &self,
-        _path: PathBuf,
-        _config: store_traits::config::LedgerStoreConfig,
+        path: PathBuf,
+        config: LedgerStoreConfig,
         _cache: Arc<LedgerCache>,
     ) -> anyhow::Result<Arc<dyn LedgerStore>> {
+        let rocks_config = match config.backend {
+            LedgerBackend::RocksDb(cfg) => cfg,
+            _ => bail!("RocksDB factory requires RocksDB backend config"),
+        };
+        let _env = RocksdbStoreEnvironment::open(
+            path,
+            StoreEnvironmentFlags::empty(),
+            None,
+            Some(&rocks_config),
+        )?;
         bail!("RocksDB ledger store not implemented yet")
     }
 
     fn create_null_store(&self, _cache: Arc<LedgerCache>) -> anyhow::Result<Arc<dyn LedgerStore>> {
+        let temp_dir = tempdir()?;
+        let _env = RocksdbStoreEnvironment::open(
+            temp_dir.path().to_path_buf(),
+            StoreEnvironmentFlags::empty(),
+            Some(temp_dir),
+            Some(&RocksDbConfig::default()),
+        )?;
         bail!("RocksDB ledger store not implemented yet")
     }
 }
@@ -154,7 +174,7 @@ enum WriteOp {
 }
 
 impl RocksDbInner {
-    fn open(path: &Path) -> anyhow::Result<Self> {
+    fn open(path: &Path, max_open_files: Option<i32>) -> anyhow::Result<Self> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -162,6 +182,9 @@ impl RocksDbInner {
         let mut options = Options::default();
         options.create_if_missing(true);
         options.create_missing_column_families(true);
+        if let Some(max_open_files) = max_open_files {
+            options.set_max_open_files(max_open_files);
+        }
 
         let cf_names = if path.exists() {
             RocksDb::list_cf(&options, path).unwrap_or_default()
@@ -670,6 +693,7 @@ mod tests {
             dir.path().to_path_buf(),
             StoreEnvironmentFlags::empty(),
             Some(dir),
+            Some(&RocksDbConfig::default()),
         )
         .unwrap();
         Arc::new(env)
