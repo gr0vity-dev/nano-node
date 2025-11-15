@@ -56,17 +56,31 @@ impl LedgerBackend {
         }
     }
 
-    pub fn as_lmdb(&self) -> &LmdbConfig {
+    pub fn as_lmdb(&self) -> Option<&LmdbConfig> {
         match self {
-            LedgerBackend::Lmdb(cfg) => cfg,
-            _ => panic!("not an LMDB backend"),
+            LedgerBackend::Lmdb(cfg) => Some(cfg),
+            _ => None,
         }
     }
 
-    pub fn as_lmdb_mut(&mut self) -> &mut LmdbConfig {
+    pub fn as_lmdb_mut(&mut self) -> Option<&mut LmdbConfig> {
         match self {
-            LedgerBackend::Lmdb(cfg) => cfg,
-            _ => panic!("not an LMDB backend"),
+            LedgerBackend::Lmdb(cfg) => Some(cfg),
+            _ => None,
+        }
+    }
+
+    pub fn as_rocksdb(&self) -> Option<&RocksDbConfig> {
+        match self {
+            LedgerBackend::RocksDb(cfg) => Some(cfg),
+            _ => None,
+        }
+    }
+
+    pub fn as_rocksdb_mut(&mut self) -> Option<&mut RocksDbConfig> {
+        match self {
+            LedgerBackend::RocksDb(cfg) => Some(cfg),
+            _ => None,
         }
     }
 }
