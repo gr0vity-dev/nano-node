@@ -170,17 +170,10 @@ pub(crate) fn build_foundation(
 
     let ledger_store_config = config.ledger_store_config.clone();
     let ledger_backend_name = ledger_store_config.backend_name();
-    let lmdb_store_factory = match ledger_store_config.backend {
-        store_traits::config::LedgerBackend::Lmdb(_) => {
-            if is_nulled {
-                LmdbLedgerStoreFactory::new_null()
-            } else {
-                LmdbLedgerStoreFactory::default()
-            }
-        }
-        _ => {
-            anyhow::bail!("Unsupported ledger backend: {ledger_backend_name}. Only LMDB is wired.")
-        }
+    let lmdb_store_factory = if is_nulled {
+        LmdbLedgerStoreFactory::new_null()
+    } else {
+        LmdbLedgerStoreFactory::default()
     };
 
     let wallet_env_factory = if is_nulled {

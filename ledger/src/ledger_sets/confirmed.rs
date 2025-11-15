@@ -246,7 +246,7 @@ mod tests {
         let block2 = SavedBlock::new_test_instance_with_key(43);
         let block3 = SavedBlock::new_test_instance_with_key(44);
 
-        let ledger = Ledger::new_null_builder()
+        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
             .blocks([&block1, &block2, &block3])
             .confirmation_height(
                 &block1.account(),
@@ -299,7 +299,7 @@ mod tests {
         let hash2 = BlockHash::from(200);
         let hash3 = BlockHash::from(300);
 
-        let ledger = Ledger::new_null_builder()
+        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
             .account_info(&account1, &AccountInfo::new_test_instance())
             .account_info(&account2, &AccountInfo::new_test_instance())
             .account_info(&account3, &AccountInfo::new_test_instance())

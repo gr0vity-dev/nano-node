@@ -15,7 +15,6 @@ pub struct LedgerStoreConfig {
 
 pub enum LedgerBackend {
     Lmdb(LmdbConfig),
-    RocksDb(RocksDbConfig),
 }
 
 pub struct LmdbConfig {
@@ -44,6 +43,7 @@ map_size_gb = 128
 mem_init = true
 ```
 
-The application layer forwards the selected backend and its typed config
-directly into the `LedgerStoreFactory`. Tests should exercise real backends
-through these APIs instead of poking at JSON blobs.
+Only LMDB is wired today, but the enum leaves room for future adapters once a
+real RocksDB factory exists. The application layer forwards the selected backend
+and its typed config directly into the `LedgerStoreFactory`. Tests should
+exercise real backends through these APIs instead of poking at JSON blobs.

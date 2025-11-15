@@ -5,7 +5,7 @@ use std::{
 };
 
 use rsnano_nullable_lmdb::LmdbEnvironment;
-use rsnano_store_lmdb::{LmdbAccountStore, LmdbStore};
+use rsnano_store_lmdb::{LmdbAccountStore, LmdbStore, null_ledger_store_factory};
 use rsnano_types::{
     Account, AccountInfo, Amount, BlockHash, DEV_GENESIS_KEY, PrivateKey, PublicKey, Root,
     SavedBlock, TestBlockBuilder, UnixMillisTimestamp,
@@ -18,6 +18,7 @@ use crate::{
     ledger_constants::{DEV_GENESIS_BLOCK, DEV_GENESIS_PUB_KEY},
     test_helpers::SavedBlockLatticeBuilder,
 };
+use store_traits::ledger::LedgerStoreFactory;
 
 mod empty_ledger;
 mod receivable_iteration;
@@ -30,9 +31,21 @@ fn begin_write_txn(env: &LmdbEnvironment) -> rsnano_store_lmdb::LmdbLedgerWriteT
     rsnano_store_lmdb::LmdbLedgerWriteTxn::new(env.begin_write())
 }
 
+pub(crate) fn test_store_factory() -> Arc<dyn LedgerStoreFactory> {
+    null_ledger_store_factory()
+}
+
+pub(crate) fn new_null_ledger() -> Ledger {
+    Ledger::new_null(test_store_factory())
+}
+
+pub(crate) fn new_null_builder() -> crate::ledger::NullLedgerBuilder {
+    Ledger::new_null_builder(test_store_factory())
+}
+
 #[test]
 fn ledger_successor() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
     let send = inserter.genesis().send(Account::from(1), 1000);
 
@@ -53,13 +66,13 @@ fn ledger_successor() {
 
 #[test]
 fn latest_root_empty() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     assert_eq!(ledger.any().latest_root(&Account::from(1)), Root::from(1));
 }
 
 #[test]
 fn latest_root() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
     let send = inserter.genesis().send(Account::from(1), 1000);
 
@@ -71,7 +84,7 @@ fn latest_root() {
 
 #[test]
 fn send_open_receive_vote_weight() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
     let receiver = PrivateKey::from(1);
 
@@ -89,7 +102,7 @@ fn send_open_receive_vote_weight() {
 
 #[test]
 fn send_open_receive_rollback() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
     let receiver = PrivateKey::from(1);
 
@@ -140,7 +153,7 @@ fn send_open_receive_rollback() {
 
 #[test]
 fn state_account() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
     let send = inserter.genesis().send(Account::from(1), 1000);
 
@@ -152,7 +165,7 @@ fn state_account() {
 
 #[test]
 fn rollbacks_can_be_tracked() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let rollback_tracker = ledger.track_rollbacks();
     let hash = BlockHash::from(123);
 
@@ -167,7 +180,7 @@ mod dependents_confirmed {
 
     #[test]
     fn genesis_is_confirmed() {
-        let ledger = Ledger::new_null();
+        let ledger = new_null_ledger();
 
         assert_eq!(
             ledger
@@ -179,7 +192,7 @@ mod dependents_confirmed {
 
     #[test]
     fn send_dependents_are_confirmed_if_previous_block_is_confirmed() {
-        let ledger = Ledger::new_null();
+        let ledger = new_null_ledger();
         let inserter = LedgerInserter::new(&ledger);
         let send = inserter.genesis().send(Account::from(1), 1000);
 
@@ -191,7 +204,7 @@ mod dependents_confirmed {
 
     #[test]
     fn send_dependents_are_unconfirmed_if_previous_block_is_unconfirmed() {
-        let ledger = Ledger::new_null();
+        let ledger = new_null_ledger();
         let inserter = LedgerInserter::new(&ledger);
 
         inserter.genesis().send(Account::from(1), 1000);
@@ -205,7 +218,7 @@ mod dependents_confirmed {
 
     #[test]
     fn open_dependents_are_unconfirmed_if_send_block_is_unconfirmed() {
-        let ledger = Ledger::new_null();
+        let ledger = new_null_ledger();
         let inserter = LedgerInserter::new(&ledger);
         let destination = PrivateKey::from(1);
 
@@ -220,7 +233,7 @@ mod dependents_confirmed {
 
     #[test]
     fn open_dependents_are_confirmed_if_send_block_is_confirmed() {
-        let ledger = Ledger::new_null();
+        let ledger = new_null_ledger();
         let inserter = LedgerInserter::new(&ledger);
         let destination = PrivateKey::from(1);
 
@@ -237,7 +250,7 @@ mod dependents_confirmed {
 
     #[test]
     fn receive_dependents_are_unconfirmed_if_send_block_is_unconfirmed() {
-        let ledger = Ledger::new_null();
+        let ledger = new_null_ledger();
         let inserter = LedgerInserter::new(&ledger);
         let destination = PrivateKey::from(1);
 
@@ -260,7 +273,7 @@ mod dependents_confirmed {
 
     #[test]
     fn receive_dependents_are_unconfirmed_if_previous_block_is_unconfirmed() {
-        let ledger = Ledger::new_null();
+        let ledger = new_null_ledger();
         let inserter = LedgerInserter::new(&ledger);
         let destination = PrivateKey::from(1);
 
@@ -283,7 +296,7 @@ mod dependents_confirmed {
 
     #[test]
     fn receive_dependents_are_confirmed_if_previous_block_and_send_block_are_confirmed() {
-        let ledger = Ledger::new_null();
+        let ledger = new_null_ledger();
         let inserter = LedgerInserter::new(&ledger);
         let destination = PrivateKey::from(1);
 
@@ -309,7 +322,7 @@ mod dependents_confirmed {
 
 #[test]
 fn block_confirmed() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
     let destination = PrivateKey::from(1);
     let send = inserter.genesis().send(&destination, 1);
@@ -361,7 +374,7 @@ fn is_send_genesis() {
 
 #[test]
 fn sideband_height() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
     let dest = PrivateKey::from(42);
 
@@ -388,7 +401,7 @@ fn sideband_height() {
 fn configured_peers_response() {
     let endpoint = "[::ffff:10:0:0:1]:1111".parse::<SocketAddrV6>().unwrap();
     let now = UNIX_EPOCH + Duration::from_secs(1_000_000);
-    let ledger = Ledger::new_null_builder().peers([(endpoint, now)]).finish();
+    let ledger = new_null_builder().peers([(endpoint, now)]).finish();
     let tx = ledger.store.begin_read();
     assert_eq!(
         ledger.store.peer().iter(tx.as_ref()).next().unwrap(),
@@ -404,10 +417,7 @@ fn block_priority() {
     lattice.set_now(UnixMillisTimestamp::new(20000));
     let receive = lattice.genesis().receive(&send);
 
-    let ledger = Ledger::new_null_builder()
-        .block(&send)
-        .block(&receive)
-        .finish();
+    let ledger = new_null_builder().block(&send).block(&receive).finish();
 
     assert_eq!(
         ledger
@@ -437,14 +447,14 @@ fn block_priority() {
 
 #[test]
 fn linked_account_for_change_block() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let block = SavedBlock::new_test_change_block();
     assert_eq!(ledger.any().linked_account(&block), None);
 }
 
 #[test]
 fn linked_account_for_send_block() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let block = SavedBlock::new_test_send_block();
     assert_eq!(
         ledger.any().linked_account(&block),
@@ -469,7 +479,7 @@ fn linked_account_for_receive_block() {
         .is_receive()
         .build_saved();
 
-    let ledger = Ledger::new_null_builder().block(&send_block).finish();
+    let ledger = new_null_builder().block(&send_block).finish();
     assert_eq!(
         ledger.any().linked_account(&receive_block),
         Some(sender.account())

@@ -1,3 +1,4 @@
+use super::new_null_ledger;
 use crate::{
     AnySet, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, Ledger, LedgerInserter, LedgerSet,
     ledger_constants::DEV_GENESIS_PUB_KEY,
@@ -6,7 +7,7 @@ use rsnano_types::{Account, Amount, Epoch, PendingInfo, PendingKey, PrivateKey, 
 
 #[test]
 fn rollback_send() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
     let send = inserter.genesis().send(Account::from(1), 100);
 
@@ -25,7 +26,7 @@ fn rollback_send() {
 
 #[test]
 fn rollback_receive() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
 
     let amount_sent = Amount::raw(50);
@@ -59,7 +60,7 @@ fn rollback_receive() {
 
 #[test]
 fn rollback_received_send() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
     let destination = PrivateKey::from(1);
 
@@ -82,7 +83,7 @@ fn rollback_received_send() {
 
 #[test]
 fn rollback_rep_change() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
     let representative = PublicKey::from(1);
 
@@ -99,7 +100,7 @@ fn rollback_rep_change() {
 
 #[test]
 fn rollback_open() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
     let destination = PrivateKey::from(1);
 
@@ -129,7 +130,7 @@ fn rollback_open() {
 
 #[test]
 fn rollback_send_with_rep_change() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
 
     let representative = PublicKey::from(1);
@@ -148,7 +149,7 @@ fn rollback_send_with_rep_change() {
 
 #[test]
 fn rollback_receive_with_rep_change() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
 
     let representative = PublicKey::from(1);

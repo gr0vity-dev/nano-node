@@ -12,7 +12,7 @@ use tracing::{debug, info, warn};
 
 use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_store_lmdb::KeyType;
+use rsnano_store_lmdb::{KeyType, null_ledger_store_factory};
 use rsnano_types::{
     Account, Amount, Block, BlockDetails, BlockHash, Epoch, KeyDerivationFunction, Link, Networks,
     PendingKey, PrivateKey, PublicKey, RawKey, Root, SavedBlock, StateBlockArgs, WalletId,
@@ -91,7 +91,7 @@ impl Wallets {
                 .expect("Failed to initialize LMDB wallet environment"),
         );
         let wallet_env: Arc<WalletEnvHandle> = wallet_env_impl.clone();
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(null_ledger_store_factory()));
         let wallets_config = WalletsConfig::default();
         let work = WorkThresholds::default_for(network);
         let clock = Arc::new(SteadyClock::new_null());
@@ -1646,7 +1646,7 @@ mod tests {
         let send = SavedBlock::new_test_instance();
         let amount = Amount::nano(1);
 
-        let ledger = Ledger::new_null_builder()
+        let ledger = Ledger::new_null_builder(null_ledger_store_factory())
             .block(&send)
             .pending(
                 &PendingKey::new(receiver_account.into(), send.hash()),
@@ -1679,7 +1679,10 @@ mod tests {
             let env_harness = WalletEnvTestHarness::from_config(&wallets_config);
             let wallet_env = env_harness.env();
             let work = WorkThresholds::default_for(network);
-            let ledger = Arc::new(args.ledger.unwrap_or_else(|| Ledger::new_null()));
+            let ledger = Arc::new(
+                args.ledger
+                    .unwrap_or_else(|| Ledger::new_null(null_ledger_store_factory())),
+            );
             let clock = Arc::new(SteadyClock::new_null());
             let store_factory = env_harness.store_factory();
 

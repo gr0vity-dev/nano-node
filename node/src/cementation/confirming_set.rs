@@ -92,7 +92,9 @@ impl ConfirmingSet {
     pub fn new_null() -> Self {
         Self::new(
             ConfirmingSetConfig::default(),
-            Arc::new(Ledger::new_null()),
+            Arc::new(Ledger::new_null(
+                rsnano_store_lmdb::null_ledger_store_factory(),
+            )),
             Arc::new(Stats::default()),
         )
     }
@@ -442,7 +444,9 @@ mod tests {
 
     #[test]
     fn add_exists() {
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(
+            rsnano_store_lmdb::null_ledger_store_factory(),
+        ));
         let confirming_set =
             ConfirmingSet::new(Default::default(), ledger, Arc::new(Stats::default()));
         let hash = BlockHash::from(1);

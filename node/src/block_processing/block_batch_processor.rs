@@ -32,7 +32,9 @@ impl BlockBatchProcessor {
     #[allow(dead_code)]
     pub fn new_null() -> Self {
         Self {
-            ledger: Arc::new(Ledger::new_null()),
+            ledger: Arc::new(Ledger::new_null(
+                rsnano_store_lmdb::null_ledger_store_factory(),
+            )),
             unchecked: Arc::new(Mutex::new(UncheckedMap::default())),
             stats: Arc::new(BlockBatchProcessorStats::default()),
             event_publisher: channel(0).0,

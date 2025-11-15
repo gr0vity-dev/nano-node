@@ -47,7 +47,9 @@ impl BacklogWaiter {
     #[allow(dead_code)]
     pub fn new_null() -> Self {
         let queue = Arc::new(BlockProcessorQueue::new_null());
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(
+            rsnano_store_lmdb::null_ledger_store_factory(),
+        ));
         let clock = Arc::new(SteadyClock::new_null());
         Self::new(queue, ledger, clock, 1000)
     }
@@ -281,7 +283,9 @@ mod tests {
 
     fn create_fixture(args: FixtureArgs) -> TestFixture {
         let queue = Arc::new(BlockProcessorQueue::new_null());
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(
+            rsnano_store_lmdb::null_ledger_store_factory(),
+        ));
 
         ledger
             .store

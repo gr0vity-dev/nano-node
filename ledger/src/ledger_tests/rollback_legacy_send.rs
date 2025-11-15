@@ -1,3 +1,4 @@
+use super::new_null_ledger;
 use rsnano_types::{Account, Amount, PendingKey, PrivateKey, SavedBlock};
 
 use crate::{
@@ -55,7 +56,7 @@ fn update_confirmation_height_store() {
 
 #[test]
 fn rollback_dependent_blocks_too() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
     let destination = PrivateKey::from(42);
 
@@ -96,7 +97,7 @@ struct Fixture {
 }
 
 fn create_fixture() -> Fixture {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
     let destination = Account::from(42);
     let amount_sent = Amount::raw(1000);

@@ -241,11 +241,22 @@ impl<'a> LedgerBlockInserter<'a> {
 mod tests {
     use super::*;
     use crate::{DEV_GENESIS_ACCOUNT, Ledger};
+    use rsnano_store_lmdb::null_ledger_store_factory;
+    use std::sync::Arc;
+    use store_traits::ledger::LedgerStoreFactory;
+
+    fn test_store_factory() -> Arc<dyn LedgerStoreFactory> {
+        null_ledger_store_factory()
+    }
+
+    fn new_ledger() -> Ledger {
+        Ledger::new_null(test_store_factory())
+    }
     use rsnano_types::BlockType;
 
     #[test]
     fn insert_one_block() {
-        let ledger = Ledger::new_null();
+        let ledger = new_ledger();
         let inserter = LedgerInserter::new(&ledger);
         let destination = PrivateKey::from(1);
 
@@ -260,7 +271,7 @@ mod tests {
 
     #[test]
     fn open_account() {
-        let ledger = Ledger::new_null();
+        let ledger = new_ledger();
         let inserter = LedgerInserter::new(&ledger);
         let destination = PrivateKey::from(1);
 
@@ -275,7 +286,7 @@ mod tests {
 
     #[test]
     fn legacy_send() {
-        let ledger = Ledger::new_null();
+        let ledger = new_ledger();
         let inserter = LedgerInserter::new(&ledger);
         let destination = PrivateKey::from(1);
 

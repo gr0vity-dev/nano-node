@@ -228,7 +228,9 @@ mod tests {
         let network = Arc::new(RwLock::new(Network::new_test_instance()));
         let rate_limiter = Arc::new(Mutex::new(TokenBucket::new(1024)));
         let channel_waiter = ChannelWaiter::new(network.clone(), rate_limiter, 1024);
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(
+            rsnano_store_lmdb::null_ledger_store_factory(),
+        ));
         let config = BootstrapConfig::default();
 
         let requester =

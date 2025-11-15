@@ -29,6 +29,8 @@ mod wallet_factory;
 mod wallet_store;
 mod wallet_txn_shim;
 
+use std::sync::Arc;
+
 use primitive_types::U256;
 
 use rsnano_nullable_lmdb::LmdbDatabase;
@@ -42,7 +44,6 @@ pub use final_vote_store::LmdbFinalVoteStore;
 pub use iterator::{LmdbIterator, LmdbRangeIterator};
 pub use ledger_store_factory::{LmdbLedgerStoreFactory, create_null_store_with_databases};
 pub use lmdb_config::{SyncStrategy, default_ledger_lmdb_options, get_lmdb_flags};
-pub use store_traits::config::LmdbConfig;
 pub use online_weight_store::LmdbOnlineWeightStore;
 pub use peer_store::*;
 pub use pending_store::{ConfiguredPendingDatabaseBuilder, LmdbPendingStore, read_pending_record};
@@ -50,6 +51,7 @@ pub use rep_weight_store::*;
 pub use rsnano_nullable_lmdb::EnvironmentFlags;
 pub use rsnano_nullable_lmdb::EnvironmentOptions;
 pub use store::LmdbStore;
+pub use store_traits::config::LmdbConfig;
 pub use store_traits::ledger::{LedgerCache, MemoryStats};
 pub use store_traits::wallet::{KeyType, WalletValue};
 pub use successor_store::LmdbSuccessorStore;
@@ -61,6 +63,14 @@ pub use wallet_env::{LmdbWalletEnvironment, LmdbWalletEnvironmentFactory};
 pub use wallet_factory::LmdbWalletStoreFactory;
 pub use wallet_store::{Fans, LmdbWalletStore};
 pub use wallet_txn_shim::{WalletReadTxnSHIM, WalletWriteTxnSHIM};
+
+pub fn ledger_store_factory() -> Arc<LmdbLedgerStoreFactory> {
+    Arc::new(LmdbLedgerStoreFactory::default())
+}
+
+pub fn null_ledger_store_factory() -> Arc<LmdbLedgerStoreFactory> {
+    Arc::new(LmdbLedgerStoreFactory::new_null())
+}
 
 struct Split {
     start: U256,

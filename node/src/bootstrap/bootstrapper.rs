@@ -157,7 +157,9 @@ impl Bootstrapper {
 
     pub fn new_null() -> Self {
         let block_processor_queue = Arc::new(BlockProcessorQueue::default());
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(
+            rsnano_store_lmdb::null_ledger_store_factory(),
+        ));
         let stats = Arc::new(Stats::default());
         let network = Arc::new(RwLock::new(Network::new_test_instance()));
         let message_sender = MessageSender::new_null();

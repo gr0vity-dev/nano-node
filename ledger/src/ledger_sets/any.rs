@@ -762,7 +762,7 @@ mod tests {
 
     fn ledger_with_pending_entries(existing_keys: &[PendingKey]) -> Ledger {
         let info = PendingInfo::new_test_instance();
-        let mut builder = Ledger::new_null_builder();
+        let mut builder = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory());
         for key in existing_keys {
             builder = builder.pending(key, &info);
         }

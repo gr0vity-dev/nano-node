@@ -13,6 +13,7 @@ rsnano_messages = { path = "../../messages" }
 rsnano_ledger = { path = "../../ledger" }
 rsnano_wallet = { path = "../../wallet" }
 rsnano_node = { path = "../../node" }
+rsnano_store_lmdb = { path = "../../store_lmdb" }
 rsnano_websocket_messages = { path = "../messages" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

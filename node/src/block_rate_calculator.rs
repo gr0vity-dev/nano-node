@@ -78,7 +78,9 @@ mod tests {
     #[test]
     fn initial_state() {
         let clock = Arc::new(SteadyClock::new_null());
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(
+            rsnano_store_lmdb::null_ledger_store_factory(),
+        ));
 
         let calculator = BlockRateCalculator::new(clock, ledger);
 
@@ -88,7 +90,9 @@ mod tests {
     #[test]
     fn run_with_no_change() {
         let clock = Arc::new(SteadyClock::new_null());
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(
+            rsnano_store_lmdb::null_ledger_store_factory(),
+        ));
         let mut calculator = BlockRateCalculator::new(clock, ledger);
 
         calculator.tick(&CancellationToken::new_null());
@@ -101,7 +105,9 @@ mod tests {
         let clock = Arc::new(SteadyClock::new_null_with_offsets([Duration::from_millis(
             500,
         )]));
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(
+            rsnano_store_lmdb::null_ledger_store_factory(),
+        ));
         let mut calculator = BlockRateCalculator::new(clock, ledger.clone());
 
         calculator.tick(&CancellationToken::new_null());

@@ -80,7 +80,8 @@ mod tests {
     #[test]
     fn block_for_unknown_account() {
         let block = TestBlockBuilder::state().build();
-        let ledger = Ledger::new_null_builder().finish();
+        let ledger =
+            Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory()).finish();
         let any = ledger.any();
         let validator =
             BlockValidatorFactory::new(&any, &ledger.constants, &block).create_validator();
@@ -103,7 +104,9 @@ mod tests {
         let block = TestBlockBuilder::legacy_send()
             .previous(previous.hash())
             .build();
-        let ledger = Ledger::new_null_builder().block(&previous).finish();
+        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+            .block(&previous)
+            .finish();
         let any = ledger.any();
         let validator =
             BlockValidatorFactory::new(&any, &ledger.constants, &block).create_validator();
@@ -114,7 +117,9 @@ mod tests {
     #[test]
     fn block_exists() {
         let block = TestBlockBuilder::state().build_saved();
-        let ledger = Ledger::new_null_builder().block(&block).finish();
+        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+            .block(&block)
+            .finish();
         let any = ledger.any();
         let validator =
             BlockValidatorFactory::new(&any, &ledger.constants, &block).create_validator();
@@ -125,7 +130,7 @@ mod tests {
     fn account_info() {
         let block = TestBlockBuilder::state().build();
         let account_info = AccountInfo::new_test_instance();
-        let ledger = Ledger::new_null_builder()
+        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
             .account_info(&block.account_field().unwrap(), &account_info)
             .finish();
         let any = ledger.any();
@@ -138,7 +143,7 @@ mod tests {
     fn pending_receive_info_for_state_block() {
         let block = TestBlockBuilder::state().link(Link::from(42)).build();
         let pending_info = PendingInfo::new_test_instance();
-        let ledger = Ledger::new_null_builder()
+        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
             .pending(
                 &PendingKey::new(block.account_field().unwrap(), BlockHash::from(42)),
                 &pending_info,
@@ -159,7 +164,7 @@ mod tests {
             .source(BlockHash::from(42))
             .build();
         let pending_info = PendingInfo::new_test_instance();
-        let ledger = Ledger::new_null_builder()
+        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
             .block(&previous)
             .pending(
                 &PendingKey::new(account, BlockHash::from(42)),
@@ -176,7 +181,7 @@ mod tests {
     fn any_pending_exists() {
         let block = TestBlockBuilder::state().build();
         let pending_info = PendingInfo::new_test_instance();
-        let ledger = Ledger::new_null_builder()
+        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
             .pending(
                 &PendingKey::new(block.account_field().unwrap(), BlockHash::from(42)),
                 &pending_info,
@@ -192,7 +197,9 @@ mod tests {
     fn source_block_exists() {
         let source = TestBlockBuilder::state().build_saved();
         let block = TestBlockBuilder::state().link(source.hash()).build();
-        let ledger = Ledger::new_null_builder().block(&source).finish();
+        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+            .block(&source)
+            .finish();
         let any = ledger.any();
         let validator =
             BlockValidatorFactory::new(&any, &ledger.constants, &block).create_validator();
@@ -205,7 +212,9 @@ mod tests {
         let block = TestBlockBuilder::state()
             .previous(previous.hash())
             .build_saved();
-        let ledger = Ledger::new_null_builder().block(&previous).finish();
+        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+            .block(&previous)
+            .finish();
         let any = ledger.any();
         let validator =
             BlockValidatorFactory::new(&any, &ledger.constants, &block).create_validator();

@@ -1,3 +1,4 @@
+use super::new_null_ledger;
 use crate::{
     AnySet, ConfirmedSet, DEV_GENESIS_HASH, Ledger, LedgerSet,
     ledger_constants::LEDGER_CONSTANTS_STUB,
@@ -6,14 +7,14 @@ use rsnano_types::{Account, Amount, BlockType, UnixTimestamp};
 
 #[test]
 fn account_balance_is_none_for_unknown_account() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let balance = ledger.any().account_balance(&Account::ZERO);
     assert_eq!(balance, Amount::ZERO);
 }
 
 #[test]
 fn get_genesis_block() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
 
     let genesis = ledger
         .any()
@@ -25,14 +26,14 @@ fn get_genesis_block() {
 
 #[test]
 fn genesis_account_balance() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let balance = ledger.any().account_balance(&ledger.genesis().account());
     assert_eq!(balance, Amount::MAX);
 }
 
 #[test]
 fn genesis_account_info() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
 
     let account_info = ledger
         .any()
@@ -47,7 +48,7 @@ fn genesis_account_info() {
 
 #[test]
 fn genesis_confirmation_height_info() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
 
     // Genesis block should be confirmed by default
     let conf_info = ledger
@@ -61,7 +62,7 @@ fn genesis_confirmation_height_info() {
 
 #[test]
 fn empty_ledger_cache() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     assert_eq!(ledger.account_count(), 1);
     assert_eq!(ledger.block_count(), 1);
     assert_eq!(ledger.confirmed_count(), 1);
@@ -69,7 +70,7 @@ fn empty_ledger_cache() {
 
 #[test]
 fn genesis_representative() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     assert_eq!(
         ledger
             .any()
@@ -80,7 +81,7 @@ fn genesis_representative() {
 
 #[test]
 fn genesis_vote_weight() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     assert_eq!(
         ledger.weight(&ledger.genesis().account().into()),
         Amount::MAX
@@ -89,6 +90,6 @@ fn genesis_vote_weight() {
 
 #[test]
 fn latest_empty() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     assert_eq!(ledger.any().account_head(&Account::from(1)), None);
 }

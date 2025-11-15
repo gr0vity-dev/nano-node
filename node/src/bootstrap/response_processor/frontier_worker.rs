@@ -66,7 +66,7 @@ mod tests {
 
     #[test]
     fn empty() {
-        let ledger = Ledger::new_null();
+        let ledger = Ledger::new_null(rsnano_store_lmdb::null_ledger_store_factory());
         let any = ledger.any();
         let stats = Stats::default();
         let state = Mutex::new(BootstrapLogic::default());
@@ -80,7 +80,7 @@ mod tests {
     #[test]
     fn prioritize_one_account() {
         let account = Account::from(1);
-        let ledger = Ledger::new_null_builder()
+        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
             .account_info(
                 &account,
                 &AccountInfo {

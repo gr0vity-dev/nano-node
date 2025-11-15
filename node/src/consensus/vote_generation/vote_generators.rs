@@ -95,7 +95,9 @@ impl VoteGenerators {
     }
 
     pub fn new_null() -> Self {
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(
+            rsnano_store_lmdb::null_ledger_store_factory(),
+        ));
         let wallet_reps = Arc::new(Mutex::new(WalletRepresentatives::new_null()));
         let history = Arc::new(LocalVoteHistory::new(Networks::NanoLiveNetwork));
         let stats = Arc::new(Stats::default());

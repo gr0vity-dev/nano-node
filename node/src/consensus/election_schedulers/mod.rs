@@ -103,7 +103,9 @@ impl ElectionSchedulers {
         let config = NodeConfig::new_test_instance();
         let network_constants = NetworkConstants::for_network(Networks::NanoLiveNetwork);
         let active_elections = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(
+            rsnano_store_lmdb::null_ledger_store_factory(),
+        ));
         let stats = Arc::new(Stats::default());
         let vote_cache = Arc::new(Mutex::new(VoteCache::new(
             Default::default(),

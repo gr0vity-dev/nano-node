@@ -26,7 +26,7 @@ pub struct TelemetryFactory {
 impl TelemetryFactory {
     pub fn new_null() -> Self {
         Self {
-            ledger: Ledger::new_null().into(),
+            ledger: Ledger::new_null(rsnano_store_lmdb::null_ledger_store_factory()).into(),
             network: RwLock::new(Network::new_test_instance()).into(),
             node_id_key: PrivateKey::from(1),
             unchecked: Mutex::new(UncheckedMap::default()).into(),

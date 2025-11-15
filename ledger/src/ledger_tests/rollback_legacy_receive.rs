@@ -1,3 +1,4 @@
+use super::new_null_ledger;
 use rsnano_types::{Amount, PendingKey, PrivateKey, SavedBlock};
 
 use crate::{AnySet, Ledger, LedgerInserter, LedgerSet};
@@ -71,7 +72,7 @@ struct Fixture {
 }
 
 fn create_fixture() -> Fixture {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let inserter = LedgerInserter::new(&ledger);
     let destination = PrivateKey::from(42);
     let amount_opened = Amount::raw(500);

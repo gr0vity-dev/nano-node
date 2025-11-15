@@ -30,8 +30,10 @@ use crate::{
     vote_verifier::VoteVerifier,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_store_lmdb::{LmdbLedgerStoreFactory, MemoryStats};
-use store_traits::{LedgerReadTxn, LedgerWriteTxn, ledger::LedgerStoreFactory};
+use store_traits::{
+    LedgerReadTxn, LedgerWriteTxn,
+    ledger::{LedgerStoreFactory, MemoryStats},
+};
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, EnumCount, EnumIter, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
@@ -130,9 +132,9 @@ pub struct NullLedgerBuilder {
 }
 
 impl NullLedgerBuilder {
-    fn new() -> Self {
+    fn new(store_factory: Arc<dyn LedgerStoreFactory>) -> Self {
         Self {
-            store_factory: Arc::new(LmdbLedgerStoreFactory::new_null()),
+            store_factory,
             blocks: Vec::new(),
             accounts: Vec::new(),
             pending: Vec::new(),
@@ -318,9 +320,8 @@ impl NullLedgerBuilder {
 }
 
 impl Ledger {
-    pub fn new_null() -> Self {
+    pub fn new_null(store_factory: Arc<dyn LedgerStoreFactory>) -> Self {
         let rep_weights = Arc::new(RepWeightCache::new());
-        let store_factory = LmdbLedgerStoreFactory::new_null();
         let store = store_factory
             .create_null_store(rep_weights.ledger_cache.clone())
             .unwrap();
@@ -336,8 +337,8 @@ impl Ledger {
         .unwrap()
     }
 
-    pub fn new_null_builder() -> NullLedgerBuilder {
-        NullLedgerBuilder::new()
+    pub fn new_null_builder(store_factory: Arc<dyn LedgerStoreFactory>) -> NullLedgerBuilder {
+        NullLedgerBuilder::new(store_factory)
     }
 
     pub(crate) fn store_ref(&self) -> &dyn LedgerStore {

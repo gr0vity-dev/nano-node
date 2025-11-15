@@ -299,7 +299,11 @@ mod tests {
                 .unwrap();
             channel.set_mode(ChannelMode::Realtime);
         }
-        let ledger = Arc::new(Ledger::new_null_builder().peers(already_stored).finish());
+        let ledger = Arc::new(
+            Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+                .peers(already_stored)
+                .finish(),
+        );
         let time_factory = SystemTimeFactory::new_null_with(now);
         let stats = Arc::new(Stats::default());
         let put_tracker = ledger.store.peer().track_puts();

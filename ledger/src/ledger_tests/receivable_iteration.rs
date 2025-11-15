@@ -1,9 +1,10 @@
-use crate::{AnySet, Ledger};
+use super::new_null_ledger;
+use crate::AnySet;
 use rsnano_types::{Account, BlockHash, PendingInfo, PendingKey};
 
 #[test]
 fn empty() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let any = ledger.any();
 
     let mut iterator = any.account_receivable_upper_bound(Account::ZERO, BlockHash::ZERO);
@@ -17,7 +18,7 @@ fn empty() {
 
 #[test]
 fn reveivable_upper_bound_for_given_account() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let mut txn = ledger.store.begin_write();
 
     let account = Account::from(100);
@@ -52,7 +53,7 @@ fn reveivable_upper_bound_for_given_account() {
 
 #[test]
 fn reveivable_upper_bound() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let mut txn = ledger.store.begin_write();
 
     let key_1 = PendingKey::new(100.into(), 200.into());
@@ -83,7 +84,7 @@ fn reveivable_upper_bound() {
 
 #[test]
 fn reveivable_any() {
-    let ledger = Ledger::new_null();
+    let ledger = new_null_ledger();
     let mut txn = ledger.store.begin_write();
 
     let key = PendingKey::new(100.into(), 200.into());

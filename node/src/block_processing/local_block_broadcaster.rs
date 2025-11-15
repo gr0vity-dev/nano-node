@@ -116,7 +116,9 @@ impl LocalBlockBroadcaster {
     pub fn new_null() -> Self {
         let config = LocalBlockBroadcasterConfig::default();
         let stats = Arc::new(Stats::default());
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(
+            rsnano_store_lmdb::null_ledger_store_factory(),
+        ));
         let confirming_set = Arc::new(ConfirmingSet::new_null());
         let message_flooder = MessageFlooder::new_null();
         let clock = Arc::new(SteadyClock::new_null());

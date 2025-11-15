@@ -246,7 +246,8 @@ mod tests {
     }
 
     fn build_ledger(spec: LedgerSpec) -> Ledger {
-        let mut ledger_builder = Ledger::new_null_builder();
+        let mut ledger_builder =
+            Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory());
 
         for frontier in spec.frontiers {
             ledger_builder = ledger_builder.account_info(

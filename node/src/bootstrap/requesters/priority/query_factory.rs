@@ -337,7 +337,8 @@ mod tests {
         head: Option<BlockHash>,
         confirmed: Option<BlockHash>,
     ) -> Arc<Ledger> {
-        let mut ledger_builder = Ledger::new_null_builder();
+        let mut ledger_builder =
+            Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory());
 
         if let Some(head) = head {
             ledger_builder = ledger_builder.account_info(

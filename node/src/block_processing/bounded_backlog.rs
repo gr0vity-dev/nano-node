@@ -83,7 +83,9 @@ impl BoundedBacklog {
 
     pub fn new_null() -> Self {
         let config = BoundedBacklogConfig::default();
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(
+            rsnano_store_lmdb::null_ledger_store_factory(),
+        ));
         let stats = Arc::new(Stats::default());
         let clock = Arc::new(SteadyClock::new_null());
         let (sender, _) = channel(0);

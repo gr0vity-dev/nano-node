@@ -45,10 +45,7 @@ impl From<&LmdbToml> for LedgerStoreConfig {
 
 impl From<&LedgerStoreConfig> for LmdbToml {
     fn from(config: &LedgerStoreConfig) -> Self {
-        let backend = match &config.backend {
-            LedgerBackend::Lmdb(cfg) => cfg,
-            _ => panic!("LMDB TOML conversion requires LMDB backend"),
-        };
+        let backend = config.backend.as_lmdb();
         Self {
             sync: Some(match config.sync {
                 StoreSyncStrategy::Always => "always".to_string(),

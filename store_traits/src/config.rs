@@ -45,28 +45,24 @@ impl LedgerStoreConfig {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LedgerBackend {
     Lmdb(LmdbConfig),
-    RocksDb(RocksDbConfig),
 }
 
 impl LedgerBackend {
     pub fn name(&self) -> &'static str {
         match self {
             LedgerBackend::Lmdb(_) => "lmdb",
-            LedgerBackend::RocksDb(_) => "rocksdb",
         }
     }
 
-    pub fn as_lmdb(&self) -> Option<&LmdbConfig> {
+    pub fn as_lmdb(&self) -> &LmdbConfig {
         match self {
-            LedgerBackend::Lmdb(cfg) => Some(cfg),
-            _ => None,
+            LedgerBackend::Lmdb(cfg) => cfg,
         }
     }
 
-    pub fn as_lmdb_mut(&mut self) -> Option<&mut LmdbConfig> {
+    pub fn as_lmdb_mut(&mut self) -> &mut LmdbConfig {
         match self {
-            LedgerBackend::Lmdb(cfg) => Some(cfg),
-            _ => None,
+            LedgerBackend::Lmdb(cfg) => cfg,
         }
     }
 }
@@ -91,18 +87,5 @@ impl Default for LmdbConfig {
 impl LmdbConfig {
     pub fn new() -> Self {
         Self::default()
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RocksDbConfig {
-    pub max_open_files: Option<i32>,
-}
-
-impl Default for RocksDbConfig {
-    fn default() -> Self {
-        Self {
-            max_open_files: None,
-        }
     }
 }

@@ -58,7 +58,9 @@ mod tests {
 
     #[test]
     fn marks_a_forked_block_in_the_ledger() {
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(
+            rsnano_store_lmdb::null_ledger_store_factory(),
+        ));
         let ledger_snapshots = LedgerSnapshots::new_null();
         let active_election_container = ActiveElectionsContainer::default();
         let snapshot_number = ledger_snapshots.get_current_snapshot_number();
@@ -87,7 +89,9 @@ mod tests {
 
     #[test]
     fn can_mark_multiple_forks_in_one_go() {
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(
+            rsnano_store_lmdb::null_ledger_store_factory(),
+        ));
         let ledger_snapshots = LedgerSnapshots::new_null();
         let active_election_container = ActiveElectionsContainer::default();
         let snapshot_number = ledger_snapshots.get_current_snapshot_number();
@@ -133,7 +137,9 @@ mod tests {
 
     #[test]
     fn ignores_blocks_without_fork() {
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(
+            rsnano_store_lmdb::null_ledger_store_factory(),
+        ));
         let ledger_snapshots = LedgerSnapshots::new_null();
         let active_election_container = ActiveElectionsContainer::default();
         let mut fork_detector = ForkDetector::new(
@@ -173,7 +179,9 @@ mod tests {
             .insert(request, Timestamp::new_test_instance())
             .unwrap();
 
-        let ledger = Arc::new(Ledger::new_null());
+        let ledger = Arc::new(Ledger::new_null(
+            rsnano_store_lmdb::null_ledger_store_factory(),
+        ));
         let ledger_snapshots = LedgerSnapshots::new_null();
         let mut fork_detector = ForkDetector::new(
             ledger.clone(),

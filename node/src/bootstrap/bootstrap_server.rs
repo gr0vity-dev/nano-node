@@ -95,7 +95,7 @@ impl BootstrapServer {
         BootstrapServer::new(
             BootstrapServerConfig::default(),
             Stats::default().into(),
-            Ledger::new_null().into(),
+            Ledger::new_null(rsnano_store_lmdb::null_ledger_store_factory()).into(),
             SteadyClock::new_null().into(),
             MessageSender::new_null(),
         )

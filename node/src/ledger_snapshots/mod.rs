@@ -51,7 +51,7 @@ impl LedgerSnapshots {
 
     pub fn new_null() -> Self {
         Self::new(
-            Ledger::new_null().into(),
+            Ledger::new_null(rsnano_store_lmdb::null_ledger_store_factory()).into(),
             || None,
             MessageFlooder::new_null(),
             Mutex::new(OnlineReps::default()).into(),
@@ -604,7 +604,7 @@ mod tests {
             rep_weights.insert(rep_keys.rep3.public_key(), rep_weight);
             rep_weights.insert(rep_keys.rep4.public_key(), rep_weight);
 
-            let ledger = Ledger::new_null_builder()
+            let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
                 .frontiers(self.frontiers)
                 .forks(self.forked_roots)
                 .finish();

@@ -99,13 +99,18 @@ impl ConfirmationMessageFactory<'_> {
 #[cfg(test)]
 mod tests {
     use rsnano_node::consensus::election::ConfirmationType;
+    use rsnano_store_lmdb::null_ledger_store_factory;
     use rsnano_websocket_messages::ConfirmationJsonOptions;
 
     use super::*;
 
+    fn new_ledger() -> Ledger {
+        Ledger::new_null(null_ledger_store_factory())
+    }
+
     #[test]
     fn default_options() {
-        let ledger = Ledger::new_null();
+        let ledger = new_ledger();
         let options = ConfirmationOptions::new(ConfirmationJsonOptions::default());
         let block = SavedBlock::new_test_instance();
         let amount = Amount::nano(123);
@@ -135,7 +140,7 @@ mod tests {
 
     #[test]
     fn linked_account() {
-        let ledger = Ledger::new_null();
+        let ledger = new_ledger();
         let options = ConfirmationOptions::new(ConfirmationJsonOptions {
             include_block: Some(true),
             include_linked_account: Some(true),

@@ -131,12 +131,28 @@ impl<'a> BlockInserter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::NullLedgerBuilder;
+    use rsnano_store_lmdb::null_ledger_store_factory;
     use rsnano_types::{BlockHash, Epoch, PublicKey, TestBlockBuilder, UnixTimestamp};
+    use std::sync::Arc;
+    use store_traits::ledger::LedgerStoreFactory;
+
+    fn test_store_factory() -> Arc<dyn LedgerStoreFactory> {
+        null_ledger_store_factory()
+    }
+
+    fn new_ledger() -> Ledger {
+        Ledger::new_null(test_store_factory())
+    }
+
+    fn new_builder() -> NullLedgerBuilder {
+        Ledger::new_null_builder(test_store_factory())
+    }
 
     #[test]
     fn insert_open_state_block() {
         let (mut block, instructions) = open_state_block_instructions();
-        let ledger = Ledger::new_null();
+        let ledger = new_ledger();
 
         let result = insert(&ledger, &mut block, &instructions);
 
@@ -161,7 +177,7 @@ mod tests {
         let (mut block, mut instructions) = legacy_open_block_instructions();
         let pending_key = PendingKey::new_test_instance();
         instructions.delete_pending = Some(pending_key.clone());
-        let ledger = Ledger::new_null();
+        let ledger = new_ledger();
 
         let result = insert(&ledger, &mut block, &instructions);
 
@@ -174,7 +190,7 @@ mod tests {
         let pending_key = PendingKey::new_test_instance();
         let pending_info = PendingInfo::new_test_instance();
         instructions.insert_pending = Some((pending_key.clone(), pending_info.clone()));
-        let ledger = Ledger::new_null();
+        let ledger = new_ledger();
 
         let result = insert(&ledger, &mut block, &instructions);
 
@@ -198,7 +214,7 @@ mod tests {
             .build();
         let (mut state, instructions) = state_block_instructions_for(&open, state);
 
-        let ledger = Ledger::new_null_builder()
+        let ledger = new_builder()
             .block(&open)
             .account_info(
                 &open.account(),
@@ -225,7 +241,7 @@ mod tests {
     #[test]
     fn no_successor_for_open_block() {
         let (mut block, instructions) = open_state_block_instructions();
-        let ledger = Ledger::new_null();
+        let ledger = new_ledger();
 
         let result = insert(&ledger, &mut block, &instructions);
 
@@ -241,7 +257,7 @@ mod tests {
         let state = TestBlockBuilder::state().previous(open.hash()).build();
         let (mut state, instructions) = state_block_instructions_for(&open, state);
 
-        let ledger = Ledger::new_null_builder()
+        let ledger = new_builder()
             .block(&open)
             .account_info(
                 &open.account(),
