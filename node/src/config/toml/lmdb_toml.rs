@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use store_traits::config::{LedgerBackend, LedgerStoreConfig, LmdbConfig, StoreSyncStrategy};
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LmdbToml {
     pub map_size: Option<usize>,
     pub max_databases: Option<u32>,

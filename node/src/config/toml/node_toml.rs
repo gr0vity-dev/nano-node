@@ -5,6 +5,7 @@ use rsnano_types::{Account, Amount, Peer};
 use serde::{Deserialize, Serialize};
 use std::{str::FromStr, time::Duration};
 use tcp_toml::TcpToml;
+use store_traits::config::LedgerBackend;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct NodeToml {
@@ -68,6 +69,7 @@ pub struct NodeToml {
     pub vote_rebroadcaster: Option<VoteRebroadcasterToml>,
     pub peering_port: Option<u16>,
     pub cps_limit: Option<u32>,
+    pub storage: Option<StorageToml>,
 }
 
 impl NodeConfig {
@@ -283,7 +285,9 @@ impl NodeConfig {
         if let Some(websocket_config_toml) = &toml.websocket {
             self.websocket_config.merge_toml(&websocket_config_toml);
         }
-        if let Some(lmdb_config_toml) = &toml.lmdb {
+        if let Some(storage) = &toml.storage {
+            storage.apply(self);
+        } else if let Some(lmdb_config_toml) = &toml.lmdb {
             self.ledger_store_config = lmdb_config_toml.into();
         }
         if let Some(vote_cache_toml) = &toml.vote_cache {
@@ -497,7 +501,14 @@ impl From<&NodeConfig> for NodeToml {
             bootstrap: Some((&config.bootstrap).into()),
             bootstrap_server: Some(config.into()),
             websocket: Some((&config.websocket_config).into()),
-            lmdb: Some((&config.ledger_store_config).into()),
+            lmdb: if matches!(
+                config.ledger_store_config.backend,
+                LedgerBackend::Lmdb(_)
+            ) {
+                Some((&config.ledger_store_config).into())
+            } else {
+                None
+            },
             vote_cache: Some((&config.vote_cache).into()),
             block_processor: Some(config.into()),
             active_elections: Some(config.into()),
@@ -519,6 +530,7 @@ impl From<&NodeConfig> for NodeToml {
             vote_rebroadcaster: Some(config.into()),
             peering_port: Some(config.network.listening_port),
             cps_limit: Some(config.cps_limit),
+            storage: Some((&config.ledger_store_config).into()),
         }
     }
 }
@@ -527,6 +539,7 @@ impl From<&NodeConfig> for NodeToml {
 mod tests {
     use super::*;
     use crate::{block_processing::ProcessQueueConfig, config::toml::AccountSetsToml};
+    use store_traits::config::{LedgerBackend, RocksDbConfig};
 
     #[test]
     fn merge_bootstrap_ascending_toml() {
@@ -690,5 +703,68 @@ mod tests {
         assert_eq!(block_proc.priority_live, Some(46));
         assert_eq!(block_proc.priority_bootstrap, Some(47));
         assert_eq!(block_proc.priority_local, Some(48));
+    }
+
+    #[test]
+    fn storage_backend_can_switch_to_rocksdb() {
+        let toml = NodeToml {
+            storage: Some(StorageToml {
+                backend: Some("rocksdb".to_string()),
+                rocksdb: Some(RocksDbToml {
+                    max_open_files: Some(128),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let mut cfg = NodeConfig::new_test_instance();
+        cfg.merge_toml(&toml);
+
+        match &cfg.ledger_store_config.backend {
+            LedgerBackend::RocksDb(rocks) => assert_eq!(rocks.max_open_files, Some(128)),
+            _ => panic!("expected RocksDB backend"),
+        }
+    }
+
+    #[test]
+    fn node_toml_from_config_includes_storage_section() {
+        let mut cfg = NodeConfig::new_test_instance();
+        cfg.ledger_store_config.backend = LedgerBackend::RocksDb(RocksDbConfig {
+            max_open_files: Some(77),
+        });
+        let toml = NodeToml::from(&cfg);
+        let storage = toml.storage.expect("storage section missing");
+
+        assert_eq!(storage.backend.as_deref(), Some("rocksdb"));
+        assert_eq!(
+            storage
+                .rocksdb
+                .expect("rocksdb section missing")
+                .max_open_files,
+            Some(77)
+        );
+    }
+
+    #[test]
+    fn storage_backend_can_switch_back_to_lmdb() {
+        let mut cfg = NodeConfig::new_test_instance();
+        cfg.ledger_store_config.backend = LedgerBackend::RocksDb(RocksDbConfig {
+            max_open_files: Some(42),
+        });
+        let toml = NodeToml {
+            storage: Some(StorageToml {
+                backend: Some("lmdb".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        cfg.merge_toml(&toml);
+
+        assert!(matches!(
+            cfg.ledger_store_config.backend,
+            LedgerBackend::Lmdb(_)
+        ));
     }
 }

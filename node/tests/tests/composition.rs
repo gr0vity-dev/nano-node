@@ -3,7 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use rsnano_node::{Node, NodeBuilder};
+use rsnano_node::{Node, NodeBuilder, config::get_node_toml_config_path};
 use rsnano_types::Networks;
 use store_traits::config::{LedgerBackend, RocksDbConfig};
 use test_helpers::System;
@@ -70,4 +70,29 @@ fn node_builder_supports_rocksdb_backend_via_config() {
         "RocksDB ledger should create CURRENT file at {:?}",
         ledger_dir
     );
+}
+
+#[test]
+fn node_builder_loads_backend_from_toml_file() {
+    let temp_dir = unique_path("rocksdb-config-file");
+    fs::create_dir_all(&temp_dir).unwrap();
+    let config_path = get_node_toml_config_path(&temp_dir);
+    let toml = r#"[node.storage]
+backend = "rocksdb"
+
+[node.storage.rocksdb]
+max_open_files = 64
+"#;
+    fs::write(&config_path, toml).unwrap();
+
+    let mut node = NodeBuilder::new(Networks::NanoDevNetwork)
+        .data_path(&temp_dir)
+        .finish()
+        .expect("node loads from config");
+    assert!(matches!(
+        node.config.ledger_store_config.backend,
+        LedgerBackend::RocksDb(_)
+    ));
+    node.stop();
+    fs::remove_dir_all(&temp_dir).ok();
 }
