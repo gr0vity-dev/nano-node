@@ -9,3 +9,5 @@ parking_lot = "0.12"
 store_traits = { path = "../store_traits" }
 anyhow = "1"
 tempfile = "3"
+rsnano_output_tracker = { path = "../nullables/output_tracker" }
+rsnano_types = { path = "../types" }

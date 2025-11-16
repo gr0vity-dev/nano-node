@@ -5229,6 +5229,8 @@ dependencies = [
  "anyhow",
  "parking_lot",
  "rocksdb",
+ "rsnano_output_tracker",
+ "rsnano_types",
  "store_traits",
  "tempfile",
 ]
