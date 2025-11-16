@@ -4345,9 +4345,11 @@ dependencies = [
  "rsnano_utils",
  "rsnano_work_validation",
  "serde_json",
+ "store_rocksdb",
  "store_traits",
  "strum 0.27.2",
  "strum_macros 0.27.2",
+ "tempfile",
  "tracing",
 ]
 
