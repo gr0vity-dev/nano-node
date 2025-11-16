@@ -1479,6 +1479,58 @@ impl<'txn> Iterator for RocksdbPeerIterator<'txn> {
     }
 }
 
+pub struct RocksdbVersionStore {
+    database: StoreDatabase,
+}
+
+impl RocksdbVersionStore {
+    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
+        let database = env.open_db(Some(VERSION_CF_NAME))?;
+        Ok(Self { database })
+    }
+
+    fn database(&self) -> StoreDatabase {
+        self.database
+    }
+
+    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, version: i32) {
+        let key = version_key();
+        let value = version_value(version);
+        txn.put(
+            self.database(),
+            &key,
+            &value,
+            StoreWriteFlags::default(),
+        )
+        .expect("failed to write version");
+    }
+
+    pub fn get(&self, txn: &dyn LedgerReadTxn) -> Option<i32> {
+        let key = version_key();
+        match txn.get(self.database(), &key) {
+            Ok(value) => Some(decode_version(value)),
+            Err(e) if e.is_not_found() => None,
+            Err(e) => panic!("failed to read version: {e}"),
+        }
+    }
+}
+
+fn version_value(version: i32) -> [u8; 32] {
+    let mut bytes = [0u8; 32];
+    bytes[28..].copy_from_slice(&version.to_be_bytes());
+    bytes
+}
+
+fn version_key() -> [u8; 32] {
+    version_value(1)
+}
+
+fn decode_version(bytes: &[u8]) -> i32 {
+    let mut array = [0u8; 4];
+    array.copy_from_slice(&bytes[28..32]);
+    i32::from_be_bytes(array)
+}
+
 impl SuccessorStore for RocksdbSuccessorStore {
     fn put(&self, txn: &mut dyn LedgerWriteTxn, block: &BlockHash, successor: &BlockHash) {
         RocksdbSuccessorStore::put(self, txn, block, successor);
@@ -1497,15 +1549,6 @@ impl SuccessorStore for RocksdbSuccessorStore {
     }
 }
 
-#[derive(Default)]
-struct NullVersionStore;
-
-impl VersionStore for NullVersionStore {
-    fn get(&self, _txn: &dyn LedgerReadTxn) -> Option<i32> {
-        None
-    }
-}
-
 struct RocksdbLedgerStore {
     env: Arc<RocksdbStoreEnvironment>,
     cache: Arc<LedgerCache>,
@@ -1517,7 +1560,7 @@ struct RocksdbLedgerStore {
     successors: RocksdbSuccessorStore,
     final_vote: RocksdbFinalVoteStore,
     peer: RocksdbPeerStore,
-    version: NullVersionStore,
+    version: RocksdbVersionStore,
     online_weight: RocksdbOnlineWeightStore,
 }
 
@@ -1535,6 +1578,7 @@ impl RocksdbLedgerStore {
         let online_weight = RocksdbOnlineWeightStore::new(Arc::clone(&env))?;
         let final_vote = RocksdbFinalVoteStore::new(Arc::clone(&env))?;
         let peer = RocksdbPeerStore::new(Arc::clone(&env))?;
+        let version = RocksdbVersionStore::new(Arc::clone(&env))?;
 
         Ok(Arc::new(Self {
             env,
@@ -1547,7 +1591,7 @@ impl RocksdbLedgerStore {
             successors,
             final_vote,
             peer,
-            version: NullVersionStore::default(),
+            version,
             online_weight,
         }))
     }
@@ -1807,6 +1851,7 @@ const ONLINE_WEIGHT_CF_NAME: &str = "rocksdb_online_weight";
 const PRUNED_CF_NAME: &str = "rocksdb_pruned";
 const FINAL_VOTE_CF_NAME: &str = "rocksdb_final_votes";
 const PEERS_CF_NAME: &str = "rocksdb_peers";
+const VERSION_CF_NAME: &str = "rocksdb_version";
 
 enum WriteOp {
     Put {
@@ -2651,6 +2696,27 @@ mod tests {
         }
     }
 
+    struct VersionFixture {
+        env: Arc<RocksdbStoreEnvironment>,
+        store: RocksdbVersionStore,
+    }
+
+    impl VersionFixture {
+        fn new() -> Self {
+            let env = create_env();
+            let store = RocksdbVersionStore::new(Arc::clone(&env)).unwrap();
+            Self { env, store }
+        }
+
+        fn begin_read(&self) -> RocksdbLedgerReadTxn {
+            RocksdbLedgerReadTxn::new(&self.env)
+        }
+
+        fn begin_write(&self) -> RocksdbLedgerWriteTxn {
+            RocksdbLedgerWriteTxn::new(&self.env)
+        }
+    }
+
     #[test]
     fn write_and_read_roundtrip() {
         let env = create_env();
@@ -3388,6 +3454,24 @@ mod tests {
         assert_eq!(fixture.store.count(&read_txn), 0);
     }
 
+    #[test]
+    fn version_store_initially_empty() {
+        let fixture = VersionFixture::new();
+        let read_txn = fixture.begin_read();
+        assert_eq!(fixture.store.get(&read_txn), None);
+    }
+
+    #[test]
+    fn version_store_put_and_get() {
+        let fixture = VersionFixture::new();
+        let mut write_txn = fixture.begin_write();
+        fixture.store.put(&mut write_txn, 42);
+        Box::new(write_txn).commit();
+
+        let read_txn = fixture.begin_read();
+        assert_eq!(fixture.store.get(&read_txn), Some(42));
+    }
+
     fn unique_block(seed: u8) -> SavedBlock {
         let key = PrivateKey::from(u64::from(seed) + 42);
         let block = Block::new_test_instance_with_key(key);
@@ -3430,5 +3514,11 @@ impl PeerStore for RocksdbPeerStore {
 
     fn track_deletions(&self) -> Arc<OutputTrackerMt<SocketAddrV6>> {
         RocksdbPeerStore::track_deletions(self)
+    }
+}
+
+impl VersionStore for RocksdbVersionStore {
+    fn get(&self, txn: &dyn LedgerReadTxn) -> Option<i32> {
+        RocksdbVersionStore::get(self, txn)
     }
 }
