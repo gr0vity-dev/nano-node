@@ -20,14 +20,15 @@ use rocksdb::{
     Error as RocksError, IteratorMode, MultiThreaded, Options, SnapshotWithThreadMode, WriteBatch,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{Account, AccountInfo, BlockHash, SavedBlock};
+use rsnano_types::{Account, AccountInfo, BlockHash, PendingInfo, PendingKey, SavedBlock};
 use store_traits::config::{LedgerBackend, LedgerStoreConfig, RocksDbConfig};
 use store_traits::environment::{
     StoreCursor, StoreEnvironment, StoreEnvironmentFactory, StoreEnvironmentOptions, StoreReadTxn,
     StoreWriteTxn,
 };
 use store_traits::ledger::{
-    AccountStore, LedgerCache, LedgerStore, LedgerStoreFactory, RangeBounds, StoreIterator,
+    AccountStore, LedgerCache, LedgerStore, LedgerStoreFactory, PendingStore, RangeBounds,
+    StoreIterator,
 };
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 use store_traits::types::{
@@ -556,6 +557,189 @@ fn read_account_record((key, value): (&[u8], &[u8])) -> (Account, AccountInfo) {
     (account, info)
 }
 
+pub struct RocksdbPendingStore {
+    database: StoreDatabase,
+    put_listener: OutputListenerMt<(PendingKey, PendingInfo)>,
+    delete_listener: OutputListenerMt<PendingKey>,
+}
+
+impl RocksdbPendingStore {
+    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
+        let database = env.open_db(Some(PENDING_CF_NAME))?;
+        Ok(Self {
+            database,
+            put_listener: OutputListenerMt::new(),
+            delete_listener: OutputListenerMt::new(),
+        })
+    }
+
+    fn database(&self) -> StoreDatabase {
+        self.database
+    }
+
+    pub fn track_puts(&self) -> Arc<OutputTrackerMt<(PendingKey, PendingInfo)>> {
+        self.put_listener.track()
+    }
+
+    pub fn track_deletions(&self) -> Arc<OutputTrackerMt<PendingKey>> {
+        self.delete_listener.track()
+    }
+
+    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, key: &PendingKey, info: &PendingInfo) {
+        if self.put_listener.is_tracked() {
+            self.put_listener.emit((key.clone(), info.clone()));
+        }
+
+        txn.put(
+            self.database(),
+            &key.to_bytes(),
+            &info.to_bytes(),
+            StoreWriteFlags::default(),
+        )
+        .expect("failed to write pending info");
+    }
+
+    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, key: &PendingKey) {
+        if self.delete_listener.is_tracked() {
+            self.delete_listener.emit(key.clone());
+        }
+
+        txn.delete(self.database(), &key.to_bytes(), None)
+            .expect("failed to delete pending info");
+    }
+
+    pub fn get(&self, txn: &dyn LedgerReadTxn, key: &PendingKey) -> Option<PendingInfo> {
+        match txn.get(self.database(), &key.to_bytes()) {
+            Ok(mut bytes) => Some(
+                PendingInfo::deserialize(&mut bytes)
+                    .expect("failed to deserialize RocksDB pending info"),
+            ),
+            Err(e) if e.is_not_found() => None,
+            Err(e) => panic!("failed to read pending info: {e}"),
+        }
+    }
+
+    pub fn iter<'txn>(
+        &'txn self,
+        txn: &'txn dyn LedgerReadTxn,
+    ) -> StoreIterator<'txn, (PendingKey, PendingInfo)> {
+        let cursor = txn
+            .open_ro_cursor(self.database())
+            .expect("failed to open pending cursor");
+        let cursor = rocksdb_ro_cursor_from_store(cursor);
+        Box::new(RocksdbPendingIterator::new(cursor))
+    }
+
+    pub fn iter_range<'txn>(
+        &'txn self,
+        txn: &'txn dyn LedgerReadTxn,
+        range: RangeBounds<PendingKey>,
+    ) -> StoreIterator<'txn, (PendingKey, PendingInfo)> {
+        let cursor = txn
+            .open_ro_cursor(self.database())
+            .expect("failed to open pending cursor");
+        let cursor = rocksdb_ro_cursor_from_store(cursor);
+        Box::new(RocksdbPendingRangeIterator::new(cursor, range))
+    }
+
+    pub fn exists(&self, txn: &dyn LedgerReadTxn, key: &PendingKey) -> bool {
+        txn.raw_exists(self.database(), &key.to_bytes())
+    }
+
+    pub fn any(&self, txn: &dyn LedgerReadTxn, account: &Account) -> bool {
+        let start = PendingKey::new(*account, BlockHash::ZERO);
+        let range = RangeBounds::new(std::ops::Bound::Included(start), std::ops::Bound::Unbounded);
+        self.iter_range(txn, range)
+            .next()
+            .map(|(key, _)| key.receiving_account == *account)
+            .unwrap_or(false)
+    }
+}
+
+impl PendingStore for RocksdbPendingStore {
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, key: &PendingKey, pending: &PendingInfo) {
+        RocksdbPendingStore::put(self, txn, key, pending);
+    }
+
+    fn del(&self, txn: &mut dyn LedgerWriteTxn, key: &PendingKey) {
+        RocksdbPendingStore::del(self, txn, key);
+    }
+
+    fn get(&self, txn: &dyn LedgerReadTxn, key: &PendingKey) -> Option<PendingInfo> {
+        RocksdbPendingStore::get(self, txn, key)
+    }
+
+    fn iter_range<'a>(
+        &'a self,
+        txn: &'a dyn LedgerReadTxn,
+        range: RangeBounds<PendingKey>,
+    ) -> StoreIterator<'a, (PendingKey, PendingInfo)> {
+        RocksdbPendingStore::iter_range(self, txn, range)
+    }
+
+    fn track_puts(&self) -> Arc<OutputTrackerMt<(PendingKey, PendingInfo)>> {
+        RocksdbPendingStore::track_puts(self)
+    }
+
+    fn track_deletions(&self) -> Arc<OutputTrackerMt<PendingKey>> {
+        RocksdbPendingStore::track_deletions(self)
+    }
+}
+
+struct RocksdbPendingIterator<'txn> {
+    cursor: RocksdbCursor<'txn>,
+}
+
+impl<'txn> RocksdbPendingIterator<'txn> {
+    fn new(cursor: RocksdbCursor<'txn>) -> Self {
+        Self { cursor }
+    }
+}
+
+impl<'txn> Iterator for RocksdbPendingIterator<'txn> {
+    type Item = (PendingKey, PendingInfo);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let entry = self.cursor.next().expect("failed to advance cursor")?;
+        Some(read_pending_record(entry))
+    }
+}
+
+struct RocksdbPendingRangeIterator<'txn> {
+    cursor: RocksdbCursor<'txn>,
+    range: RangeBounds<PendingKey>,
+}
+
+impl<'txn> RocksdbPendingRangeIterator<'txn> {
+    fn new(cursor: RocksdbCursor<'txn>, range: RangeBounds<PendingKey>) -> Self {
+        Self { cursor, range }
+    }
+}
+
+impl<'txn> Iterator for RocksdbPendingRangeIterator<'txn> {
+    type Item = (PendingKey, PendingInfo);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let entry = self.cursor.next().expect("failed to advance cursor")?;
+            let record = read_pending_record(entry);
+            if value_in_range(&record.0, &self.range) {
+                return Some(record);
+            }
+        }
+    }
+}
+
+fn read_pending_record((key, value): (&[u8], &[u8])) -> (PendingKey, PendingInfo) {
+    let mut key_bytes = key;
+    let mut value_bytes = value;
+    let key =
+        PendingKey::deserialize(&mut key_bytes).expect("failed to deserialize RocksDB pending key");
+    let info = PendingInfo::deserialize(&mut value_bytes)
+        .expect("failed to deserialize RocksDB pending info");
+    (key, info)
+}
+
 fn find_next_block_id(env: &Arc<RocksdbStoreEnvironment>, data_cf: StoreDatabase) -> Result<u64> {
     let txn = RocksdbLedgerReadTxn::new(env);
     let cursor = txn
@@ -716,6 +900,7 @@ type RocksDbSnapshot<'a> = SnapshotWithThreadMode<'a, RocksDb>;
 const BLOCK_INDEX_CF_NAME: &str = "rocksdb_block_index";
 const BLOCK_DATA_CF_NAME: &str = "rocksdb_block_data";
 const ACCOUNTS_CF_NAME: &str = "rocksdb_accounts";
+const PENDING_CF_NAME: &str = "rocksdb_pending";
 
 enum WriteOp {
     Put {
@@ -1350,6 +1535,35 @@ mod tests {
         }
     }
 
+    struct PendingFixture {
+        env: Arc<RocksdbStoreEnvironment>,
+        store: RocksdbPendingStore,
+    }
+
+    impl PendingFixture {
+        fn new() -> Self {
+            let env = create_env();
+            let store = RocksdbPendingStore::new(Arc::clone(&env)).unwrap();
+            Self { env, store }
+        }
+
+        fn begin_read(&self) -> RocksdbLedgerReadTxn {
+            RocksdbLedgerReadTxn::new(&self.env)
+        }
+
+        fn begin_write(&self) -> RocksdbLedgerWriteTxn {
+            RocksdbLedgerWriteTxn::new(&self.env)
+        }
+
+        fn insert_entries(&self, entries: &[(PendingKey, PendingInfo)]) {
+            let mut txn = self.begin_write();
+            for (key, info) in entries {
+                self.store.put(&mut txn, key, info);
+            }
+            Box::new(txn).commit();
+        }
+    }
+
     #[test]
     fn write_and_read_roundtrip() {
         let env = create_env();
@@ -1381,6 +1595,19 @@ mod tests {
         let read_txn = env.begin_read();
         let err = read_txn.get(database, b"key").unwrap_err();
         assert!(err.is_not_found());
+    }
+
+    #[test]
+    fn write_txn_explicit_rollback() {
+        let env = create_env();
+        let database = env.open_db(Some("accounts")).unwrap();
+        let mut txn = env.begin_write();
+        txn.put(database, b"rollback", b"value", StoreWriteFlags::empty())
+            .unwrap();
+        drop(txn);
+
+        let read_txn = env.begin_read();
+        assert!(read_txn.get(database, b"rollback").is_err());
     }
 
     #[test]
@@ -1576,6 +1803,107 @@ mod tests {
 
         let read_txn = fixture.begin_read();
         assert_eq!(fixture.store.count(&read_txn), 2);
+    }
+
+    #[test]
+    fn pending_store_not_found() {
+        let fixture = PendingFixture::new();
+        let read_txn = fixture.begin_read();
+        let key = PendingKey::new_test_instance();
+        assert!(fixture.store.get(&read_txn, &key).is_none());
+        assert!(!fixture.store.exists(&read_txn, &key));
+    }
+
+    #[test]
+    fn pending_store_put_get() {
+        let fixture = PendingFixture::new();
+        let key = PendingKey::new_test_instance();
+        let info = PendingInfo::new_test_instance();
+        let mut write_txn = fixture.begin_write();
+        let tracker = fixture.store.track_puts();
+        fixture.store.put(&mut write_txn, &key, &info);
+        Box::new(write_txn).commit();
+
+        let read_txn = fixture.begin_read();
+        assert_eq!(fixture.store.get(&read_txn, &key), Some(info.clone()));
+        assert_eq!(tracker.output(), vec![(key, info)]);
+    }
+
+    #[test]
+    fn pending_store_delete() {
+        let fixture = PendingFixture::new();
+        let key = PendingKey::new_test_instance();
+        let info = PendingInfo::new_test_instance();
+        fixture.insert_entries(&[(key.clone(), info)]);
+
+        let mut write_txn = fixture.begin_write();
+        let tracker = fixture.store.track_deletions();
+        fixture.store.del(&mut write_txn, &key);
+        Box::new(write_txn).commit();
+        assert_eq!(tracker.output(), vec![key.clone()]);
+
+        let read_txn = fixture.begin_read();
+        assert!(fixture.store.get(&read_txn, &key).is_none());
+    }
+
+    #[test]
+    fn pending_store_iter_empty() {
+        let fixture = PendingFixture::new();
+        let read_txn = fixture.begin_read();
+        assert!(fixture.store.iter(&read_txn).next().is_none());
+    }
+
+    #[test]
+    fn pending_store_iterates() {
+        let fixture = PendingFixture::new();
+        let key = PendingKey::new_test_instance();
+        let info = PendingInfo::new_test_instance();
+        fixture.insert_entries(&[(key.clone(), info.clone())]);
+
+        let read_txn = fixture.begin_read();
+        let entries: Vec<_> = fixture.store.iter(&read_txn).collect();
+        assert_eq!(entries, vec![(key, info)]);
+    }
+
+    #[test]
+    fn pending_store_iter_range() {
+        let fixture = PendingFixture::new();
+        let k1 = PendingKey::new(Account::from(1), BlockHash::from(1));
+        let k2 = PendingKey::new(Account::from(2), BlockHash::from(1));
+        let k3 = PendingKey::new(Account::from(3), BlockHash::from(1));
+        let info = PendingInfo::new_test_instance();
+        fixture.insert_entries(&[(k1, info.clone()), (k2, info.clone()), (k3, info.clone())]);
+
+        let read_txn = fixture.begin_read();
+        let range = RangeBounds::new(
+            Bound::Included(PendingKey::new(Account::from(2), BlockHash::from(0))),
+            Bound::Excluded(PendingKey::new(Account::from(3), BlockHash::from(0))),
+        );
+        let entries: Vec<_> = fixture.store.iter_range(&read_txn, range).collect();
+        assert_eq!(entries, vec![(k2, info)]);
+    }
+
+    #[test]
+    fn pending_store_exists() {
+        let fixture = PendingFixture::new();
+        let key = PendingKey::new_test_instance();
+        let info = PendingInfo::new_test_instance();
+        fixture.insert_entries(&[(key.clone(), info)]);
+        let read_txn = fixture.begin_read();
+        assert!(fixture.store.exists(&read_txn, &key));
+    }
+
+    #[test]
+    fn pending_store_any_for_account() {
+        let fixture = PendingFixture::new();
+        let account = Account::from(42);
+        let key = PendingKey::new(account, BlockHash::from(7));
+        let info = PendingInfo::new_test_instance();
+        fixture.insert_entries(&[(key, info)]);
+
+        let read_txn = fixture.begin_read();
+        assert!(fixture.store.any(&read_txn, &account));
+        assert!(!fixture.store.any(&read_txn, &Account::from(5)));
     }
 
     fn unique_block(seed: u8) -> SavedBlock {
