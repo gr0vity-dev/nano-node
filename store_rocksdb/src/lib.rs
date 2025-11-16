@@ -3,14 +3,17 @@ use std::{
     collections::{BTreeMap, HashMap},
     fs,
     io::Cursor,
+    iter,
     marker::PhantomData,
     mem,
+    net::SocketAddrV6,
     num::NonZeroUsize,
     path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
+    time::SystemTime,
 };
 
 use anyhow::{Result, anyhow, bail};
@@ -22,7 +25,7 @@ use rocksdb::{
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{
     Account, AccountInfo, Amount, BlockHash, ConfirmationHeightInfo, PendingInfo, PendingKey,
-    PublicKey, SavedBlock,
+    PublicKey, QualifiedRoot, SavedBlock,
 };
 use store_traits::config::{LedgerBackend, LedgerStoreConfig, RocksDbConfig};
 use store_traits::environment::{
@@ -30,16 +33,15 @@ use store_traits::environment::{
     StoreWriteTxn,
 };
 use store_traits::ledger::{
-    AccountStore, ConfirmationHeightStore, LedgerCache, LedgerStore, LedgerStoreFactory,
-    PendingStore, RangeBounds, RepWeightStore, StoreIterator, SuccessorStore,
+    AccountStore, BlockStore, ConfirmationHeightStore, FinalVoteStore, LedgerCache, LedgerStore,
+    LedgerStoreFactory, MemoryStats, OnlineWeightStore, PendingStore, PeerStore, RangeBounds,
+    RepWeightStore, StoreIterator, SuccessorStore, VersionStore,
 };
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 use store_traits::types::{
     StoreDatabase, StoreEnvironmentFlags, StoreError, StoreErrorKind, StoreResult, StoreRoCursor,
     StoreRwCursor, StoreWriteFlags,
 };
-use tempfile::tempdir;
-
 pub struct RocksdbStoreEnvironment {
     inner: Arc<RocksDbInner>,
     _temp_dir: Option<tempfile::TempDir>,
@@ -288,6 +290,40 @@ impl RocksdbBlockStore {
             Err(e) if e.is_not_found() => None,
             Err(e) => panic!("failed to read block data: {e}"),
         }
+    }
+}
+
+impl BlockStore for RocksdbBlockStore {
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, block: &SavedBlock) {
+        RocksdbBlockStore::put(self, txn, block);
+    }
+
+    fn get(&self, txn: &dyn LedgerReadTxn, hash: &BlockHash) -> Option<SavedBlock> {
+        RocksdbBlockStore::get(self, txn, hash)
+    }
+
+    fn del(&self, txn: &mut dyn LedgerWriteTxn, hash: &BlockHash) {
+        RocksdbBlockStore::del(self, txn, hash);
+    }
+
+    fn exists(&self, txn: &dyn LedgerReadTxn, hash: &BlockHash) -> bool {
+        RocksdbBlockStore::exists(self, txn, hash)
+    }
+
+    fn iter<'a>(&'a self, txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, SavedBlock> {
+        RocksdbBlockStore::iter(self, txn)
+    }
+
+    fn iter_range<'a>(
+        &'a self,
+        txn: &'a dyn LedgerReadTxn,
+        range: RangeBounds<BlockHash>,
+    ) -> StoreIterator<'a, SavedBlock> {
+        RocksdbBlockStore::iter_range(self, txn, range)
+    }
+
+    fn track_puts(&self) -> Arc<OutputTrackerMt<SavedBlock>> {
+        RocksdbBlockStore::track_puts(self)
     }
 }
 
@@ -1106,6 +1142,219 @@ impl SuccessorStore for RocksdbSuccessorStore {
     }
 }
 
+#[derive(Default)]
+struct NullFinalVoteStore;
+
+impl FinalVoteStore for NullFinalVoteStore {
+    fn put(&self, _txn: &mut dyn LedgerWriteTxn, _root: &QualifiedRoot, _hash: &BlockHash) -> bool {
+        false
+    }
+
+    fn get(&self, _txn: &dyn LedgerReadTxn, _root: &QualifiedRoot) -> Option<BlockHash> {
+        None
+    }
+}
+
+#[derive(Default)]
+struct NullVersionStore;
+
+impl VersionStore for NullVersionStore {
+    fn get(&self, _txn: &dyn LedgerReadTxn) -> Option<i32> {
+        None
+    }
+}
+
+#[derive(Default)]
+struct NullOnlineWeightStore;
+
+impl OnlineWeightStore for NullOnlineWeightStore {
+    fn put(&self, _txn: &mut dyn LedgerWriteTxn, _time: u64, _amount: &Amount) {}
+
+    fn del(&self, _txn: &mut dyn LedgerWriteTxn, _time: u64) {}
+
+    fn iter<'a>(&'a self, _txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, (u64, Amount)> {
+        Box::new(iter::empty())
+    }
+
+    fn iter_rev<'a>(&'a self, _txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, (u64, Amount)> {
+        Box::new(iter::empty())
+    }
+}
+
+struct NullPeerStore {
+    put_listener: OutputListenerMt<(SocketAddrV6, SystemTime)>,
+    delete_listener: OutputListenerMt<SocketAddrV6>,
+}
+
+impl Default for NullPeerStore {
+    fn default() -> Self {
+        Self {
+            put_listener: OutputListenerMt::new(),
+            delete_listener: OutputListenerMt::new(),
+        }
+    }
+}
+
+impl PeerStore for NullPeerStore {
+    fn put(&self, _txn: &mut dyn LedgerWriteTxn, _endpoint: SocketAddrV6, _time: SystemTime) {}
+
+    fn del(&self, _txn: &mut dyn LedgerWriteTxn, _endpoint: SocketAddrV6) {}
+
+    fn exists(&self, _txn: &dyn LedgerReadTxn, _endpoint: SocketAddrV6) -> bool {
+        false
+    }
+
+    fn iter<'a>(
+        &'a self,
+        _txn: &'a dyn LedgerReadTxn,
+    ) -> StoreIterator<'a, (SocketAddrV6, SystemTime)> {
+        Box::new(iter::empty())
+    }
+
+    fn track_puts(&self) -> Arc<OutputTrackerMt<(SocketAddrV6, SystemTime)>> {
+        self.put_listener.track()
+    }
+
+    fn track_deletions(&self) -> Arc<OutputTrackerMt<SocketAddrV6>> {
+        self.delete_listener.track()
+    }
+}
+
+struct RocksdbLedgerStore {
+    env: Arc<RocksdbStoreEnvironment>,
+    cache: Arc<LedgerCache>,
+    block: RocksdbBlockStore,
+    account: RocksdbAccountStore,
+    pending: RocksdbPendingStore,
+    confirmation_height: RocksdbConfirmationHeightStore,
+    rep_weight: Arc<RocksdbRepWeightStore>,
+    successors: RocksdbSuccessorStore,
+    final_vote: NullFinalVoteStore,
+    peer: NullPeerStore,
+    version: NullVersionStore,
+    online_weight: NullOnlineWeightStore,
+}
+
+impl RocksdbLedgerStore {
+    fn create(
+        env: Arc<RocksdbStoreEnvironment>,
+        cache: Arc<LedgerCache>,
+    ) -> anyhow::Result<Arc<dyn LedgerStore>> {
+        let block = RocksdbBlockStore::new(Arc::clone(&env))?;
+        let account = RocksdbAccountStore::new(Arc::clone(&env))?;
+        let pending = RocksdbPendingStore::new(Arc::clone(&env))?;
+        let confirmation_height = RocksdbConfirmationHeightStore::new(Arc::clone(&env))?;
+        let rep_weight = Arc::new(RocksdbRepWeightStore::new(Arc::clone(&env))?);
+        let successors = RocksdbSuccessorStore::new(Arc::clone(&env))?;
+
+        Ok(Arc::new(Self {
+            env,
+            cache,
+            block,
+            account,
+            pending,
+            confirmation_height,
+            rep_weight,
+            successors,
+            final_vote: NullFinalVoteStore::default(),
+            peer: NullPeerStore::default(),
+            version: NullVersionStore::default(),
+            online_weight: NullOnlineWeightStore::default(),
+        }))
+    }
+}
+
+impl LedgerStore for RocksdbLedgerStore {
+    fn block_store(&self) -> &dyn BlockStore {
+        &self.block
+    }
+
+    fn account_store(&self) -> &dyn AccountStore {
+        &self.account
+    }
+
+    fn pending_store(&self) -> &dyn PendingStore {
+        &self.pending
+    }
+
+    fn confirmation_height_store(&self) -> &dyn ConfirmationHeightStore {
+        &self.confirmation_height
+    }
+
+    fn successor_store(&self) -> &dyn SuccessorStore {
+        &self.successors
+    }
+
+    fn final_vote_store(&self) -> &dyn FinalVoteStore {
+        &self.final_vote
+    }
+
+    fn peer_store(&self) -> &dyn PeerStore {
+        &self.peer
+    }
+
+    fn version_store(&self) -> &dyn VersionStore {
+        &self.version
+    }
+
+    fn online_weight_store(&self) -> &dyn OnlineWeightStore {
+        &self.online_weight
+    }
+
+    fn rep_weight_store(&self) -> Arc<dyn RepWeightStore> {
+        self.rep_weight.clone()
+    }
+
+    fn begin_read(&self) -> Box<dyn LedgerReadTxn> {
+        Box::new(RocksdbLedgerReadTxn::new(&self.env))
+    }
+
+    fn begin_write(&self) -> Box<dyn LedgerWriteTxn> {
+        Box::new(RocksdbLedgerWriteTxn::new(&self.env))
+    }
+
+    fn sync(&self) -> anyhow::Result<()> {
+        self.env.sync().map_err(|e| anyhow!(e.to_string()))
+    }
+
+    fn cache(&self) -> &LedgerCache {
+        &self.cache
+    }
+
+    fn memory_stats(&self) -> anyhow::Result<MemoryStats> {
+        Ok(MemoryStats {
+            branch_pages: 0,
+            depth: 0,
+            entries: 0,
+            leaf_pages: 0,
+            overflow_pages: 0,
+            page_size: 0,
+        })
+    }
+
+    fn for_each_account_par(
+        &self,
+        _thread_count: usize,
+        action: &(dyn Fn(&mut dyn Iterator<Item = (Account, AccountInfo)>) + Send + Sync),
+    ) {
+        let txn = RocksdbLedgerReadTxn::new(&self.env);
+        let mut iter = self.account.iter(&txn);
+        action(&mut iter);
+    }
+
+    fn for_each_confirmation_height_par(
+        &self,
+        _thread_count: usize,
+        action: &(
+            dyn Fn(&mut dyn Iterator<Item = (Account, ConfirmationHeightInfo)>) + Send + Sync
+        ),
+    ) {
+        let txn = RocksdbLedgerReadTxn::new(&self.env);
+        let mut iter = self.confirmation_height.iter(&txn);
+        action(&mut iter);
+    }
+}
+
 fn find_next_block_id(env: &Arc<RocksdbStoreEnvironment>, data_cf: StoreDatabase) -> Result<u64> {
     let txn = RocksdbLedgerReadTxn::new(env);
     let cursor = txn
@@ -1228,30 +1477,25 @@ impl LedgerStoreFactory for RocksdbLedgerStoreFactory {
         &self,
         path: PathBuf,
         config: LedgerStoreConfig,
-        _cache: Arc<LedgerCache>,
+        cache: Arc<LedgerCache>,
     ) -> anyhow::Result<Arc<dyn LedgerStore>> {
         let rocks_config = match config.backend {
             LedgerBackend::RocksDb(cfg) => cfg,
             _ => bail!("RocksDB factory requires RocksDB backend config"),
         };
-        let _env = RocksdbStoreEnvironment::open(
+        let env = RocksdbStoreEnvironment::open(
             path,
             StoreEnvironmentFlags::empty(),
             None,
             Some(&rocks_config),
         )?;
-        bail!("RocksDB ledger store not implemented yet")
+        RocksdbLedgerStore::create(Arc::new(env), cache)
     }
 
-    fn create_null_store(&self, _cache: Arc<LedgerCache>) -> anyhow::Result<Arc<dyn LedgerStore>> {
-        let temp_dir = tempdir()?;
-        let _env = RocksdbStoreEnvironment::open(
-            temp_dir.path().to_path_buf(),
-            StoreEnvironmentFlags::empty(),
-            Some(temp_dir),
-            Some(&RocksDbConfig::default()),
-        )?;
-        bail!("RocksDB ledger store not implemented yet")
+    fn create_null_store(&self, cache: Arc<LedgerCache>) -> anyhow::Result<Arc<dyn LedgerStore>> {
+        let env_factory = RocksdbStoreEnvironmentFactory::default();
+        let env = env_factory.create_null();
+        RocksdbLedgerStore::create(env, cache)
     }
 }
 
@@ -1832,6 +2076,7 @@ mod tests {
     use super::*;
     use rsnano_types::{Amount, Block, BlockHash, PrivateKey, PublicKey};
     use std::ops::Bound;
+    use tempfile::tempdir;
 
     struct BlockFixture {
         env: Arc<RocksdbStoreEnvironment>,
