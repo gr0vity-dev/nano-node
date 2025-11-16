@@ -1189,6 +1189,44 @@ impl<'txn> Iterator for RocksdbOnlineWeightIterator<'txn> {
     }
 }
 
+pub struct RocksdbPrunedStore {
+    database: StoreDatabase,
+}
+
+impl RocksdbPrunedStore {
+    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
+        let database = env.open_db(Some(PRUNED_CF_NAME))?;
+        Ok(Self { database })
+    }
+
+    fn database(&self) -> StoreDatabase {
+        self.database
+    }
+
+    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, hash: &BlockHash) {
+        txn.put(
+            self.database(),
+            hash.as_bytes(),
+            &[],
+            StoreWriteFlags::default(),
+        )
+        .expect("failed to insert pruned hash");
+    }
+
+    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, hash: &BlockHash) {
+        txn.delete(self.database(), hash.as_bytes(), None)
+            .expect("failed to delete pruned hash");
+    }
+
+    pub fn exists(&self, txn: &dyn LedgerReadTxn, hash: &BlockHash) -> bool {
+        txn.raw_exists(self.database(), hash.as_bytes())
+    }
+
+    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
+        txn.count(self.database())
+    }
+}
+
 pub struct RocksdbSuccessorStore {
     database: StoreDatabase,
     put_listener: OutputListenerMt<(BlockHash, BlockHash)>,
@@ -1617,6 +1655,7 @@ const CONF_HEIGHT_CF_NAME: &str = "rocksdb_confirmation_height";
 const REP_WEIGHT_CF_NAME: &str = "rocksdb_rep_weights";
 const SUCCESSOR_CF_NAME: &str = "rocksdb_successors";
 const ONLINE_WEIGHT_CF_NAME: &str = "rocksdb_online_weight";
+const PRUNED_CF_NAME: &str = "rocksdb_pruned";
 
 enum WriteOp {
     Put {
@@ -2397,6 +2436,27 @@ mod tests {
         }
     }
 
+    struct PrunedFixture {
+        env: Arc<RocksdbStoreEnvironment>,
+        store: RocksdbPrunedStore,
+    }
+
+    impl PrunedFixture {
+        fn new() -> Self {
+            let env = create_env();
+            let store = RocksdbPrunedStore::new(Arc::clone(&env)).unwrap();
+            Self { env, store }
+        }
+
+        fn begin_read(&self) -> RocksdbLedgerReadTxn {
+            RocksdbLedgerReadTxn::new(&self.env)
+        }
+
+        fn begin_write(&self) -> RocksdbLedgerWriteTxn {
+            RocksdbLedgerWriteTxn::new(&self.env)
+        }
+    }
+
     #[test]
     fn write_and_read_roundtrip() {
         let env = create_env();
@@ -2984,6 +3044,41 @@ mod tests {
         Box::new(txn).commit();
         let read_txn = fixture.begin_read();
         assert_eq!(fixture.store.count(&read_txn), 0);
+    }
+
+    #[test]
+    fn pruned_store_put_exists() {
+        let fixture = PrunedFixture::new();
+        let mut txn = fixture.begin_write();
+        let hash = BlockHash::from(100);
+        fixture.store.put(&mut txn, &hash);
+        Box::new(txn).commit();
+
+        let read_txn = fixture.begin_read();
+        assert!(fixture.store.exists(&read_txn, &hash));
+    }
+
+    #[test]
+    fn pruned_store_delete() {
+        let fixture = PrunedFixture::new();
+        let mut txn = fixture.begin_write();
+        let hash = BlockHash::from(200);
+        fixture.store.put(&mut txn, &hash);
+        fixture.store.del(&mut txn, &hash);
+        Box::new(txn).commit();
+        let read_txn = fixture.begin_read();
+        assert!(!fixture.store.exists(&read_txn, &hash));
+    }
+
+    #[test]
+    fn pruned_store_count() {
+        let fixture = PrunedFixture::new();
+        let mut txn = fixture.begin_write();
+        fixture.store.put(&mut txn, &BlockHash::from(1));
+        fixture.store.put(&mut txn, &BlockHash::from(2));
+        Box::new(txn).commit();
+        let read_txn = fixture.begin_read();
+        assert_eq!(fixture.store.count(&read_txn), 2);
     }
 
     fn unique_block(seed: u8) -> SavedBlock {
