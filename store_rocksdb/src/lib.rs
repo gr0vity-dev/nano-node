@@ -20,15 +20,17 @@ use rocksdb::{
     Error as RocksError, IteratorMode, MultiThreaded, Options, SnapshotWithThreadMode, WriteBatch,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{Account, AccountInfo, BlockHash, PendingInfo, PendingKey, SavedBlock};
+use rsnano_types::{
+    Account, AccountInfo, BlockHash, ConfirmationHeightInfo, PendingInfo, PendingKey, SavedBlock,
+};
 use store_traits::config::{LedgerBackend, LedgerStoreConfig, RocksDbConfig};
 use store_traits::environment::{
     StoreCursor, StoreEnvironment, StoreEnvironmentFactory, StoreEnvironmentOptions, StoreReadTxn,
     StoreWriteTxn,
 };
 use store_traits::ledger::{
-    AccountStore, LedgerCache, LedgerStore, LedgerStoreFactory, PendingStore, RangeBounds,
-    StoreIterator,
+    AccountStore, ConfirmationHeightStore, LedgerCache, LedgerStore, LedgerStoreFactory,
+    PendingStore, RangeBounds, StoreIterator,
 };
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 use store_traits::types::{
@@ -740,6 +742,176 @@ fn read_pending_record((key, value): (&[u8], &[u8])) -> (PendingKey, PendingInfo
     (key, info)
 }
 
+pub struct RocksdbConfirmationHeightStore {
+    database: StoreDatabase,
+}
+
+impl RocksdbConfirmationHeightStore {
+    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
+        let database = env.open_db(Some(CONF_HEIGHT_CF_NAME))?;
+        Ok(Self { database })
+    }
+
+    fn database(&self) -> StoreDatabase {
+        self.database
+    }
+
+    pub fn put(
+        &self,
+        txn: &mut dyn LedgerWriteTxn,
+        account: &Account,
+        info: &ConfirmationHeightInfo,
+    ) {
+        txn.put(
+            self.database(),
+            account.as_bytes(),
+            &info.to_bytes(),
+            StoreWriteFlags::default(),
+        )
+        .expect("failed to write confirmation height info");
+    }
+
+    pub fn get(
+        &self,
+        txn: &dyn LedgerReadTxn,
+        account: &Account,
+    ) -> Option<ConfirmationHeightInfo> {
+        match txn.get(self.database(), account.as_bytes()) {
+            Ok(mut bytes) => ConfirmationHeightInfo::deserialize(&mut bytes).ok(),
+            Err(e) if e.is_not_found() => None,
+            Err(e) => panic!("failed to read confirmation height: {e}"),
+        }
+    }
+
+    pub fn exists(&self, txn: &dyn LedgerReadTxn, account: &Account) -> bool {
+        txn.raw_exists(self.database(), account.as_bytes())
+    }
+
+    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, account: &Account) {
+        txn.delete(self.database(), account.as_bytes(), None)
+            .expect("failed to delete confirmation height");
+    }
+
+    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
+        txn.count(self.database())
+    }
+
+    pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
+        txn.clear_db(self.database())
+            .expect("failed to clear confirmation height");
+    }
+
+    pub fn iter<'txn>(
+        &'txn self,
+        txn: &'txn dyn LedgerReadTxn,
+    ) -> StoreIterator<'txn, (Account, ConfirmationHeightInfo)> {
+        let cursor = txn
+            .open_ro_cursor(self.database())
+            .expect("failed to open confirmation height cursor");
+        let cursor = rocksdb_ro_cursor_from_store(cursor);
+        Box::new(RocksdbConfirmationHeightIterator::new(cursor))
+    }
+
+    pub fn iter_range<'txn>(
+        &'txn self,
+        txn: &'txn dyn LedgerReadTxn,
+        range: RangeBounds<Account>,
+    ) -> StoreIterator<'txn, (Account, ConfirmationHeightInfo)> {
+        let cursor = txn
+            .open_ro_cursor(self.database())
+            .expect("failed to open confirmation height cursor");
+        let cursor = rocksdb_ro_cursor_from_store(cursor);
+        Box::new(RocksdbConfirmationHeightRangeIterator::new(cursor, range))
+    }
+}
+
+impl ConfirmationHeightStore for RocksdbConfirmationHeightStore {
+    fn put(
+        &self,
+        txn: &mut dyn LedgerWriteTxn,
+        account: &Account,
+        info: &ConfirmationHeightInfo,
+    ) {
+        RocksdbConfirmationHeightStore::put(self, txn, account, info);
+    }
+
+    fn get(
+        &self,
+        txn: &dyn LedgerReadTxn,
+        account: &Account,
+    ) -> Option<ConfirmationHeightInfo> {
+        RocksdbConfirmationHeightStore::get(self, txn, account)
+    }
+
+    fn exists(&self, txn: &dyn LedgerReadTxn, account: &Account) -> bool {
+        RocksdbConfirmationHeightStore::exists(self, txn, account)
+    }
+
+    fn iter<'a>(
+        &'a self,
+        txn: &'a dyn LedgerReadTxn,
+    ) -> StoreIterator<'a, (Account, ConfirmationHeightInfo)> {
+        RocksdbConfirmationHeightStore::iter(self, txn)
+    }
+}
+
+struct RocksdbConfirmationHeightIterator<'txn> {
+    cursor: RocksdbCursor<'txn>,
+}
+
+impl<'txn> RocksdbConfirmationHeightIterator<'txn> {
+    fn new(cursor: RocksdbCursor<'txn>) -> Self {
+        Self { cursor }
+    }
+}
+
+impl<'txn> Iterator for RocksdbConfirmationHeightIterator<'txn> {
+    type Item = (Account, ConfirmationHeightInfo);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let entry = self.cursor.next().expect("failed to advance cursor")?;
+        Some(read_confirmation_height_record(entry))
+    }
+}
+
+struct RocksdbConfirmationHeightRangeIterator<'txn> {
+    cursor: RocksdbCursor<'txn>,
+    range: RangeBounds<Account>,
+}
+
+impl<'txn> RocksdbConfirmationHeightRangeIterator<'txn> {
+    fn new(cursor: RocksdbCursor<'txn>, range: RangeBounds<Account>) -> Self {
+        Self { cursor, range }
+    }
+}
+
+impl<'txn> Iterator for RocksdbConfirmationHeightRangeIterator<'txn> {
+    type Item = (Account, ConfirmationHeightInfo);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let entry = self.cursor.next().expect("failed to advance cursor")?;
+            let record = read_confirmation_height_record(entry);
+            if value_in_range(&record.0, &self.range) {
+                return Some(record);
+            }
+        }
+    }
+}
+
+fn read_confirmation_height_record(
+    (key, value): (&[u8], &[u8]),
+) -> (Account, ConfirmationHeightInfo) {
+    let account = Account::from_bytes(
+        key.try_into()
+            .expect("invalid confirmation height key length"),
+    );
+    let mut bytes = value;
+    let info = ConfirmationHeightInfo::deserialize(&mut bytes)
+        .expect("failed to deserialize confirmation height");
+    (account, info)
+}
+
 fn find_next_block_id(env: &Arc<RocksdbStoreEnvironment>, data_cf: StoreDatabase) -> Result<u64> {
     let txn = RocksdbLedgerReadTxn::new(env);
     let cursor = txn
@@ -901,6 +1073,7 @@ const BLOCK_INDEX_CF_NAME: &str = "rocksdb_block_index";
 const BLOCK_DATA_CF_NAME: &str = "rocksdb_block_data";
 const ACCOUNTS_CF_NAME: &str = "rocksdb_accounts";
 const PENDING_CF_NAME: &str = "rocksdb_pending";
+const CONF_HEIGHT_CF_NAME: &str = "rocksdb_confirmation_height";
 
 enum WriteOp {
     Put {
@@ -1461,7 +1634,7 @@ fn store_error_from_rocksdb(err: RocksError) -> StoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsnano_types::{Block, PrivateKey};
+    use rsnano_types::{Block, BlockHash, PrivateKey};
     use std::ops::Bound;
 
     struct BlockFixture {
@@ -1559,6 +1732,35 @@ mod tests {
             let mut txn = self.begin_write();
             for (key, info) in entries {
                 self.store.put(&mut txn, key, info);
+            }
+            Box::new(txn).commit();
+        }
+    }
+
+    struct ConfirmationFixture {
+        env: Arc<RocksdbStoreEnvironment>,
+        store: RocksdbConfirmationHeightStore,
+    }
+
+    impl ConfirmationFixture {
+        fn new() -> Self {
+            let env = create_env();
+            let store = RocksdbConfirmationHeightStore::new(Arc::clone(&env)).unwrap();
+            Self { env, store }
+        }
+
+        fn begin_read(&self) -> RocksdbLedgerReadTxn {
+            RocksdbLedgerReadTxn::new(&self.env)
+        }
+
+        fn begin_write(&self) -> RocksdbLedgerWriteTxn {
+            RocksdbLedgerWriteTxn::new(&self.env)
+        }
+
+        fn insert_entries(&self, entries: &[(Account, ConfirmationHeightInfo)]) {
+            let mut txn = self.begin_write();
+            for (account, info) in entries {
+                self.store.put(&mut txn, account, info);
             }
             Box::new(txn).commit();
         }
@@ -1904,6 +2106,85 @@ mod tests {
         let read_txn = fixture.begin_read();
         assert!(fixture.store.any(&read_txn, &account));
         assert!(!fixture.store.any(&read_txn, &Account::from(5)));
+    }
+
+    #[test]
+    fn confirmation_store_empty() {
+        let fixture = ConfirmationFixture::new();
+        let read_txn = fixture.begin_read();
+        let account = Account::from(1);
+        assert!(fixture.store.get(&read_txn, &account).is_none());
+        assert!(!fixture.store.exists(&read_txn, &account));
+        assert!(fixture.store.iter(&read_txn).next().is_none());
+    }
+
+    #[test]
+    fn confirmation_store_put_get() {
+        let fixture = ConfirmationFixture::new();
+        let account = Account::from(2);
+        let info = ConfirmationHeightInfo::new(5, BlockHash::from(9));
+        let mut txn = fixture.begin_write();
+        fixture.store.put(&mut txn, &account, &info);
+        Box::new(txn).commit();
+
+        let read_txn = fixture.begin_read();
+        assert_eq!(fixture.store.get(&read_txn, &account), Some(info.clone()));
+        assert!(fixture.store.exists(&read_txn, &account));
+        assert_eq!(fixture.store.count(&read_txn), 1);
+    }
+
+    #[test]
+    fn confirmation_store_delete() {
+        let fixture = ConfirmationFixture::new();
+        let account = Account::from(3);
+        let info = ConfirmationHeightInfo::new(2, BlockHash::from(5));
+        fixture.insert_entries(&[(account, info)]);
+
+        let mut txn = fixture.begin_write();
+        fixture.store.del(&mut txn, &Account::from(3));
+        Box::new(txn).commit();
+
+        let read_txn = fixture.begin_read();
+        assert!(fixture.store.get(&read_txn, &Account::from(3)).is_none());
+    }
+
+    #[test]
+    fn confirmation_store_iter_range() {
+        let fixture = ConfirmationFixture::new();
+        let entries = vec![
+            (Account::from(1), ConfirmationHeightInfo::new(1, BlockHash::from(1))),
+            (Account::from(2), ConfirmationHeightInfo::new(2, BlockHash::from(2))),
+            (Account::from(3), ConfirmationHeightInfo::new(3, BlockHash::from(3))),
+        ];
+        fixture.insert_entries(&entries);
+
+        let read_txn = fixture.begin_read();
+        let range = RangeBounds::new(
+            Bound::Included(Account::from(2)),
+            Bound::Excluded(Account::from(3)),
+        );
+        let entries: Vec<_> = fixture.store.iter_range(&read_txn, range).collect();
+        assert_eq!(
+            entries,
+            vec![(Account::from(2), ConfirmationHeightInfo::new(2, BlockHash::from(2)))]
+        );
+    }
+
+    #[test]
+    fn confirmation_store_clear() {
+        let fixture = ConfirmationFixture::new();
+        let entries = vec![(
+            Account::from(1),
+            ConfirmationHeightInfo::new(1, BlockHash::from(1)),
+        )];
+        fixture.insert_entries(&entries);
+
+        let mut txn = fixture.begin_write();
+        fixture.store.clear(&mut txn);
+        Box::new(txn).commit();
+
+        let read_txn = fixture.begin_read();
+        assert_eq!(fixture.store.count(&read_txn), 0);
     }
 
     fn unique_block(seed: u8) -> SavedBlock {
