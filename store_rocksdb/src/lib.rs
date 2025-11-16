@@ -31,7 +31,7 @@ use store_traits::environment::{
 };
 use store_traits::ledger::{
     AccountStore, ConfirmationHeightStore, LedgerCache, LedgerStore, LedgerStoreFactory,
-    PendingStore, RangeBounds, RepWeightStore, StoreIterator,
+    PendingStore, RangeBounds, RepWeightStore, StoreIterator, SuccessorStore,
 };
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 use store_traits::types::{
@@ -1035,6 +1035,77 @@ fn read_rep_weight_record((key, value): (&[u8], &[u8])) -> (PublicKey, Amount) {
     (pub_key, amount)
 }
 
+pub struct RocksdbSuccessorStore {
+    database: StoreDatabase,
+    put_listener: OutputListenerMt<(BlockHash, BlockHash)>,
+}
+
+impl RocksdbSuccessorStore {
+    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
+        let database = env.open_db(Some(SUCCESSOR_CF_NAME))?;
+        Ok(Self {
+            database,
+            put_listener: OutputListenerMt::new(),
+        })
+    }
+
+    fn database(&self) -> StoreDatabase {
+        self.database
+    }
+
+    pub fn track_puts(&self) -> Arc<OutputTrackerMt<(BlockHash, BlockHash)>> {
+        self.put_listener.track()
+    }
+
+    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, block: &BlockHash, successor: &BlockHash) {
+        if self.put_listener.is_tracked() {
+            self.put_listener.emit((*block, *successor));
+        }
+        txn.put(
+            self.database(),
+            block.as_bytes(),
+            successor.as_bytes(),
+            StoreWriteFlags::default(),
+        )
+        .expect("failed to write successor");
+    }
+
+    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, block: &BlockHash) {
+        txn.delete(self.database(), block.as_bytes(), None)
+            .expect("failed to delete successor");
+    }
+
+    pub fn get(&self, txn: &dyn LedgerReadTxn, block: &BlockHash) -> Option<BlockHash> {
+        match txn.get(self.database(), block.as_bytes()) {
+            Ok(bytes) => BlockHash::from_slice(bytes),
+            Err(e) if e.is_not_found() => None,
+            Err(e) => panic!("failed to read successor: {e}"),
+        }
+    }
+
+    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
+        txn.count(self.database())
+    }
+}
+
+impl SuccessorStore for RocksdbSuccessorStore {
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, block: &BlockHash, successor: &BlockHash) {
+        RocksdbSuccessorStore::put(self, txn, block, successor);
+    }
+
+    fn del(&self, txn: &mut dyn LedgerWriteTxn, block: &BlockHash) {
+        RocksdbSuccessorStore::del(self, txn, block);
+    }
+
+    fn get(&self, txn: &dyn LedgerReadTxn, block: &BlockHash) -> Option<BlockHash> {
+        RocksdbSuccessorStore::get(self, txn, block)
+    }
+
+    fn track_puts(&self) -> Arc<OutputTrackerMt<(BlockHash, BlockHash)>> {
+        RocksdbSuccessorStore::track_puts(self)
+    }
+}
+
 fn find_next_block_id(env: &Arc<RocksdbStoreEnvironment>, data_cf: StoreDatabase) -> Result<u64> {
     let txn = RocksdbLedgerReadTxn::new(env);
     let cursor = txn
@@ -1198,6 +1269,7 @@ const ACCOUNTS_CF_NAME: &str = "rocksdb_accounts";
 const PENDING_CF_NAME: &str = "rocksdb_pending";
 const CONF_HEIGHT_CF_NAME: &str = "rocksdb_confirmation_height";
 const REP_WEIGHT_CF_NAME: &str = "rocksdb_rep_weights";
+const SUCCESSOR_CF_NAME: &str = "rocksdb_successors";
 
 enum WriteOp {
     Put {
@@ -1919,6 +1991,35 @@ mod tests {
         }
     }
 
+    struct SuccessorFixture {
+        env: Arc<RocksdbStoreEnvironment>,
+        store: RocksdbSuccessorStore,
+    }
+
+    impl SuccessorFixture {
+        fn new() -> Self {
+            let env = create_env();
+            let store = RocksdbSuccessorStore::new(Arc::clone(&env)).unwrap();
+            Self { env, store }
+        }
+
+        fn begin_read(&self) -> RocksdbLedgerReadTxn {
+            RocksdbLedgerReadTxn::new(&self.env)
+        }
+
+        fn begin_write(&self) -> RocksdbLedgerWriteTxn {
+            RocksdbLedgerWriteTxn::new(&self.env)
+        }
+
+        fn insert_entries(&self, entries: &[(BlockHash, BlockHash)]) {
+            let mut txn = self.begin_write();
+            for (block, successor) in entries {
+                self.store.put(&mut txn, block, successor);
+            }
+            Box::new(txn).commit();
+        }
+    }
+
     #[test]
     fn write_and_read_roundtrip() {
         let env = create_env();
@@ -2402,6 +2503,58 @@ mod tests {
         let read_txn = fixture.begin_read();
         let items: Vec<_> = fixture.store.iter(&read_txn).collect();
         assert_eq!(items, entries);
+    }
+
+    #[test]
+    fn successor_store_count() {
+        let fixture = SuccessorFixture::new();
+        let entries = vec![
+            (BlockHash::from(1), BlockHash::from(2)),
+            (BlockHash::from(3), BlockHash::from(4)),
+        ];
+        fixture.insert_entries(&entries);
+        let read_txn = fixture.begin_read();
+        assert_eq!(fixture.store.count(&read_txn), 2);
+    }
+
+    #[test]
+    fn successor_store_put_get() {
+        let fixture = SuccessorFixture::new();
+        let mut txn = fixture.begin_write();
+        let tracker = fixture.store.track_puts();
+        let block = BlockHash::from(10);
+        let successor = BlockHash::from(11);
+        fixture.store.put(&mut txn, &block, &successor);
+        Box::new(txn).commit();
+
+        let read_txn = fixture.begin_read();
+        assert_eq!(fixture.store.get(&read_txn, &block), Some(successor));
+        assert_eq!(tracker.output(), vec![(block, successor)]);
+    }
+
+    #[test]
+    fn successor_store_delete() {
+        let fixture = SuccessorFixture::new();
+        let block = BlockHash::from(5);
+        let successor = BlockHash::from(6);
+        fixture.insert_entries(&[(block, successor)]);
+
+        let mut txn = fixture.begin_write();
+        fixture.store.del(&mut txn, &block);
+        Box::new(txn).commit();
+
+        let read_txn = fixture.begin_read();
+        assert!(fixture.store.get(&read_txn, &block).is_none());
+    }
+
+    #[test]
+    fn successor_store_no_entry() {
+        let fixture = SuccessorFixture::new();
+        let read_txn = fixture.begin_read();
+        assert!(fixture
+            .store
+            .get(&read_txn, &BlockHash::from(999))
+            .is_none());
     }
 
     fn unique_block(seed: u8) -> SavedBlock {
