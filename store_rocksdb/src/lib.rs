@@ -1071,6 +1071,124 @@ fn read_rep_weight_record((key, value): (&[u8], &[u8])) -> (PublicKey, Amount) {
     (pub_key, amount)
 }
 
+pub struct RocksdbOnlineWeightStore {
+    database: StoreDatabase,
+}
+
+impl RocksdbOnlineWeightStore {
+    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
+        let database = env.open_db(Some(ONLINE_WEIGHT_CF_NAME))?;
+        Ok(Self { database })
+    }
+
+    fn database(&self) -> StoreDatabase {
+        self.database
+    }
+
+    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, time: u64, amount: &Amount) {
+        txn.put(
+            self.database(),
+            &time.to_be_bytes(),
+            &amount.to_be_bytes(),
+            StoreWriteFlags::default(),
+        )
+        .expect("failed to write online weight");
+    }
+
+    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, time: u64) {
+        txn.delete(self.database(), &time.to_be_bytes(), None)
+            .expect("failed to delete online weight");
+    }
+
+    pub fn iter<'txn>(
+        &'txn self,
+        txn: &'txn dyn LedgerReadTxn,
+    ) -> StoreIterator<'txn, (u64, Amount)> {
+        let cursor = txn
+            .open_ro_cursor(self.database())
+            .expect("failed to open online weight cursor");
+        let cursor = rocksdb_ro_cursor_from_store(cursor);
+        Box::new(RocksdbOnlineWeightIterator::new(cursor))
+    }
+
+    pub fn iter_rev<'txn>(
+        &'txn self,
+        txn: &'txn dyn LedgerReadTxn,
+    ) -> StoreIterator<'txn, (u64, Amount)> {
+        let cursor = txn
+            .open_ro_cursor(self.database())
+            .expect("failed to open online weight cursor");
+        let mut cursor = rocksdb_ro_cursor_from_store(cursor);
+        let mut entries = Vec::new();
+        loop {
+            match cursor.next().expect("failed to advance RocksDB cursor") {
+                Some((key, value)) => {
+                    let time = u64::from_be_bytes(
+                        key.try_into()
+                            .expect("invalid online weight key length"),
+                    );
+                    let amount = Amount::from_be_bytes(
+                        value
+                            .try_into()
+                            .expect("invalid online weight amount length"),
+                    );
+                    entries.push((time, amount));
+                }
+                None => break,
+            }
+        }
+        entries.reverse();
+        Box::new(entries.into_iter())
+    }
+
+    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
+        txn.count(self.database())
+    }
+
+    pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
+        txn.clear_db(self.database()).expect("failed to clear online weight");
+    }
+}
+
+impl OnlineWeightStore for RocksdbOnlineWeightStore {
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, time: u64, amount: &Amount) {
+        RocksdbOnlineWeightStore::put(self, txn, time, amount);
+    }
+
+    fn del(&self, txn: &mut dyn LedgerWriteTxn, time: u64) {
+        RocksdbOnlineWeightStore::del(self, txn, time);
+    }
+
+    fn iter<'a>(&'a self, txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, (u64, Amount)> {
+        RocksdbOnlineWeightStore::iter(self, txn)
+    }
+
+    fn iter_rev<'a>(&'a self, txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, (u64, Amount)> {
+        RocksdbOnlineWeightStore::iter_rev(self, txn)
+    }
+}
+
+struct RocksdbOnlineWeightIterator<'txn> {
+    cursor: RocksdbCursor<'txn>,
+}
+
+impl<'txn> RocksdbOnlineWeightIterator<'txn> {
+    fn new(cursor: RocksdbCursor<'txn>) -> Self {
+        Self { cursor }
+    }
+}
+
+impl<'txn> Iterator for RocksdbOnlineWeightIterator<'txn> {
+    type Item = (u64, Amount);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let entry = self.cursor.next().expect("failed to advance cursor")?;
+        let time = u64::from_be_bytes(entry.0.try_into().expect("invalid time bytes"));
+        let amount = Amount::from_be_bytes(entry.1.try_into().expect("invalid amount bytes"));
+        Some((time, amount))
+    }
+}
+
 pub struct RocksdbSuccessorStore {
     database: StoreDatabase,
     put_listener: OutputListenerMt<(BlockHash, BlockHash)>,
@@ -1164,23 +1282,6 @@ impl VersionStore for NullVersionStore {
     }
 }
 
-#[derive(Default)]
-struct NullOnlineWeightStore;
-
-impl OnlineWeightStore for NullOnlineWeightStore {
-    fn put(&self, _txn: &mut dyn LedgerWriteTxn, _time: u64, _amount: &Amount) {}
-
-    fn del(&self, _txn: &mut dyn LedgerWriteTxn, _time: u64) {}
-
-    fn iter<'a>(&'a self, _txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, (u64, Amount)> {
-        Box::new(iter::empty())
-    }
-
-    fn iter_rev<'a>(&'a self, _txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, (u64, Amount)> {
-        Box::new(iter::empty())
-    }
-}
-
 struct NullPeerStore {
     put_listener: OutputListenerMt<(SocketAddrV6, SystemTime)>,
     delete_listener: OutputListenerMt<SocketAddrV6>,
@@ -1232,7 +1333,7 @@ struct RocksdbLedgerStore {
     final_vote: NullFinalVoteStore,
     peer: NullPeerStore,
     version: NullVersionStore,
-    online_weight: NullOnlineWeightStore,
+    online_weight: RocksdbOnlineWeightStore,
 }
 
 impl RocksdbLedgerStore {
@@ -1246,6 +1347,7 @@ impl RocksdbLedgerStore {
         let confirmation_height = RocksdbConfirmationHeightStore::new(Arc::clone(&env))?;
         let rep_weight = Arc::new(RocksdbRepWeightStore::new(Arc::clone(&env))?);
         let successors = RocksdbSuccessorStore::new(Arc::clone(&env))?;
+        let online_weight = RocksdbOnlineWeightStore::new(Arc::clone(&env))?;
 
         Ok(Arc::new(Self {
             env,
@@ -1259,7 +1361,7 @@ impl RocksdbLedgerStore {
             final_vote: NullFinalVoteStore::default(),
             peer: NullPeerStore::default(),
             version: NullVersionStore::default(),
-            online_weight: NullOnlineWeightStore::default(),
+            online_weight,
         }))
     }
 }
@@ -1514,6 +1616,7 @@ const PENDING_CF_NAME: &str = "rocksdb_pending";
 const CONF_HEIGHT_CF_NAME: &str = "rocksdb_confirmation_height";
 const REP_WEIGHT_CF_NAME: &str = "rocksdb_rep_weights";
 const SUCCESSOR_CF_NAME: &str = "rocksdb_successors";
+const ONLINE_WEIGHT_CF_NAME: &str = "rocksdb_online_weight";
 
 enum WriteOp {
     Put {
@@ -2265,6 +2368,35 @@ mod tests {
         }
     }
 
+    struct OnlineWeightFixture {
+        env: Arc<RocksdbStoreEnvironment>,
+        store: RocksdbOnlineWeightStore,
+    }
+
+    impl OnlineWeightFixture {
+        fn new() -> Self {
+            let env = create_env();
+            let store = RocksdbOnlineWeightStore::new(Arc::clone(&env)).unwrap();
+            Self { env, store }
+        }
+
+        fn begin_read(&self) -> RocksdbLedgerReadTxn {
+            RocksdbLedgerReadTxn::new(&self.env)
+        }
+
+        fn begin_write(&self) -> RocksdbLedgerWriteTxn {
+            RocksdbLedgerWriteTxn::new(&self.env)
+        }
+
+        fn insert_entries(&self, entries: &[(u64, Amount)]) {
+            let mut txn = self.begin_write();
+            for (time, amount) in entries {
+                self.store.put(&mut txn, *time, amount);
+            }
+            Box::new(txn).commit();
+        }
+    }
+
     #[test]
     fn write_and_read_roundtrip() {
         let env = create_env();
@@ -2800,6 +2932,58 @@ mod tests {
             .store
             .get(&read_txn, &BlockHash::from(999))
             .is_none());
+    }
+
+    #[test]
+    fn online_weight_empty() {
+        let fixture = OnlineWeightFixture::new();
+        let read_txn = fixture.begin_read();
+        assert_eq!(fixture.store.count(&read_txn), 0);
+        assert!(fixture.store.iter(&read_txn).next().is_none());
+        assert!(fixture.store.iter_rev(&read_txn).next().is_none());
+    }
+
+    #[test]
+    fn online_weight_put_get() {
+        let fixture = OnlineWeightFixture::new();
+        let mut txn = fixture.begin_write();
+        fixture.store.put(&mut txn, 1, &Amount::from(100));
+        Box::new(txn).commit();
+
+        let read_txn = fixture.begin_read();
+        let entries: Vec<_> = fixture.store.iter(&read_txn).collect();
+        assert_eq!(entries, vec![(1, Amount::from(100))]);
+    }
+
+    #[test]
+    fn online_weight_iter_rev() {
+        let fixture = OnlineWeightFixture::new();
+        fixture.insert_entries(&[(1, Amount::from(10)), (2, Amount::from(20))]);
+        let read_txn = fixture.begin_read();
+        let entries: Vec<_> = fixture.store.iter_rev(&read_txn).collect();
+        assert_eq!(entries, vec![(2, Amount::from(20)), (1, Amount::from(10))]);
+    }
+
+    #[test]
+    fn online_weight_delete() {
+        let fixture = OnlineWeightFixture::new();
+        fixture.insert_entries(&[(5, Amount::from(50))]);
+        let mut txn = fixture.begin_write();
+        fixture.store.del(&mut txn, 5);
+        Box::new(txn).commit();
+        let read_txn = fixture.begin_read();
+        assert!(fixture.store.iter(&read_txn).next().is_none());
+    }
+
+    #[test]
+    fn online_weight_clear() {
+        let fixture = OnlineWeightFixture::new();
+        fixture.insert_entries(&[(7, Amount::from(70))]);
+        let mut txn = fixture.begin_write();
+        fixture.store.clear(&mut txn);
+        Box::new(txn).commit();
+        let read_txn = fixture.begin_read();
+        assert_eq!(fixture.store.count(&read_txn), 0);
     }
 
     fn unique_block(seed: u8) -> SavedBlock {
