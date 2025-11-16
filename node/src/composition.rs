@@ -27,7 +27,10 @@ use rsnano_utils::{
     ticker::TickerPool,
 };
 use store_rocksdb::RocksdbLedgerStoreFactory;
-use store_traits::config::LedgerBackend;
+use store_traits::{
+    config::{LedgerBackend, LedgerStoreConfig},
+    ledger::{LedgerCache, LedgerStore, LedgerStoreFactory},
+};
 use tracing::info;
 
 use crate::{
@@ -85,6 +88,30 @@ pub(crate) struct TelemetryBits {
     pub(crate) data_receiver_factory: Box<NanoDataReceiverFactory>,
     pub(crate) latest_keepalives: Arc<Mutex<LatestKeepalives>>,
     pub(crate) handshake_stats: Arc<HandshakeStats>,
+}
+
+#[derive(Default)]
+struct RocksdbNullLedgerStoreFactory {
+    inner: RocksdbLedgerStoreFactory,
+}
+
+impl LedgerStoreFactory for RocksdbNullLedgerStoreFactory {
+    fn create_store(
+        &self,
+        _path: PathBuf,
+        config: LedgerStoreConfig,
+        cache: Arc<LedgerCache>,
+    ) -> anyhow::Result<Arc<dyn LedgerStore>> {
+        debug_assert!(
+            matches!(config.backend, LedgerBackend::RocksDb(_)),
+            "RocksDB null factory expects RocksDB backend"
+        );
+        self.inner.create_null_store(cache)
+    }
+
+    fn create_null_store(&self, cache: Arc<LedgerCache>) -> anyhow::Result<Arc<dyn LedgerStore>> {
+        self.inner.create_null_store(cache)
+    }
 }
 
 pub(crate) fn build_foundation(
@@ -172,26 +199,18 @@ pub(crate) fn build_foundation(
 
     let ledger_store_config = config.ledger_store_config.clone();
     let ledger_backend_name = ledger_store_config.backend_name();
-    let lmdb_store_factory;
-    let rocksdb_store_factory;
-    let store_factory: &dyn store_traits::ledger::LedgerStoreFactory =
-        match ledger_store_config.backend {
+    let mut nulled_lmdb_factory: Option<LmdbLedgerStoreFactory> = None;
+    let mut nulled_rocksdb_factory: Option<RocksdbNullLedgerStoreFactory> = None;
+    if is_nulled {
+        match &ledger_store_config.backend {
             LedgerBackend::Lmdb(_) => {
-                lmdb_store_factory = if is_nulled {
-                    LmdbLedgerStoreFactory::new_null()
-                } else {
-                    LmdbLedgerStoreFactory::default()
-                };
-                &lmdb_store_factory
+                nulled_lmdb_factory = Some(LmdbLedgerStoreFactory::new_null());
             }
             LedgerBackend::RocksDb(_) => {
-                if is_nulled {
-                    anyhow::bail!("RocksDB backend is not supported in nulled mode");
-                }
-                rocksdb_store_factory = RocksdbLedgerStoreFactory::default();
-                &rocksdb_store_factory
+                nulled_rocksdb_factory = Some(RocksdbNullLedgerStoreFactory::default());
             }
-        };
+        }
+    }
 
     let wallet_env_factory = if is_nulled {
         LmdbWalletEnvironmentFactory::new_null()
@@ -204,13 +223,24 @@ pub(crate) fn build_foundation(
         ledger_backend_name, config.ledger_store_config.sync
     );
     info!("Loading ledger, this may take a while...");
-    let ledger = LedgerBuilder::new(&ledger_path)
-        .store_factory(store_factory)
-        .config(config.ledger_store_config.clone())
+    let mut ledger_builder = LedgerBuilder::new(&ledger_path)
+        .store_config(ledger_store_config.clone())
         .constants(network_params.ledger.clone())
         .min_rep_weight(config.representative_vote_weight_minimum)
         .bootstrap_weights(bootstrap_weights)
-        .stats(stats.clone())
+        .stats(stats.clone());
+    if let Some(factory) = nulled_lmdb_factory
+        .as_ref()
+        .map(|f| f as &dyn LedgerStoreFactory)
+        .or_else(|| {
+            nulled_rocksdb_factory
+                .as_ref()
+                .map(|f| f as &dyn LedgerStoreFactory)
+        })
+    {
+        ledger_builder = ledger_builder.store_factory(factory);
+    }
+    let ledger = ledger_builder
         .finish()
         .with_context(|| format!("Could not open ledger at {:?}", ledger_path))?;
 

@@ -5,6 +5,8 @@ use std::{
 
 use rsnano_node::{Node, NodeBuilder};
 use rsnano_types::Networks;
+use store_traits::config::{LedgerBackend, RocksDbConfig};
+use test_helpers::System;
 
 fn unique_path(suffix: &str) -> std::path::PathBuf {
     let nanos = SystemTime::now()
@@ -53,4 +55,19 @@ fn composition_fails_when_data_path_is_a_file() {
 
     fs::remove_file(&data_file).ok();
     fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn node_builder_supports_rocksdb_backend_via_config() {
+    let mut system = System::new();
+    let mut config = System::default_config();
+    config.ledger_store_config.backend = LedgerBackend::RocksDb(RocksDbConfig::default());
+    let node = system.build_node().config(config).finish();
+
+    let ledger_dir = node.data_path.join("data.ldb");
+    assert!(
+        ledger_dir.join("CURRENT").exists(),
+        "RocksDB ledger should create CURRENT file at {:?}",
+        ledger_dir
+    );
 }
