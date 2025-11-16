@@ -1227,6 +1227,73 @@ impl RocksdbPrunedStore {
     }
 }
 
+pub struct RocksdbFinalVoteStore {
+    database: StoreDatabase,
+}
+
+impl RocksdbFinalVoteStore {
+    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
+        let database = env.open_db(Some(FINAL_VOTE_CF_NAME))?;
+        Ok(Self { database })
+    }
+
+    fn database(&self) -> StoreDatabase {
+        self.database
+    }
+
+    pub fn put(
+        &self,
+        txn: &mut dyn LedgerWriteTxn,
+        root: &QualifiedRoot,
+        hash: &BlockHash,
+    ) -> bool {
+        let key = root.to_bytes();
+        match txn.get(self.database(), &key) {
+            Err(e) if e.is_not_found() => {
+                txn.put(
+                    self.database(),
+                    &key,
+                    hash.as_bytes(),
+                    StoreWriteFlags::default(),
+                )
+                .expect("failed to insert final vote");
+                true
+            }
+            Ok(existing) => {
+                let stored =
+                    BlockHash::from_slice(existing).expect("invalid block hash stored in final vote");
+                stored == *hash
+            }
+            Err(e) => panic!("failed to read final vote: {e}"),
+        }
+    }
+
+    pub fn get(&self, txn: &dyn LedgerReadTxn, root: &QualifiedRoot) -> Option<BlockHash> {
+        match txn.get(self.database(), &root.to_bytes()) {
+            Ok(mut bytes) => Some(
+                BlockHash::deserialize(&mut bytes).expect("failed to deserialize block hash"),
+            ),
+            Err(e) if e.is_not_found() => None,
+            Err(e) => panic!("failed to read final vote: {e}"),
+        }
+    }
+
+    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, root: &QualifiedRoot) {
+        let key = root.to_bytes();
+        txn.delete(self.database(), &key, None)
+            .expect("failed to delete final vote");
+    }
+
+    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
+        txn.count(self.database())
+    }
+
+    pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
+        txn.clear_db(self.database())
+            .expect("failed to clear final votes");
+    }
+}
+
 pub struct RocksdbSuccessorStore {
     database: StoreDatabase,
     put_listener: OutputListenerMt<(BlockHash, BlockHash)>,
@@ -1299,19 +1366,6 @@ impl SuccessorStore for RocksdbSuccessorStore {
 }
 
 #[derive(Default)]
-struct NullFinalVoteStore;
-
-impl FinalVoteStore for NullFinalVoteStore {
-    fn put(&self, _txn: &mut dyn LedgerWriteTxn, _root: &QualifiedRoot, _hash: &BlockHash) -> bool {
-        false
-    }
-
-    fn get(&self, _txn: &dyn LedgerReadTxn, _root: &QualifiedRoot) -> Option<BlockHash> {
-        None
-    }
-}
-
-#[derive(Default)]
 struct NullVersionStore;
 
 impl VersionStore for NullVersionStore {
@@ -1368,7 +1422,7 @@ struct RocksdbLedgerStore {
     confirmation_height: RocksdbConfirmationHeightStore,
     rep_weight: Arc<RocksdbRepWeightStore>,
     successors: RocksdbSuccessorStore,
-    final_vote: NullFinalVoteStore,
+    final_vote: RocksdbFinalVoteStore,
     peer: NullPeerStore,
     version: NullVersionStore,
     online_weight: RocksdbOnlineWeightStore,
@@ -1386,6 +1440,7 @@ impl RocksdbLedgerStore {
         let rep_weight = Arc::new(RocksdbRepWeightStore::new(Arc::clone(&env))?);
         let successors = RocksdbSuccessorStore::new(Arc::clone(&env))?;
         let online_weight = RocksdbOnlineWeightStore::new(Arc::clone(&env))?;
+        let final_vote = RocksdbFinalVoteStore::new(Arc::clone(&env))?;
 
         Ok(Arc::new(Self {
             env,
@@ -1396,7 +1451,7 @@ impl RocksdbLedgerStore {
             confirmation_height,
             rep_weight,
             successors,
-            final_vote: NullFinalVoteStore::default(),
+            final_vote,
             peer: NullPeerStore::default(),
             version: NullVersionStore::default(),
             online_weight,
@@ -1656,6 +1711,7 @@ const REP_WEIGHT_CF_NAME: &str = "rocksdb_rep_weights";
 const SUCCESSOR_CF_NAME: &str = "rocksdb_successors";
 const ONLINE_WEIGHT_CF_NAME: &str = "rocksdb_online_weight";
 const PRUNED_CF_NAME: &str = "rocksdb_pruned";
+const FINAL_VOTE_CF_NAME: &str = "rocksdb_final_votes";
 
 enum WriteOp {
     Put {
@@ -2216,7 +2272,7 @@ fn store_error_from_rocksdb(err: RocksError) -> StoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsnano_types::{Amount, Block, BlockHash, PrivateKey, PublicKey};
+    use rsnano_types::{Amount, Block, BlockHash, PrivateKey, PublicKey, QualifiedRoot};
     use std::ops::Bound;
     use tempfile::tempdir;
 
@@ -2445,6 +2501,27 @@ mod tests {
         fn new() -> Self {
             let env = create_env();
             let store = RocksdbPrunedStore::new(Arc::clone(&env)).unwrap();
+            Self { env, store }
+        }
+
+        fn begin_read(&self) -> RocksdbLedgerReadTxn {
+            RocksdbLedgerReadTxn::new(&self.env)
+        }
+
+        fn begin_write(&self) -> RocksdbLedgerWriteTxn {
+            RocksdbLedgerWriteTxn::new(&self.env)
+        }
+    }
+
+    struct FinalVoteFixture {
+        env: Arc<RocksdbStoreEnvironment>,
+        store: RocksdbFinalVoteStore,
+    }
+
+    impl FinalVoteFixture {
+        fn new() -> Self {
+            let env = create_env();
+            let store = RocksdbFinalVoteStore::new(Arc::clone(&env)).unwrap();
             Self { env, store }
         }
 
@@ -3081,9 +3158,70 @@ mod tests {
         assert_eq!(fixture.store.count(&read_txn), 2);
     }
 
+    #[test]
+    fn final_vote_put_and_get() {
+        let fixture = FinalVoteFixture::new();
+        let root = QualifiedRoot::new_test_instance();
+        let hash = BlockHash::from(123);
+        let mut txn = fixture.begin_write();
+        assert!(fixture.store.put(&mut txn, &root, &hash));
+        Box::new(txn).commit();
+        let read_txn = fixture.begin_read();
+        assert_eq!(fixture.store.get(&read_txn, &root), Some(hash));
+    }
+
+    #[test]
+    fn final_vote_conflict_detection() {
+        let fixture = FinalVoteFixture::new();
+        let root = QualifiedRoot::new_test_instance();
+        let mut txn = fixture.begin_write();
+        assert!(fixture
+            .store
+            .put(&mut txn, &root, &BlockHash::from(1)));
+        assert!(!fixture
+            .store
+            .put(&mut txn, &root, &BlockHash::from(2)));
+    }
+
+    #[test]
+    fn final_vote_delete_and_clear() {
+        let fixture = FinalVoteFixture::new();
+        let root = QualifiedRoot::new_test_instance();
+        let hash = BlockHash::from(42);
+
+        let mut insert_txn = fixture.begin_write();
+        fixture.store.put(&mut insert_txn, &root, &hash);
+        Box::new(insert_txn).commit();
+
+        let mut delete_txn = fixture.begin_write();
+        fixture.store.del(&mut delete_txn, &root);
+        Box::new(delete_txn).commit();
+        let read_txn = fixture.begin_read();
+        assert!(fixture.store.get(&read_txn, &root).is_none());
+
+        let mut reinsertion_txn = fixture.begin_write();
+        fixture.store.put(&mut reinsertion_txn, &root, &hash);
+        Box::new(reinsertion_txn).commit();
+
+        let mut clear_txn = fixture.begin_write();
+        fixture.store.clear(&mut clear_txn);
+        Box::new(clear_txn).commit();
+        let read_txn = fixture.begin_read();
+        assert_eq!(fixture.store.count(&read_txn), 0);
+    }
+
     fn unique_block(seed: u8) -> SavedBlock {
         let key = PrivateKey::from(u64::from(seed) + 42);
         let block = Block::new_test_instance_with_key(key);
         SavedBlock::new_test_instance_with(block)
+    }
+}
+impl FinalVoteStore for RocksdbFinalVoteStore {
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, root: &QualifiedRoot, hash: &BlockHash) -> bool {
+        RocksdbFinalVoteStore::put(self, txn, root, hash)
+    }
+
+    fn get(&self, txn: &dyn LedgerReadTxn, root: &QualifiedRoot) -> Option<BlockHash> {
+        RocksdbFinalVoteStore::get(self, txn, root)
     }
 }
