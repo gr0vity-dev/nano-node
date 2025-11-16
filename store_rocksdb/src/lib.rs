@@ -20,14 +20,14 @@ use rocksdb::{
     Error as RocksError, IteratorMode, MultiThreaded, Options, SnapshotWithThreadMode, WriteBatch,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{BlockHash, SavedBlock};
+use rsnano_types::{Account, AccountInfo, BlockHash, SavedBlock};
 use store_traits::config::{LedgerBackend, LedgerStoreConfig, RocksDbConfig};
 use store_traits::environment::{
     StoreCursor, StoreEnvironment, StoreEnvironmentFactory, StoreEnvironmentOptions, StoreReadTxn,
     StoreWriteTxn,
 };
 use store_traits::ledger::{
-    LedgerCache, LedgerStore, LedgerStoreFactory, RangeBounds, StoreIterator,
+    AccountStore, LedgerCache, LedgerStore, LedgerStoreFactory, RangeBounds, StoreIterator,
 };
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 use store_traits::types::{
@@ -164,7 +164,6 @@ impl LedgerWriteTxn for RocksdbLedgerWriteTxn {
 }
 
 pub struct RocksdbBlockStore {
-    env: Arc<RocksdbStoreEnvironment>,
     index_cf: StoreDatabase,
     data_cf: StoreDatabase,
     put_listener: OutputListenerMt<SavedBlock>,
@@ -177,7 +176,6 @@ impl RocksdbBlockStore {
         let data_cf = env.open_db(Some(BLOCK_DATA_CF_NAME))?;
         let next_id = find_next_block_id(&env, data_cf)?;
         Ok(Self {
-            env,
             index_cf,
             data_cf,
             put_listener: OutputListenerMt::new(),
@@ -376,7 +374,7 @@ impl<'txn> Iterator for RocksdbBlockRangeIterator<'txn> {
             };
             let hash =
                 BlockHash::from_slice(hash_bytes).expect("invalid block hash bytes in RocksDB");
-            if !hash_in_range(&hash, &self.range) {
+            if !value_in_range(&hash, &self.range) {
                 continue;
             }
             let block = match self.txn.get(self.data_cf, id_bytes) {
@@ -391,6 +389,171 @@ impl<'txn> Iterator for RocksdbBlockRangeIterator<'txn> {
             return Some(block);
         }
     }
+}
+
+pub struct RocksdbAccountStore {
+    database: StoreDatabase,
+    put_listener: OutputListenerMt<(Account, AccountInfo)>,
+}
+
+impl RocksdbAccountStore {
+    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
+        let database = env.open_db(Some(ACCOUNTS_CF_NAME))?;
+        Ok(Self {
+            database,
+            put_listener: OutputListenerMt::new(),
+        })
+    }
+
+    fn database(&self) -> StoreDatabase {
+        self.database
+    }
+
+    pub fn track_puts(&self) -> Arc<OutputTrackerMt<(Account, AccountInfo)>> {
+        self.put_listener.track()
+    }
+
+    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, account: &Account, info: &AccountInfo) {
+        if self.put_listener.is_tracked() {
+            self.put_listener.emit((*account, info.clone()));
+        }
+
+        txn.put(
+            self.database(),
+            account.as_bytes(),
+            &info.to_bytes(),
+            StoreWriteFlags::default(),
+        )
+        .expect("failed to write account info");
+    }
+
+    pub fn get(&self, txn: &dyn LedgerReadTxn, account: &Account) -> Option<AccountInfo> {
+        match txn.get(self.database(), account.as_bytes()) {
+            Ok(mut bytes) => AccountInfo::deserialize(&mut bytes).ok(),
+            Err(e) if e.is_not_found() => None,
+            Err(e) => panic!("failed to read account info: {e}"),
+        }
+    }
+
+    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, account: &Account) {
+        txn.delete(self.database(), account.as_bytes(), None)
+            .expect("failed to delete account");
+    }
+
+    pub fn iter<'txn>(
+        &'txn self,
+        txn: &'txn dyn LedgerReadTxn,
+    ) -> StoreIterator<'txn, (Account, AccountInfo)> {
+        let cursor = txn
+            .open_ro_cursor(self.database())
+            .expect("failed to open account cursor");
+        let cursor = rocksdb_ro_cursor_from_store(cursor);
+        Box::new(RocksdbAccountIterator::new(cursor))
+    }
+
+    pub fn iter_range<'txn>(
+        &'txn self,
+        txn: &'txn dyn LedgerReadTxn,
+        range: RangeBounds<Account>,
+    ) -> StoreIterator<'txn, (Account, AccountInfo)> {
+        let cursor = txn
+            .open_ro_cursor(self.database())
+            .expect("failed to open account cursor");
+        let cursor = rocksdb_ro_cursor_from_store(cursor);
+        Box::new(RocksdbAccountRangeIterator::new(cursor, range))
+    }
+
+    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
+        txn.count(self.database())
+    }
+}
+
+impl AccountStore for RocksdbAccountStore {
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, account: &Account, info: &AccountInfo) {
+        RocksdbAccountStore::put(self, txn, account, info);
+    }
+
+    fn get(&self, txn: &dyn LedgerReadTxn, account: &Account) -> Option<AccountInfo> {
+        RocksdbAccountStore::get(self, txn, account)
+    }
+
+    fn del(&self, txn: &mut dyn LedgerWriteTxn, account: &Account) {
+        RocksdbAccountStore::del(self, txn, account);
+    }
+
+    fn iter<'a>(
+        &'a self,
+        txn: &'a dyn LedgerReadTxn,
+    ) -> StoreIterator<'a, (Account, AccountInfo)> {
+        RocksdbAccountStore::iter(self, txn)
+    }
+
+    fn iter_range<'a>(
+        &'a self,
+        txn: &'a dyn LedgerReadTxn,
+        range: RangeBounds<Account>,
+    ) -> StoreIterator<'a, (Account, AccountInfo)> {
+        RocksdbAccountStore::iter_range(self, txn, range)
+    }
+
+    fn track_puts(&self) -> Arc<OutputTrackerMt<(Account, AccountInfo)>> {
+        RocksdbAccountStore::track_puts(self)
+    }
+}
+
+struct RocksdbAccountIterator<'txn> {
+    cursor: RocksdbCursor<'txn>,
+}
+
+impl<'txn> RocksdbAccountIterator<'txn> {
+    fn new(cursor: RocksdbCursor<'txn>) -> Self {
+        Self { cursor }
+    }
+}
+
+impl<'txn> Iterator for RocksdbAccountIterator<'txn> {
+    type Item = (Account, AccountInfo);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let entry = self.cursor.next().expect("failed to advance cursor")?;
+        Some(read_account_record(entry))
+    }
+}
+
+struct RocksdbAccountRangeIterator<'txn> {
+    cursor: RocksdbCursor<'txn>,
+    range: RangeBounds<Account>,
+}
+
+impl<'txn> RocksdbAccountRangeIterator<'txn> {
+    fn new(cursor: RocksdbCursor<'txn>, range: RangeBounds<Account>) -> Self {
+        Self { cursor, range }
+    }
+}
+
+impl<'txn> Iterator for RocksdbAccountRangeIterator<'txn> {
+    type Item = (Account, AccountInfo);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let entry = self.cursor.next().expect("failed to advance cursor")?;
+            let record = read_account_record(entry);
+            if value_in_range(&record.0, &self.range) {
+                return Some(record);
+            }
+        }
+    }
+}
+
+fn read_account_record((key, value): (&[u8], &[u8])) -> (Account, AccountInfo) {
+    let account = Account::from_bytes(
+        key.try_into()
+            .expect("invalid account key length in RocksDB"),
+    );
+    let mut bytes = value;
+    let info =
+        AccountInfo::deserialize(&mut bytes).expect("failed to deserialize RocksDB account info");
+    (account, info)
 }
 
 fn find_next_block_id(env: &Arc<RocksdbStoreEnvironment>, data_cf: StoreDatabase) -> Result<u64> {
@@ -416,16 +579,19 @@ fn find_next_block_id(env: &Arc<RocksdbStoreEnvironment>, data_cf: StoreDatabase
     Ok(max_id.map_or(0, |v| v + 1))
 }
 
-fn hash_in_range(hash: &BlockHash, range: &RangeBounds<BlockHash>) -> bool {
+fn value_in_range<T>(value: &T, range: &RangeBounds<T>) -> bool
+where
+    T: Ord,
+{
     use std::ops::Bound;
     let start_ok = match &range.start {
-        Bound::Included(start) => hash >= start,
-        Bound::Excluded(start) => hash > start,
+        Bound::Included(start) => value >= start,
+        Bound::Excluded(start) => value > start,
         Bound::Unbounded => true,
     };
     let end_ok = match &range.end {
-        Bound::Included(end) => hash <= end,
-        Bound::Excluded(end) => hash < end,
+        Bound::Included(end) => value <= end,
+        Bound::Excluded(end) => value < end,
         Bound::Unbounded => true,
     };
     start_ok && end_ok
@@ -549,6 +715,7 @@ type RocksDbSnapshot<'a> = SnapshotWithThreadMode<'a, RocksDb>;
 
 const BLOCK_INDEX_CF_NAME: &str = "rocksdb_block_index";
 const BLOCK_DATA_CF_NAME: &str = "rocksdb_block_data";
+const ACCOUNTS_CF_NAME: &str = "rocksdb_accounts";
 
 enum WriteOp {
     Put {
@@ -1071,12 +1238,6 @@ fn rocksdb_ro_cursor_from_store<'txn>(cursor: StoreRoCursor<'txn>) -> RocksdbCur
     *unsafe { Box::from_raw(ptr) }
 }
 
-fn rocksdb_rw_cursor_from_store<'txn>(cursor: StoreRwCursor<'txn>) -> RocksdbCursor<'txn> {
-    let (handle, _) = cursor.into_raw_parts();
-    let ptr = handle.get() as *mut RocksdbCursor<'txn>;
-    *unsafe { Box::from_raw(ptr) }
-}
-
 unsafe fn drop_rocksdb_ro_cursor(handle: NonZeroUsize) {
     let ptr = handle.get() as *mut RocksdbCursor<'static>;
     unsafe {
@@ -1115,6 +1276,8 @@ fn store_error_from_rocksdb(err: RocksError) -> StoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rsnano_types::{Block, PrivateKey};
+    use std::ops::Bound;
 
     struct BlockFixture {
         env: Arc<RocksdbStoreEnvironment>,
@@ -1158,6 +1321,35 @@ mod tests {
         Arc::new(env)
     }
 
+    struct AccountFixture {
+        env: Arc<RocksdbStoreEnvironment>,
+        store: RocksdbAccountStore,
+    }
+
+    impl AccountFixture {
+        fn new() -> Self {
+            let env = create_env();
+            let store = RocksdbAccountStore::new(Arc::clone(&env)).unwrap();
+            Self { env, store }
+        }
+
+        fn begin_read(&self) -> RocksdbLedgerReadTxn {
+            RocksdbLedgerReadTxn::new(&self.env)
+        }
+
+        fn begin_write(&self) -> RocksdbLedgerWriteTxn {
+            RocksdbLedgerWriteTxn::new(&self.env)
+        }
+
+        fn insert_accounts(&self, entries: &[(Account, AccountInfo)]) {
+            let mut txn = self.begin_write();
+            for (account, info) in entries {
+                self.store.put(&mut txn, account, info);
+            }
+            Box::new(txn).commit();
+        }
+    }
+
     #[test]
     fn write_and_read_roundtrip() {
         let env = create_env();
@@ -1175,6 +1367,23 @@ mod tests {
     }
 
     #[test]
+    fn write_txn_drop_discards_changes() {
+        let env = create_env();
+        let database = env.open_db(Some("accounts")).unwrap();
+
+        {
+            let mut txn = env.begin_write();
+            txn.put(database, b"key", b"value", StoreWriteFlags::empty())
+                .unwrap();
+            // Transaction dropped without commit
+        }
+
+        let read_txn = env.begin_read();
+        let err = read_txn.get(database, b"key").unwrap_err();
+        assert!(err.is_not_found());
+    }
+
+    #[test]
     fn write_txn_reads_own_writes() {
         let env = create_env();
         let database = env.open_db(None).unwrap();
@@ -1183,6 +1392,37 @@ mod tests {
         txn.put(database, b"pending", b"123", StoreWriteFlags::empty())
             .unwrap();
         assert_eq!(txn.get(database, b"pending").unwrap(), b"123");
+    }
+
+    #[test]
+    fn read_txn_snapshot_isolation() {
+        let env = create_env();
+        let database = env.open_db(Some("pending")).unwrap();
+
+        {
+            let mut txn = env.begin_write();
+            txn.put(database, b"snapshot", b"v1", StoreWriteFlags::empty())
+                .unwrap();
+            txn.commit();
+        }
+
+        let read_txn = env.begin_read();
+        assert_eq!(read_txn.get(database, b"snapshot").unwrap(), b"v1");
+
+        {
+            let mut write_txn = env.begin_write();
+            write_txn
+                .put(database, b"snapshot", b"v2", StoreWriteFlags::empty())
+                .unwrap();
+            write_txn.commit();
+        }
+
+        // Existing read transaction should continue to see the original value.
+        assert_eq!(read_txn.get(database, b"snapshot").unwrap(), b"v1");
+
+        // A fresh read transaction gets the updated value.
+        let fresh_read = env.begin_read();
+        assert_eq!(fresh_read.get(database, b"snapshot").unwrap(), b"v2");
     }
 
     #[test]
@@ -1235,8 +1475,8 @@ mod tests {
     fn block_store_iterates() {
         let fixture = BlockFixture::new();
         let mut write_txn = fixture.begin_write();
-        for _ in 0..3 {
-            let block = SavedBlock::new_test_open_block();
+        for seed in 0..3 {
+            let block = unique_block(seed);
             fixture.store.put(&mut write_txn, &block);
         }
         Box::new(write_txn).commit();
@@ -1244,5 +1484,103 @@ mod tests {
         let read_txn = fixture.begin_read();
         let count = fixture.store.iter(&read_txn).count();
         assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn account_store_put_get() {
+        let fixture = AccountFixture::new();
+        let tracker = fixture.store.track_puts();
+        let account = Account::from(42);
+        let info = AccountInfo::new_test_instance();
+
+        let mut write_txn = fixture.begin_write();
+        fixture.store.put(&mut write_txn, &account, &info);
+        Box::new(write_txn).commit();
+
+        let read_txn = fixture.begin_read();
+        assert_eq!(fixture.store.get(&read_txn, &account), Some(info.clone()));
+        assert_eq!(tracker.output(), vec![(account, info)]);
+    }
+
+    #[test]
+    fn account_store_delete() {
+        let fixture = AccountFixture::new();
+        let entries = vec![
+            (Account::from(1), AccountInfo::new_test_instance()),
+            (Account::from(2), AccountInfo::new_test_instance()),
+        ];
+        fixture.insert_accounts(&entries);
+
+        let mut write_txn = fixture.begin_write();
+        fixture.store.del(&mut write_txn, &entries[0].0);
+        Box::new(write_txn).commit();
+
+        let read_txn = fixture.begin_read();
+        assert!(fixture.store.get(&read_txn, &entries[0].0).is_none());
+        assert!(fixture.store.get(&read_txn, &entries[1].0).is_some());
+    }
+
+    #[test]
+    fn account_store_iterates_in_order() {
+        let fixture = AccountFixture::new();
+        let entries = vec![
+            (Account::from(1), AccountInfo::new_test_instance()),
+            (Account::from(3), AccountInfo::new_test_instance()),
+            (Account::from(2), AccountInfo::new_test_instance()),
+        ];
+        fixture.insert_accounts(&entries);
+
+        let read_txn = fixture.begin_read();
+        let accounts: Vec<_> = fixture
+            .store
+            .iter(&read_txn)
+            .map(|(account, _)| account)
+            .collect();
+        assert_eq!(
+            accounts,
+            vec![Account::from(1), Account::from(2), Account::from(3)]
+        );
+    }
+
+    #[test]
+    fn account_store_iter_range() {
+        let fixture = AccountFixture::new();
+        let entries = vec![
+            (Account::from(10), AccountInfo::new_test_instance()),
+            (Account::from(20), AccountInfo::new_test_instance()),
+            (Account::from(30), AccountInfo::new_test_instance()),
+        ];
+        fixture.insert_accounts(&entries);
+
+        let read_txn = fixture.begin_read();
+        let range = RangeBounds::new(
+            Bound::Included(Account::from(15)),
+            Bound::Excluded(Account::from(30)),
+        );
+        let accounts: Vec<_> = fixture
+            .store
+            .iter_range(&read_txn, range)
+            .map(|(account, _)| account)
+            .collect();
+        assert_eq!(accounts, vec![Account::from(20)]);
+    }
+
+    #[test]
+    fn account_store_count() {
+        let fixture = AccountFixture::new();
+        let entries = vec![
+            (Account::from(1), AccountInfo::new_test_instance()),
+            (Account::from(2), AccountInfo::new_test_instance()),
+        ];
+        fixture.insert_accounts(&entries);
+
+        let read_txn = fixture.begin_read();
+        assert_eq!(fixture.store.count(&read_txn), 2);
+    }
+
+    fn unique_block(seed: u8) -> SavedBlock {
+        let key = PrivateKey::from(u64::from(seed) + 42);
+        let block = Block::new_test_instance_with_key(key);
+        SavedBlock::new_test_instance_with(block)
     }
 }
