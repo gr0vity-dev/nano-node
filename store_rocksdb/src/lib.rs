@@ -2136,6 +2136,32 @@ pub struct RocksdbWriteTxn<'env> {
     batch: WriteBatch,
     buffers: RefCell<Vec<Vec<u8>>>,
     ops: Vec<WriteOp>,
+    count_trackers: RefCell<HashMap<usize, CountTracker>>,
+}
+
+#[derive(Default)]
+struct CountTracker {
+    base_count: Option<u64>,
+    delta: i64,
+    key_states: HashMap<Vec<u8>, KeyCountState>,
+    cleared: bool,
+}
+
+#[derive(Clone)]
+struct KeyCountState {
+    current_present: bool,
+}
+
+fn bool_to_i64(value: bool) -> i64 {
+    if value {
+        1
+    } else {
+        0
+    }
+}
+
+fn database_key(database: StoreDatabase) -> usize {
+    database.into_raw().get()
 }
 
 impl<'env> RocksdbWriteTxn<'env> {
@@ -2147,7 +2173,96 @@ impl<'env> RocksdbWriteTxn<'env> {
             batch: WriteBatch::default(),
             buffers: RefCell::new(Vec::new()),
             ops: Vec::new(),
+            count_trackers: RefCell::new(HashMap::new()),
         }
+    }
+
+    fn ensure_base_count(
+        &self,
+        tracker: &mut CountTracker,
+        database: StoreDatabase,
+    ) -> StoreResult<()> {
+        if tracker.base_count.is_none() {
+            let count = if tracker.cleared {
+                0
+            } else {
+                self.inner
+                    .count_snapshot_entries(&self.snapshot, database)?
+            };
+            tracker.base_count = Some(count);
+        }
+        Ok(())
+    }
+
+    fn snapshot_contains(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<bool> {
+        let handle = self.inner.cf_handle(database)?;
+        let exists = self
+            .snapshot
+            .get_pinned_cf(&handle, key)
+            .map_err(store_error_from_rocksdb)?
+            .is_some();
+        Ok(exists)
+    }
+
+    fn ensure_key_state<'a>(
+        &'a self,
+        tracker: &'a mut CountTracker,
+        database: StoreDatabase,
+        key: &[u8],
+    ) -> StoreResult<&'a mut KeyCountState> {
+        if tracker.key_states.contains_key(key) {
+            return Ok(tracker
+                .key_states
+                .get_mut(key)
+                .expect("key state present by contains_key"));
+        }
+
+        let initial_present = if tracker.cleared {
+            false
+        } else {
+            self.snapshot_contains(database, key)?
+        };
+
+        tracker
+            .key_states
+            .insert(key.to_vec(), KeyCountState { current_present: initial_present });
+        Ok(tracker
+            .key_states
+            .get_mut(key)
+            .expect("key state inserted above"))
+    }
+
+    fn update_key_presence(
+        &self,
+        database: StoreDatabase,
+        key: &[u8],
+        present: bool,
+    ) -> StoreResult<()> {
+        let mut trackers = self.count_trackers.borrow_mut();
+        let tracker = trackers.entry(database_key(database)).or_default();
+        let delta_change = {
+            let state = self.ensure_key_state(tracker, database, key)?;
+            if state.current_present == present {
+                0
+            } else {
+                let change = bool_to_i64(present) - bool_to_i64(state.current_present);
+                state.current_present = present;
+                change
+            }
+        };
+        if delta_change != 0 {
+            tracker.delta += delta_change;
+        }
+        Ok(())
+    }
+
+    fn handle_clear_tracker(&self, database: StoreDatabase) {
+        let mut trackers = self.count_trackers.borrow_mut();
+        let tracker = trackers.entry(database_key(database)).or_default();
+        tracker.base_count = Some(0);
+        tracker.delta = 0;
+        tracker.key_states.clear();
+        tracker.cleared = true;
     }
 
     fn lookup_overlay<'txn>(
@@ -2255,8 +2370,13 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
     }
 
     fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
-        let map = self.inner.snapshot_entries_map(&self.snapshot, database)?;
-        Ok(self.apply_ops_to_map(database, map).len() as u64)
+        let mut trackers = self.count_trackers.borrow_mut();
+        let tracker = trackers.entry(database_key(database)).or_default();
+        self.ensure_base_count(tracker, database)?;
+        let base = tracker.base_count.expect("base count ensured");
+        let total = (base as i128) + tracker.delta as i128;
+        debug_assert!(total >= 0, "store count went negative");
+        Ok(total as u64)
     }
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
@@ -2299,6 +2419,7 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
     ) -> StoreResult<()> {
         let handle = self.inner.cf_handle(database)?;
         self.batch.put_cf(&handle, key, value);
+        self.update_key_presence(database, key, true)?;
         self.ops.push(WriteOp::Put {
             database,
             key: key.to_vec(),
@@ -2315,6 +2436,7 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
     ) -> StoreResult<()> {
         let handle = self.inner.cf_handle(database)?;
         self.batch.delete_cf(&handle, key);
+        self.update_key_presence(database, key, false)?;
         self.ops.push(WriteOp::Delete {
             database,
             key: key.to_vec(),
@@ -2329,6 +2451,7 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
             let (key, _) = item.map_err(store_error_from_rocksdb)?;
             self.batch.delete_cf(&handle, &key);
         }
+        self.handle_clear_tracker(database);
         self.ops.push(WriteOp::Clear { database });
         Ok(())
     }
@@ -2637,6 +2760,53 @@ mod tests {
     struct RepWeightFixture {
         env: Arc<RocksdbStoreEnvironment>,
         store: RocksdbRepWeightStore,
+    }
+
+    #[test]
+    fn write_txn_count_tracks_overlay_changes() {
+        let fixture = AccountFixture::new();
+        let mut txn = fixture.begin_write();
+        let account = Account::from(1);
+        let info = AccountInfo::new_test_instance();
+
+        assert_eq!(fixture.store.count(&txn), 0);
+
+        fixture.store.put(&mut txn, &account, &info);
+        assert_eq!(fixture.store.count(&txn), 1);
+
+        let info2 = AccountInfo::new_test_instance();
+        fixture.store.put(&mut txn, &account, &info2);
+        assert_eq!(fixture.store.count(&txn), 1);
+
+        fixture.store.del(&mut txn, &account);
+        assert_eq!(fixture.store.count(&txn), 0);
+    }
+
+    #[test]
+    fn write_txn_count_handles_clear() {
+        let fixture = ConfirmationFixture::new();
+        let entries = vec![
+            (
+                Account::from(1),
+                ConfirmationHeightInfo::new(1, BlockHash::from(10)),
+            ),
+            (
+                Account::from(2),
+                ConfirmationHeightInfo::new(2, BlockHash::from(20)),
+            ),
+        ];
+        fixture.insert_entries(&entries);
+
+        let mut txn = fixture.begin_write();
+        assert_eq!(fixture.store.count(&txn), entries.len() as u64);
+
+        fixture.store.clear(&mut txn);
+        assert_eq!(fixture.store.count(&txn), 0);
+
+        let account = Account::from(3);
+        let info = ConfirmationHeightInfo::new(5, BlockHash::from(30));
+        fixture.store.put(&mut txn, &account, &info);
+        assert_eq!(fixture.store.count(&txn), 1);
     }
 
     impl RepWeightFixture {
