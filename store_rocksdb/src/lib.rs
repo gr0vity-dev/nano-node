@@ -493,6 +493,93 @@ mod tests {
     }
 
     #[test]
+    fn write_txn_cursor_streams_snapshot_and_overlay() {
+        let env = create_env();
+        let database = env.open_db(Some("stream_merge")).unwrap();
+
+        {
+            let mut init = env.begin_write();
+            init.put(database, b"b", b"base_b", StoreWriteFlags::empty())
+                .unwrap();
+            init.put(database, b"d", b"base_d", StoreWriteFlags::empty())
+                .unwrap();
+            init.commit().expect("rocksdb test commit failed");
+        }
+
+        let mut txn = env.begin_write();
+        txn.put(database, b"a", b"overlay_a", StoreWriteFlags::empty())
+            .unwrap();
+        txn.delete(database, b"b", None).unwrap();
+        txn.put(database, b"c", b"overlay_c", StoreWriteFlags::empty())
+            .unwrap();
+
+        let mut cursor = txn.open_rw_cursor(database).unwrap();
+        let mut entries = Vec::new();
+        while let Some((key, value)) = cursor.next().unwrap() {
+            entries.push((key.to_vec(), value.to_vec()));
+        }
+
+        assert_eq!(
+            entries,
+            vec![
+                (b"a".to_vec(), b"overlay_a".to_vec()),
+                (b"c".to_vec(), b"overlay_c".to_vec()),
+                (b"d".to_vec(), b"base_d".to_vec()),
+            ]
+        );
+    }
+
+    #[test]
+    fn write_txn_count_streams_overlay() {
+        let env = create_env();
+        let database = env.open_db(Some("stream_count")).unwrap();
+
+        {
+            let mut init = env.begin_write();
+            init.put(database, b"a", b"1", StoreWriteFlags::empty())
+                .unwrap();
+            init.put(database, b"b", b"2", StoreWriteFlags::empty())
+                .unwrap();
+            init.commit().expect("rocksdb test commit failed");
+        }
+
+        let mut txn = env.begin_write();
+        txn.delete(database, b"a", None).unwrap();
+        txn.put(database, b"c", b"3", StoreWriteFlags::empty())
+            .unwrap();
+
+        assert_eq!(txn.count(database).unwrap(), 2);
+    }
+
+    #[test]
+    fn write_txn_clear_streams_overlay() {
+        let env = create_env();
+        let database = env.open_db(Some("stream_clear")).unwrap();
+
+        {
+            let mut init = env.begin_write();
+            init.put(database, b"x", b"1", StoreWriteFlags::empty())
+                .unwrap();
+            init.put(database, b"y", b"2", StoreWriteFlags::empty())
+                .unwrap();
+            init.commit().expect("rocksdb test commit failed");
+        }
+
+        let mut txn = env.begin_write();
+        txn.clear_db(database).unwrap();
+        txn.put(database, b"z", b"3", StoreWriteFlags::empty())
+            .unwrap();
+
+        assert!(txn.get(database, b"x").is_err());
+        assert_eq!(txn.count(database).unwrap(), 1);
+
+        let mut cursor = txn.open_rw_cursor(database).unwrap();
+        let first = cursor.next().unwrap().unwrap();
+        assert_eq!(first, (b"z".as_ref(), b"3".as_ref()));
+        assert!(cursor.next().unwrap().is_none());
+    }
+
+    #[test]
     fn block_store_put_get() {
         let fixture = BlockFixture::new();
         let block = SavedBlock::new_test_open_block();

@@ -1,11 +1,12 @@
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, HashMap},
+    cmp::Ordering,
+    collections::{BTreeMap, HashMap, VecDeque},
     num::NonZeroUsize,
     sync::Arc,
 };
 
-use rocksdb::{IteratorMode, WriteBatch};
+use rocksdb::{DBIteratorWithThreadMode, IteratorMode, WriteBatch};
 use store_traits::environment::{StoreCursor, StoreReadTxn, StoreWriteTxn};
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 use store_traits::types::{
@@ -13,7 +14,7 @@ use store_traits::types::{
 };
 
 use crate::environment::{
-    RocksDbInner, RocksDbSnapshot, RocksdbStoreEnvironment, store_error_from_rocksdb,
+    RocksDb, RocksDbInner, RocksDbSnapshot, RocksdbStoreEnvironment, store_error_from_rocksdb,
 };
 
 pub struct RocksdbLedgerReadTxn {
@@ -210,7 +211,7 @@ pub struct RocksdbWriteTxn<'env> {
     batch: WriteBatch,
     buffers: RefCell<Vec<Vec<u8>>>,
     ops: Vec<WriteOp>,
-    snapshot_counts: RefCell<HashMap<usize, u64>>,
+    overlays: HashMap<usize, ColumnOverlay>,
 }
 
 impl<'env> RocksdbWriteTxn<'env> {
@@ -222,7 +223,7 @@ impl<'env> RocksdbWriteTxn<'env> {
             batch: WriteBatch::default(),
             buffers: RefCell::new(Vec::new()),
             ops: Vec::new(),
-            snapshot_counts: RefCell::new(HashMap::new()),
+            overlays: HashMap::new(),
         }
     }
 
@@ -241,6 +242,17 @@ impl<'env> RocksdbWriteTxn<'env> {
     where
         'env: 'txn,
     {
+        if let Some(overlay) = self.column_overlay(database) {
+            if let Some(entry) = overlay.get(key) {
+                return match entry {
+                    OverlayValue::Put(value) => Some(Some(self.cache_bytes(value.as_slice()))),
+                    OverlayValue::Delete => Some(None),
+                };
+            } else if overlay.is_cleared() {
+                return Some(None);
+            }
+        }
+
         for op in self.ops.iter().rev() {
             match op {
                 WriteOp::Put {
@@ -277,30 +289,40 @@ impl<'env> RocksdbWriteTxn<'env> {
         unsafe { (&*ptr).as_slice() }
     }
 
-    fn apply_ops_to_map(
-        &self,
+    fn column_overlay(&self, database: StoreDatabase) -> Option<&ColumnOverlay> {
+        let key = database.into_raw().get();
+        self.overlays.get(&key)
+    }
+
+    fn column_overlay_mut(&mut self, database: StoreDatabase) -> &mut ColumnOverlay {
+        let key = database.into_raw().get();
+        self.overlays
+            .entry(key)
+            .or_insert_with(ColumnOverlay::default)
+    }
+
+    fn overlay_snapshot(&self, database: StoreDatabase) -> OverlaySnapshot {
+        self.column_overlay(database)
+            .map(ColumnOverlay::snapshot)
+            .unwrap_or_default()
+    }
+
+    fn merge_iterator<'txn>(
+        &'txn self,
         database: StoreDatabase,
-        mut map: BTreeMap<Vec<u8>, Vec<u8>>,
-    ) -> BTreeMap<Vec<u8>, Vec<u8>> {
-        for op in &self.ops {
-            match op {
-                WriteOp::Put {
-                    database: db,
-                    key,
-                    value,
-                } if *db == database => {
-                    map.insert(key.clone(), value.clone());
-                }
-                WriteOp::Delete { database: db, key } if *db == database => {
-                    map.remove(key.as_slice());
-                }
-                WriteOp::Clear { database: db } if *db == database => {
-                    map.clear();
-                }
-                _ => {}
-            }
-        }
-        map
+    ) -> StoreResult<RocksdbMergeIterator<'txn>>
+    where
+        'env: 'txn,
+    {
+        let snapshot = self.overlay_snapshot(database);
+        let (cleared, entries) = snapshot.into_parts();
+        let snapshot_iter = if cleared {
+            None
+        } else {
+            let handle = self.inner.cf_handle(database)?;
+            Some(self.snapshot.iterator_cf(&handle, IteratorMode::Start))
+        };
+        Ok(RocksdbMergeIterator::new(snapshot_iter, entries))
     }
 }
 
@@ -331,22 +353,20 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
     }
 
     fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
-        let mut cache = self.snapshot_counts.borrow_mut();
-        let key = database.into_raw().get();
-        Ok(*cache.entry(key).or_insert(0))
+        let mut merge = self.merge_iterator(database)?;
+        let mut count = 0u64;
+        while merge.next_entry()?.is_some() {
+            count += 1;
+        }
+        Ok(count)
     }
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
     where
         'env: 'txn,
     {
-        let mut map = self.inner.snapshot_entries_map(&self.snapshot, database)?;
-        map = self.apply_ops_to_map(database, map);
-        let entries = map
-            .into_iter()
-            .map(|(k, v)| (k.into_boxed_slice(), v.into_boxed_slice()))
-            .collect();
-        Ok(RocksdbCursor::from_entries(self.cursor_cache(), entries))
+        let merge = self.merge_iterator(database)?;
+        Ok(RocksdbCursor::streaming(self.cursor_cache(), merge))
     }
 
     fn commit(self) -> StoreResult<()>
@@ -374,8 +394,12 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
         value: &[u8],
         _flags: StoreWriteFlags,
     ) -> StoreResult<()> {
-        let handle = self.inner.cf_handle(database)?;
-        self.batch.put_cf(&handle, key, value);
+        {
+            let handle = self.inner.cf_handle(database)?;
+            self.batch.put_cf(&handle, key, value);
+        }
+        self.column_overlay_mut(database)
+            .insert_put(key.to_vec(), value.to_vec());
         self.ops.push(WriteOp::Put {
             database,
             key: key.to_vec(),
@@ -390,8 +414,12 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
         key: &[u8],
         _value: Option<&[u8]>,
     ) -> StoreResult<()> {
-        let handle = self.inner.cf_handle(database)?;
-        self.batch.delete_cf(&handle, key);
+        {
+            let handle = self.inner.cf_handle(database)?;
+            self.batch.delete_cf(&handle, key);
+        }
+        self.column_overlay_mut(database)
+            .insert_delete(key.to_vec());
         self.ops.push(WriteOp::Delete {
             database,
             key: key.to_vec(),
@@ -400,12 +428,15 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
     }
 
     fn clear_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
-        let handle = self.inner.cf_handle(database)?;
-        let mut iter = self.inner.db.iterator_cf(&handle, IteratorMode::Start);
-        while let Some(item) = iter.next() {
-            let (key, _) = item.map_err(store_error_from_rocksdb)?;
-            self.batch.delete_cf(&handle, &key);
+        {
+            let handle = self.inner.cf_handle(database)?;
+            let mut iter = self.inner.db.iterator_cf(&handle, IteratorMode::Start);
+            while let Some(item) = iter.next() {
+                let (key, _) = item.map_err(store_error_from_rocksdb)?;
+                self.batch.delete_cf(&handle, &key);
+            }
         }
+        self.column_overlay_mut(database).clear_all();
         self.ops.push(WriteOp::Clear { database });
         Ok(())
     }
@@ -417,17 +448,159 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
     where
         'env: 'txn,
     {
-        let mut map = self.inner.snapshot_entries_map(&self.snapshot, database)?;
-        map = self.apply_ops_to_map(database, map);
-        let entries = map
-            .into_iter()
-            .map(|(k, v)| (k.into_boxed_slice(), v.into_boxed_slice()))
-            .collect();
-        Ok(RocksdbCursor::from_entries(self.cursor_cache(), entries))
+        let merge = self.merge_iterator(database)?;
+        Ok(RocksdbCursor::streaming(self.cursor_cache(), merge))
     }
 
     unsafe fn drop_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
         self.inner.delete_cf(database)
+    }
+}
+
+#[derive(Default)]
+struct ColumnOverlay {
+    cleared: bool,
+    entries: BTreeMap<Vec<u8>, OverlayValue>,
+}
+
+impl ColumnOverlay {
+    fn insert_put(&mut self, key: Vec<u8>, value: Vec<u8>) {
+        self.entries.insert(key, OverlayValue::Put(value));
+    }
+
+    fn insert_delete(&mut self, key: Vec<u8>) {
+        self.entries.insert(key, OverlayValue::Delete);
+    }
+
+    fn clear_all(&mut self) {
+        self.cleared = true;
+        self.entries.clear();
+    }
+
+    fn get(&self, key: &[u8]) -> Option<&OverlayValue> {
+        self.entries.get(key)
+    }
+
+    fn is_cleared(&self) -> bool {
+        self.cleared
+    }
+
+    fn snapshot(&self) -> OverlaySnapshot {
+        let entries = self
+            .entries
+            .iter()
+            .map(|(key, value)| OverlayEntry {
+                key: key.clone(),
+                value: value.clone(),
+            })
+            .collect::<VecDeque<_>>();
+        OverlaySnapshot::new(self.cleared, entries)
+    }
+}
+
+#[derive(Default)]
+struct OverlaySnapshot {
+    cleared: bool,
+    entries: VecDeque<OverlayEntry>,
+}
+
+impl OverlaySnapshot {
+    fn new(cleared: bool, entries: VecDeque<OverlayEntry>) -> Self {
+        Self { cleared, entries }
+    }
+
+    fn into_parts(self) -> (bool, VecDeque<OverlayEntry>) {
+        (self.cleared, self.entries)
+    }
+}
+
+struct OverlayEntry {
+    key: Vec<u8>,
+    value: OverlayValue,
+}
+
+#[derive(Clone)]
+enum OverlayValue {
+    Put(Vec<u8>),
+    Delete,
+}
+
+struct RocksdbMergeIterator<'txn> {
+    snapshot_iter: Option<DBIteratorWithThreadMode<'txn, RocksDb>>,
+    snapshot_peeked: Option<(Vec<u8>, Vec<u8>)>,
+    overlay_entries: VecDeque<OverlayEntry>,
+}
+
+impl<'txn> RocksdbMergeIterator<'txn> {
+    fn new(
+        snapshot_iter: Option<DBIteratorWithThreadMode<'txn, RocksDb>>,
+        overlay_entries: VecDeque<OverlayEntry>,
+    ) -> Self {
+        Self {
+            snapshot_iter,
+            snapshot_peeked: None,
+            overlay_entries,
+        }
+    }
+
+    fn next_entry(&mut self) -> StoreResult<Option<(Vec<u8>, Vec<u8>)>> {
+        loop {
+            self.ensure_snapshot_peeked()?;
+            let overlay_key = self
+                .overlay_entries
+                .front()
+                .map(|entry| entry.key.as_slice());
+            let snapshot_key = self.snapshot_peeked.as_ref().map(|(key, _)| key.as_slice());
+
+            match (overlay_key, snapshot_key) {
+                (None, None) => return Ok(None),
+                (Some(_), None) => {
+                    let entry = self.overlay_entries.pop_front().expect("entry present");
+                    if let OverlayValue::Put(value) = entry.value {
+                        return Ok(Some((entry.key, value)));
+                    }
+                }
+                (None, Some(_)) => {
+                    let entry = self.snapshot_peeked.take().expect("snapshot entry present");
+                    return Ok(Some(entry));
+                }
+                (Some(overlay_key), Some(snapshot_key)) => match overlay_key.cmp(snapshot_key) {
+                    Ordering::Less => {
+                        let entry = self.overlay_entries.pop_front().expect("entry present");
+                        if let OverlayValue::Put(value) = entry.value {
+                            return Ok(Some((entry.key, value)));
+                        }
+                    }
+                    Ordering::Equal => {
+                        let entry = self.overlay_entries.pop_front().expect("entry present");
+                        self.snapshot_peeked.take();
+                        if let OverlayValue::Put(value) = entry.value {
+                            return Ok(Some((entry.key, value)));
+                        }
+                    }
+                    Ordering::Greater => {
+                        let entry = self.snapshot_peeked.take().expect("snapshot entry present");
+                        return Ok(Some(entry));
+                    }
+                },
+            }
+        }
+    }
+
+    fn ensure_snapshot_peeked(&mut self) -> StoreResult<()> {
+        if self.snapshot_peeked.is_some() || self.snapshot_iter.is_none() {
+            return Ok(());
+        }
+
+        if let Some(iter) = &mut self.snapshot_iter {
+            if let Some(item) = iter.next() {
+                let (key, value) = item.map_err(store_error_from_rocksdb)?;
+                self.snapshot_peeked = Some((key.into(), value.into()));
+            } else {
+                self.snapshot_iter = None;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -448,7 +621,7 @@ enum WriteOp {
 
 pub struct RocksdbCursor<'txn> {
     cache: CursorCache<'txn>,
-    source: RocksdbCursorSource,
+    source: RocksdbCursorSource<'txn>,
 }
 
 impl<'txn> RocksdbCursor<'txn> {
@@ -456,6 +629,13 @@ impl<'txn> RocksdbCursor<'txn> {
         Self {
             cache,
             source: RocksdbCursorSource::Buffered(entries.into_iter()),
+        }
+    }
+
+    fn streaming(cache: CursorCache<'txn>, merge: RocksdbMergeIterator<'txn>) -> Self {
+        Self {
+            cache,
+            source: RocksdbCursorSource::Streaming(merge),
         }
     }
 }
@@ -470,12 +650,20 @@ impl<'txn> StoreCursor<'txn> for RocksdbCursor<'txn> {
                 ))),
                 None => Ok(None),
             },
+            RocksdbCursorSource::Streaming(iter) => match iter.next_entry()? {
+                Some((key, value)) => Ok(Some((
+                    self.cache.cache_vec_bytes(key),
+                    self.cache.cache_vec_bytes(value),
+                ))),
+                None => Ok(None),
+            },
         }
     }
 }
 
-enum RocksdbCursorSource {
+enum RocksdbCursorSource<'txn> {
     Buffered(std::vec::IntoIter<(Box<[u8]>, Box<[u8]>)>),
+    Streaming(RocksdbMergeIterator<'txn>),
 }
 
 struct CursorCache<'txn> {
@@ -488,9 +676,12 @@ impl<'txn> CursorCache<'txn> {
     }
 
     fn cache_boxed_bytes(&self, bytes: Box<[u8]>) -> &'txn [u8] {
-        let vec: Vec<u8> = bytes.into();
+        self.cache_vec_bytes(bytes.into())
+    }
+
+    fn cache_vec_bytes(&self, bytes: Vec<u8>) -> &'txn [u8] {
         let mut buffers = self.buffers.borrow_mut();
-        buffers.push(vec);
+        buffers.push(bytes);
         let idx = buffers.len() - 1;
         let ptr: *const Vec<u8> = &buffers[idx];
         drop(buffers);
