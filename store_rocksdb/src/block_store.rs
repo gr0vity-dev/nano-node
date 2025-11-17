@@ -6,7 +6,7 @@ use std::{
     },
 };
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{BlockHash, SavedBlock};
 use store_traits::{
@@ -18,7 +18,7 @@ use store_traits::{
 
 use crate::{
     BLOCK_DATA_CF_NAME, BLOCK_INDEX_CF_NAME, RocksdbCursor, RocksdbStoreEnvironment,
-    find_next_block_id, rocksdb_ro_cursor_from_store, value_in_range,
+    rocksdb_ro_cursor_from_store, transaction::RocksdbLedgerReadTxn, value_in_range,
 };
 
 pub struct RocksdbBlockStore {
@@ -286,4 +286,30 @@ impl<'txn> Iterator for RocksdbBlockRangeIterator<'txn> {
             return Some(block);
         }
     }
+}
+
+fn find_next_block_id(
+    env: &Arc<RocksdbStoreEnvironment>,
+    data_cf: StoreDatabase,
+) -> anyhow::Result<u64> {
+    let txn = RocksdbLedgerReadTxn::new(env);
+    let cursor = txn
+        .open_ro_cursor(data_cf)
+        .map_err(|e| anyhow!(e.to_string()))?;
+    let mut cursor = rocksdb_ro_cursor_from_store(cursor);
+    let mut max_id: Option<u64> = None;
+    loop {
+        match cursor.next() {
+            Ok(Some((key, _))) => {
+                let id = u64::from_be_bytes(
+                    key.try_into()
+                        .map_err(|_| anyhow!("invalid block id bytes"))?,
+                );
+                max_id = Some(max_id.map_or(id, |current| current.max(id)));
+            }
+            Ok(None) => break,
+            Err(e) => return Err(anyhow!(e.to_string())),
+        }
+    }
+    Ok(max_id.map_or(0, |v| v + 1))
 }
