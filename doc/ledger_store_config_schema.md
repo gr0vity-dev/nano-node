@@ -26,6 +26,13 @@ pub struct LmdbConfig {
 
 pub struct RocksDbConfig {
     pub max_open_files: Option<i32>,
+    pub enable_pipelined_write: bool,
+    pub allow_concurrent_memtable_write: bool,
+    pub write_buffer_size: Option<u64>,
+    pub max_write_buffer_number: Option<i32>,
+    pub min_write_buffer_number_to_merge: Option<i32>,
+    pub max_background_flushes: Option<i32>,
+    pub max_background_compactions: Option<i32>,
 }
 ```
 
@@ -35,8 +42,9 @@ pub struct RocksDbConfig {
   options for that backend.
 - `LmdbConfig` exposes the knobs that used to live on `LedgerStoreConfig`
   directly, so logic/application crates never import LMDB-specific types.
-- `RocksDbConfig` will expand as the adapter gains tunables; today it only
-  wires the most common option (`max_open_files`).
+- `RocksDbConfig` wires the RocksDB tuning knobs that the adapter currently
+  supports. Fields are optional unless otherwise noted so operators can opt
+  into more aggressive configurations without recompiling.
 
 ## TOML Example
 

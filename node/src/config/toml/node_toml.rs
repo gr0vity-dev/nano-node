@@ -709,6 +709,7 @@ mod tests {
                 backend: Some("rocksdb".to_string()),
                 rocksdb: Some(RocksDbToml {
                     max_open_files: Some(128),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -729,6 +730,7 @@ mod tests {
         let mut cfg = NodeConfig::new_test_instance();
         cfg.ledger_store_config.backend = LedgerBackend::RocksDb(RocksDbConfig {
             max_open_files: Some(77),
+            ..Default::default()
         });
         let toml = NodeToml::from(&cfg);
         let storage = toml.storage.expect("storage section missing");
@@ -748,6 +750,7 @@ mod tests {
         let mut cfg = NodeConfig::new_test_instance();
         cfg.ledger_store_config.backend = LedgerBackend::RocksDb(RocksDbConfig {
             max_open_files: Some(42),
+            ..Default::default()
         });
         let toml = NodeToml {
             storage: Some(StorageToml {

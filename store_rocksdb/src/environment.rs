@@ -33,7 +33,7 @@ impl RocksdbStoreEnvironment {
         temp_dir: Option<tempfile::TempDir>,
         config: Option<&RocksDbConfig>,
     ) -> Result<Self> {
-        let inner = RocksDbInner::open(&path, config.and_then(|c| c.max_open_files))?;
+        let inner = RocksDbInner::open(&path, config)?;
         Ok(Self {
             inner: Arc::new(inner),
             _temp_dir: temp_dir,
@@ -115,6 +115,7 @@ impl StoreEnvironmentFactory for RocksdbStoreEnvironmentFactory {
 pub(crate) struct RocksDbInner {
     pub(crate) db: RocksDb,
     registry: RwLock<CfRegistry>,
+    config: Option<RocksDbConfig>,
 }
 
 pub(crate) type RocksDb = DBWithThreadMode<MultiThreaded>;
@@ -134,7 +135,7 @@ pub(crate) const PEERS_CF_NAME: &str = "rocksdb_peers";
 pub(crate) const VERSION_CF_NAME: &str = "rocksdb_version";
 
 impl RocksDbInner {
-    fn open(path: &Path, max_open_files: Option<i32>) -> anyhow::Result<Self> {
+    fn open(path: &Path, config: Option<&RocksDbConfig>) -> anyhow::Result<Self> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -142,8 +143,11 @@ impl RocksDbInner {
         let mut options = Options::default();
         options.create_if_missing(true);
         options.create_missing_column_families(true);
-        if let Some(max_open_files) = max_open_files {
-            options.set_max_open_files(max_open_files);
+        if let Some(cfg) = config {
+            if let Some(max_open_files) = cfg.max_open_files {
+                options.set_max_open_files(max_open_files);
+            }
+            apply_tuning_options(&mut options, cfg);
         }
 
         let cf_names = if path.exists() {
@@ -155,13 +159,13 @@ impl RocksDbInner {
         let db = if cf_names.is_empty() {
             let descriptor = ColumnFamilyDescriptor::new(
                 rocksdb::DEFAULT_COLUMN_FAMILY_NAME,
-                Options::default(),
+                column_family_options(config),
             );
             RocksDb::open_cf_descriptors(&options, path, vec![descriptor])?
         } else {
             let descriptors = cf_names
                 .iter()
-                .map(|name| ColumnFamilyDescriptor::new(name, Options::default()))
+                .map(|name| ColumnFamilyDescriptor::new(name, column_family_options(config)))
                 .collect::<Vec<_>>();
             RocksDb::open_cf_descriptors(&options, path, descriptors)?
         };
@@ -180,6 +184,7 @@ impl RocksDbInner {
         Ok(Self {
             db,
             registry: RwLock::new(registry),
+            config: config.cloned(),
         })
     }
 
@@ -197,7 +202,7 @@ impl RocksDbInner {
             return Ok(handle);
         }
 
-        let mut cf_options = Options::default();
+        let mut cf_options = column_family_options(self.config.as_ref());
         cf_options.create_if_missing(true);
         self.db
             .create_cf(name, &cf_options)
@@ -324,4 +329,36 @@ pub(crate) fn store_error_from_rocksdb(err: RocksError) -> StoreError {
         _ => StoreErrorKind::Backend,
     };
     StoreError::new(kind, err.to_string())
+}
+
+fn column_family_options(config: Option<&RocksDbConfig>) -> Options {
+    let mut options = Options::default();
+    if let Some(cfg) = config {
+        apply_tuning_options(&mut options, cfg);
+    }
+    options
+}
+
+fn apply_tuning_options(options: &mut Options, config: &RocksDbConfig) {
+    if config.enable_pipelined_write {
+        options.set_enable_pipelined_write(true);
+    }
+    if config.allow_concurrent_memtable_write {
+        options.set_allow_concurrent_memtable_write(true);
+    }
+    if let Some(size) = config.write_buffer_size {
+        options.set_write_buffer_size(size as usize);
+    }
+    if let Some(count) = config.max_write_buffer_number {
+        options.set_max_write_buffer_number(count);
+    }
+    if let Some(count) = config.min_write_buffer_number_to_merge {
+        options.set_min_write_buffer_number_to_merge(count);
+    }
+    if let Some(count) = config.max_background_flushes {
+        options.set_max_background_flushes(count);
+    }
+    if let Some(count) = config.max_background_compactions {
+        options.set_max_background_compactions(count);
+    }
 }

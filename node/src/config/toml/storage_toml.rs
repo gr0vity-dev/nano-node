@@ -14,6 +14,13 @@ pub struct StorageToml {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RocksDbToml {
     pub max_open_files: Option<i32>,
+    pub enable_pipelined_write: Option<bool>,
+    pub allow_concurrent_memtable_write: Option<bool>,
+    pub write_buffer_size: Option<u64>,
+    pub max_write_buffer_number: Option<i32>,
+    pub min_write_buffer_number_to_merge: Option<i32>,
+    pub max_background_flushes: Option<i32>,
+    pub max_background_compactions: Option<i32>,
 }
 
 impl StorageToml {
@@ -112,6 +119,13 @@ impl From<&RocksDbToml> for RocksDbConfig {
     fn from(toml: &RocksDbToml) -> Self {
         RocksDbConfig {
             max_open_files: toml.max_open_files,
+            enable_pipelined_write: toml.enable_pipelined_write.unwrap_or(false),
+            allow_concurrent_memtable_write: toml.allow_concurrent_memtable_write.unwrap_or(false),
+            write_buffer_size: toml.write_buffer_size,
+            max_write_buffer_number: toml.max_write_buffer_number,
+            min_write_buffer_number_to_merge: toml.min_write_buffer_number_to_merge,
+            max_background_flushes: toml.max_background_flushes,
+            max_background_compactions: toml.max_background_compactions,
         }
     }
 }
@@ -120,6 +134,13 @@ impl From<&RocksDbConfig> for RocksDbToml {
     fn from(cfg: &RocksDbConfig) -> Self {
         Self {
             max_open_files: cfg.max_open_files,
+            enable_pipelined_write: Some(cfg.enable_pipelined_write),
+            allow_concurrent_memtable_write: Some(cfg.allow_concurrent_memtable_write),
+            write_buffer_size: cfg.write_buffer_size,
+            max_write_buffer_number: cfg.max_write_buffer_number,
+            min_write_buffer_number_to_merge: cfg.min_write_buffer_number_to_merge,
+            max_background_flushes: cfg.max_background_flushes,
+            max_background_compactions: cfg.max_background_compactions,
         }
     }
 }
