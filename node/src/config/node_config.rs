@@ -8,7 +8,7 @@ use rsnano_nullable_http_client::Url;
 use rsnano_types::{Account, Amount, Peer, PublicKey};
 use rsnano_wallet::default_preconfigured_representatives_for_live;
 use rsnano_work::OpenClConfig;
-use store_traits::config::LedgerStoreConfig;
+use store_traits::config::{LedgerBackend, LedgerStoreConfig, LmdbConfig, RocksDbConfig};
 
 use super::{DEV_NETWORK_PARAMS, NetworkParams, Networks, websocket_config::WebsocketConfig};
 use crate::{
@@ -182,7 +182,7 @@ impl NodeConfig {
 
         let block_processor_cfg = ProcessQueueConfig::default();
 
-        Self {
+        let mut config = Self {
             enable_opencl: false,
             enable_voting,
             enable_vote_processor: true,
@@ -277,6 +277,32 @@ impl NodeConfig {
             vote_rebroadcaster_max_queue: VoteRebroadcastQueue::DEFAULT_MAX_QUEUE,
             rebroadcast_history: Default::default(),
             cps_limit: 0,
+        };
+
+        config.apply_env_backend_override();
+        config
+    }
+
+    fn apply_env_backend_override(&mut self) {
+        const ENV_VAR: &str = "RSNANO_LEDGER_BACKEND";
+        let Ok(value) = std::env::var(ENV_VAR) else {
+            return;
+        };
+
+        match value.to_ascii_lowercase().as_str() {
+            "rocksdb" => {
+                self.ledger_store_config.backend =
+                    LedgerBackend::RocksDb(RocksDbConfig::default());
+            }
+            "lmdb" => {
+                self.ledger_store_config.backend =
+                    LedgerBackend::Lmdb(LmdbConfig::default());
+            }
+            other => {
+                tracing::warn!(
+                    "Ignoring unsupported value '{other}' for {ENV_VAR}; expected 'lmdb' or 'rocksdb'"
+                );
+            }
         }
     }
 
