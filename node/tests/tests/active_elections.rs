@@ -922,7 +922,8 @@ fn bound_election_winners() {
 
     {
         // Prevent cementing of confirmed blocks
-        let txn = node.ledger_query_services().ledger.store.begin_write();
+        let confirming_set = node.consensus_services().confirming_set.clone();
+        confirming_set.set_cooldown(true);
 
         // Ensure that when the number of election winners reaches the limit, AEC vacancy reflects that
         // Confirming more elections should make the vacancy negative
@@ -933,8 +934,8 @@ fn bound_election_winners() {
         }
 
         assert_timely2(|| node.consensus_services().active.read().unwrap().vacancy() <= 0);
-        // Release the guard to allow cementing, there should be some vacancy now
-        txn.commit();
+        // Allow cementing again, there should be some vacancy now
+        confirming_set.set_cooldown(false);
     }
 
     assert_timely2(|| node.consensus_services().active.read().unwrap().vacancy() > 0);
