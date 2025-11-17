@@ -1,6 +1,6 @@
 use super::new_null_ledger;
 use crate::{
-    AnySet, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, Ledger, LedgerInserter, LedgerSet,
+    AnySet, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, LedgerInserter, LedgerSet,
     ledger_constants::DEV_GENESIS_PUB_KEY,
 };
 use rsnano_types::{Account, Amount, Epoch, PendingInfo, PendingKey, PrivateKey, PublicKey};
