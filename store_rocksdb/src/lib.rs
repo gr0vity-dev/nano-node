@@ -538,7 +538,7 @@ mod tests {
         let env = create_env();
         let database = env.open_db(Some(ACCOUNTS_CF_NAME)).unwrap();
         let stats = Arc::new(Stats::default());
-        register_rocksdb_stats(stats.clone());
+        register_rocksdb_stats(Some(stats.clone()));
 
         {
             let mut init = env.begin_write();
@@ -571,6 +571,44 @@ mod tests {
                 Direction::Out
             ),
             2
+        );
+    }
+
+    #[test]
+    fn read_cursor_emits_stats() {
+        let env = create_env();
+        let database = env.open_db(Some(ACCOUNTS_CF_NAME)).unwrap();
+
+        {
+            let mut init = env.begin_write();
+            init.put(database, b"a", b"1", StoreWriteFlags::empty())
+                .unwrap();
+            init.commit().expect("rocksdb test commit failed");
+        }
+
+        let stats = Arc::new(Stats::default());
+        register_rocksdb_stats(Some(stats.clone()));
+
+        let read_txn = env.begin_read();
+        let mut cursor = read_txn.open_cursor(database).unwrap();
+        assert!(cursor.next().unwrap().is_some());
+        assert!(cursor.next().unwrap().is_none());
+
+        assert_eq!(
+            stats.count(
+                StatType::LedgerIterator,
+                DetailType::RocksDbAccounts,
+                Direction::In
+            ),
+            1
+        );
+        assert_eq!(
+            stats.count(
+                StatType::LedgerIterator,
+                DetailType::RocksDbAccounts,
+                Direction::Out
+            ),
+            1
         );
     }
 

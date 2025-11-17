@@ -119,6 +119,8 @@ pub struct RocksDbConfig {
     pub max_write_buffer_number: Option<i32>,
     pub min_write_buffer_number_to_merge: Option<i32>,
     pub max_background_jobs: Option<i32>,
+    #[serde(default)]
+    pub enable_iterator_stats: bool,
 }
 
 impl Default for RocksDbConfig {
@@ -131,6 +133,7 @@ impl Default for RocksDbConfig {
             max_write_buffer_number: None,
             min_write_buffer_number_to_merge: None,
             max_background_jobs: None,
+            enable_iterator_stats: false,
         }
     }
 }

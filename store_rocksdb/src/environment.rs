@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     sync::Arc,
@@ -8,7 +8,7 @@ use std::{
 use anyhow::Result;
 use parking_lot::RwLock;
 use rocksdb::{
-    BoundColumnFamily, ColumnFamilyDescriptor, DBWithThreadMode, Error as RocksError, IteratorMode,
+    BoundColumnFamily, ColumnFamilyDescriptor, DBWithThreadMode, Error as RocksError,
     MultiThreaded, Options, SnapshotWithThreadMode,
 };
 use rsnano_utils::stats::DetailType;
@@ -241,36 +241,6 @@ impl RocksDbInner {
                 .unwrap_or_else(|| "unknown".to_string())
         };
         detail_for_cf_name(&name)
-    }
-
-    pub(crate) fn count_snapshot_entries(
-        &self,
-        snapshot: &RocksDbSnapshot<'_>,
-        database: StoreDatabase,
-    ) -> StoreResult<u64> {
-        let handle = self.cf_handle(database)?;
-        let mut iter = snapshot.iterator_cf(&handle, IteratorMode::Start);
-        let mut count = 0u64;
-        while let Some(item) = iter.next() {
-            item.map_err(store_error_from_rocksdb)?;
-            count += 1;
-        }
-        Ok(count)
-    }
-
-    pub(crate) fn snapshot_entries_map(
-        &self,
-        snapshot: &RocksDbSnapshot<'_>,
-        database: StoreDatabase,
-    ) -> StoreResult<BTreeMap<Vec<u8>, Vec<u8>>> {
-        let handle = self.cf_handle(database)?;
-        let mut iter = snapshot.iterator_cf(&handle, IteratorMode::Start);
-        let mut map = BTreeMap::new();
-        while let Some(item) = iter.next() {
-            let (key, value) = item.map_err(store_error_from_rocksdb)?;
-            map.insert(key.into(), value.into());
-        }
-        Ok(map)
     }
 
     pub(crate) fn delete_cf(&self, database: StoreDatabase) -> StoreResult<()> {

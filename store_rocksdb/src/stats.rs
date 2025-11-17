@@ -4,8 +4,9 @@ use std::sync::{Arc, Weak};
 
 static GLOBAL_STATS: RwLock<Option<Weak<Stats>>> = RwLock::new(None);
 
-pub fn register_rocksdb_stats(stats: Arc<Stats>) {
-    *GLOBAL_STATS.write() = Some(Arc::downgrade(&stats));
+pub fn register_rocksdb_stats(stats: Option<Arc<Stats>>) {
+    let mut guard = GLOBAL_STATS.write();
+    *guard = stats.map(|arc| Arc::downgrade(&arc));
 }
 
 pub fn get_stats_handle() -> Option<Arc<Stats>> {

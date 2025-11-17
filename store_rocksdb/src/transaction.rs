@@ -159,6 +159,25 @@ impl<'env> RocksdbReadTxn<'env> {
     {
         CursorCache::new(&self.buffers)
     }
+
+    fn merge_iterator<'txn>(
+        &'txn self,
+        database: StoreDatabase,
+    ) -> StoreResult<RocksdbMergeIterator<'txn>>
+    where
+        'env: 'txn,
+    {
+        let handle = self.inner.cf_handle(database)?;
+        let iterator = self.snapshot.iterator_cf(&handle, IteratorMode::Start);
+        let stats = get_stats_handle();
+        let detail = self.inner.stat_detail(database);
+        Ok(RocksdbMergeIterator::new(
+            Some(iterator),
+            VecDeque::new(),
+            stats,
+            detail,
+        ))
+    }
 }
 
 impl<'env> StoreReadTxn<'env> for RocksdbReadTxn<'env> {
@@ -184,19 +203,20 @@ impl<'env> StoreReadTxn<'env> for RocksdbReadTxn<'env> {
     }
 
     fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
-        self.inner.count_snapshot_entries(&self.snapshot, database)
+        let mut merge = self.merge_iterator(database)?;
+        let mut count = 0u64;
+        while merge.next_entry()?.is_some() {
+            count += 1;
+        }
+        Ok(count)
     }
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
     where
         'env: 'txn,
     {
-        let map = self.inner.snapshot_entries_map(&self.snapshot, database)?;
-        let entries = map
-            .into_iter()
-            .map(|(k, v)| (k.into_boxed_slice(), v.into_boxed_slice()))
-            .collect();
-        Ok(RocksdbCursor::from_entries(self.cursor_cache(), entries))
+        let merge = self.merge_iterator(database)?;
+        Ok(RocksdbCursor::streaming(self.cursor_cache(), merge))
     }
 
     fn commit(self) -> StoreResult<()>
@@ -627,13 +647,13 @@ impl<'txn> RocksdbMergeIterator<'txn> {
 
     fn record_open(&self) {
         if let Some(stats) = &self.stats {
-            stats.add_dir(StatType::LedgerIterator, self.stat_detail, Direction::In, 1);
+            stats.add_dir_aggregate(StatType::LedgerIterator, self.stat_detail, Direction::In, 1);
         }
     }
 
     fn record_step(&self) {
         if let Some(stats) = &self.stats {
-            stats.add_dir(
+            stats.add_dir_aggregate(
                 StatType::LedgerIterator,
                 self.stat_detail,
                 Direction::Out,
@@ -660,49 +680,28 @@ enum WriteOp {
 
 pub struct RocksdbCursor<'txn> {
     cache: CursorCache<'txn>,
-    source: RocksdbCursorSource<'txn>,
+    source: RocksdbMergeIterator<'txn>,
 }
 
 impl<'txn> RocksdbCursor<'txn> {
-    fn from_entries(cache: CursorCache<'txn>, entries: Vec<(Box<[u8]>, Box<[u8]>)>) -> Self {
-        Self {
-            cache,
-            source: RocksdbCursorSource::Buffered(entries.into_iter()),
-        }
-    }
-
     fn streaming(cache: CursorCache<'txn>, merge: RocksdbMergeIterator<'txn>) -> Self {
         Self {
             cache,
-            source: RocksdbCursorSource::Streaming(merge),
+            source: merge,
         }
     }
 }
 
 impl<'txn> StoreCursor<'txn> for RocksdbCursor<'txn> {
     fn next(&mut self) -> StoreResult<Option<(&'txn [u8], &'txn [u8])>> {
-        match &mut self.source {
-            RocksdbCursorSource::Buffered(iter) => match iter.next() {
-                Some((key, value)) => Ok(Some((
-                    self.cache.cache_boxed_bytes(key),
-                    self.cache.cache_boxed_bytes(value),
-                ))),
-                None => Ok(None),
-            },
-            RocksdbCursorSource::Streaming(iter) => match iter.next_entry()? {
-                Some((key, value)) => Ok(Some((
-                    self.cache.cache_vec_bytes(key),
-                    self.cache.cache_vec_bytes(value),
-                ))),
-                None => Ok(None),
-            },
+        match self.source.next_entry()? {
+            Some((key, value)) => Ok(Some((
+                self.cache.cache_vec_bytes(key),
+                self.cache.cache_vec_bytes(value),
+            ))),
+            None => Ok(None),
         }
     }
-}
-
-enum RocksdbCursorSource<'txn> {
-    Buffered(std::vec::IntoIter<(Box<[u8]>, Box<[u8]>)>),
-    Streaming(RocksdbMergeIterator<'txn>),
 }
 
 struct CursorCache<'txn> {
@@ -712,10 +711,6 @@ struct CursorCache<'txn> {
 impl<'txn> CursorCache<'txn> {
     fn new(buffers: &'txn RefCell<Vec<Vec<u8>>>) -> Self {
         Self { buffers }
-    }
-
-    fn cache_boxed_bytes(&self, bytes: Box<[u8]>) -> &'txn [u8] {
-        self.cache_vec_bytes(bytes.into())
     }
 
     fn cache_vec_bytes(&self, bytes: Vec<u8>) -> &'txn [u8] {

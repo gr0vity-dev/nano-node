@@ -92,8 +92,14 @@ impl<'a> LedgerBuilder<'a> {
         let store_config = self.store_config.unwrap_or_default();
 
         let stats = self.stats.unwrap_or_else(|| Arc::new(Stats::default()));
-        if matches!(store_config.backend, LedgerBackend::RocksDb(_)) {
-            register_rocksdb_stats(stats.clone());
+        let iterator_stats_enabled = match &store_config.backend {
+            LedgerBackend::RocksDb(cfg) => cfg.enable_iterator_stats,
+            _ => false,
+        };
+        if iterator_stats_enabled {
+            register_rocksdb_stats(Some(stats.clone()));
+        } else {
+            register_rocksdb_stats(None);
         }
         let ledger_constants = self
             .ledger_constants
