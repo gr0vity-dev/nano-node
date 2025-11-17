@@ -5,7 +5,7 @@ edition = "2024"
 build = "build.rs"
 
 [dependencies]
-rocksdb = { version = "0.22", features = ["multi-threaded-cf"] }
+rocksdb = { package = "rust-rocksdb", version = "0.44.2", features = ["multi-threaded-cf"] }
 parking_lot = "0.12"
 store_traits = { path = "../store_traits" }
 anyhow = "1"

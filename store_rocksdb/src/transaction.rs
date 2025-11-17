@@ -447,7 +447,7 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
     {
         self.inner
             .db
-            .write(self.batch)
+            .write(&self.batch)
             .map_err(store_error_from_rocksdb)
     }
 }

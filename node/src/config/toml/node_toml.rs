@@ -859,6 +859,7 @@ mod tests {
 
     #[test]
     fn rocksdb_toml_applies_to_environment() {
+        use crate::config::DaemonToml;
         use store_rocksdb::RocksdbStoreEnvironment;
         use store_traits::types::StoreEnvironmentFlags;
 
@@ -874,7 +875,8 @@ enable_pipelined_write = true
 allow_concurrent_memtable_write = true
 write_buffer_size = 12345
 "#;
-        let node_toml: NodeToml = ::toml::from_str(toml_str).expect("parse node toml");
+        let daemon_toml: DaemonToml = ::toml::from_str(toml_str).expect("parse daemon toml");
+        let node_toml = daemon_toml.node.expect("node section missing");
         let mut cfg = NodeConfig::new_test_instance();
         cfg.merge_toml(&node_toml);
 

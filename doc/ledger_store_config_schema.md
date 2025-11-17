@@ -31,8 +31,7 @@ pub struct RocksDbConfig {
     pub write_buffer_size: Option<u64>,
     pub max_write_buffer_number: Option<i32>,
     pub min_write_buffer_number_to_merge: Option<i32>,
-    pub max_background_flushes: Option<i32>,
-    pub max_background_compactions: Option<i32>,
+    pub max_background_jobs: Option<i32>,
 }
 ```
 

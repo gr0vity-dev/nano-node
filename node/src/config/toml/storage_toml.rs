@@ -19,8 +19,7 @@ pub struct RocksDbToml {
     pub write_buffer_size: Option<u64>,
     pub max_write_buffer_number: Option<i32>,
     pub min_write_buffer_number_to_merge: Option<i32>,
-    pub max_background_flushes: Option<i32>,
-    pub max_background_compactions: Option<i32>,
+    pub max_background_jobs: Option<i32>,
 }
 
 impl StorageToml {
@@ -132,8 +131,7 @@ impl From<&RocksDbToml> for RocksDbConfig {
             write_buffer_size: toml.write_buffer_size,
             max_write_buffer_number: toml.max_write_buffer_number,
             min_write_buffer_number_to_merge: toml.min_write_buffer_number_to_merge,
-            max_background_flushes: toml.max_background_flushes,
-            max_background_compactions: toml.max_background_compactions,
+            max_background_jobs: toml.max_background_jobs,
         }
     }
 }
@@ -147,8 +145,7 @@ impl From<&RocksDbConfig> for RocksDbToml {
             write_buffer_size: cfg.write_buffer_size,
             max_write_buffer_number: cfg.max_write_buffer_number,
             min_write_buffer_number_to_merge: cfg.min_write_buffer_number_to_merge,
-            max_background_flushes: cfg.max_background_flushes,
-            max_background_compactions: cfg.max_background_compactions,
+            max_background_jobs: cfg.max_background_jobs,
         }
     }
 }

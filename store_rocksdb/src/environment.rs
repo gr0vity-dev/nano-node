@@ -359,10 +359,7 @@ fn apply_tuning_options(options: &mut Options, config: &RocksDbConfig) {
     if let Some(count) = config.min_write_buffer_number_to_merge {
         options.set_min_write_buffer_number_to_merge(count);
     }
-    if let Some(count) = config.max_background_flushes {
-        options.set_max_background_flushes(count);
-    }
-    if let Some(count) = config.max_background_compactions {
-        options.set_max_background_compactions(count);
+    if let Some(jobs) = config.max_background_jobs {
+        options.set_max_background_jobs(jobs);
     }
 }

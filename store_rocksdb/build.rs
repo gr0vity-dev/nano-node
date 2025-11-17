@@ -5,7 +5,9 @@ mod build_support;
 fn main() {
     if let Some(lock_path) = build_support::workspace_lock_path() {
         if let Ok(contents) = fs::read_to_string(lock_path) {
-            if let Some(version) = build_support::find_version(&contents, "librocksdb-sys") {
+            if let Some(version) = build_support::find_version(&contents, "rust-librocksdb-sys")
+                .or_else(|| build_support::find_version(&contents, "librocksdb-sys"))
+            {
                 let parsed = version
                     .split('+')
                     .nth(1)

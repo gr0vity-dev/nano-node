@@ -74,7 +74,8 @@ mod tests {
 
         let lock_path = build_support::workspace_lock_path().expect("workspace Cargo.lock");
         let contents = fs::read_to_string(lock_path).expect("read Cargo.lock");
-        let version = build_support::find_version(&contents, "librocksdb-sys")
+        let version = build_support::find_version(&contents, "rust-librocksdb-sys")
+            .or_else(|| build_support::find_version(&contents, "librocksdb-sys"))
             .expect("librocksdb-sys version");
         let expected = version
             .split('+')

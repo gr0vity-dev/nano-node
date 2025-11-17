@@ -118,8 +118,7 @@ pub struct RocksDbConfig {
     pub write_buffer_size: Option<u64>,
     pub max_write_buffer_number: Option<i32>,
     pub min_write_buffer_number_to_merge: Option<i32>,
-    pub max_background_flushes: Option<i32>,
-    pub max_background_compactions: Option<i32>,
+    pub max_background_jobs: Option<i32>,
 }
 
 impl Default for RocksDbConfig {
@@ -131,8 +130,7 @@ impl Default for RocksDbConfig {
             write_buffer_size: None,
             max_write_buffer_number: None,
             min_write_buffer_number_to_merge: None,
-            max_background_flushes: None,
-            max_background_compactions: None,
+            max_background_jobs: None,
         }
     }
 }
