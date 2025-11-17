@@ -1,9 +1,4 @@
-use std::{
-    cell::RefCell,
-    collections::{BTreeMap, HashMap},
-    num::NonZeroUsize,
-    sync::Arc,
-};
+use std::{cell::RefCell, collections::BTreeMap, num::NonZeroUsize, sync::Arc};
 
 use rocksdb::{IteratorMode, WriteBatch};
 use store_traits::environment::{StoreCursor, StoreReadTxn, StoreWriteTxn};
@@ -210,7 +205,6 @@ pub struct RocksdbWriteTxn<'env> {
     batch: WriteBatch,
     buffers: RefCell<Vec<Vec<u8>>>,
     ops: Vec<WriteOp>,
-    count_trackers: RefCell<HashMap<usize, CountTracker>>,
 }
 
 impl<'env> RocksdbWriteTxn<'env> {
@@ -222,7 +216,6 @@ impl<'env> RocksdbWriteTxn<'env> {
             batch: WriteBatch::default(),
             buffers: RefCell::new(Vec::new()),
             ops: Vec::new(),
-            count_trackers: RefCell::new(HashMap::new()),
         }
     }
 
@@ -302,94 +295,6 @@ impl<'env> RocksdbWriteTxn<'env> {
         }
         map
     }
-
-    fn ensure_base_count(
-        &self,
-        tracker: &mut CountTracker,
-        database: StoreDatabase,
-    ) -> StoreResult<()> {
-        if tracker.base_count.is_some() {
-            return Ok(());
-        }
-        let count = self
-            .inner
-            .count_snapshot_entries(&self.snapshot, database)?;
-        tracker.base_count = Some(count);
-        Ok(())
-    }
-
-    fn ensure_key_state<'a>(
-        &'a self,
-        tracker: &'a mut CountTracker,
-        database: StoreDatabase,
-        key: &[u8],
-    ) -> StoreResult<&'a mut KeyCountState> {
-        if tracker.key_states.contains_key(key) {
-            return Ok(tracker
-                .key_states
-                .get_mut(key)
-                .expect("key state present by contains_key"));
-        }
-
-        let initial_present = if tracker.cleared {
-            false
-        } else {
-            self.snapshot_contains(database, key)?
-        };
-
-        tracker.key_states.insert(
-            key.to_vec(),
-            KeyCountState {
-                current_present: initial_present,
-            },
-        );
-        Ok(tracker
-            .key_states
-            .get_mut(key)
-            .expect("key state inserted above"))
-    }
-
-    fn snapshot_contains(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<bool> {
-        let handle = self.inner.cf_handle(database)?;
-        let result = self
-            .snapshot
-            .get_cf(&handle, key)
-            .map_err(store_error_from_rocksdb)?;
-        Ok(result.is_some())
-    }
-
-    fn update_key_presence(
-        &self,
-        database: StoreDatabase,
-        key: &[u8],
-        present: bool,
-    ) -> StoreResult<()> {
-        let mut trackers = self.count_trackers.borrow_mut();
-        let tracker = trackers.entry(database_key(database)).or_default();
-        let delta_change = {
-            let state = self.ensure_key_state(tracker, database, key)?;
-            if state.current_present == present {
-                0
-            } else {
-                let change = bool_to_i64(present) - bool_to_i64(state.current_present);
-                state.current_present = present;
-                change
-            }
-        };
-        if delta_change != 0 {
-            tracker.delta += delta_change;
-        }
-        Ok(())
-    }
-
-    fn handle_clear_tracker(&self, database: StoreDatabase) {
-        let mut trackers = self.count_trackers.borrow_mut();
-        let tracker = trackers.entry(database_key(database)).or_default();
-        tracker.base_count = Some(0);
-        tracker.delta = 0;
-        tracker.key_states.clear();
-        tracker.cleared = true;
-    }
 }
 
 impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
@@ -419,13 +324,8 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
     }
 
     fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
-        let mut trackers = self.count_trackers.borrow_mut();
-        let tracker = trackers.entry(database_key(database)).or_default();
-        self.ensure_base_count(tracker, database)?;
-        let base = tracker.base_count.expect("base count ensured");
-        let total = (base as i128) + tracker.delta as i128;
-        debug_assert!(total >= 0, "store count went negative");
-        Ok(total as u64)
+        let map = self.inner.snapshot_entries_map(&self.snapshot, database)?;
+        Ok(self.apply_ops_to_map(database, map).len() as u64)
     }
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
@@ -468,7 +368,6 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
     ) -> StoreResult<()> {
         let handle = self.inner.cf_handle(database)?;
         self.batch.put_cf(&handle, key, value);
-        self.update_key_presence(database, key, true)?;
         self.ops.push(WriteOp::Put {
             database,
             key: key.to_vec(),
@@ -485,7 +384,6 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
     ) -> StoreResult<()> {
         let handle = self.inner.cf_handle(database)?;
         self.batch.delete_cf(&handle, key);
-        self.update_key_presence(database, key, false)?;
         self.ops.push(WriteOp::Delete {
             database,
             key: key.to_vec(),
@@ -500,7 +398,6 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
             let (key, _) = item.map_err(store_error_from_rocksdb)?;
             self.batch.delete_cf(&handle, &key);
         }
-        self.handle_clear_tracker(database);
         self.ops.push(WriteOp::Clear { database });
         Ok(())
     }
@@ -623,36 +520,6 @@ unsafe fn drop_rocksdb_rw_cursor(handle: NonZeroUsize) {
     unsafe {
         drop(Box::from_raw(ptr));
     }
-}
-
-fn database_key(database: StoreDatabase) -> usize {
-    database.into_raw().get()
-}
-
-fn bool_to_i64(value: bool) -> i64 {
-    if value { 1 } else { 0 }
-}
-
-struct CountTracker {
-    base_count: Option<u64>,
-    delta: i64,
-    key_states: HashMap<Vec<u8>, KeyCountState>,
-    cleared: bool,
-}
-
-impl Default for CountTracker {
-    fn default() -> Self {
-        Self {
-            base_count: None,
-            delta: 0,
-            key_states: HashMap::new(),
-            cleared: false,
-        }
-    }
-}
-
-struct KeyCountState {
-    current_present: bool,
 }
 
 pub(crate) fn rocksdb_ro_cursor_from_store<'txn>(

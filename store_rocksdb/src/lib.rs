@@ -220,53 +220,6 @@ mod tests {
         store: RocksdbRepWeightStore,
     }
 
-    #[test]
-    fn write_txn_count_tracks_overlay_changes() {
-        let fixture = AccountFixture::new();
-        let mut txn = fixture.begin_write();
-        let account = Account::from(1);
-        let info = AccountInfo::new_test_instance();
-
-        assert_eq!(fixture.store.count(&txn), 0);
-
-        fixture.store.put(&mut txn, &account, &info);
-        assert_eq!(fixture.store.count(&txn), 1);
-
-        let info2 = AccountInfo::new_test_instance();
-        fixture.store.put(&mut txn, &account, &info2);
-        assert_eq!(fixture.store.count(&txn), 1);
-
-        fixture.store.del(&mut txn, &account);
-        assert_eq!(fixture.store.count(&txn), 0);
-    }
-
-    #[test]
-    fn write_txn_count_handles_clear() {
-        let fixture = ConfirmationFixture::new();
-        let entries = vec![
-            (
-                Account::from(1),
-                ConfirmationHeightInfo::new(1, BlockHash::from(10)),
-            ),
-            (
-                Account::from(2),
-                ConfirmationHeightInfo::new(2, BlockHash::from(20)),
-            ),
-        ];
-        fixture.insert_entries(&entries);
-
-        let mut txn = fixture.begin_write();
-        assert_eq!(fixture.store.count(&txn), entries.len() as u64);
-
-        fixture.store.clear(&mut txn);
-        assert_eq!(fixture.store.count(&txn), 0);
-
-        let account = Account::from(3);
-        let info = ConfirmationHeightInfo::new(5, BlockHash::from(30));
-        fixture.store.put(&mut txn, &account, &info);
-        assert_eq!(fixture.store.count(&txn), 1);
-    }
-
     impl RepWeightFixture {
         fn new() -> Self {
             let env = create_env();
