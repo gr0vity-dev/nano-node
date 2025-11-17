@@ -12,7 +12,7 @@ use rsnano_ledger::{CementingObserver, Ledger};
 use rsnano_types::{BlockHash, SavedBlock};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
-    stats::{DetailType, StatType, Stats},
+    stats::{DetailType, Sample, StatType, Stats},
     sync::backpressure_channel::Sender,
     thread_pool::ThreadPool,
 };
@@ -165,6 +165,7 @@ impl ConfirmingSet {
                     should_notify = true;
                 }
             }
+            self.thread.record_queue_samples(&guard);
         }
 
         if should_notify {
@@ -244,6 +245,7 @@ impl ConfirmingSetThread {
                 guard.near_full = true;
                 near_full_warning = true;
             }
+            self.record_queue_samples(&guard);
         };
 
         if added {
@@ -275,6 +277,7 @@ impl ConfirmingSetThread {
         while !self.stopped.load(Ordering::SeqCst) {
             self.stats.inc(StatType::ConfirmingSet, DetailType::Loop);
             let evicted = guard.cleanup();
+            self.record_queue_samples(&guard);
 
             // Notify about evicted blocks so that other components can perform necessary cleanup
             if !evicted.is_empty() {
@@ -289,6 +292,7 @@ impl ConfirmingSetThread {
 
             if !guard.set.is_empty() {
                 let batch = guard.next_batch(self.config.batch_size);
+                self.record_queue_samples(&guard);
 
                 // Keep track of the blocks we're currently cementing, so that the .contains (...) check is accurate
                 debug_assert!(guard.current.is_empty());
@@ -317,6 +321,19 @@ impl ConfirmingSetThread {
                     .unwrap();
             }
         }
+    }
+
+    fn record_queue_samples(&self, guard: &ConfirmingSetImpl) {
+        self.stats.sample(
+            Sample::ConfirmingSetQueueLen,
+            guard.set.len() as i64,
+            (0, self.config.max_blocks as i64),
+        );
+        self.stats.sample(
+            Sample::ConfirmingSetDeferredLen,
+            guard.deferred.len() as i64,
+            (0, self.config.max_deferred as i64),
+        );
     }
 
     fn run_batch(&self, batch: VecDeque<CementingEntry>) {
@@ -421,15 +438,12 @@ impl<'a> CementingObserver for CementedNotifier<'a> {
     }
 
     fn cementing_failed(&mut self, hash: &BlockHash) {
-        self.confirming_set
-            .mutex
-            .lock()
-            .unwrap()
-            .deferred
-            .push_back(CementingEntry {
-                confirmation_root: *hash,
-                timestamp: Instant::now(),
-            });
+        let mut guard = self.confirming_set.mutex.lock().unwrap();
+        guard.deferred.push_back(CementingEntry {
+            confirmation_root: *hash,
+            timestamp: Instant::now(),
+        });
+        self.confirming_set.record_queue_samples(&guard);
     }
 
     fn batch_confirmed(&mut self, batch: Vec<(SavedBlock, BlockHash)>) {

@@ -435,6 +435,8 @@ pub enum Sample {
     RepResponseTime,
     VoteGeneratorFinalHashes,
     VoteGeneratorHashes,
+    ConfirmingSetQueueLen,
+    ConfirmingSetDeferredLen,
 }
 
 impl Sample {
