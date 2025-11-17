@@ -11,6 +11,7 @@ use rocksdb::{
     BoundColumnFamily, ColumnFamilyDescriptor, DBWithThreadMode, Error as RocksError, IteratorMode,
     MultiThreaded, Options, SnapshotWithThreadMode,
 };
+use rsnano_utils::stats::DetailType;
 use store_traits::config::RocksDbConfig;
 use store_traits::environment::{
     StoreEnvironment, StoreEnvironmentFactory, StoreEnvironmentOptions,
@@ -232,6 +233,16 @@ impl RocksDbInner {
             .ok_or_else(|| StoreError::backend(format!("missing column family {name}")))
     }
 
+    pub(crate) fn stat_detail(&self, database: StoreDatabase) -> DetailType {
+        let name = {
+            let registry = self.registry.read();
+            registry
+                .name_for_handle(database)
+                .unwrap_or_else(|| "unknown".to_string())
+        };
+        detail_for_cf_name(&name)
+    }
+
     pub(crate) fn count_snapshot_entries(
         &self,
         snapshot: &RocksDbSnapshot<'_>,
@@ -322,6 +333,24 @@ impl CfRegistry {
         let name = self.names_by_id.remove(&id)?;
         self.ids_by_name.remove(&name);
         Some(name)
+    }
+}
+
+fn detail_for_cf_name(name: &str) -> DetailType {
+    match name {
+        BLOCK_INDEX_CF_NAME => DetailType::RocksDbBlockIndex,
+        BLOCK_DATA_CF_NAME => DetailType::RocksDbBlockData,
+        ACCOUNTS_CF_NAME => DetailType::RocksDbAccounts,
+        PENDING_CF_NAME => DetailType::RocksDbPending,
+        CONF_HEIGHT_CF_NAME => DetailType::RocksDbConfirmationHeight,
+        REP_WEIGHT_CF_NAME => DetailType::RocksDbRepWeights,
+        SUCCESSOR_CF_NAME => DetailType::RocksDbSuccessors,
+        ONLINE_WEIGHT_CF_NAME => DetailType::RocksDbOnlineWeight,
+        PRUNED_CF_NAME => DetailType::RocksDbPruned,
+        FINAL_VOTE_CF_NAME => DetailType::RocksDbFinalVotes,
+        PEERS_CF_NAME => DetailType::RocksDbPeers,
+        VERSION_CF_NAME => DetailType::RocksDbVersion,
+        _ => DetailType::RocksDbOther,
     }
 }
 

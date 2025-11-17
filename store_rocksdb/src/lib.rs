@@ -13,6 +13,7 @@ pub mod version_store;
 mod environment;
 mod ledger_impl;
 mod ledger_store_factory;
+mod stats;
 mod transaction;
 mod utils;
 
@@ -28,6 +29,7 @@ pub use peer_store::RocksdbPeerStore;
 pub use pending_store::RocksdbPendingStore;
 pub use pruned_store::RocksdbPrunedStore;
 pub use rep_weight_store::RocksdbRepWeightStore;
+pub use stats::register_rocksdb_stats;
 pub use successor_store::RocksdbSuccessorStore;
 pub use transaction::{RocksdbLedgerReadTxn, RocksdbLedgerWriteTxn};
 pub use version_store::RocksdbVersionStore;
@@ -37,6 +39,7 @@ pub(crate) use environment::{
     FINAL_VOTE_CF_NAME, ONLINE_WEIGHT_CF_NAME, PEERS_CF_NAME, PENDING_CF_NAME, PRUNED_CF_NAME,
     REP_WEIGHT_CF_NAME, SUCCESSOR_CF_NAME, VERSION_CF_NAME,
 };
+pub(crate) use stats::get_stats_handle;
 pub(crate) use transaction::{RocksdbCursor, rocksdb_ro_cursor_from_store};
 pub(crate) use utils::value_in_range;
 
@@ -51,6 +54,7 @@ mod tests {
         Account, AccountInfo, Amount, Block, BlockHash, ConfirmationHeightInfo, PendingInfo,
         PendingKey, PrivateKey, PublicKey, QualifiedRoot, SavedBlock,
     };
+    use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
     use std::{
         fs,
         net::{Ipv6Addr, SocketAddrV6},
@@ -526,6 +530,47 @@ mod tests {
                 (b"c".to_vec(), b"overlay_c".to_vec()),
                 (b"d".to_vec(), b"base_d".to_vec()),
             ]
+        );
+    }
+
+    #[test]
+    fn streaming_iterator_emits_stats() {
+        let env = create_env();
+        let database = env.open_db(Some(ACCOUNTS_CF_NAME)).unwrap();
+        let stats = Arc::new(Stats::default());
+        register_rocksdb_stats(stats.clone());
+
+        {
+            let mut init = env.begin_write();
+            init.put(database, b"a", b"1", StoreWriteFlags::empty())
+                .unwrap();
+            init.commit().expect("rocksdb test commit failed");
+        }
+
+        let mut txn = env.begin_write();
+        txn.put(database, b"b", b"2", StoreWriteFlags::empty())
+            .unwrap();
+
+        let mut cursor = txn.open_rw_cursor(database).unwrap();
+        assert!(cursor.next().unwrap().is_some());
+        assert!(cursor.next().unwrap().is_some());
+        assert!(cursor.next().unwrap().is_none());
+
+        assert_eq!(
+            stats.count(
+                StatType::LedgerIterator,
+                DetailType::RocksDbAccounts,
+                Direction::In
+            ),
+            1
+        );
+        assert_eq!(
+            stats.count(
+                StatType::LedgerIterator,
+                DetailType::RocksDbAccounts,
+                Direction::Out
+            ),
+            2
         );
     }
 

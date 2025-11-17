@@ -7,6 +7,7 @@ use std::{
 };
 
 use rocksdb::{DBIteratorWithThreadMode, IteratorMode, WriteBatch};
+use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 use store_traits::environment::{StoreCursor, StoreReadTxn, StoreWriteTxn};
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 use store_traits::types::{
@@ -16,6 +17,7 @@ use store_traits::types::{
 use crate::environment::{
     RocksDb, RocksDbInner, RocksDbSnapshot, RocksdbStoreEnvironment, store_error_from_rocksdb,
 };
+use crate::get_stats_handle;
 
 pub struct RocksdbLedgerReadTxn {
     inner: RocksdbReadTxn<'static>,
@@ -322,7 +324,14 @@ impl<'env> RocksdbWriteTxn<'env> {
             let handle = self.inner.cf_handle(database)?;
             Some(self.snapshot.iterator_cf(&handle, IteratorMode::Start))
         };
-        Ok(RocksdbMergeIterator::new(snapshot_iter, entries))
+        let stats = get_stats_handle();
+        let detail = self.inner.stat_detail(database);
+        Ok(RocksdbMergeIterator::new(
+            snapshot_iter,
+            entries,
+            stats,
+            detail,
+        ))
     }
 }
 
@@ -529,18 +538,26 @@ struct RocksdbMergeIterator<'txn> {
     snapshot_iter: Option<DBIteratorWithThreadMode<'txn, RocksDb>>,
     snapshot_peeked: Option<(Vec<u8>, Vec<u8>)>,
     overlay_entries: VecDeque<OverlayEntry>,
+    stats: Option<Arc<Stats>>,
+    stat_detail: DetailType,
 }
 
 impl<'txn> RocksdbMergeIterator<'txn> {
     fn new(
         snapshot_iter: Option<DBIteratorWithThreadMode<'txn, RocksDb>>,
         overlay_entries: VecDeque<OverlayEntry>,
+        stats: Option<Arc<Stats>>,
+        stat_detail: DetailType,
     ) -> Self {
-        Self {
+        let iter = Self {
             snapshot_iter,
             snapshot_peeked: None,
             overlay_entries,
-        }
+            stats,
+            stat_detail,
+        };
+        iter.record_open();
+        iter
     }
 
     fn next_entry(&mut self) -> StoreResult<Option<(Vec<u8>, Vec<u8>)>> {
@@ -557,17 +574,20 @@ impl<'txn> RocksdbMergeIterator<'txn> {
                 (Some(_), None) => {
                     let entry = self.overlay_entries.pop_front().expect("entry present");
                     if let OverlayValue::Put(value) = entry.value {
+                        self.record_step();
                         return Ok(Some((entry.key, value)));
                     }
                 }
                 (None, Some(_)) => {
                     let entry = self.snapshot_peeked.take().expect("snapshot entry present");
+                    self.record_step();
                     return Ok(Some(entry));
                 }
                 (Some(overlay_key), Some(snapshot_key)) => match overlay_key.cmp(snapshot_key) {
                     Ordering::Less => {
                         let entry = self.overlay_entries.pop_front().expect("entry present");
                         if let OverlayValue::Put(value) = entry.value {
+                            self.record_step();
                             return Ok(Some((entry.key, value)));
                         }
                     }
@@ -575,11 +595,13 @@ impl<'txn> RocksdbMergeIterator<'txn> {
                         let entry = self.overlay_entries.pop_front().expect("entry present");
                         self.snapshot_peeked.take();
                         if let OverlayValue::Put(value) = entry.value {
+                            self.record_step();
                             return Ok(Some((entry.key, value)));
                         }
                     }
                     Ordering::Greater => {
                         let entry = self.snapshot_peeked.take().expect("snapshot entry present");
+                        self.record_step();
                         return Ok(Some(entry));
                     }
                 },
@@ -601,6 +623,23 @@ impl<'txn> RocksdbMergeIterator<'txn> {
             }
         }
         Ok(())
+    }
+
+    fn record_open(&self) {
+        if let Some(stats) = &self.stats {
+            stats.add_dir(StatType::LedgerIterator, self.stat_detail, Direction::In, 1);
+        }
+    }
+
+    fn record_step(&self) {
+        if let Some(stats) = &self.stats {
+            stats.add_dir(
+                StatType::LedgerIterator,
+                self.stat_detail,
+                Direction::Out,
+                1,
+            );
+        }
     }
 }
 

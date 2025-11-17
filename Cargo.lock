@@ -5218,6 +5218,7 @@ dependencies = [
  "rsnano_ledger",
  "rsnano_output_tracker",
  "rsnano_types",
+ "rsnano_utils",
  "rust-rocksdb",
  "store_traits",
  "tempfile",

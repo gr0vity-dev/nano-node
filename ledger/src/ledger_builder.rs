@@ -8,7 +8,7 @@ use rsnano_store_lmdb::LmdbLedgerStoreFactory;
 use rsnano_types::Amount;
 use rsnano_utils::get_cpu_count;
 use rsnano_utils::stats::Stats;
-use store_rocksdb::RocksdbLedgerStoreFactory;
+use store_rocksdb::{RocksdbLedgerStoreFactory, register_rocksdb_stats};
 use store_traits::{
     config::{LedgerBackend, LedgerStoreConfig},
     ledger::{LedgerCache, LedgerStore, LedgerStoreFactory},
@@ -92,6 +92,9 @@ impl<'a> LedgerBuilder<'a> {
         let store_config = self.store_config.unwrap_or_default();
 
         let stats = self.stats.unwrap_or_else(|| Arc::new(Stats::default()));
+        if matches!(store_config.backend, LedgerBackend::RocksDb(_)) {
+            register_rocksdb_stats(stats.clone());
+        }
         let ledger_constants = self
             .ledger_constants
             .unwrap_or_else(|| LedgerConstants::live());
