@@ -9,7 +9,7 @@ use std::{
     num::NonZeroUsize,
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicU64, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -34,7 +34,7 @@ use store_traits::environment::{
 use store_traits::ledger::{
     AccountStore, BlockStore, ConfirmationHeightStore, FinalVoteStore, LedgerCache, LedgerStore,
     LedgerStoreFactory, MemoryStats, OnlineWeightStore, PeerStore, PendingStore, RangeBounds,
-    RepWeightStore, StoreIterator, SuccessorStore, VersionStore,
+    RepWeightStore, StoreIterator, StoreVendor, SuccessorStore, VersionStore,
 };
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 use store_traits::types::{
@@ -1668,6 +1668,10 @@ impl LedgerStore for RocksdbLedgerStore {
         let mut iter = self.confirmation_height.iter(&txn);
         action(&mut iter);
     }
+
+    fn vendor(&self) -> StoreVendor {
+        rocksdb_vendor()
+    }
 }
 
 fn find_next_block_id(env: &Arc<RocksdbStoreEnvironment>, data_cf: StoreDatabase) -> Result<u64> {
@@ -2368,6 +2372,16 @@ unsafe fn drop_rocksdb_rw_cursor(handle: NonZeroUsize) {
     unsafe {
         drop(Box::from_raw(ptr));
     }
+}
+
+fn rocksdb_vendor() -> StoreVendor {
+    static VENDOR: OnceLock<StoreVendor> = OnceLock::new();
+    VENDOR
+        .get_or_init(|| {
+            let version = option_env!("RSN_ROCKSDB_LIB_VERSION").unwrap_or("unknown");
+            StoreVendor::new("rocksdb", version)
+        })
+        .clone()
 }
 
 fn collect_entries(

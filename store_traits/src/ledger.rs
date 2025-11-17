@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     net::SocketAddrV6,
     ops::{Bound, RangeBounds as StdRangeBounds},
     sync::{
@@ -137,6 +138,8 @@ pub trait LedgerStore: Send + Sync {
              dyn Fn(&mut dyn Iterator<Item = (Account, ConfirmationHeightInfo)>) + Send + Sync
          ),
     );
+
+    fn vendor(&self) -> StoreVendor;
 }
 
 pub trait BlockStore: Send + Sync {
@@ -284,4 +287,29 @@ pub trait LedgerStoreFactory: Send + Sync {
     ) -> anyhow::Result<Arc<dyn LedgerStore>>;
 
     fn create_null_store(&self, cache: Arc<LedgerCache>) -> anyhow::Result<Arc<dyn LedgerStore>>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StoreVendor {
+    pub name: &'static str,
+    pub version: String,
+}
+
+impl StoreVendor {
+    pub fn new(name: &'static str, version: impl Into<String>) -> Self {
+        Self {
+            name,
+            version: version.into(),
+        }
+    }
+}
+
+impl fmt::Display for StoreVendor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.version.is_empty() {
+            write!(f, "{}", self.name)
+        } else {
+            write!(f, "{} {}", self.name, self.version)
+        }
+    }
 }

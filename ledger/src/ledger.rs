@@ -964,8 +964,7 @@ impl Ledger {
     }
 
     pub fn store_vendor(&self) -> String {
-        // hard coded version! TODO: read version from Cargo
-        format!("lmdb-rkv {}.{}.{}", 0, 14, 0)
+        self.store.vendor().to_string()
     }
 
     pub fn memory_stats(&self) -> anyhow::Result<MemoryStats> {

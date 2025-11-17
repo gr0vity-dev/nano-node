@@ -1,4 +1,8 @@
-use std::{net::SocketAddrV6, sync::Arc, time::SystemTime};
+use std::{
+    net::SocketAddrV6,
+    sync::{Arc, OnceLock},
+    time::SystemTime,
+};
 
 use anyhow::anyhow;
 use rsnano_output_tracker::OutputTrackerMt;
@@ -11,7 +15,7 @@ use store_traits::ledger::SnapshotNumber;
 use store_traits::ledger::{
     AccountStore, BlockStore, ConfirmationHeightStore, FinalVoteStore, LedgerStore,
     OnlineWeightStore, PeerStore, PendingStore, RangeBounds, RepWeightStore, StoreIterator,
-    SuccessorStore, VersionStore,
+    StoreVendor, SuccessorStore, VersionStore,
 };
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
@@ -110,6 +114,25 @@ impl LedgerStore for LmdbStore {
         self.confirmation_height
             .for_each_par(&self.env, thread_count, |iter| action(iter));
     }
+
+    fn vendor(&self) -> StoreVendor {
+        lmdb_vendor()
+    }
+}
+
+fn lmdb_vendor() -> StoreVendor {
+    static VENDOR: OnceLock<StoreVendor> = OnceLock::new();
+    VENDOR
+        .get_or_init(|| {
+            let mut major = 0;
+            let mut minor = 0;
+            let mut patch = 0;
+            unsafe {
+                rsnano_nullable_lmdb::sys::mdb_version(&mut major, &mut minor, &mut patch);
+            }
+            StoreVendor::new("lmdb", format!("{major}.{minor}.{patch}"))
+        })
+        .clone()
 }
 
 impl BlockStore for LmdbBlockStore {

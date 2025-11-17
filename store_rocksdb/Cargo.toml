@@ -2,6 +2,7 @@
 name = "store_rocksdb"
 version = "0.1.0"
 edition = "2024"
+build = "build.rs"
 
 [dependencies]
 rocksdb = { version = "0.22", features = ["multi-threaded-cf"] }
