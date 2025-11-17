@@ -1960,14 +1960,19 @@ impl RocksDbInner {
         Ok(count)
     }
 
-    fn collect_snapshot_entries(
+    fn snapshot_entries_map(
         &self,
         snapshot: &RocksDbSnapshot<'_>,
         database: StoreDatabase,
-    ) -> StoreResult<Vec<(Box<[u8]>, Box<[u8]>)>> {
+    ) -> StoreResult<BTreeMap<Vec<u8>, Vec<u8>>> {
         let handle = self.cf_handle(database)?;
-        let iter = snapshot.iterator_cf(&handle, IteratorMode::Start);
-        collect_entries(iter)
+        let mut iter = snapshot.iterator_cf(&handle, IteratorMode::Start);
+        let mut map = BTreeMap::new();
+        while let Some(item) = iter.next() {
+            let (key, value) = item.map_err(store_error_from_rocksdb)?;
+            map.insert(key.into(), value.into());
+        }
+        Ok(map)
     }
 
     fn delete_cf(&self, database: StoreDatabase) -> StoreResult<()> {
@@ -2238,14 +2243,10 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
     }
 
     fn count(&self, database: StoreDatabase) -> u64 {
-        let entries = self
+        let map = self
             .inner
-            .collect_snapshot_entries(&self.snapshot, database)
+            .snapshot_entries_map(&self.snapshot, database)
             .unwrap_or_else(|e| panic!("failed to count RocksDB records: {e}"));
-        let map: BTreeMap<Vec<u8>, Vec<u8>> = entries
-            .into_iter()
-            .map(|(k, v)| (k.into(), v.into()))
-            .collect();
         self.apply_ops_to_map(database, map).len() as u64
     }
 
@@ -2253,13 +2254,7 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
     where
         'env: 'txn,
     {
-        let base_entries = self
-            .inner
-            .collect_snapshot_entries(&self.snapshot, database)?;
-        let mut map: BTreeMap<Vec<u8>, Vec<u8>> = base_entries
-            .into_iter()
-            .map(|(k, v)| (k.into(), v.into()))
-            .collect();
+        let mut map = self.inner.snapshot_entries_map(&self.snapshot, database)?;
         map = self.apply_ops_to_map(database, map);
         let entries = map
             .into_iter()
@@ -2462,17 +2457,6 @@ fn rocksdb_vendor() -> StoreVendor {
             StoreVendor::new("rocksdb", version)
         })
         .clone()
-}
-
-fn collect_entries(
-    iter: DBIteratorWithThreadMode<'_, RocksDb>,
-) -> StoreResult<Vec<(Box<[u8]>, Box<[u8]>)>> {
-    let mut entries = Vec::new();
-    for item in iter {
-        let (key, value) = item.map_err(store_error_from_rocksdb)?;
-        entries.push((key, value));
-    }
-    Ok(entries)
 }
 
 fn store_error_from_rocksdb(err: RocksError) -> StoreError {
