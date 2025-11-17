@@ -26,8 +26,9 @@ impl LmdbLedgerReadTxn {
         &self.inner
     }
 
-    pub fn commit(self) {
+    pub fn commit(self) -> StoreResult<()> {
         self.inner.commit();
+        Ok(())
     }
 }
 
@@ -47,8 +48,11 @@ impl LedgerReadTxn for LmdbLedgerReadTxn {
             .map_err(store_error_from_lmdb)
     }
 
-    fn count(&self, database: StoreDatabase) -> u64 {
-        LmdbTxn::count(&self.inner, lmdb_database_from_store(database))
+    fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
+        Ok(LmdbTxn::count(
+            &self.inner,
+            lmdb_database_from_store(database),
+        ))
     }
 }
 
@@ -73,8 +77,9 @@ impl LmdbLedgerWriteTxn {
         &mut self.inner
     }
 
-    pub fn commit(self) {
+    pub fn commit(self) -> StoreResult<()> {
         self.inner.commit();
+        Ok(())
     }
 }
 
@@ -94,8 +99,11 @@ impl LedgerReadTxn for LmdbLedgerWriteTxn {
             .map_err(store_error_from_lmdb)
     }
 
-    fn count(&self, database: StoreDatabase) -> u64 {
-        LmdbTxn::count(&self.inner, lmdb_database_from_store(database))
+    fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
+        Ok(LmdbTxn::count(
+            &self.inner,
+            lmdb_database_from_store(database),
+        ))
     }
 }
 
@@ -146,8 +154,9 @@ impl LedgerWriteTxn for LmdbLedgerWriteTxn {
             .map_err(store_error_from_lmdb)
     }
 
-    fn commit(self: Box<Self>) {
+    fn commit(self: Box<Self>) -> StoreResult<()> {
         self.inner.commit();
+        Ok(())
     }
 }
 
@@ -163,12 +172,16 @@ impl WalletReadTxn for LmdbLedgerReadTxn {
             .map_err(store_error_from_lmdb)
     }
 
-    fn count(&self, database: StoreDatabase) -> u64 {
-        LmdbTxn::count(&self.inner, lmdb_database_from_store(database))
+    fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
+        Ok(LmdbTxn::count(
+            &self.inner,
+            lmdb_database_from_store(database),
+        ))
     }
 
-    fn commit(self: Box<Self>) {
+    fn commit(self: Box<Self>) -> StoreResult<()> {
         self.inner.commit();
+        Ok(())
     }
 }
 
@@ -184,12 +197,16 @@ impl WalletReadTxn for LmdbLedgerWriteTxn {
             .map_err(store_error_from_lmdb)
     }
 
-    fn count(&self, database: StoreDatabase) -> u64 {
-        LmdbTxn::count(&self.inner, lmdb_database_from_store(database))
+    fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
+        Ok(LmdbTxn::count(
+            &self.inner,
+            lmdb_database_from_store(database),
+        ))
     }
 
-    fn commit(self: Box<Self>) {
+    fn commit(self: Box<Self>) -> StoreResult<()> {
         self.inner.commit();
+        Ok(())
     }
 }
 

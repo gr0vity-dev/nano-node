@@ -132,7 +132,7 @@ impl LmdbBlockStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.index_db_handle())
+        txn.raw_count(self.index_db_handle())
     }
 
     pub fn iter<'tx>(

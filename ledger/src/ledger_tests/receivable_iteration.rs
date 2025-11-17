@@ -32,7 +32,7 @@ fn reveivable_upper_bound_for_given_account() {
     ledger.store.pending().put(txn.as_mut(), &key_1, &pending);
     ledger.store.pending().put(txn.as_mut(), &key_2, &pending);
     ledger.store.pending().put(txn.as_mut(), &key_3, &pending);
-    txn.commit();
+    txn.commit().expect("commit failed");
     let any = ledger.any();
 
     // exact match
@@ -63,7 +63,7 @@ fn reveivable_upper_bound() {
     ledger.store.pending().put(txn.as_mut(), &key_1, &pending);
     ledger.store.pending().put(txn.as_mut(), &key_2, &pending);
     ledger.store.pending().put(txn.as_mut(), &key_3, &pending);
-    txn.commit();
+    txn.commit().expect("commit failed");
     let any = ledger.any();
 
     // same account
@@ -90,7 +90,7 @@ fn reveivable_any() {
     let key = PendingKey::new(100.into(), 200.into());
     let pending = PendingInfo::new_test_instance();
     ledger.store.pending().put(txn.as_mut(), &key, &pending);
-    txn.commit();
+    txn.commit().expect("commit failed");
 
     let any = ledger.any();
     assert_eq!(any.receivable_exists(100.into()), true);

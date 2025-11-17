@@ -292,7 +292,8 @@ mod tests {
 
         let mut block_inserter = BlockInserter::new(&ledger, txn.as_mut(), block, &instructions);
         block_inserter.insert().unwrap();
-        txn.commit();
+        txn.commit()
+            .unwrap_or_else(|e| panic!("failed to commit block insertion: {e}"));
 
         InsertResult {
             saved_blocks: saved_blocks.output(),

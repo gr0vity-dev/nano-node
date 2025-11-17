@@ -65,7 +65,7 @@ impl LmdbSuccessorStore {
     }
 
     pub fn count(&self, tx: &dyn LedgerReadTxn) -> u64 {
-        tx.count(self.store_database())
+        tx.raw_count(self.store_database())
     }
 }
 

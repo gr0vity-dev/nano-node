@@ -93,7 +93,8 @@ impl<'a> BlockCementer<'a> {
             // Ensure that the block wasn't rolled back during the refresh
 
             if txn.is_refresh_needed() {
-                txn.commit();
+                txn.commit()
+                    .unwrap_or_else(|e| panic!("failed to refresh cementing txn: {e}"));
                 txn = self.store.begin_write();
                 if !self.store.block().exists(txn.as_ref(), &target_hash) {
                     break; // Block was rolled back during cementing

@@ -23,14 +23,16 @@ impl<'a> VoteVerifier<'a> {
             let mut txn = self.store.begin_write();
             for (root, hash) in &candidates {
                 if txn.is_refresh_needed() {
-                    txn.commit();
+                    txn.commit()
+                        .unwrap_or_else(|e| panic!("failed to refresh vote verifier txn: {e}"));
                     txn = self.store.begin_write();
                 }
                 if self.should_vote_final(txn.as_mut(), root, hash) {
                     verified.push_back((*root, *hash));
                 }
             }
-            txn.commit();
+            txn.commit()
+                .unwrap_or_else(|e| panic!("failed to commit vote verifier txn: {e}"));
         } else {
             let mut any = OwningAnySet::new(self.store, self.constants);
             for (root, hash) in &candidates {

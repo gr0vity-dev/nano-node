@@ -76,7 +76,8 @@ impl ConfirmationHeightArgs {
                 "Confirmation heights of all accounts (except genesis which is set to 1) are set to 0"
             );
         }
-        txn.commit();
+        txn.commit()
+            .map_err(|e| anyhow::anyhow!(format!("commit failed: {e}")))?;
 
         Ok(())
     }

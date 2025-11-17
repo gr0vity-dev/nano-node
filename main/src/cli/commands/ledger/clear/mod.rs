@@ -54,7 +54,8 @@ impl ClearCommand {
         let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
 
         online_weight_store.clear(&mut txn);
-        txn.commit();
+        txn.commit()
+            .map_err(|e| anyhow::anyhow!(format!("commit failed: {e}")))?;
 
         println!("Online weight records were cleared from the database");
         Ok(())
@@ -68,7 +69,8 @@ impl ClearCommand {
         let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
 
         peer_store.clear(&mut txn);
-        txn.commit();
+        txn.commit()
+            .map_err(|e| anyhow::anyhow!(format!("commit failed: {e}")))?;
 
         println!("Peers were cleared from the database");
         Ok(())

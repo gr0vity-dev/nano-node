@@ -14,7 +14,7 @@ pub trait LedgerReadTxn {
     }
 
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>>;
-    fn count(&self, database: StoreDatabase) -> u64;
+    fn count(&self, database: StoreDatabase) -> StoreResult<u64>;
 
     fn raw_get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
         self.get(database, key)
@@ -26,6 +26,7 @@ pub trait LedgerReadTxn {
 
     fn raw_count(&self, database: StoreDatabase) -> u64 {
         self.count(database)
+            .unwrap_or_else(|e| panic!("count failed: {:?}", e))
     }
 }
 
@@ -52,7 +53,7 @@ pub trait LedgerWriteTxn: LedgerReadTxn {
 
     unsafe fn drop_db(&mut self, database: StoreDatabase) -> StoreResult<()>;
 
-    fn commit(self: Box<Self>);
+    fn commit(self: Box<Self>) -> StoreResult<()>;
 
     fn raw_put(
         &mut self,
@@ -90,8 +91,8 @@ pub trait LedgerWriteTxn: LedgerReadTxn {
 pub trait WalletReadTxn {
     fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]>;
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>>;
-    fn count(&self, database: StoreDatabase) -> u64;
-    fn commit(self: Box<Self>);
+    fn count(&self, database: StoreDatabase) -> StoreResult<u64>;
+    fn commit(self: Box<Self>) -> StoreResult<()>;
 }
 
 /// Wallet write transaction built on top of the read surface.

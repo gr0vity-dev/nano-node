@@ -75,7 +75,7 @@ impl LmdbRepWeightStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.store_database())
+        txn.raw_count(self.store_database())
     }
 
     pub fn iter<'a>(&self, txn: &'a dyn LedgerReadTxn) -> RepWeightIterator<'a> {

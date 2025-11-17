@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::bail;
 
-use rsnano_nullable_lmdb::{DatabaseFlags, Error, LmdbEnvironment, Transaction, WriteFlags};
+use rsnano_nullable_lmdb::{DatabaseFlags, LmdbEnvironment, WriteFlags};
 use rsnano_types::{
     Account, KeyDerivationFunction, PublicKey, RawKey, WorkNonce, deterministic_key,
 };
@@ -22,7 +22,7 @@ use store_traits::{
 use crate::{
     Fan, LmdbDatabase, LmdbRangeIterator,
     store_utils::{lmdb_ro_cursor_from_store, store_database_from_lmdb, store_write_flags_from},
-    wallet_txn_shim::WalletWriteTxnSHIM,
+    transaction::LmdbLedgerWriteTxn,
 };
 
 pub struct Fans {
@@ -61,11 +61,14 @@ impl LmdbWalletStore {
             kdf,
         };
         store.initialize(env, wallet)?;
-        let handle = store.db_handle();
-        let mut txn = WalletWriteTxnSHIM::new(env.begin_write());
-        if let Err(Error::NotFound) =
-            Transaction::get(txn.as_ref(), handle, Self::version_special().as_bytes())
-        {
+        let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
+        let store_db = store.store_db();
+        let needs_init = match txn.get(store_db, Self::version_special().as_bytes()) {
+            Err(e) if e.is_not_found() => true,
+            Err(e) => panic!("unexpected wallet store error: {:?}", e),
+            Ok(_) => false,
+        };
+        if needs_init {
             store.version_put(&mut txn, Self::VERSION_CURRENT);
             let salt = RawKey::random();
             store.entry_put_raw(
@@ -114,7 +117,7 @@ impl LmdbWalletStore {
             let mut guard = store.fans.lock().unwrap();
             guard.wallet_key_mem.value_set(key);
         }
-        txn.commit();
+        txn.commit().map_err(|e| anyhow::anyhow!(e.to_string()))?;
         Ok(store)
     }
 
@@ -131,11 +134,10 @@ impl LmdbWalletStore {
             kdf,
         };
         store.initialize(env, wallet)?;
-        let handle = store.db_handle();
-        let mut txn = WalletWriteTxnSHIM::new(env.begin_write());
-        match Transaction::get(txn.as_ref(), handle, Self::version_special().as_bytes()) {
+        let mut txn = LmdbLedgerWriteTxn::new(env.begin_write());
+        match txn.get(store.store_db(), Self::version_special().as_bytes()) {
             Ok(_) => panic!("wallet store already initialized"),
-            Err(Error::NotFound) => {}
+            Err(e) if e.is_not_found() => {}
             Err(e) => panic!("unexpected wallet store error: {:?}", e),
         }
 
@@ -165,7 +167,7 @@ impl LmdbWalletStore {
         guard.password.value_set(RawKey::ZERO);
         let key = store.entry_get_raw(&txn, &Self::wallet_key_special()).key;
         guard.wallet_key_mem.value_set(key);
-        txn.commit();
+        txn.commit().map_err(|e| anyhow::anyhow!(e.to_string()))?;
         drop(guard);
         Ok(store)
     }
@@ -826,6 +828,7 @@ impl WalletStore for LmdbWalletStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transaction::LmdbLedgerWriteTxn;
     use rsnano_nullable_lmdb::{
         EnvironmentFlags, EnvironmentOptions, LmdbEnvironment, LmdbEnvironmentFactory,
     };
@@ -857,8 +860,8 @@ mod tests {
             Self { dir, env }
         }
 
-        fn begin_write_txn(&self) -> WalletWriteTxnSHIM {
-            WalletWriteTxnSHIM::new(self.env.begin_write())
+        fn begin_write_txn(&self) -> LmdbLedgerWriteTxn {
+            LmdbLedgerWriteTxn::new(self.env.begin_write())
         }
 
         fn wallet_path(&self, name: &str) -> PathBuf {
@@ -1071,7 +1074,7 @@ mod tests {
             let store = new_wallet(&fixture, &kdf, "0");
             let txn = fixture.begin_write_txn();
             assert!(store.valid_password(&txn));
-            txn.commit();
+            txn.commit().expect("wallet txn commit failed");
         }
         {
             let store = new_wallet(&fixture, &kdf, "0");
@@ -1083,7 +1086,7 @@ mod tests {
             let mut txn = fixture.begin_write_txn();
             store.rekey(&mut txn, "").unwrap();
             assert!(store.valid_password(&txn));
-            txn.commit();
+            txn.commit().expect("wallet txn commit failed");
         }
         {
             let store = new_wallet(&fixture, &kdf, "0");
@@ -1150,7 +1153,7 @@ mod tests {
             let mut txn = fixture.begin_write_txn();
             store1.insert_adhoc(&mut txn, &key.raw_key());
             let json = store1.serialize_json(&txn);
-            txn.commit();
+            txn.commit().expect("wallet txn commit failed");
             json
         };
 
@@ -1185,7 +1188,7 @@ mod tests {
             wallet1.rekey(&mut txn, "password").unwrap();
             wallet1.insert_adhoc(&mut txn, &key.raw_key());
             let json = wallet1.serialize_json(&txn);
-            txn.commit();
+            txn.commit().expect("wallet txn commit failed");
             json
         };
         let wallet2 = LmdbWalletStore::new_from_json(
@@ -1220,7 +1223,7 @@ mod tests {
         {
             let mut txn = fixture.begin_write_txn();
             wallet1.insert_adhoc(&mut txn, &key.raw_key());
-            txn.commit();
+            txn.commit().expect("wallet txn commit failed");
         }
         let wallet2 = new_wallet(&fixture, &kdf, "1");
         let mut txn = fixture.begin_write_txn();

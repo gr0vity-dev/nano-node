@@ -315,7 +315,8 @@ impl NullLedgerBuilder {
             store.forks().put(txn.as_mut(), root, *snapshot_number);
         }
 
-        txn.commit();
+        txn.commit()
+            .unwrap_or_else(|e| panic!("failed to commit ledger bootstrap txn: {e}"));
     }
 }
 
@@ -381,7 +382,8 @@ impl Ledger {
         } {
             let mut txn = self.store_ref().begin_write();
             self.add_genesis_block(txn.as_mut());
-            txn.commit();
+            txn.commit()
+                .unwrap_or_else(|e| panic!("failed to commit genesis block: {e}"));
         }
 
         if generate_cache.reps || generate_cache.account_count || generate_cache.block_count {
@@ -611,7 +613,8 @@ impl Ledger {
                     });
                 }
             }
-            txn.commit();
+            txn.commit()
+                .unwrap_or_else(|e| panic!("failed to commit rollback batch: {e}"));
         }
 
         results
@@ -682,7 +685,8 @@ impl Ledger {
                     }
                 }
             }
-            txn.commit();
+            txn.commit()
+                .unwrap_or_else(|e| panic!("failed to commit block batch: {e}"));
         }
 
         BatchProcessResult { processed }
@@ -698,7 +702,8 @@ impl Ledger {
             let mut txn = self.store_ref().begin_write();
             for block in blocks {
                 if txn.is_refresh_needed() {
-                    txn.commit();
+                    txn.commit()
+                        .unwrap_or_else(|e| panic!("failed to refresh rollback txn: {e}"));
                     if !rolled_back.is_empty() {
                         rolled_back_callback(rolled_back);
                         rolled_back = RollbackResults::new();
@@ -715,7 +720,8 @@ impl Ledger {
                     });
                 }
             }
-            txn.commit();
+            txn.commit()
+                .unwrap_or_else(|e| panic!("failed to commit competitor rollback txn: {e}"));
         }
         if !rolled_back.is_empty() {
             rolled_back_callback(rolled_back);
@@ -770,7 +776,8 @@ impl Ledger {
     pub fn confirm(&self, hash: BlockHash) -> Vec<SavedBlock> {
         let txn = self.store_ref().begin_write();
         let (txn, blocks) = self.confirm_max(txn, hash, 1024 * 128);
-        txn.commit();
+        txn.commit()
+            .unwrap_or_else(|e| panic!("failed to commit confirmation txn: {e}"));
         blocks
     }
 
@@ -807,19 +814,22 @@ impl Ledger {
                 let mut success = false;
                 loop {
                     if txn.is_refresh_needed() {
-                        txn.commit();
+                        txn.commit()
+                            .unwrap_or_else(|e| panic!("failed to refresh confirm batch txn: {e}"));
                         txn = self.store_ref().begin_write();
                     }
 
                     // Cementing deep dependency chains might take a long time, allow for graceful shutdown, ignore notifications
                     if stopped.load(Ordering::Relaxed) {
-                        txn.commit();
+                        txn.commit()
+                            .unwrap_or_else(|e| panic!("failed to stop confirm batch txn: {e}"));
                         return;
                     }
 
                     // Issue notifications here, so that `confirmed` set is not too large before we add more blocks
                     if blocks_confirmed >= max_blocks {
-                        txn.commit();
+                        txn.commit()
+                            .unwrap_or_else(|e| panic!("failed to flush confirm batch txn: {e}"));
                         blocks_confirmed = 0;
                         self.stats
                             .inc(StatType::ConfirmingSet, DetailType::NotifyIntermediate);
@@ -894,7 +904,8 @@ impl Ledger {
                     cementing_observer.cementing_failed(confirmation_root);
                 }
             }
-            txn.commit();
+            txn.commit()
+                .unwrap_or_else(|e| panic!("failed to finalize confirm batch txn: {e}"));
         }
 
         if !confirmed.is_empty() {
@@ -975,7 +986,8 @@ impl Ledger {
     pub fn mark_fork(&self, root: &QualifiedRoot, snapshot_number: SnapshotNumber) {
         let mut tx = self.store_ref().begin_write();
         self.store.forks().put(tx.as_mut(), root, snapshot_number);
-        tx.commit();
+        tx.commit()
+            .unwrap_or_else(|e| panic!("failed to commit fork marker: {e}"));
     }
 
     #[cfg(feature = "ledger_snapshots")]
@@ -1000,7 +1012,8 @@ impl Ledger {
         for (_, root) in forks_to_roll_back {
             self.store.forks().del(txn.as_mut(), &root);
         }
-        txn.commit();
+        txn.commit()
+            .unwrap_or_else(|e| panic!("failed to cleanup rolled back forks: {e}"));
     }
 
     #[cfg(feature = "ledger_snapshots")]

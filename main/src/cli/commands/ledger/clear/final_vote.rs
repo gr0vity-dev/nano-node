@@ -37,7 +37,8 @@ impl FinalVoteArgs {
             final_vote_store.clear(&mut txn);
             println!("All final votes were cleared from the database");
         }
-        txn.commit();
+        txn.commit()
+            .map_err(|e| anyhow::anyhow!(format!("commit failed: {e}")))?;
 
         Ok(())
     }

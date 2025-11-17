@@ -27,7 +27,6 @@ mod version_store;
 mod wallet_env;
 mod wallet_factory;
 mod wallet_store;
-mod wallet_txn_shim;
 
 use std::sync::Arc;
 
@@ -62,7 +61,6 @@ pub use version_store::LmdbVersionStore;
 pub use wallet_env::{LmdbWalletEnvironment, LmdbWalletEnvironmentFactory};
 pub use wallet_factory::LmdbWalletStoreFactory;
 pub use wallet_store::{Fans, LmdbWalletStore};
-pub use wallet_txn_shim::{WalletReadTxnSHIM, WalletWriteTxnSHIM};
 
 pub fn ledger_store_factory() -> Arc<LmdbLedgerStoreFactory> {
     Arc::new(LmdbLedgerStoreFactory::default())

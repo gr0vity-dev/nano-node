@@ -110,7 +110,7 @@ impl LedgerReadTxn for RocksdbLedgerReadTxn {
         Ok(store_ro_cursor_from_rocksdb(cursor))
     }
 
-    fn count(&self, database: StoreDatabase) -> u64 {
+    fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
         self.inner.count(database)
     }
 }
@@ -129,7 +129,7 @@ impl LedgerReadTxn for RocksdbLedgerWriteTxn {
         Ok(store_ro_cursor_from_rocksdb(cursor))
     }
 
-    fn count(&self, database: StoreDatabase) -> u64 {
+    fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
         self.inner.count(database)
     }
 }
@@ -167,8 +167,8 @@ impl LedgerWriteTxn for RocksdbLedgerWriteTxn {
         unsafe { self.inner.drop_db(database) }
     }
 
-    fn commit(self: Box<Self>) {
-        self.inner.commit();
+    fn commit(self: Box<Self>) -> StoreResult<()> {
+        self.inner.commit()
     }
 }
 
@@ -233,6 +233,7 @@ impl RocksdbBlockStore {
         let id_bytes = match txn.get(self.index_cf(), hash.as_bytes()) {
             Ok(bytes) => bytes,
             Err(e) if e.is_not_found() => return None,
+            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read block index: {e}"),
         };
         self.load_block_bytes(txn, id_bytes)
@@ -246,6 +247,7 @@ impl RocksdbBlockStore {
         let id = match txn.get(self.index_cf(), hash.as_bytes()) {
             Ok(bytes) => bytes,
             Err(e) if e.is_not_found() => return,
+            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to delete block: {e}"),
         };
         let id_vec = id.to_vec();
@@ -256,7 +258,7 @@ impl RocksdbBlockStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.index_cf())
+        txn.raw_count(self.index_cf())
     }
 
     pub fn iter<'txn>(&'txn self, txn: &'txn dyn LedgerReadTxn) -> StoreIterator<'txn, SavedBlock> {
@@ -291,6 +293,7 @@ impl RocksdbBlockStore {
                 Some(SavedBlock::deserialize(&mut reader).expect("failed to deserialize block"))
             }
             Err(e) if e.is_not_found() => None,
+            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read block data: {e}"),
         }
     }
@@ -372,6 +375,7 @@ impl<'txn> Iterator for RocksdbBlockIterator<'txn> {
                         .expect("failed to deserialize RocksDB block")
                 }
                 Err(e) if e.is_not_found() => continue,
+                // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
                 Err(e) => panic!("failed to load block data: {e}"),
             };
             return Some(block);
@@ -427,6 +431,7 @@ impl<'txn> Iterator for RocksdbBlockRangeIterator<'txn> {
                         .expect("failed to deserialize RocksDB block")
                 }
                 Err(e) if e.is_not_found() => continue,
+                // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
                 Err(e) => panic!("failed to load block data: {e}"),
             };
             return Some(block);
@@ -474,6 +479,7 @@ impl RocksdbAccountStore {
         match txn.get(self.database(), account.as_bytes()) {
             Ok(mut bytes) => AccountInfo::deserialize(&mut bytes).ok(),
             Err(e) if e.is_not_found() => None,
+            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read account info: {e}"),
         }
     }
@@ -507,7 +513,7 @@ impl RocksdbAccountStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.database())
+        txn.raw_count(self.database())
     }
 }
 
@@ -654,6 +660,7 @@ impl RocksdbPendingStore {
                     .expect("failed to deserialize RocksDB pending info"),
             ),
             Err(e) if e.is_not_found() => None,
+            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read pending info: {e}"),
         }
     }
@@ -816,6 +823,7 @@ impl RocksdbConfirmationHeightStore {
         match txn.get(self.database(), account.as_bytes()) {
             Ok(mut bytes) => ConfirmationHeightInfo::deserialize(&mut bytes).ok(),
             Err(e) if e.is_not_found() => None,
+            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read confirmation height: {e}"),
         }
     }
@@ -830,7 +838,7 @@ impl RocksdbConfirmationHeightStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.database())
+        txn.raw_count(self.database())
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
@@ -972,6 +980,7 @@ impl RocksdbRepWeightStore {
         match txn.get(self.database(), pub_key.as_bytes()) {
             Ok(mut bytes) => Amount::deserialize(&mut bytes).ok(),
             Err(e) if e.is_not_found() => None,
+            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read rep weight: {e}"),
         }
     }
@@ -998,7 +1007,7 @@ impl RocksdbRepWeightStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.database())
+        txn.raw_count(self.database())
     }
 
     pub fn iter<'txn>(
@@ -1135,7 +1144,7 @@ impl RocksdbOnlineWeightStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.database())
+        txn.raw_count(self.database())
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
@@ -1217,7 +1226,7 @@ impl RocksdbPrunedStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.database())
+        txn.raw_count(self.database())
     }
 }
 
@@ -1258,6 +1267,7 @@ impl RocksdbFinalVoteStore {
                     .expect("invalid block hash stored in final vote");
                 stored == *hash
             }
+            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read final vote: {e}"),
         }
     }
@@ -1268,6 +1278,7 @@ impl RocksdbFinalVoteStore {
                 Some(BlockHash::deserialize(&mut bytes).expect("failed to deserialize block hash"))
             }
             Err(e) if e.is_not_found() => None,
+            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read final vote: {e}"),
         }
     }
@@ -1279,7 +1290,7 @@ impl RocksdbFinalVoteStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.database())
+        txn.raw_count(self.database())
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
@@ -1332,12 +1343,13 @@ impl RocksdbSuccessorStore {
         match txn.get(self.database(), block.as_bytes()) {
             Ok(bytes) => BlockHash::from_slice(bytes),
             Err(e) if e.is_not_found() => None,
+            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read successor: {e}"),
         }
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.database())
+        txn.raw_count(self.database())
     }
 }
 
@@ -1405,7 +1417,7 @@ impl RocksdbPeerStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.database())
+        txn.raw_count(self.database())
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
@@ -1496,6 +1508,7 @@ impl RocksdbVersionStore {
         match txn.get(self.database(), &key) {
             Ok(value) => Some(decode_version(value)),
             Err(e) if e.is_not_found() => None,
+            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read version: {e}"),
         }
     }
@@ -2096,10 +2109,8 @@ impl<'env> StoreReadTxn<'env> for RocksdbReadTxn<'env> {
         }
     }
 
-    fn count(&self, database: StoreDatabase) -> u64 {
-        self.inner
-            .count_snapshot_entries(&self.snapshot, database)
-            .unwrap_or_else(|e| panic!("failed to count RocksDB records: {e}"))
+    fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
+        self.inner.count_snapshot_entries(&self.snapshot, database)
     }
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
@@ -2111,10 +2122,11 @@ impl<'env> StoreReadTxn<'env> for RocksdbReadTxn<'env> {
         Ok(RocksdbCursor::streaming(self.cursor_cache(), iter))
     }
 
-    fn commit(self)
+    fn commit(self) -> StoreResult<()>
     where
         Self: Sized,
     {
+        Ok(())
     }
 }
 
@@ -2242,12 +2254,9 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
         }
     }
 
-    fn count(&self, database: StoreDatabase) -> u64 {
-        let map = self
-            .inner
-            .snapshot_entries_map(&self.snapshot, database)
-            .unwrap_or_else(|e| panic!("failed to count RocksDB records: {e}"));
-        self.apply_ops_to_map(database, map).len() as u64
+    fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
+        let map = self.inner.snapshot_entries_map(&self.snapshot, database)?;
+        Ok(self.apply_ops_to_map(database, map).len() as u64)
     }
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
@@ -2263,13 +2272,14 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
         Ok(RocksdbCursor::from_entries(self.cursor_cache(), entries))
     }
 
-    fn commit(self)
+    fn commit(self) -> StoreResult<()>
     where
         Self: Sized,
     {
-        if let Err(err) = self.inner.db.write(self.batch) {
-            panic!("failed to commit RocksDB batch: {err}");
-        }
+        self.inner
+            .db
+            .write(self.batch)
+            .map_err(store_error_from_rocksdb)
     }
 }
 
@@ -2562,7 +2572,7 @@ mod tests {
             for (account, info) in entries {
                 self.store.put(&mut txn, account, info);
             }
-            Box::new(txn).commit();
+            Box::new(txn).commit().expect("rocksdb test commit failed");
         }
     }
 
@@ -2591,7 +2601,7 @@ mod tests {
             for (key, info) in entries {
                 self.store.put(&mut txn, key, info);
             }
-            Box::new(txn).commit();
+            Box::new(txn).commit().expect("rocksdb test commit failed");
         }
     }
 
@@ -2620,7 +2630,7 @@ mod tests {
             for (account, info) in entries {
                 self.store.put(&mut txn, account, info);
             }
-            Box::new(txn).commit();
+            Box::new(txn).commit().expect("rocksdb test commit failed");
         }
     }
 
@@ -2649,7 +2659,7 @@ mod tests {
             for (account, weight) in entries {
                 self.store.put(&mut txn, *account, *weight);
             }
-            Box::new(txn).commit();
+            Box::new(txn).commit().expect("rocksdb test commit failed");
         }
     }
 
@@ -2678,7 +2688,7 @@ mod tests {
             for (block, successor) in entries {
                 self.store.put(&mut txn, block, successor);
             }
-            Box::new(txn).commit();
+            Box::new(txn).commit().expect("rocksdb test commit failed");
         }
     }
 
@@ -2707,7 +2717,7 @@ mod tests {
             for (time, amount) in entries {
                 self.store.put(&mut txn, *time, amount);
             }
-            Box::new(txn).commit();
+            Box::new(txn).commit().expect("rocksdb test commit failed");
         }
     }
 
@@ -2804,7 +2814,7 @@ mod tests {
             let mut txn = env.begin_write();
             txn.put(database, b"key", b"value", StoreWriteFlags::empty())
                 .unwrap();
-            txn.commit();
+            txn.commit().expect("rocksdb write txn commit failed");
         }
 
         let txn = env.begin_read();
@@ -2861,7 +2871,7 @@ mod tests {
             let mut txn = env.begin_write();
             txn.put(database, b"snapshot", b"v1", StoreWriteFlags::empty())
                 .unwrap();
-            txn.commit();
+            txn.commit().expect("rocksdb write txn commit failed");
         }
 
         let read_txn = env.begin_read();
@@ -2872,7 +2882,7 @@ mod tests {
             write_txn
                 .put(database, b"snapshot", b"v2", StoreWriteFlags::empty())
                 .unwrap();
-            write_txn.commit();
+            write_txn.commit().expect("rocksdb write txn commit failed");
         }
 
         // Existing read transaction should continue to see the original value.
@@ -2907,7 +2917,9 @@ mod tests {
         let block = SavedBlock::new_test_open_block();
         let mut write_txn = fixture.begin_write();
         fixture.store.put(&mut write_txn, &block);
-        Box::new(write_txn).commit();
+        Box::new(write_txn)
+            .commit()
+            .expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         assert_eq!(fixture.store.get(&read_txn, &block.hash()), Some(block));
@@ -2919,11 +2931,15 @@ mod tests {
         let block = SavedBlock::new_test_open_block();
         let mut write_txn = fixture.begin_write();
         fixture.store.put(&mut write_txn, &block);
-        Box::new(write_txn).commit();
+        Box::new(write_txn)
+            .commit()
+            .expect("rocksdb test commit failed");
 
         let mut delete_txn = fixture.begin_write();
         fixture.store.del(&mut delete_txn, &block.hash());
-        Box::new(delete_txn).commit();
+        Box::new(delete_txn)
+            .commit()
+            .expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         assert!(fixture.store.get(&read_txn, &block.hash()).is_none());
@@ -2937,7 +2953,9 @@ mod tests {
             let block = unique_block(seed);
             fixture.store.put(&mut write_txn, &block);
         }
-        Box::new(write_txn).commit();
+        Box::new(write_txn)
+            .commit()
+            .expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         let count = fixture.store.iter(&read_txn).count();
@@ -2953,7 +2971,9 @@ mod tests {
 
         let mut write_txn = fixture.begin_write();
         fixture.store.put(&mut write_txn, &account, &info);
-        Box::new(write_txn).commit();
+        Box::new(write_txn)
+            .commit()
+            .expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         assert_eq!(fixture.store.get(&read_txn, &account), Some(info.clone()));
@@ -2971,7 +2991,9 @@ mod tests {
 
         let mut write_txn = fixture.begin_write();
         fixture.store.del(&mut write_txn, &entries[0].0);
-        Box::new(write_txn).commit();
+        Box::new(write_txn)
+            .commit()
+            .expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         assert!(fixture.store.get(&read_txn, &entries[0].0).is_none());
@@ -3053,7 +3075,9 @@ mod tests {
         let mut write_txn = fixture.begin_write();
         let tracker = fixture.store.track_puts();
         fixture.store.put(&mut write_txn, &key, &info);
-        Box::new(write_txn).commit();
+        Box::new(write_txn)
+            .commit()
+            .expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         assert_eq!(fixture.store.get(&read_txn, &key), Some(info.clone()));
@@ -3070,7 +3094,9 @@ mod tests {
         let mut write_txn = fixture.begin_write();
         let tracker = fixture.store.track_deletions();
         fixture.store.del(&mut write_txn, &key);
-        Box::new(write_txn).commit();
+        Box::new(write_txn)
+            .commit()
+            .expect("rocksdb test commit failed");
         assert_eq!(tracker.output(), vec![key.clone()]);
 
         let read_txn = fixture.begin_read();
@@ -3154,7 +3180,7 @@ mod tests {
         let info = ConfirmationHeightInfo::new(5, BlockHash::from(9));
         let mut txn = fixture.begin_write();
         fixture.store.put(&mut txn, &account, &info);
-        Box::new(txn).commit();
+        Box::new(txn).commit().expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         assert_eq!(fixture.store.get(&read_txn, &account), Some(info.clone()));
@@ -3171,7 +3197,7 @@ mod tests {
 
         let mut txn = fixture.begin_write();
         fixture.store.del(&mut txn, &Account::from(3));
-        Box::new(txn).commit();
+        Box::new(txn).commit().expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         assert!(fixture.store.get(&read_txn, &Account::from(3)).is_none());
@@ -3222,7 +3248,7 @@ mod tests {
 
         let mut txn = fixture.begin_write();
         fixture.store.clear(&mut txn);
-        Box::new(txn).commit();
+        Box::new(txn).commit().expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         assert_eq!(fixture.store.count(&read_txn), 0);
@@ -3248,7 +3274,9 @@ mod tests {
         let account = PublicKey::from(5);
         let weight = Amount::from(50);
         fixture.store.put(&mut write_txn, account, weight);
-        Box::new(write_txn).commit();
+        Box::new(write_txn)
+            .commit()
+            .expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         assert_eq!(fixture.store.get(&read_txn, &account), Some(weight));
@@ -3264,7 +3292,9 @@ mod tests {
         let mut write_txn = fixture.begin_write();
         let delete_tracker = fixture.store.track_deletions();
         fixture.store.del(&mut write_txn, &account);
-        Box::new(write_txn).commit();
+        Box::new(write_txn)
+            .commit()
+            .expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         assert!(fixture.store.get(&read_txn, &account).is_none());
@@ -3312,7 +3342,7 @@ mod tests {
         let block = BlockHash::from(10);
         let successor = BlockHash::from(11);
         fixture.store.put(&mut txn, &block, &successor);
-        Box::new(txn).commit();
+        Box::new(txn).commit().expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         assert_eq!(fixture.store.get(&read_txn, &block), Some(successor));
@@ -3328,7 +3358,7 @@ mod tests {
 
         let mut txn = fixture.begin_write();
         fixture.store.del(&mut txn, &block);
-        Box::new(txn).commit();
+        Box::new(txn).commit().expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         assert!(fixture.store.get(&read_txn, &block).is_none());
@@ -3360,7 +3390,7 @@ mod tests {
         let fixture = OnlineWeightFixture::new();
         let mut txn = fixture.begin_write();
         fixture.store.put(&mut txn, 1, &Amount::from(100));
-        Box::new(txn).commit();
+        Box::new(txn).commit().expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         let entries: Vec<_> = fixture.store.iter(&read_txn).collect();
@@ -3382,7 +3412,7 @@ mod tests {
         fixture.insert_entries(&[(5, Amount::from(50))]);
         let mut txn = fixture.begin_write();
         fixture.store.del(&mut txn, 5);
-        Box::new(txn).commit();
+        Box::new(txn).commit().expect("rocksdb test commit failed");
         let read_txn = fixture.begin_read();
         assert!(fixture.store.iter(&read_txn).next().is_none());
     }
@@ -3393,7 +3423,7 @@ mod tests {
         fixture.insert_entries(&[(7, Amount::from(70))]);
         let mut txn = fixture.begin_write();
         fixture.store.clear(&mut txn);
-        Box::new(txn).commit();
+        Box::new(txn).commit().expect("rocksdb test commit failed");
         let read_txn = fixture.begin_read();
         assert_eq!(fixture.store.count(&read_txn), 0);
     }
@@ -3404,7 +3434,7 @@ mod tests {
         let mut txn = fixture.begin_write();
         let hash = BlockHash::from(100);
         fixture.store.put(&mut txn, &hash);
-        Box::new(txn).commit();
+        Box::new(txn).commit().expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         assert!(fixture.store.exists(&read_txn, &hash));
@@ -3417,7 +3447,7 @@ mod tests {
         let hash = BlockHash::from(200);
         fixture.store.put(&mut txn, &hash);
         fixture.store.del(&mut txn, &hash);
-        Box::new(txn).commit();
+        Box::new(txn).commit().expect("rocksdb test commit failed");
         let read_txn = fixture.begin_read();
         assert!(!fixture.store.exists(&read_txn, &hash));
     }
@@ -3428,7 +3458,7 @@ mod tests {
         let mut txn = fixture.begin_write();
         fixture.store.put(&mut txn, &BlockHash::from(1));
         fixture.store.put(&mut txn, &BlockHash::from(2));
-        Box::new(txn).commit();
+        Box::new(txn).commit().expect("rocksdb test commit failed");
         let read_txn = fixture.begin_read();
         assert_eq!(fixture.store.count(&read_txn), 2);
     }
@@ -3440,7 +3470,7 @@ mod tests {
         let hash = BlockHash::from(123);
         let mut txn = fixture.begin_write();
         assert!(fixture.store.put(&mut txn, &root, &hash));
-        Box::new(txn).commit();
+        Box::new(txn).commit().expect("rocksdb test commit failed");
         let read_txn = fixture.begin_read();
         assert_eq!(fixture.store.get(&read_txn, &root), Some(hash));
     }
@@ -3462,21 +3492,29 @@ mod tests {
 
         let mut insert_txn = fixture.begin_write();
         fixture.store.put(&mut insert_txn, &root, &hash);
-        Box::new(insert_txn).commit();
+        Box::new(insert_txn)
+            .commit()
+            .expect("rocksdb test commit failed");
 
         let mut delete_txn = fixture.begin_write();
         fixture.store.del(&mut delete_txn, &root);
-        Box::new(delete_txn).commit();
+        Box::new(delete_txn)
+            .commit()
+            .expect("rocksdb test commit failed");
         let read_txn = fixture.begin_read();
         assert!(fixture.store.get(&read_txn, &root).is_none());
 
         let mut reinsertion_txn = fixture.begin_write();
         fixture.store.put(&mut reinsertion_txn, &root, &hash);
-        Box::new(reinsertion_txn).commit();
+        Box::new(reinsertion_txn)
+            .commit()
+            .expect("rocksdb test commit failed");
 
         let mut clear_txn = fixture.begin_write();
         fixture.store.clear(&mut clear_txn);
-        Box::new(clear_txn).commit();
+        Box::new(clear_txn)
+            .commit()
+            .expect("rocksdb test commit failed");
         let read_txn = fixture.begin_read();
         assert_eq!(fixture.store.count(&read_txn), 0);
     }
@@ -3516,7 +3554,7 @@ mod tests {
         fixture
             .store
             .put(&mut txn, addr2, UNIX_EPOCH + Duration::from_secs(2));
-        Box::new(txn).commit();
+        Box::new(txn).commit().expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         assert!(fixture.store.exists(&read_txn, addr1));
@@ -3532,11 +3570,13 @@ mod tests {
         fixture
             .store
             .put(&mut txn, addr, UNIX_EPOCH + Duration::from_secs(3));
-        Box::new(txn).commit();
+        Box::new(txn).commit().expect("rocksdb test commit failed");
 
         let mut clear_txn = fixture.begin_write();
         fixture.store.clear(&mut clear_txn);
-        Box::new(clear_txn).commit();
+        Box::new(clear_txn)
+            .commit()
+            .expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         assert_eq!(fixture.store.count(&read_txn), 0);
@@ -3554,7 +3594,9 @@ mod tests {
         let fixture = VersionFixture::new();
         let mut write_txn = fixture.begin_write();
         fixture.store.put(&mut write_txn, 42);
-        Box::new(write_txn).commit();
+        Box::new(write_txn)
+            .commit()
+            .expect("rocksdb test commit failed");
 
         let read_txn = fixture.begin_read();
         assert_eq!(fixture.store.get(&read_txn), Some(42));

@@ -18,13 +18,13 @@ pub trait StoreReadTxn<'env>: 'env {
     where
         'env: 'txn;
 
-    fn count(&self, database: StoreDatabase) -> u64;
+    fn count(&self, database: StoreDatabase) -> StoreResult<u64>;
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
     where
         'env: 'txn;
 
-    fn commit(self)
+    fn commit(self) -> StoreResult<()>
     where
         Self: Sized;
 }

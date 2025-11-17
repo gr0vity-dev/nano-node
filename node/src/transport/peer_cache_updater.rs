@@ -98,7 +98,8 @@ impl Tickable for PeerCacheUpdater {
         let mut txn = self.ledger.store.begin_write();
         self.save_peers(txn.as_mut());
         self.delete_old_peers(txn.as_mut());
-        txn.commit();
+        txn.commit()
+            .unwrap_or_else(|e| panic!("failed to commit peer cache update: {e}"));
     }
 }
 

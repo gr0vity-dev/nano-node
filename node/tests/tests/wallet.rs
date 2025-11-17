@@ -16,7 +16,7 @@ use rsnano_node::{
 };
 use rsnano_nullable_lmdb::{LmdbEnvironment, LmdbEnvironmentFactory};
 use rsnano_store_lmdb::{
-    EnvironmentFlags, EnvironmentOptions, LmdbWalletStoreFactory, WalletWriteTxnSHIM,
+    EnvironmentFlags, EnvironmentOptions, LmdbLedgerWriteTxn, LmdbWalletStoreFactory,
 };
 use rsnano_types::{
     Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, Epoch, EpochBlockArgs,
@@ -79,8 +79,8 @@ impl TestFixture {
             .unwrap()
     }
 
-    fn begin_write_txn(&self) -> WalletWriteTxnSHIM {
-        WalletWriteTxnSHIM::new(self.env.begin_write())
+    fn begin_write_txn(&self) -> LmdbLedgerWriteTxn {
+        LmdbLedgerWriteTxn::new(self.env.begin_write())
     }
 }
 
@@ -465,7 +465,7 @@ fn reopen_default_password() {
         let store = fixture.create_wallet("0");
         let txn = fixture.begin_write_txn();
         assert!(store.valid_password(&txn));
-        txn.commit();
+        txn.commit().expect("wallet test commit failed");
     }
     {
         let store = fixture.open_wallet("0");
@@ -477,7 +477,7 @@ fn reopen_default_password() {
         let mut txn = fixture.begin_write_txn();
         store.rekey(&mut txn, "").unwrap();
         assert!(store.valid_password(&txn));
-        txn.commit();
+        txn.commit().expect("wallet test commit failed");
     }
     {
         let store = fixture.open_wallet("0");
@@ -530,7 +530,7 @@ fn serialize_json_one() {
         let mut txn = fixture.begin_write_txn();
         store1.insert_adhoc(&mut txn, &key.raw_key());
         let json = store1.serialize_json(&txn);
-        txn.commit();
+        txn.commit().expect("wallet test commit failed");
         json
     };
 
@@ -553,7 +553,7 @@ fn serialize_json_password() {
         wallet1.rekey(&mut txn, "password").unwrap();
         wallet1.insert_adhoc(&mut txn, &key.raw_key());
         let json = wallet1.serialize_json(&txn);
-        txn.commit();
+        txn.commit().expect("wallet test commit failed");
         json
     };
     let wallet2 = fixture.wallet_from_json("1", &serialized);
@@ -576,7 +576,7 @@ fn wallet_store_move() {
     {
         let mut txn = fixture.begin_write_txn();
         wallet1.insert_adhoc(&mut txn, &key.raw_key());
-        txn.commit();
+        txn.commit().expect("wallet test commit failed");
     }
     let wallet2 = fixture.create_wallet("1");
     let mut txn = fixture.begin_write_txn();

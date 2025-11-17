@@ -30,7 +30,10 @@ use super::{
     delayed_work_queue::DelayedWorkQueue,
 };
 use crate::{LmdbWalletEnvironment, WalletEnvironment};
-use store_traits::transaction::{WalletReadTxn, WalletWriteTxn};
+use store_traits::{
+    transaction::{WalletReadTxn, WalletWriteTxn},
+    types::StoreResult,
+};
 
 enum PreparedSend {
     Cached(SavedBlock),
@@ -38,6 +41,12 @@ enum PreparedSend {
 }
 
 pub type WalletEnvHandle = dyn WalletEnvironment;
+
+fn expect_wallet_commit(result: StoreResult<()>) {
+    if let Err(e) = result {
+        panic!("wallet transaction commit failed: {e}");
+    }
+}
 
 pub struct Wallets {
     env: Arc<WalletEnvHandle>,
@@ -169,9 +178,9 @@ impl Wallets {
             } else {
                 let read_txn = self.env.begin_read_txn();
                 let _ = self.enter_password_wallet(wallet, read_txn.as_ref(), "");
-                read_txn.commit();
+                expect_wallet_commit(read_txn.commit());
             }
-            txn.commit();
+            expect_wallet_commit(txn.commit());
         }
     }
 
@@ -262,7 +271,7 @@ impl Wallets {
                     wallet_keys.push(pub_key);
                 }
             }
-            txn.commit();
+            expect_wallet_commit(txn.commit());
         }
 
         wallet_keys
@@ -282,7 +291,7 @@ impl Wallets {
                     }
                 }
             }
-            txn.commit();
+            expect_wallet_commit(txn.commit());
         }
         all_priv_keys
     }
@@ -319,7 +328,7 @@ impl Wallets {
                 return Err(WalletsError::BadPublicKey);
             }
         }
-        txn.commit();
+        expect_wallet_commit(txn.commit());
 
         Ok(())
     }
@@ -329,7 +338,7 @@ impl Wallets {
         let wallet = Self::get_wallet_guard(&guard, wallet_id)?;
         let txn = self.env.begin_read_txn();
         let valid = wallet.store.valid_password(txn.as_ref());
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         Ok(valid)
     }
 
@@ -345,7 +354,7 @@ impl Wallets {
             .store
             .attempt_password(txn.as_ref(), password.as_ref())
         {
-            txn.commit();
+            expect_wallet_commit(txn.commit());
             Ok(())
         } else {
             Err(WalletsError::InvalidPassword)
@@ -375,7 +384,7 @@ impl Wallets {
             .store
             .rekey(txn.as_mut(), password.as_ref())
             .map_err(|_| WalletsError::Generic);
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         result
     }
 
@@ -385,7 +394,7 @@ impl Wallets {
         let exists = guard
             .values()
             .any(|wallet| wallet.store.exists(txn.as_ref(), pub_key));
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         exists
     }
 
@@ -396,7 +405,7 @@ impl Wallets {
         let wallet_ids = {
             let txn = self.env.begin_write_txn();
             let ids = self.get_wallet_ids_with_tx(txn.as_ref());
-            txn.commit();
+            expect_wallet_commit(txn.commit());
             ids
         };
 
@@ -431,7 +440,7 @@ impl Wallets {
         let mut txn = self.env.begin_write_txn();
         let wallet = guard.remove(id).unwrap();
         wallet.store.destroy(txn.as_mut());
-        txn.commit();
+        expect_wallet_commit(txn.commit());
     }
 
     pub fn remove_key(
@@ -449,7 +458,7 @@ impl Wallets {
             return Err(WalletsError::AccountNotFound);
         }
         wallet.store.erase(txn.as_mut(), pub_key);
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         Ok(())
     }
 
@@ -466,7 +475,7 @@ impl Wallets {
             return Err(WalletsError::AccountNotFound);
         }
         wallet.store.work_put(txn.as_mut(), pub_key, work);
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         Ok(())
     }
 
@@ -482,7 +491,7 @@ impl Wallets {
         let txn = self.env.begin_read_txn();
         let is_locked = !source.store.valid_password(txn.as_ref())
             || !target.store.valid_password(txn.as_ref());
-        txn.commit();
+        expect_wallet_commit(txn.commit());
 
         if is_locked {
             return Err(WalletsError::WalletLocked);
@@ -490,7 +499,7 @@ impl Wallets {
 
         let mut txn = self.env.begin_write_txn();
         let result = Self::move_accounts_between_stores(target, source, accounts, txn.as_mut());
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         result
     }
 
@@ -504,7 +513,7 @@ impl Wallets {
             backup_path.push(format!("{}.json", id));
             wallet.store.write_backup(txn.as_ref(), &backup_path)?;
         }
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         Ok(())
     }
 
@@ -513,7 +522,7 @@ impl Wallets {
         let wallet = Self::get_wallet_guard(&guard, wallet_id)?;
         let txn = self.env.begin_read_txn();
         let index = wallet.store.deterministic_index_get(txn.as_ref());
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         Ok(index)
     }
 
@@ -639,7 +648,7 @@ impl Wallets {
             .store
             .work_get(txn.as_ref(), pub_key)
             .unwrap_or(1.into());
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         work
     }
 
@@ -673,7 +682,7 @@ impl Wallets {
                 accounts.push(pub_key.into());
             }
         }
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         accounts
     }
 
@@ -688,7 +697,7 @@ impl Wallets {
         for (account, _) in wallet.store.iter(txn.as_ref()) {
             accounts.push(account.into());
         }
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         Ok(accounts)
     }
 
@@ -706,7 +715,7 @@ impl Wallets {
             .store
             .fetch(txn.as_ref(), pub_key)
             .map_err(|_| WalletsError::Generic);
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         result
     }
 
@@ -736,7 +745,7 @@ impl Wallets {
             Err(anyhow!("bad password"))
         };
         temp.destroy(txn.as_mut());
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         result
     }
 
@@ -748,7 +757,7 @@ impl Wallets {
             return Err(WalletsError::WalletLocked);
         }
         let seed = wallet.store.seed(txn.as_ref());
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         Ok(seed)
     }
 
@@ -758,7 +767,7 @@ impl Wallets {
             Some(wallet) => {
                 let txn = self.env.begin_read_txn();
                 let key_type = wallet.store.get_key_type(txn.as_ref(), pub_key);
-                txn.commit();
+                expect_wallet_commit(txn.commit());
                 key_type
             }
             None => KeyType::Unknown,
@@ -788,7 +797,7 @@ impl Wallets {
                 .map_err(|_| WalletsError::Generic)?;
             result.push((account, key));
         }
-        txn.commit();
+        expect_wallet_commit(txn.commit());
 
         Ok(result)
     }
@@ -798,7 +807,7 @@ impl Wallets {
         let wallet = Self::get_wallet_guard(&guard, &wallet_id)?;
         let txn = self.env.begin_read_txn();
         let json = wallet.store.serialize_json(txn.as_ref());
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         Ok(json)
     }
 
@@ -927,7 +936,7 @@ impl Wallets {
             return Err(WalletsError::WalletLocked);
         }
         let account = wallet.store.deterministic_insert_at(txn.as_mut(), index);
-        txn.commit();
+        expect_wallet_commit(txn.commit());
 
         info!(account=%account.as_account().encode_account(), "Deterministically inserted new account");
 
@@ -949,7 +958,7 @@ impl Wallets {
             return Err(WalletsError::WalletLocked);
         }
         let key = self.deterministic_insert(wallet, txn.as_mut(), generate_work);
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         Ok(key)
     }
 
@@ -971,7 +980,7 @@ impl Wallets {
                 self.ledger.any().latest_root(&key.into()),
             );
         }
-        tx.commit();
+        expect_wallet_commit(tx.commit());
 
         key
     }
@@ -988,7 +997,7 @@ impl Wallets {
         if !wallet.store.valid_password(txn.as_ref()) {
             return Err(WalletsError::WalletLocked);
         }
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         Ok(self.insert_adhoc(wallet, key, generate_work))
     }
 
@@ -1019,7 +1028,7 @@ impl Wallets {
         info!("Completed changing wallet seed and generating accounts");
 
         let restored_count = wallet.store.deterministic_index_get(txn.as_ref());
-        txn.commit();
+        expect_wallet_commit(txn.commit());
         Ok((restored_count, first_account.into()))
     }
 
@@ -1045,7 +1054,7 @@ impl Wallets {
         if wallet.store.find(txn.as_ref(), &source.into()).is_none() {
             return BlockPromise::new_failed(WalletsError::AccountNotFound);
         }
-        txn.commit();
+        expect_wallet_commit(txn.commit());
 
         let promise = BlockPromise::new();
 
@@ -1061,7 +1070,7 @@ impl Wallets {
                     amount,
                     work,
                 );
-                txn.commit();
+                expect_wallet_commit(txn.commit());
                 result
             }
             None => {
@@ -1263,7 +1272,7 @@ impl Wallets {
                 send_hash
             );
         }
-        wallet_tx.commit();
+        expect_wallet_commit(wallet_tx.commit());
 
         let Some(block) = block else {
             return BlockPromise::new_failed(WalletsError::Generic);
@@ -1322,7 +1331,7 @@ impl Wallets {
                 .enter_password_wallet(existing, txn.as_ref(), password)
                 .is_ok();
         }
-        txn.commit();
+        expect_wallet_commit(txn.commit());
 
         valid
     }
@@ -1350,7 +1359,7 @@ impl Wallets {
                 }
 
                 wallet.store.representative_set(txn.as_mut(), &rep);
-                txn.commit();
+                expect_wallet_commit(txn.commit());
             }
 
             // Change representative for all wallet accounts
@@ -1364,7 +1373,7 @@ impl Wallets {
                         }
                     }
                 }
-                txn.commit();
+                expect_wallet_commit(txn.commit());
             }
         }
 
@@ -1436,7 +1445,7 @@ impl Wallets {
             }
         }
 
-        txn.commit();
+        expect_wallet_commit(txn.commit());
 
         debug!("Receivable block search phase completed");
         MultiBlockPromise::new(block_promises)
@@ -1471,7 +1480,7 @@ impl Wallets {
                                 warn!("Cached work no longer valid, discarding");
                             }
                         }
-                        txn.commit();
+                        expect_wallet_commit(txn.commit());
                     }
                 } else {
                     warn!("Cached work generation failed/aborted");

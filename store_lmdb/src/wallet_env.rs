@@ -13,8 +13,8 @@ use store_traits::{
 
 use crate::{
     store_utils::{store_database_from_lmdb, store_write_flags_from},
+    transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn},
     wallet_factory::LmdbWalletStoreFactory,
-    wallet_txn_shim::{WalletReadTxnSHIM, WalletWriteTxnSHIM},
 };
 
 pub struct LmdbWalletEnvironment {
@@ -58,11 +58,11 @@ impl LmdbWalletEnvironment {
 
 impl WalletEnvironmentTrait for LmdbWalletEnvironment {
     fn begin_read_txn(&self) -> Box<dyn WalletReadTxn> {
-        Box::new(WalletReadTxnSHIM::new(self.env.begin_read()))
+        Box::new(LmdbLedgerReadTxn::new(self.env.begin_read()))
     }
 
     fn begin_write_txn(&self) -> Box<dyn WalletWriteTxn> {
-        Box::new(WalletWriteTxnSHIM::new(self.env.begin_write()))
+        Box::new(LmdbLedgerWriteTxn::new(self.env.begin_write()))
     }
 
     fn sync(&self) -> Result<()> {
@@ -102,7 +102,7 @@ impl WalletEnvironmentTrait for LmdbWalletEnvironment {
     fn clear_send_action_hashes(&self) -> Result<()> {
         let mut txn = self.begin_write_txn();
         txn.as_mut().clear_db(self.send_action_ids_handle())?;
-        txn.commit();
+        txn.commit().map_err(|e| anyhow::anyhow!(e.to_string()))?;
         Ok(())
     }
 }

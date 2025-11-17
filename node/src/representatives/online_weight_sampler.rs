@@ -75,14 +75,16 @@ impl OnlineWeightSampler {
         let mut txn = self.ledger.store.begin_write();
         self.sanitize_samples(txn.as_mut(), now);
         self.insert_new_sample(txn.as_mut(), current_online_weight, now);
-        txn.commit();
+        txn.commit()
+            .unwrap_or_else(|e| panic!("failed to commit online weight sample: {e}"));
     }
 
     pub fn sanitize(&self) {
         let now = SystemTime::now();
         let mut txn = self.ledger.store.begin_write();
         self.sanitize_samples(txn.as_mut(), now);
-        txn.commit();
+        txn.commit()
+            .unwrap_or_else(|e| panic!("failed to commit online weight sanitize txn: {e}"));
     }
 
     fn sanitize_samples(&self, tx: &mut dyn LedgerWriteTxn, now: SystemTime) {

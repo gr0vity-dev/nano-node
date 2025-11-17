@@ -99,8 +99,11 @@ impl<'env> StoreReadTxn<'env> for LmdbReadTxn<'env> {
             .map_err(store_error_from_lmdb)
     }
 
-    fn count(&self, database: StoreDatabase) -> u64 {
-        LmdbTxn::count(&self.inner, lmdb_database_from_store(database))
+    fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
+        Ok(LmdbTxn::count(
+            &self.inner,
+            lmdb_database_from_store(database),
+        ))
     }
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
@@ -112,11 +115,12 @@ impl<'env> StoreReadTxn<'env> for LmdbReadTxn<'env> {
         Ok(LmdbCursor::new(cursor))
     }
 
-    fn commit(self)
+    fn commit(self) -> StoreResult<()>
     where
         Self: Sized,
     {
         self.inner.commit();
+        Ok(())
     }
 }
 
@@ -149,8 +153,11 @@ impl<'env> StoreReadTxn<'env> for LmdbWriteTxn<'env> {
             .map_err(store_error_from_lmdb)
     }
 
-    fn count(&self, database: StoreDatabase) -> u64 {
-        LmdbTxn::count(&self.inner, lmdb_database_from_store(database))
+    fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
+        Ok(LmdbTxn::count(
+            &self.inner,
+            lmdb_database_from_store(database),
+        ))
     }
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
@@ -162,11 +169,12 @@ impl<'env> StoreReadTxn<'env> for LmdbWriteTxn<'env> {
         Ok(LmdbCursor::new(cursor))
     }
 
-    fn commit(self)
+    fn commit(self) -> StoreResult<()>
     where
         Self: Sized,
     {
         self.inner.commit();
+        Ok(())
     }
 }
 

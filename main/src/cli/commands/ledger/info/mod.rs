@@ -38,7 +38,8 @@ impl InfoCommand {
             println!("{:?}", peer.0);
         }
 
-        txn.commit();
+        txn.commit()
+            .map_err(|e| anyhow::anyhow!(format!("commit failed: {e}")))?;
         Ok(())
     }
 }

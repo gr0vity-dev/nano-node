@@ -80,7 +80,7 @@ impl LmdbPeerStore {
     }
 
     pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.count(self.store_database())
+        txn.raw_count(self.store_database())
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
