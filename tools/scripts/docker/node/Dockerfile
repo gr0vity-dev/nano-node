@@ -1,4 +1,4 @@
-FROM ubuntu:22.04 as builder
+FROM ubuntu:22.04 AS builder
 
 ARG COMPILER=gcc
 ARG NANO_NETWORK=live
@@ -44,4 +44,4 @@ ENTRYPOINT ["/usr/bin/rsnano_node"]
 CMD ["node", "run"]
 
 ARG REPOSITORY=simpago/rsnano-node
-LABEL org.opencontainers.image.source https://github.com/$REPOSITORY
+LABEL org.opencontainers.image.source=https://github.com/$REPOSITORY

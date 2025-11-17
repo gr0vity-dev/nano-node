@@ -15,7 +15,10 @@ wget \
 python3 \
 git \
 libssl-dev \
-pkg-config
+pkg-config \
+clang \
+libclang-dev \
+llvm
 
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y
 
