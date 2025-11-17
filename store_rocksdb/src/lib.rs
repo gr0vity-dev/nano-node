@@ -1,18 +1,35 @@
+pub mod account_store;
+pub mod block_store;
+pub mod confirmation_height_store;
+pub mod final_vote_store;
+pub mod online_weight_store;
+pub mod peer_store;
+pub mod pending_store;
+pub mod pruned_store;
+pub mod rep_weight_store;
+pub mod successor_store;
+pub mod version_store;
+
+pub use account_store::RocksdbAccountStore;
+pub use block_store::RocksdbBlockStore;
+pub use confirmation_height_store::RocksdbConfirmationHeightStore;
+pub use final_vote_store::RocksdbFinalVoteStore;
+pub use online_weight_store::RocksdbOnlineWeightStore;
+pub use peer_store::RocksdbPeerStore;
+pub use pending_store::RocksdbPendingStore;
+pub use pruned_store::RocksdbPrunedStore;
+pub use rep_weight_store::RocksdbRepWeightStore;
+pub use successor_store::RocksdbSuccessorStore;
+pub use version_store::RocksdbVersionStore;
+
 use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap},
-    fs,
-    io::Cursor,
-    mem,
-    net::SocketAddrV6,
+    fs, mem,
     num::NonZeroUsize,
     path::{Path, PathBuf},
     slice,
-    sync::{
-        Arc, OnceLock,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    sync::{Arc, OnceLock},
 };
 
 #[cfg(test)]
@@ -25,11 +42,7 @@ use rocksdb::{
     BoundColumnFamily, ColumnFamilyDescriptor, DBIteratorWithThreadMode, DBWithThreadMode,
     Error as RocksError, IteratorMode, MultiThreaded, Options, SnapshotWithThreadMode, WriteBatch,
 };
-use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
-use rsnano_types::{
-    Account, AccountInfo, Amount, BlockHash, ConfirmationHeightInfo, PendingInfo, PendingKey,
-    PublicKey, QualifiedRoot, SavedBlock,
-};
+use rsnano_types::{Account, AccountInfo, ConfirmationHeightInfo};
 use store_traits::config::{LedgerBackend, LedgerStoreConfig, RocksDbConfig};
 use store_traits::environment::{
     StoreCursor, StoreEnvironment, StoreEnvironmentFactory, StoreEnvironmentOptions, StoreReadTxn,
@@ -38,13 +51,14 @@ use store_traits::environment::{
 use store_traits::ledger::{
     AccountStore, BlockStore, ConfirmationHeightStore, FinalVoteStore, LedgerCache, LedgerStore,
     LedgerStoreFactory, MemoryStats, OnlineWeightStore, PeerStore, PendingStore, RangeBounds,
-    RepWeightStore, StoreIterator, StoreVendor, SuccessorStore, VersionStore,
+    RepWeightStore, StoreVendor, SuccessorStore, VersionStore,
 };
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 use store_traits::types::{
     StoreDatabase, StoreEnvironmentFlags, StoreError, StoreErrorKind, StoreResult, StoreRoCursor,
     StoreRwCursor, StoreWriteFlags,
 };
+
 pub struct RocksdbStoreEnvironment {
     inner: Arc<RocksDbInner>,
     _temp_dir: Option<tempfile::TempDir>,
@@ -56,7 +70,7 @@ impl RocksdbStoreEnvironment {
         _flags: StoreEnvironmentFlags,
         temp_dir: Option<tempfile::TempDir>,
         config: Option<&RocksDbConfig>,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self> {
         let inner = RocksDbInner::open(&path, config.and_then(|c| c.max_open_files))?;
         Ok(Self {
             inner: Arc::new(inner),
@@ -66,6 +80,10 @@ impl RocksdbStoreEnvironment {
 
     fn inner(&self) -> Arc<RocksDbInner> {
         Arc::clone(&self.inner)
+    }
+
+    pub fn open_db(&self, name: Option<&str>) -> StoreResult<StoreDatabase> {
+        self.inner.open_database(name)
     }
 }
 
@@ -93,1458 +111,6 @@ impl StoreEnvironment for RocksdbStoreEnvironment {
 
     fn sync(&self) -> StoreResult<()> {
         self.inner.flush_wal()
-    }
-}
-
-impl LedgerReadTxn for RocksdbLedgerReadTxn {
-    fn is_refresh_needed(&self) -> bool {
-        false
-    }
-
-    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
-        self.inner.get(database, key)
-    }
-
-    fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
-        let cursor = self.inner.open_cursor(database)?;
-        Ok(store_ro_cursor_from_rocksdb(cursor))
-    }
-
-    fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
-        self.inner.count(database)
-    }
-}
-
-impl LedgerReadTxn for RocksdbLedgerWriteTxn {
-    fn is_refresh_needed(&self) -> bool {
-        false
-    }
-
-    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
-        self.inner.get(database, key)
-    }
-
-    fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
-        let cursor = self.inner.open_cursor(database)?;
-        Ok(store_ro_cursor_from_rocksdb(cursor))
-    }
-
-    fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
-        self.inner.count(database)
-    }
-}
-
-impl LedgerWriteTxn for RocksdbLedgerWriteTxn {
-    fn put(
-        &mut self,
-        database: StoreDatabase,
-        key: &[u8],
-        value: &[u8],
-        flags: StoreWriteFlags,
-    ) -> StoreResult<()> {
-        self.inner.put(database, key, value, flags)
-    }
-
-    fn delete(
-        &mut self,
-        database: StoreDatabase,
-        key: &[u8],
-        value: Option<&[u8]>,
-    ) -> StoreResult<()> {
-        self.inner.delete(database, key, value)
-    }
-
-    fn clear_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
-        self.inner.clear_db(database)
-    }
-
-    fn open_rw_cursor(&mut self, database: StoreDatabase) -> StoreResult<StoreRwCursor<'_>> {
-        let cursor = self.inner.open_rw_cursor(database)?;
-        Ok(store_rw_cursor_from_rocksdb(cursor))
-    }
-
-    unsafe fn drop_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
-        unsafe { self.inner.drop_db(database) }
-    }
-
-    fn commit(self: Box<Self>) -> StoreResult<()> {
-        self.inner.commit()
-    }
-}
-
-pub struct RocksdbBlockStore {
-    index_cf: StoreDatabase,
-    data_cf: StoreDatabase,
-    put_listener: OutputListenerMt<SavedBlock>,
-    next_id: AtomicU64,
-}
-
-impl RocksdbBlockStore {
-    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
-        let index_cf = env.open_db(Some(BLOCK_INDEX_CF_NAME))?;
-        let data_cf = env.open_db(Some(BLOCK_DATA_CF_NAME))?;
-        let next_id = find_next_block_id(&env, data_cf)?;
-        Ok(Self {
-            index_cf,
-            data_cf,
-            put_listener: OutputListenerMt::new(),
-            next_id: AtomicU64::new(next_id),
-        })
-    }
-
-    fn index_cf(&self) -> StoreDatabase {
-        self.index_cf
-    }
-
-    fn data_cf(&self) -> StoreDatabase {
-        self.data_cf
-    }
-
-    pub fn track_puts(&self) -> Arc<OutputTrackerMt<SavedBlock>> {
-        self.put_listener.track()
-    }
-
-    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, block: &SavedBlock) {
-        if self.put_listener.is_tracked() {
-            self.put_listener.emit(block.clone());
-        }
-
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let id_bytes = id.to_be_bytes();
-
-        txn.put(
-            self.index_cf(),
-            block.hash().as_bytes(),
-            &id_bytes,
-            StoreWriteFlags::default(),
-        )
-        .expect("failed to write block index");
-
-        txn.put(
-            self.data_cf(),
-            &id_bytes,
-            &block.serialize_with_sideband(),
-            StoreWriteFlags::default(),
-        )
-        .expect("failed to write block data");
-    }
-
-    pub fn get(&self, txn: &dyn LedgerReadTxn, hash: &BlockHash) -> Option<SavedBlock> {
-        let id_bytes = match txn.get(self.index_cf(), hash.as_bytes()) {
-            Ok(bytes) => bytes,
-            Err(e) if e.is_not_found() => return None,
-            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
-            Err(e) => panic!("failed to read block index: {e}"),
-        };
-        self.load_block_bytes(txn, id_bytes)
-    }
-
-    pub fn exists(&self, txn: &dyn LedgerReadTxn, hash: &BlockHash) -> bool {
-        txn.raw_exists(self.index_cf(), hash.as_bytes())
-    }
-
-    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, hash: &BlockHash) {
-        let id = match txn.get(self.index_cf(), hash.as_bytes()) {
-            Ok(bytes) => bytes,
-            Err(e) if e.is_not_found() => return,
-            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
-            Err(e) => panic!("failed to delete block: {e}"),
-        };
-        let id_vec = id.to_vec();
-        txn.delete(self.data_cf(), &id_vec, None)
-            .expect("failed to delete block data");
-        txn.delete(self.index_cf(), hash.as_bytes(), None)
-            .expect("failed to delete block index");
-    }
-
-    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.raw_count(self.index_cf())
-    }
-
-    pub fn iter<'txn>(&'txn self, txn: &'txn dyn LedgerReadTxn) -> StoreIterator<'txn, SavedBlock> {
-        let cursor = txn
-            .open_ro_cursor(self.index_cf())
-            .expect("failed to open block index cursor");
-        let cursor = rocksdb_ro_cursor_from_store(cursor);
-        Box::new(RocksdbBlockIterator::new(cursor, txn, self.data_cf()))
-    }
-
-    pub fn iter_range<'txn>(
-        &'txn self,
-        txn: &'txn dyn LedgerReadTxn,
-        range: RangeBounds<BlockHash>,
-    ) -> StoreIterator<'txn, SavedBlock> {
-        let cursor = txn
-            .open_ro_cursor(self.index_cf())
-            .expect("failed to open block index cursor");
-        let cursor = rocksdb_ro_cursor_from_store(cursor);
-        Box::new(RocksdbBlockRangeIterator::new(
-            cursor,
-            txn,
-            self.data_cf(),
-            range,
-        ))
-    }
-
-    fn load_block_bytes(&self, txn: &dyn LedgerReadTxn, id_bytes: &[u8]) -> Option<SavedBlock> {
-        match txn.get(self.data_cf(), id_bytes) {
-            Ok(data) => {
-                let mut reader = Cursor::new(data.to_vec());
-                Some(SavedBlock::deserialize(&mut reader).expect("failed to deserialize block"))
-            }
-            Err(e) if e.is_not_found() => None,
-            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
-            Err(e) => panic!("failed to read block data: {e}"),
-        }
-    }
-}
-
-impl BlockStore for RocksdbBlockStore {
-    fn put(&self, txn: &mut dyn LedgerWriteTxn, block: &SavedBlock) {
-        RocksdbBlockStore::put(self, txn, block);
-    }
-
-    fn get(&self, txn: &dyn LedgerReadTxn, hash: &BlockHash) -> Option<SavedBlock> {
-        RocksdbBlockStore::get(self, txn, hash)
-    }
-
-    fn del(&self, txn: &mut dyn LedgerWriteTxn, hash: &BlockHash) {
-        RocksdbBlockStore::del(self, txn, hash);
-    }
-
-    fn exists(&self, txn: &dyn LedgerReadTxn, hash: &BlockHash) -> bool {
-        RocksdbBlockStore::exists(self, txn, hash)
-    }
-
-    fn iter<'a>(&'a self, txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, SavedBlock> {
-        RocksdbBlockStore::iter(self, txn)
-    }
-
-    fn iter_range<'a>(
-        &'a self,
-        txn: &'a dyn LedgerReadTxn,
-        range: RangeBounds<BlockHash>,
-    ) -> StoreIterator<'a, SavedBlock> {
-        RocksdbBlockStore::iter_range(self, txn, range)
-    }
-
-    fn track_puts(&self) -> Arc<OutputTrackerMt<SavedBlock>> {
-        RocksdbBlockStore::track_puts(self)
-    }
-}
-
-struct RocksdbBlockIterator<'txn> {
-    cursor: RocksdbCursor<'txn>,
-    txn: &'txn dyn LedgerReadTxn,
-    data_cf: StoreDatabase,
-}
-
-impl<'txn> RocksdbBlockIterator<'txn> {
-    fn new(
-        cursor: RocksdbCursor<'txn>,
-        txn: &'txn dyn LedgerReadTxn,
-        data_cf: StoreDatabase,
-    ) -> Self {
-        Self {
-            cursor,
-            txn,
-            data_cf,
-        }
-    }
-}
-
-impl<'txn> Iterator for RocksdbBlockIterator<'txn> {
-    type Item = SavedBlock;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let item = self
-                .cursor
-                .next()
-                .expect("failed to advance RocksDB cursor");
-            let (hash_bytes, id_bytes) = match item {
-                Some(value) => value,
-                None => return None,
-            };
-            let _hash =
-                BlockHash::from_slice(hash_bytes).expect("invalid block hash bytes in RocksDB");
-            let block = match self.txn.get(self.data_cf, id_bytes) {
-                Ok(data) => {
-                    let mut reader = Cursor::new(data.to_vec());
-                    SavedBlock::deserialize(&mut reader)
-                        .expect("failed to deserialize RocksDB block")
-                }
-                Err(e) if e.is_not_found() => continue,
-                // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
-                Err(e) => panic!("failed to load block data: {e}"),
-            };
-            return Some(block);
-        }
-    }
-}
-
-struct RocksdbBlockRangeIterator<'txn> {
-    cursor: RocksdbCursor<'txn>,
-    txn: &'txn dyn LedgerReadTxn,
-    data_cf: StoreDatabase,
-    range: RangeBounds<BlockHash>,
-}
-
-impl<'txn> RocksdbBlockRangeIterator<'txn> {
-    fn new(
-        cursor: RocksdbCursor<'txn>,
-        txn: &'txn dyn LedgerReadTxn,
-        data_cf: StoreDatabase,
-        range: RangeBounds<BlockHash>,
-    ) -> Self {
-        Self {
-            cursor,
-            txn,
-            data_cf,
-            range,
-        }
-    }
-}
-
-impl<'txn> Iterator for RocksdbBlockRangeIterator<'txn> {
-    type Item = SavedBlock;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let item = self
-                .cursor
-                .next()
-                .expect("failed to advance RocksDB cursor");
-            let (hash_bytes, id_bytes) = match item {
-                Some(value) => value,
-                None => return None,
-            };
-            let hash =
-                BlockHash::from_slice(hash_bytes).expect("invalid block hash bytes in RocksDB");
-            if !value_in_range(&hash, &self.range) {
-                continue;
-            }
-            let block = match self.txn.get(self.data_cf, id_bytes) {
-                Ok(data) => {
-                    let mut reader = Cursor::new(data.to_vec());
-                    SavedBlock::deserialize(&mut reader)
-                        .expect("failed to deserialize RocksDB block")
-                }
-                Err(e) if e.is_not_found() => continue,
-                // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
-                Err(e) => panic!("failed to load block data: {e}"),
-            };
-            return Some(block);
-        }
-    }
-}
-
-pub struct RocksdbAccountStore {
-    database: StoreDatabase,
-    put_listener: OutputListenerMt<(Account, AccountInfo)>,
-}
-
-impl RocksdbAccountStore {
-    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
-        let database = env.open_db(Some(ACCOUNTS_CF_NAME))?;
-        Ok(Self {
-            database,
-            put_listener: OutputListenerMt::new(),
-        })
-    }
-
-    fn database(&self) -> StoreDatabase {
-        self.database
-    }
-
-    pub fn track_puts(&self) -> Arc<OutputTrackerMt<(Account, AccountInfo)>> {
-        self.put_listener.track()
-    }
-
-    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, account: &Account, info: &AccountInfo) {
-        if self.put_listener.is_tracked() {
-            self.put_listener.emit((*account, info.clone()));
-        }
-
-        txn.put(
-            self.database(),
-            account.as_bytes(),
-            &info.to_bytes(),
-            StoreWriteFlags::default(),
-        )
-        .expect("failed to write account info");
-    }
-
-    pub fn get(&self, txn: &dyn LedgerReadTxn, account: &Account) -> Option<AccountInfo> {
-        match txn.get(self.database(), account.as_bytes()) {
-            Ok(mut bytes) => AccountInfo::deserialize(&mut bytes).ok(),
-            Err(e) if e.is_not_found() => None,
-            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
-            Err(e) => panic!("failed to read account info: {e}"),
-        }
-    }
-
-    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, account: &Account) {
-        txn.delete(self.database(), account.as_bytes(), None)
-            .expect("failed to delete account");
-    }
-
-    pub fn iter<'txn>(
-        &'txn self,
-        txn: &'txn dyn LedgerReadTxn,
-    ) -> StoreIterator<'txn, (Account, AccountInfo)> {
-        let cursor = txn
-            .open_ro_cursor(self.database())
-            .expect("failed to open account cursor");
-        let cursor = rocksdb_ro_cursor_from_store(cursor);
-        Box::new(RocksdbAccountIterator::new(cursor))
-    }
-
-    pub fn iter_range<'txn>(
-        &'txn self,
-        txn: &'txn dyn LedgerReadTxn,
-        range: RangeBounds<Account>,
-    ) -> StoreIterator<'txn, (Account, AccountInfo)> {
-        let cursor = txn
-            .open_ro_cursor(self.database())
-            .expect("failed to open account cursor");
-        let cursor = rocksdb_ro_cursor_from_store(cursor);
-        Box::new(RocksdbAccountRangeIterator::new(cursor, range))
-    }
-
-    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.raw_count(self.database())
-    }
-}
-
-impl AccountStore for RocksdbAccountStore {
-    fn put(&self, txn: &mut dyn LedgerWriteTxn, account: &Account, info: &AccountInfo) {
-        RocksdbAccountStore::put(self, txn, account, info);
-    }
-
-    fn get(&self, txn: &dyn LedgerReadTxn, account: &Account) -> Option<AccountInfo> {
-        RocksdbAccountStore::get(self, txn, account)
-    }
-
-    fn del(&self, txn: &mut dyn LedgerWriteTxn, account: &Account) {
-        RocksdbAccountStore::del(self, txn, account);
-    }
-
-    fn iter<'a>(&'a self, txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, (Account, AccountInfo)> {
-        RocksdbAccountStore::iter(self, txn)
-    }
-
-    fn iter_range<'a>(
-        &'a self,
-        txn: &'a dyn LedgerReadTxn,
-        range: RangeBounds<Account>,
-    ) -> StoreIterator<'a, (Account, AccountInfo)> {
-        RocksdbAccountStore::iter_range(self, txn, range)
-    }
-
-    fn track_puts(&self) -> Arc<OutputTrackerMt<(Account, AccountInfo)>> {
-        RocksdbAccountStore::track_puts(self)
-    }
-}
-
-struct RocksdbAccountIterator<'txn> {
-    cursor: RocksdbCursor<'txn>,
-}
-
-impl<'txn> RocksdbAccountIterator<'txn> {
-    fn new(cursor: RocksdbCursor<'txn>) -> Self {
-        Self { cursor }
-    }
-}
-
-impl<'txn> Iterator for RocksdbAccountIterator<'txn> {
-    type Item = (Account, AccountInfo);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let entry = self.cursor.next().expect("failed to advance cursor")?;
-        Some(read_account_record(entry))
-    }
-}
-
-struct RocksdbAccountRangeIterator<'txn> {
-    cursor: RocksdbCursor<'txn>,
-    range: RangeBounds<Account>,
-}
-
-impl<'txn> RocksdbAccountRangeIterator<'txn> {
-    fn new(cursor: RocksdbCursor<'txn>, range: RangeBounds<Account>) -> Self {
-        Self { cursor, range }
-    }
-}
-
-impl<'txn> Iterator for RocksdbAccountRangeIterator<'txn> {
-    type Item = (Account, AccountInfo);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let entry = self.cursor.next().expect("failed to advance cursor")?;
-            let record = read_account_record(entry);
-            if value_in_range(&record.0, &self.range) {
-                return Some(record);
-            }
-        }
-    }
-}
-
-fn read_account_record((key, value): (&[u8], &[u8])) -> (Account, AccountInfo) {
-    let account = Account::from_bytes(
-        key.try_into()
-            .expect("invalid account key length in RocksDB"),
-    );
-    let mut bytes = value;
-    let info =
-        AccountInfo::deserialize(&mut bytes).expect("failed to deserialize RocksDB account info");
-    (account, info)
-}
-
-pub struct RocksdbPendingStore {
-    database: StoreDatabase,
-    put_listener: OutputListenerMt<(PendingKey, PendingInfo)>,
-    delete_listener: OutputListenerMt<PendingKey>,
-}
-
-impl RocksdbPendingStore {
-    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
-        let database = env.open_db(Some(PENDING_CF_NAME))?;
-        Ok(Self {
-            database,
-            put_listener: OutputListenerMt::new(),
-            delete_listener: OutputListenerMt::new(),
-        })
-    }
-
-    fn database(&self) -> StoreDatabase {
-        self.database
-    }
-
-    pub fn track_puts(&self) -> Arc<OutputTrackerMt<(PendingKey, PendingInfo)>> {
-        self.put_listener.track()
-    }
-
-    pub fn track_deletions(&self) -> Arc<OutputTrackerMt<PendingKey>> {
-        self.delete_listener.track()
-    }
-
-    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, key: &PendingKey, info: &PendingInfo) {
-        if self.put_listener.is_tracked() {
-            self.put_listener.emit((key.clone(), info.clone()));
-        }
-
-        txn.put(
-            self.database(),
-            &key.to_bytes(),
-            &info.to_bytes(),
-            StoreWriteFlags::default(),
-        )
-        .expect("failed to write pending info");
-    }
-
-    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, key: &PendingKey) {
-        if self.delete_listener.is_tracked() {
-            self.delete_listener.emit(key.clone());
-        }
-
-        txn.delete(self.database(), &key.to_bytes(), None)
-            .expect("failed to delete pending info");
-    }
-
-    pub fn get(&self, txn: &dyn LedgerReadTxn, key: &PendingKey) -> Option<PendingInfo> {
-        match txn.get(self.database(), &key.to_bytes()) {
-            Ok(mut bytes) => Some(
-                PendingInfo::deserialize(&mut bytes)
-                    .expect("failed to deserialize RocksDB pending info"),
-            ),
-            Err(e) if e.is_not_found() => None,
-            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
-            Err(e) => panic!("failed to read pending info: {e}"),
-        }
-    }
-
-    pub fn iter<'txn>(
-        &'txn self,
-        txn: &'txn dyn LedgerReadTxn,
-    ) -> StoreIterator<'txn, (PendingKey, PendingInfo)> {
-        let cursor = txn
-            .open_ro_cursor(self.database())
-            .expect("failed to open pending cursor");
-        let cursor = rocksdb_ro_cursor_from_store(cursor);
-        Box::new(RocksdbPendingIterator::new(cursor))
-    }
-
-    pub fn iter_range<'txn>(
-        &'txn self,
-        txn: &'txn dyn LedgerReadTxn,
-        range: RangeBounds<PendingKey>,
-    ) -> StoreIterator<'txn, (PendingKey, PendingInfo)> {
-        let cursor = txn
-            .open_ro_cursor(self.database())
-            .expect("failed to open pending cursor");
-        let cursor = rocksdb_ro_cursor_from_store(cursor);
-        Box::new(RocksdbPendingRangeIterator::new(cursor, range))
-    }
-
-    pub fn exists(&self, txn: &dyn LedgerReadTxn, key: &PendingKey) -> bool {
-        txn.raw_exists(self.database(), &key.to_bytes())
-    }
-
-    pub fn any(&self, txn: &dyn LedgerReadTxn, account: &Account) -> bool {
-        let start = PendingKey::new(*account, BlockHash::ZERO);
-        let range = RangeBounds::new(std::ops::Bound::Included(start), std::ops::Bound::Unbounded);
-        self.iter_range(txn, range)
-            .next()
-            .map(|(key, _)| key.receiving_account == *account)
-            .unwrap_or(false)
-    }
-}
-
-impl PendingStore for RocksdbPendingStore {
-    fn put(&self, txn: &mut dyn LedgerWriteTxn, key: &PendingKey, pending: &PendingInfo) {
-        RocksdbPendingStore::put(self, txn, key, pending);
-    }
-
-    fn del(&self, txn: &mut dyn LedgerWriteTxn, key: &PendingKey) {
-        RocksdbPendingStore::del(self, txn, key);
-    }
-
-    fn get(&self, txn: &dyn LedgerReadTxn, key: &PendingKey) -> Option<PendingInfo> {
-        RocksdbPendingStore::get(self, txn, key)
-    }
-
-    fn iter_range<'a>(
-        &'a self,
-        txn: &'a dyn LedgerReadTxn,
-        range: RangeBounds<PendingKey>,
-    ) -> StoreIterator<'a, (PendingKey, PendingInfo)> {
-        RocksdbPendingStore::iter_range(self, txn, range)
-    }
-
-    fn track_puts(&self) -> Arc<OutputTrackerMt<(PendingKey, PendingInfo)>> {
-        RocksdbPendingStore::track_puts(self)
-    }
-
-    fn track_deletions(&self) -> Arc<OutputTrackerMt<PendingKey>> {
-        RocksdbPendingStore::track_deletions(self)
-    }
-}
-
-struct RocksdbPendingIterator<'txn> {
-    cursor: RocksdbCursor<'txn>,
-}
-
-impl<'txn> RocksdbPendingIterator<'txn> {
-    fn new(cursor: RocksdbCursor<'txn>) -> Self {
-        Self { cursor }
-    }
-}
-
-impl<'txn> Iterator for RocksdbPendingIterator<'txn> {
-    type Item = (PendingKey, PendingInfo);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let entry = self.cursor.next().expect("failed to advance cursor")?;
-        Some(read_pending_record(entry))
-    }
-}
-
-struct RocksdbPendingRangeIterator<'txn> {
-    cursor: RocksdbCursor<'txn>,
-    range: RangeBounds<PendingKey>,
-}
-
-impl<'txn> RocksdbPendingRangeIterator<'txn> {
-    fn new(cursor: RocksdbCursor<'txn>, range: RangeBounds<PendingKey>) -> Self {
-        Self { cursor, range }
-    }
-}
-
-impl<'txn> Iterator for RocksdbPendingRangeIterator<'txn> {
-    type Item = (PendingKey, PendingInfo);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let entry = self.cursor.next().expect("failed to advance cursor")?;
-            let record = read_pending_record(entry);
-            if value_in_range(&record.0, &self.range) {
-                return Some(record);
-            }
-        }
-    }
-}
-
-fn read_pending_record((key, value): (&[u8], &[u8])) -> (PendingKey, PendingInfo) {
-    let mut key_bytes = key;
-    let mut value_bytes = value;
-    let key =
-        PendingKey::deserialize(&mut key_bytes).expect("failed to deserialize RocksDB pending key");
-    let info = PendingInfo::deserialize(&mut value_bytes)
-        .expect("failed to deserialize RocksDB pending info");
-    (key, info)
-}
-
-pub struct RocksdbConfirmationHeightStore {
-    database: StoreDatabase,
-}
-
-impl RocksdbConfirmationHeightStore {
-    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
-        let database = env.open_db(Some(CONF_HEIGHT_CF_NAME))?;
-        Ok(Self { database })
-    }
-
-    fn database(&self) -> StoreDatabase {
-        self.database
-    }
-
-    pub fn put(
-        &self,
-        txn: &mut dyn LedgerWriteTxn,
-        account: &Account,
-        info: &ConfirmationHeightInfo,
-    ) {
-        txn.put(
-            self.database(),
-            account.as_bytes(),
-            &info.to_bytes(),
-            StoreWriteFlags::default(),
-        )
-        .expect("failed to write confirmation height info");
-    }
-
-    pub fn get(
-        &self,
-        txn: &dyn LedgerReadTxn,
-        account: &Account,
-    ) -> Option<ConfirmationHeightInfo> {
-        match txn.get(self.database(), account.as_bytes()) {
-            Ok(mut bytes) => ConfirmationHeightInfo::deserialize(&mut bytes).ok(),
-            Err(e) if e.is_not_found() => None,
-            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
-            Err(e) => panic!("failed to read confirmation height: {e}"),
-        }
-    }
-
-    pub fn exists(&self, txn: &dyn LedgerReadTxn, account: &Account) -> bool {
-        txn.raw_exists(self.database(), account.as_bytes())
-    }
-
-    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, account: &Account) {
-        txn.delete(self.database(), account.as_bytes(), None)
-            .expect("failed to delete confirmation height");
-    }
-
-    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.raw_count(self.database())
-    }
-
-    pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.clear_db(self.database())
-            .expect("failed to clear confirmation height");
-    }
-
-    pub fn iter<'txn>(
-        &'txn self,
-        txn: &'txn dyn LedgerReadTxn,
-    ) -> StoreIterator<'txn, (Account, ConfirmationHeightInfo)> {
-        let cursor = txn
-            .open_ro_cursor(self.database())
-            .expect("failed to open confirmation height cursor");
-        let cursor = rocksdb_ro_cursor_from_store(cursor);
-        Box::new(RocksdbConfirmationHeightIterator::new(cursor))
-    }
-
-    pub fn iter_range<'txn>(
-        &'txn self,
-        txn: &'txn dyn LedgerReadTxn,
-        range: RangeBounds<Account>,
-    ) -> StoreIterator<'txn, (Account, ConfirmationHeightInfo)> {
-        let cursor = txn
-            .open_ro_cursor(self.database())
-            .expect("failed to open confirmation height cursor");
-        let cursor = rocksdb_ro_cursor_from_store(cursor);
-        Box::new(RocksdbConfirmationHeightRangeIterator::new(cursor, range))
-    }
-}
-
-impl ConfirmationHeightStore for RocksdbConfirmationHeightStore {
-    fn put(&self, txn: &mut dyn LedgerWriteTxn, account: &Account, info: &ConfirmationHeightInfo) {
-        RocksdbConfirmationHeightStore::put(self, txn, account, info);
-    }
-
-    fn get(&self, txn: &dyn LedgerReadTxn, account: &Account) -> Option<ConfirmationHeightInfo> {
-        RocksdbConfirmationHeightStore::get(self, txn, account)
-    }
-
-    fn exists(&self, txn: &dyn LedgerReadTxn, account: &Account) -> bool {
-        RocksdbConfirmationHeightStore::exists(self, txn, account)
-    }
-
-    fn iter<'a>(
-        &'a self,
-        txn: &'a dyn LedgerReadTxn,
-    ) -> StoreIterator<'a, (Account, ConfirmationHeightInfo)> {
-        RocksdbConfirmationHeightStore::iter(self, txn)
-    }
-}
-
-struct RocksdbConfirmationHeightIterator<'txn> {
-    cursor: RocksdbCursor<'txn>,
-}
-
-impl<'txn> RocksdbConfirmationHeightIterator<'txn> {
-    fn new(cursor: RocksdbCursor<'txn>) -> Self {
-        Self { cursor }
-    }
-}
-
-impl<'txn> Iterator for RocksdbConfirmationHeightIterator<'txn> {
-    type Item = (Account, ConfirmationHeightInfo);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let entry = self.cursor.next().expect("failed to advance cursor")?;
-        Some(read_confirmation_height_record(entry))
-    }
-}
-
-struct RocksdbConfirmationHeightRangeIterator<'txn> {
-    cursor: RocksdbCursor<'txn>,
-    range: RangeBounds<Account>,
-}
-
-impl<'txn> RocksdbConfirmationHeightRangeIterator<'txn> {
-    fn new(cursor: RocksdbCursor<'txn>, range: RangeBounds<Account>) -> Self {
-        Self { cursor, range }
-    }
-}
-
-impl<'txn> Iterator for RocksdbConfirmationHeightRangeIterator<'txn> {
-    type Item = (Account, ConfirmationHeightInfo);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let entry = self.cursor.next().expect("failed to advance cursor")?;
-            let record = read_confirmation_height_record(entry);
-            if value_in_range(&record.0, &self.range) {
-                return Some(record);
-            }
-        }
-    }
-}
-
-fn read_confirmation_height_record(
-    (key, value): (&[u8], &[u8]),
-) -> (Account, ConfirmationHeightInfo) {
-    let account = Account::from_bytes(
-        key.try_into()
-            .expect("invalid confirmation height key length"),
-    );
-    let mut bytes = value;
-    let info = ConfirmationHeightInfo::deserialize(&mut bytes)
-        .expect("failed to deserialize confirmation height");
-    (account, info)
-}
-
-pub struct RocksdbRepWeightStore {
-    database: StoreDatabase,
-    delete_listener: OutputListenerMt<PublicKey>,
-    put_listener: OutputListenerMt<(PublicKey, Amount)>,
-}
-
-impl RocksdbRepWeightStore {
-    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
-        let database = env.open_db(Some(REP_WEIGHT_CF_NAME))?;
-        Ok(Self {
-            database,
-            delete_listener: OutputListenerMt::new(),
-            put_listener: OutputListenerMt::new(),
-        })
-    }
-
-    fn database(&self) -> StoreDatabase {
-        self.database
-    }
-
-    pub fn track_deletions(&self) -> Arc<OutputTrackerMt<PublicKey>> {
-        self.delete_listener.track()
-    }
-
-    pub fn track_puts(&self) -> Arc<OutputTrackerMt<(PublicKey, Amount)>> {
-        self.put_listener.track()
-    }
-
-    pub fn get(&self, txn: &dyn LedgerReadTxn, pub_key: &PublicKey) -> Option<Amount> {
-        match txn.get(self.database(), pub_key.as_bytes()) {
-            Ok(mut bytes) => Amount::deserialize(&mut bytes).ok(),
-            Err(e) if e.is_not_found() => None,
-            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
-            Err(e) => panic!("failed to read rep weight: {e}"),
-        }
-    }
-
-    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, representative: PublicKey, weight: Amount) {
-        if self.put_listener.is_tracked() {
-            self.put_listener.emit((representative, weight));
-        }
-        txn.put(
-            self.database(),
-            representative.as_bytes(),
-            &weight.to_be_bytes(),
-            StoreWriteFlags::default(),
-        )
-        .expect("failed to write rep weight");
-    }
-
-    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, representative: &PublicKey) {
-        if self.delete_listener.is_tracked() {
-            self.delete_listener.emit(*representative);
-        }
-        txn.delete(self.database(), representative.as_bytes(), None)
-            .expect("failed to delete rep weight");
-    }
-
-    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.raw_count(self.database())
-    }
-
-    pub fn iter<'txn>(
-        &'txn self,
-        txn: &'txn dyn LedgerReadTxn,
-    ) -> StoreIterator<'txn, (PublicKey, Amount)> {
-        let cursor = txn
-            .open_ro_cursor(self.database())
-            .expect("failed to open rep weight cursor");
-        let cursor = rocksdb_ro_cursor_from_store(cursor);
-        Box::new(RocksdbRepWeightIterator::new(cursor))
-    }
-}
-
-impl RepWeightStore for RocksdbRepWeightStore {
-    fn get(&self, txn: &dyn LedgerReadTxn, rep: &PublicKey) -> Option<Amount> {
-        RocksdbRepWeightStore::get(self, txn, rep)
-    }
-
-    fn put(&self, txn: &mut dyn LedgerWriteTxn, representative: PublicKey, weight: Amount) {
-        RocksdbRepWeightStore::put(self, txn, representative, weight);
-    }
-
-    fn del(&self, txn: &mut dyn LedgerWriteTxn, representative: &PublicKey) {
-        RocksdbRepWeightStore::del(self, txn, representative);
-    }
-
-    fn track_puts(&self) -> Arc<OutputTrackerMt<(PublicKey, Amount)>> {
-        RocksdbRepWeightStore::track_puts(self)
-    }
-
-    fn track_deletions(&self) -> Arc<OutputTrackerMt<PublicKey>> {
-        RocksdbRepWeightStore::track_deletions(self)
-    }
-}
-
-struct RocksdbRepWeightIterator<'txn> {
-    cursor: RocksdbCursor<'txn>,
-}
-
-impl<'txn> RocksdbRepWeightIterator<'txn> {
-    fn new(cursor: RocksdbCursor<'txn>) -> Self {
-        Self { cursor }
-    }
-}
-
-impl<'txn> Iterator for RocksdbRepWeightIterator<'txn> {
-    type Item = (PublicKey, Amount);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let entry = self.cursor.next().expect("failed to advance cursor")?;
-        Some(read_rep_weight_record(entry))
-    }
-}
-
-fn read_rep_weight_record((key, value): (&[u8], &[u8])) -> (PublicKey, Amount) {
-    let pub_key = PublicKey::from_slice(
-        key.try_into()
-            .expect("invalid representative key length in RocksDB"),
-    )
-    .expect("failed to parse public key");
-    let mut bytes = value;
-    let amount = Amount::deserialize(&mut bytes).expect("failed to deserialize amount");
-    (pub_key, amount)
-}
-
-pub struct RocksdbOnlineWeightStore {
-    database: StoreDatabase,
-}
-
-impl RocksdbOnlineWeightStore {
-    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
-        let database = env.open_db(Some(ONLINE_WEIGHT_CF_NAME))?;
-        Ok(Self { database })
-    }
-
-    fn database(&self) -> StoreDatabase {
-        self.database
-    }
-
-    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, time: u64, amount: &Amount) {
-        txn.put(
-            self.database(),
-            &time.to_be_bytes(),
-            &amount.to_be_bytes(),
-            StoreWriteFlags::default(),
-        )
-        .expect("failed to write online weight");
-    }
-
-    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, time: u64) {
-        txn.delete(self.database(), &time.to_be_bytes(), None)
-            .expect("failed to delete online weight");
-    }
-
-    pub fn iter<'txn>(
-        &'txn self,
-        txn: &'txn dyn LedgerReadTxn,
-    ) -> StoreIterator<'txn, (u64, Amount)> {
-        let cursor = txn
-            .open_ro_cursor(self.database())
-            .expect("failed to open online weight cursor");
-        let cursor = rocksdb_ro_cursor_from_store(cursor);
-        Box::new(RocksdbOnlineWeightIterator::new(cursor))
-    }
-
-    pub fn iter_rev<'txn>(
-        &'txn self,
-        txn: &'txn dyn LedgerReadTxn,
-    ) -> StoreIterator<'txn, (u64, Amount)> {
-        let cursor = txn
-            .open_ro_cursor(self.database())
-            .expect("failed to open online weight cursor");
-        let mut cursor = rocksdb_ro_cursor_from_store(cursor);
-        let mut entries = Vec::new();
-        loop {
-            match cursor.next().expect("failed to advance RocksDB cursor") {
-                Some((key, value)) => {
-                    let time = u64::from_be_bytes(
-                        key.try_into().expect("invalid online weight key length"),
-                    );
-                    let amount = Amount::from_be_bytes(
-                        value
-                            .try_into()
-                            .expect("invalid online weight amount length"),
-                    );
-                    entries.push((time, amount));
-                }
-                None => break,
-            }
-        }
-        entries.reverse();
-        Box::new(entries.into_iter())
-    }
-
-    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.raw_count(self.database())
-    }
-
-    pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.clear_db(self.database())
-            .expect("failed to clear online weight");
-    }
-}
-
-impl OnlineWeightStore for RocksdbOnlineWeightStore {
-    fn put(&self, txn: &mut dyn LedgerWriteTxn, time: u64, amount: &Amount) {
-        RocksdbOnlineWeightStore::put(self, txn, time, amount);
-    }
-
-    fn del(&self, txn: &mut dyn LedgerWriteTxn, time: u64) {
-        RocksdbOnlineWeightStore::del(self, txn, time);
-    }
-
-    fn iter<'a>(&'a self, txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, (u64, Amount)> {
-        RocksdbOnlineWeightStore::iter(self, txn)
-    }
-
-    fn iter_rev<'a>(&'a self, txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, (u64, Amount)> {
-        RocksdbOnlineWeightStore::iter_rev(self, txn)
-    }
-}
-
-struct RocksdbOnlineWeightIterator<'txn> {
-    cursor: RocksdbCursor<'txn>,
-}
-
-impl<'txn> RocksdbOnlineWeightIterator<'txn> {
-    fn new(cursor: RocksdbCursor<'txn>) -> Self {
-        Self { cursor }
-    }
-}
-
-impl<'txn> Iterator for RocksdbOnlineWeightIterator<'txn> {
-    type Item = (u64, Amount);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let entry = self.cursor.next().expect("failed to advance cursor")?;
-        let time = u64::from_be_bytes(entry.0.try_into().expect("invalid time bytes"));
-        let amount = Amount::from_be_bytes(entry.1.try_into().expect("invalid amount bytes"));
-        Some((time, amount))
-    }
-}
-
-pub struct RocksdbPrunedStore {
-    database: StoreDatabase,
-}
-
-impl RocksdbPrunedStore {
-    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
-        let database = env.open_db(Some(PRUNED_CF_NAME))?;
-        Ok(Self { database })
-    }
-
-    fn database(&self) -> StoreDatabase {
-        self.database
-    }
-
-    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, hash: &BlockHash) {
-        txn.put(
-            self.database(),
-            hash.as_bytes(),
-            &[],
-            StoreWriteFlags::default(),
-        )
-        .expect("failed to insert pruned hash");
-    }
-
-    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, hash: &BlockHash) {
-        txn.delete(self.database(), hash.as_bytes(), None)
-            .expect("failed to delete pruned hash");
-    }
-
-    pub fn exists(&self, txn: &dyn LedgerReadTxn, hash: &BlockHash) -> bool {
-        txn.raw_exists(self.database(), hash.as_bytes())
-    }
-
-    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.raw_count(self.database())
-    }
-}
-
-pub struct RocksdbFinalVoteStore {
-    database: StoreDatabase,
-}
-
-impl RocksdbFinalVoteStore {
-    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
-        let database = env.open_db(Some(FINAL_VOTE_CF_NAME))?;
-        Ok(Self { database })
-    }
-
-    fn database(&self) -> StoreDatabase {
-        self.database
-    }
-
-    pub fn put(
-        &self,
-        txn: &mut dyn LedgerWriteTxn,
-        root: &QualifiedRoot,
-        hash: &BlockHash,
-    ) -> bool {
-        let key = root.to_bytes();
-        match txn.get(self.database(), &key) {
-            Err(e) if e.is_not_found() => {
-                txn.put(
-                    self.database(),
-                    &key,
-                    hash.as_bytes(),
-                    StoreWriteFlags::default(),
-                )
-                .expect("failed to insert final vote");
-                true
-            }
-            Ok(existing) => {
-                let stored = BlockHash::from_slice(existing)
-                    .expect("invalid block hash stored in final vote");
-                stored == *hash
-            }
-            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
-            Err(e) => panic!("failed to read final vote: {e}"),
-        }
-    }
-
-    pub fn get(&self, txn: &dyn LedgerReadTxn, root: &QualifiedRoot) -> Option<BlockHash> {
-        match txn.get(self.database(), &root.to_bytes()) {
-            Ok(mut bytes) => {
-                Some(BlockHash::deserialize(&mut bytes).expect("failed to deserialize block hash"))
-            }
-            Err(e) if e.is_not_found() => None,
-            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
-            Err(e) => panic!("failed to read final vote: {e}"),
-        }
-    }
-
-    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, root: &QualifiedRoot) {
-        let key = root.to_bytes();
-        txn.delete(self.database(), &key, None)
-            .expect("failed to delete final vote");
-    }
-
-    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.raw_count(self.database())
-    }
-
-    pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.clear_db(self.database())
-            .expect("failed to clear final votes");
-    }
-}
-
-pub struct RocksdbSuccessorStore {
-    database: StoreDatabase,
-    put_listener: OutputListenerMt<(BlockHash, BlockHash)>,
-}
-
-impl RocksdbSuccessorStore {
-    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
-        let database = env.open_db(Some(SUCCESSOR_CF_NAME))?;
-        Ok(Self {
-            database,
-            put_listener: OutputListenerMt::new(),
-        })
-    }
-
-    fn database(&self) -> StoreDatabase {
-        self.database
-    }
-
-    pub fn track_puts(&self) -> Arc<OutputTrackerMt<(BlockHash, BlockHash)>> {
-        self.put_listener.track()
-    }
-
-    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, block: &BlockHash, successor: &BlockHash) {
-        if self.put_listener.is_tracked() {
-            self.put_listener.emit((*block, *successor));
-        }
-        txn.put(
-            self.database(),
-            block.as_bytes(),
-            successor.as_bytes(),
-            StoreWriteFlags::default(),
-        )
-        .expect("failed to write successor");
-    }
-
-    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, block: &BlockHash) {
-        txn.delete(self.database(), block.as_bytes(), None)
-            .expect("failed to delete successor");
-    }
-
-    pub fn get(&self, txn: &dyn LedgerReadTxn, block: &BlockHash) -> Option<BlockHash> {
-        match txn.get(self.database(), block.as_bytes()) {
-            Ok(bytes) => BlockHash::from_slice(bytes),
-            Err(e) if e.is_not_found() => None,
-            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
-            Err(e) => panic!("failed to read successor: {e}"),
-        }
-    }
-
-    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.raw_count(self.database())
-    }
-}
-
-pub struct RocksdbPeerStore {
-    database: StoreDatabase,
-    put_listener: OutputListenerMt<(SocketAddrV6, SystemTime)>,
-    delete_listener: OutputListenerMt<SocketAddrV6>,
-}
-
-impl RocksdbPeerStore {
-    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
-        let database = env.open_db(Some(PEERS_CF_NAME))?;
-        Ok(Self {
-            database,
-            put_listener: OutputListenerMt::new(),
-            delete_listener: OutputListenerMt::new(),
-        })
-    }
-
-    fn database(&self) -> StoreDatabase {
-        self.database
-    }
-
-    pub fn track_puts(&self) -> Arc<OutputTrackerMt<(SocketAddrV6, SystemTime)>> {
-        self.put_listener.track()
-    }
-
-    pub fn track_deletions(&self) -> Arc<OutputTrackerMt<SocketAddrV6>> {
-        self.delete_listener.track()
-    }
-
-    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6, time: SystemTime) {
-        if self.put_listener.is_tracked() {
-            self.put_listener.emit((endpoint, time));
-        }
-        let key = encode_endpoint(&endpoint);
-        let value = encode_time(time);
-        txn.put(self.database(), &key, &value, StoreWriteFlags::default())
-            .expect("failed to store peer");
-    }
-
-    pub fn del(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6) {
-        if self.delete_listener.is_tracked() {
-            self.delete_listener.emit(endpoint);
-        }
-        let key = encode_endpoint(&endpoint);
-        txn.delete(self.database(), &key, None)
-            .expect("failed to delete peer");
-    }
-
-    pub fn exists(&self, txn: &dyn LedgerReadTxn, endpoint: SocketAddrV6) -> bool {
-        let key = encode_endpoint(&endpoint);
-        txn.raw_exists(self.database(), &key)
-    }
-
-    pub fn iter<'txn>(
-        &'txn self,
-        txn: &'txn dyn LedgerReadTxn,
-    ) -> StoreIterator<'txn, (SocketAddrV6, SystemTime)> {
-        let cursor = txn
-            .open_ro_cursor(self.database())
-            .expect("failed to open peer cursor");
-        let cursor = rocksdb_ro_cursor_from_store(cursor);
-        Box::new(RocksdbPeerIterator::new(cursor))
-    }
-
-    pub fn count(&self, txn: &dyn LedgerReadTxn) -> u64 {
-        txn.raw_count(self.database())
-    }
-
-    pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.clear_db(self.database())
-            .expect("failed to clear peers");
-    }
-}
-
-fn encode_endpoint(endpoint: &SocketAddrV6) -> [u8; 18] {
-    let mut bytes = [0u8; 18];
-    bytes[..16].copy_from_slice(&endpoint.ip().octets());
-    bytes[16..].copy_from_slice(&endpoint.port().to_be_bytes());
-    bytes
-}
-
-fn decode_endpoint(bytes: &[u8]) -> SocketAddrV6 {
-    let ip: [u8; 16] = bytes[..16]
-        .try_into()
-        .expect("invalid peer endpoint length");
-    let port: [u8; 2] = bytes[16..18]
-        .try_into()
-        .expect("invalid peer endpoint length");
-    SocketAddrV6::new(ip.into(), u16::from_be_bytes(port), 0, 0)
-}
-
-fn encode_time(time: SystemTime) -> [u8; 8] {
-    let duration = time.duration_since(UNIX_EPOCH).unwrap_or_default();
-    let millis = duration.as_millis();
-    let clamped = if millis > u64::MAX as u128 {
-        u64::MAX
-    } else {
-        millis as u64
-    };
-    clamped.to_be_bytes()
-}
-
-fn decode_time(bytes: &[u8]) -> SystemTime {
-    let array: [u8; 8] = bytes[..8]
-        .try_into()
-        .expect("invalid peer timestamp length");
-    UNIX_EPOCH + Duration::from_millis(u64::from_be_bytes(array))
-}
-
-struct RocksdbPeerIterator<'txn> {
-    cursor: RocksdbCursor<'txn>,
-}
-
-impl<'txn> RocksdbPeerIterator<'txn> {
-    fn new(cursor: RocksdbCursor<'txn>) -> Self {
-        Self { cursor }
-    }
-}
-
-impl<'txn> Iterator for RocksdbPeerIterator<'txn> {
-    type Item = (SocketAddrV6, SystemTime);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let entry = self.cursor.next().expect("failed to advance cursor")?;
-        let endpoint = decode_endpoint(entry.0);
-        let time = decode_time(entry.1);
-        Some((endpoint, time))
-    }
-}
-
-pub struct RocksdbVersionStore {
-    database: StoreDatabase,
-}
-
-impl RocksdbVersionStore {
-    pub fn new(env: Arc<RocksdbStoreEnvironment>) -> Result<Self> {
-        let database = env.open_db(Some(VERSION_CF_NAME))?;
-        Ok(Self { database })
-    }
-
-    fn database(&self) -> StoreDatabase {
-        self.database
-    }
-
-    pub fn put(&self, txn: &mut dyn LedgerWriteTxn, version: i32) {
-        let key = version_key();
-        let value = version_value(version);
-        txn.put(self.database(), &key, &value, StoreWriteFlags::default())
-            .expect("failed to write version");
-    }
-
-    pub fn get(&self, txn: &dyn LedgerReadTxn) -> Option<i32> {
-        let key = version_key();
-        match txn.get(self.database(), &key) {
-            Ok(value) => Some(decode_version(value)),
-            Err(e) if e.is_not_found() => None,
-            // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
-            Err(e) => panic!("failed to read version: {e}"),
-        }
-    }
-}
-
-fn version_value(version: i32) -> [u8; 32] {
-    let mut bytes = [0u8; 32];
-    bytes[28..].copy_from_slice(&version.to_be_bytes());
-    bytes
-}
-
-fn version_key() -> [u8; 32] {
-    version_value(1)
-}
-
-fn decode_version(bytes: &[u8]) -> i32 {
-    let mut array = [0u8; 4];
-    array.copy_from_slice(&bytes[28..32]);
-    i32::from_be_bytes(array)
-}
-
-impl SuccessorStore for RocksdbSuccessorStore {
-    fn put(&self, txn: &mut dyn LedgerWriteTxn, block: &BlockHash, successor: &BlockHash) {
-        RocksdbSuccessorStore::put(self, txn, block, successor);
-    }
-
-    fn del(&self, txn: &mut dyn LedgerWriteTxn, block: &BlockHash) {
-        RocksdbSuccessorStore::del(self, txn, block);
-    }
-
-    fn get(&self, txn: &dyn LedgerReadTxn, block: &BlockHash) -> Option<BlockHash> {
-        RocksdbSuccessorStore::get(self, txn, block)
-    }
-
-    fn track_puts(&self) -> Arc<OutputTrackerMt<(BlockHash, BlockHash)>> {
-        RocksdbSuccessorStore::track_puts(self)
     }
 }
 
@@ -1759,6 +325,82 @@ impl RocksdbLedgerWriteTxn {
 
     pub fn as_inner_mut(&mut self) -> &mut RocksdbWriteTxn<'static> {
         &mut self.inner
+    }
+}
+
+impl LedgerReadTxn for RocksdbLedgerReadTxn {
+    fn is_refresh_needed(&self) -> bool {
+        false
+    }
+
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
+        self.inner.get(database, key)
+    }
+
+    fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
+        let cursor = self.inner.open_cursor(database)?;
+        Ok(store_ro_cursor_from_rocksdb(cursor))
+    }
+
+    fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
+        self.inner.count(database)
+    }
+}
+
+impl LedgerReadTxn for RocksdbLedgerWriteTxn {
+    fn is_refresh_needed(&self) -> bool {
+        false
+    }
+
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
+        self.inner.get(database, key)
+    }
+
+    fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>> {
+        let cursor = self.inner.open_cursor(database)?;
+        Ok(store_ro_cursor_from_rocksdb(cursor))
+    }
+
+    fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
+        self.inner.count(database)
+    }
+}
+
+impl LedgerWriteTxn for RocksdbLedgerWriteTxn {
+    fn put(
+        &mut self,
+        database: StoreDatabase,
+        key: &[u8],
+        value: &[u8],
+        flags: StoreWriteFlags,
+    ) -> StoreResult<()> {
+        self.inner.put(database, key, value, flags)
+    }
+
+    fn delete(
+        &mut self,
+        database: StoreDatabase,
+        key: &[u8],
+        value: Option<&[u8]>,
+    ) -> StoreResult<()> {
+        self.inner.delete(database, key, value)
+    }
+
+    fn clear_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
+        self.inner.clear_db(database)
+    }
+
+    fn open_rw_cursor(&mut self, database: StoreDatabase) -> StoreResult<StoreRwCursor<'_>> {
+        let cursor = self.inner.open_rw_cursor(database)?;
+        Ok(store_rw_cursor_from_rocksdb(cursor))
+    }
+
+    unsafe fn drop_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
+        unsafe { self.inner.drop_db(database) }
+    }
+
+    fn commit(self: Box<Self>) -> StoreResult<()> {
+        self.inner.commit()
     }
 }
 
@@ -2153,11 +795,7 @@ struct KeyCountState {
 }
 
 fn bool_to_i64(value: bool) -> i64 {
-    if value {
-        1
-    } else {
-        0
-    }
+    if value { 1 } else { 0 }
 }
 
 fn database_key(database: StoreDatabase) -> usize {
@@ -2223,9 +861,12 @@ impl<'env> RocksdbWriteTxn<'env> {
             self.snapshot_contains(database, key)?
         };
 
-        tracker
-            .key_states
-            .insert(key.to_vec(), KeyCountState { current_present: initial_present });
+        tracker.key_states.insert(
+            key.to_vec(),
+            KeyCountState {
+                current_present: initial_present,
+            },
+        );
         Ok(tracker
             .key_states
             .get_mut(key)
@@ -2605,9 +1246,16 @@ fn store_error_from_rocksdb(err: RocksError) -> StoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsnano_types::{Amount, Block, BlockHash, PrivateKey, PublicKey, QualifiedRoot};
-    use std::ops::Bound;
-    use std::{fs, net::Ipv6Addr};
+    use rsnano_types::{
+        Amount, Block, BlockHash, PendingInfo, PendingKey, PrivateKey, PublicKey, QualifiedRoot,
+        SavedBlock,
+    };
+    use std::{
+        fs,
+        net::{Ipv6Addr, SocketAddrV6},
+        ops::Bound,
+        time::{Duration, UNIX_EPOCH},
+    };
     use tempfile::tempdir;
 
     #[test]
@@ -3776,49 +2424,5 @@ mod tests {
         let key = PrivateKey::from(u64::from(seed) + 42);
         let block = Block::new_test_instance_with_key(key);
         SavedBlock::new_test_instance_with(block)
-    }
-}
-impl FinalVoteStore for RocksdbFinalVoteStore {
-    fn put(&self, txn: &mut dyn LedgerWriteTxn, root: &QualifiedRoot, hash: &BlockHash) -> bool {
-        RocksdbFinalVoteStore::put(self, txn, root, hash)
-    }
-
-    fn get(&self, txn: &dyn LedgerReadTxn, root: &QualifiedRoot) -> Option<BlockHash> {
-        RocksdbFinalVoteStore::get(self, txn, root)
-    }
-}
-
-impl PeerStore for RocksdbPeerStore {
-    fn put(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6, time: SystemTime) {
-        RocksdbPeerStore::put(self, txn, endpoint, time);
-    }
-
-    fn del(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6) {
-        RocksdbPeerStore::del(self, txn, endpoint);
-    }
-
-    fn exists(&self, txn: &dyn LedgerReadTxn, endpoint: SocketAddrV6) -> bool {
-        RocksdbPeerStore::exists(self, txn, endpoint)
-    }
-
-    fn iter<'a>(
-        &'a self,
-        txn: &'a dyn LedgerReadTxn,
-    ) -> StoreIterator<'a, (SocketAddrV6, SystemTime)> {
-        RocksdbPeerStore::iter(self, txn)
-    }
-
-    fn track_puts(&self) -> Arc<OutputTrackerMt<(SocketAddrV6, SystemTime)>> {
-        RocksdbPeerStore::track_puts(self)
-    }
-
-    fn track_deletions(&self) -> Arc<OutputTrackerMt<SocketAddrV6>> {
-        RocksdbPeerStore::track_deletions(self)
-    }
-}
-
-impl VersionStore for RocksdbVersionStore {
-    fn get(&self, txn: &dyn LedgerReadTxn) -> Option<i32> {
-        RocksdbVersionStore::get(self, txn)
     }
 }
