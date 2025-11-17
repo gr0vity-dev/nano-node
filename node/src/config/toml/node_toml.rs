@@ -285,6 +285,9 @@ impl NodeConfig {
         if let Some(websocket_config_toml) = &toml.websocket {
             self.websocket_config.merge_toml(&websocket_config_toml);
         }
+        if let Some(experimental) = &toml.experimental {
+            self.merge_experimental_toml(experimental);
+        }
         if let Some(storage) = &toml.storage {
             storage.apply(self);
         } else if let Some(lmdb_config_toml) = &toml.lmdb {
@@ -766,5 +769,134 @@ mod tests {
             cfg.ledger_store_config.backend,
             LedgerBackend::Lmdb(_)
         ));
+    }
+
+    #[test]
+    fn rocksdb_optimizations_disabled_without_flag() {
+        let storage = StorageToml {
+            backend: Some("rocksdb".to_string()),
+            rocksdb: Some(RocksDbToml {
+                enable_pipelined_write: Some(true),
+                allow_concurrent_memtable_write: Some(true),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let toml = NodeToml {
+            storage: Some(storage),
+            ..Default::default()
+        };
+
+        let mut cfg = NodeConfig::new_test_instance();
+        cfg.merge_toml(&toml);
+
+        match &cfg.ledger_store_config.backend {
+            LedgerBackend::RocksDb(rocks) => {
+                assert!(!rocks.enable_pipelined_write);
+                assert!(!rocks.allow_concurrent_memtable_write);
+            }
+            _ => panic!("expected RocksDB backend"),
+        }
+    }
+
+    #[test]
+    fn rocksdb_optimizations_require_restart() {
+        let storage = StorageToml {
+            backend: Some("rocksdb".to_string()),
+            rocksdb: Some(RocksDbToml {
+                enable_pipelined_write: Some(true),
+                allow_concurrent_memtable_write: Some(true),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let experimental = ExperimentalToml {
+            rocksdb_optimizations_enabled: Some(true),
+            ..Default::default()
+        };
+
+        let mut cfg = NodeConfig::new_test_instance();
+        cfg.merge_toml(&NodeToml {
+            storage: Some(storage.clone()),
+            ..Default::default()
+        });
+        let rocks_cfg = match &cfg.ledger_store_config.backend {
+            LedgerBackend::RocksDb(rocks) => rocks,
+            _ => panic!("expected RocksDB backend"),
+        };
+        assert!(!rocks_cfg.enable_pipelined_write);
+        assert!(!rocks_cfg.allow_concurrent_memtable_write);
+
+        cfg.merge_toml(&NodeToml {
+            experimental: Some(experimental.clone()),
+            ..Default::default()
+        });
+        let rocks_cfg = match &cfg.ledger_store_config.backend {
+            LedgerBackend::RocksDb(rocks) => rocks,
+            _ => panic!("expected RocksDB backend"),
+        };
+        assert!(!rocks_cfg.enable_pipelined_write);
+        assert!(!rocks_cfg.allow_concurrent_memtable_write);
+
+        // Simulate restart: new NodeConfig instance
+        let mut cfg = NodeConfig::new_test_instance();
+        cfg.merge_toml(&NodeToml {
+            experimental: Some(experimental),
+            ..Default::default()
+        });
+        cfg.merge_toml(&NodeToml {
+            storage: Some(storage),
+            ..Default::default()
+        });
+
+        let rocks_cfg = match &cfg.ledger_store_config.backend {
+            LedgerBackend::RocksDb(rocks) => rocks,
+            _ => panic!("expected RocksDB backend"),
+        };
+        assert!(rocks_cfg.enable_pipelined_write);
+        assert!(rocks_cfg.allow_concurrent_memtable_write);
+    }
+
+    #[test]
+    fn rocksdb_toml_applies_to_environment() {
+        use store_rocksdb::RocksdbStoreEnvironment;
+        use store_traits::types::StoreEnvironmentFlags;
+
+        let toml_str = r#"
+[node.experimental]
+rocksdb_optimizations_enabled = true
+
+[node.storage]
+backend = "rocksdb"
+
+[node.storage.rocksdb]
+enable_pipelined_write = true
+allow_concurrent_memtable_write = true
+write_buffer_size = 12345
+"#;
+        let node_toml: NodeToml = ::toml::from_str(toml_str).expect("parse node toml");
+        let mut cfg = NodeConfig::new_test_instance();
+        cfg.merge_toml(&node_toml);
+
+        let rocks_cfg = match &cfg.ledger_store_config.backend {
+            LedgerBackend::RocksDb(rocks) => rocks.clone(),
+            _ => panic!("expected RocksDB backend"),
+        };
+        assert!(rocks_cfg.enable_pipelined_write);
+        assert!(rocks_cfg.allow_concurrent_memtable_write);
+
+        let dir = tempfile::tempdir().unwrap();
+        let env = RocksdbStoreEnvironment::open(
+            dir.path().to_path_buf(),
+            StoreEnvironmentFlags::empty(),
+            Some(dir),
+            Some(&rocks_cfg),
+        )
+        .expect("open rocksdb env");
+
+        let applied = env.applied_config().expect("applied config");
+        assert!(applied.enable_pipelined_write);
+        assert!(applied.allow_concurrent_memtable_write);
+        assert_eq!(applied.write_buffer_size, Some(12345));
     }
 }

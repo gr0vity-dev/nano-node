@@ -80,6 +80,7 @@ num-format = "0.4.4"
 rustc-hash = "2.1.1"
 
 [dev-dependencies]
+tempfile = "3"
 mock_instant = "0"
 tracing-test = "0"
 test_helpers = { path = "../tools/test_helpers" }

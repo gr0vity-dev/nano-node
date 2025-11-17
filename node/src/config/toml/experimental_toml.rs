@@ -3,9 +3,10 @@ use rsnano_types::Peer;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 pub struct ExperimentalToml {
     pub secondary_work_peers: Option<Vec<String>>,
+    pub rocksdb_optimizations_enabled: Option<bool>,
 }
 
 impl NodeConfig {
@@ -15,6 +16,9 @@ impl NodeConfig {
                 .iter()
                 .map(|string| Peer::from_str(&string).expect("Invalid secondary work peer"))
                 .collect();
+        }
+        if let Some(enabled) = toml.rocksdb_optimizations_enabled {
+            self.rocksdb_optimizations_enabled = enabled;
         }
     }
 }
@@ -29,6 +33,7 @@ impl From<&NodeConfig> for ExperimentalToml {
                     .map(|peer| peer.to_string())
                     .collect(),
             ),
+            rocksdb_optimizations_enabled: Some(config.rocksdb_optimizations_enabled),
         }
     }
 }

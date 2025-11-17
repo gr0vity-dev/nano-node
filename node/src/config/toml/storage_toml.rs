@@ -87,9 +87,17 @@ impl StorageToml {
 
 fn apply_rocksdb_config(config: &mut NodeConfig, rocks_config: RocksDbConfig) {
     let sync = config.ledger_store_config.sync;
+    let backend_cfg = if config.rocksdb_optimizations_enabled {
+        rocks_config
+    } else {
+        RocksDbConfig {
+            max_open_files: rocks_config.max_open_files,
+            ..RocksDbConfig::default()
+        }
+    };
     config.ledger_store_config = LedgerStoreConfig {
         sync,
-        backend: LedgerBackend::RocksDb(rocks_config),
+        backend: LedgerBackend::RocksDb(backend_cfg),
     };
 }
 

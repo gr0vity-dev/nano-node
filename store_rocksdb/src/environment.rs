@@ -51,6 +51,10 @@ impl RocksdbStoreEnvironment {
     pub fn sync(&self) -> StoreResult<()> {
         self.inner.flush_wal()
     }
+
+    pub fn applied_config(&self) -> Option<RocksDbConfig> {
+        self.inner.config.clone()
+    }
 }
 
 impl StoreEnvironment for RocksdbStoreEnvironment {
