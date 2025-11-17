@@ -2077,11 +2077,22 @@ impl<'env> StoreReadTxn<'env> for RocksdbReadTxn<'env> {
     }
 
     fn count(&self, database: StoreDatabase) -> u64 {
-        let entries = self
+        let handle = self
             .inner
-            .collect_snapshot_entries(&self.snapshot, database)
+            .cf_handle(database)
             .unwrap_or_else(|e| panic!("failed to count RocksDB records: {e}"));
-        entries.len() as u64
+        let mut iter = self.snapshot.iterator_cf(&handle, IteratorMode::Start);
+        let mut count = 0u64;
+        while let Some(item) = iter.next() {
+            match item {
+                Ok(_) => count += 1,
+                Err(err) => {
+                    let err = store_error_from_rocksdb(err);
+                    panic!("failed to count RocksDB records: {err}");
+                }
+            }
+        }
+        count
     }
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
