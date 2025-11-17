@@ -21,7 +21,9 @@ use rsnano_types::{
     Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, Epoch, Networks, PrivateKey, PublicKey,
     SavedBlock, StateBlockArgs, WalletId,
 };
-use store_traits::config::StoreSyncStrategy;
+use store_traits::config::{LedgerBackend, LmdbConfig, RocksDbConfig, StoreSyncStrategy};
+
+const TEST_LEDGER_BACKEND_ENV: &str = "RSNANO_TEST_LEDGER_BACKEND";
 
 pub struct System {
     pub network_params: NetworkParams,
@@ -53,17 +55,17 @@ impl System {
         // process blocks sequentially
         config.block_processor.batch_size = 1;
         config.block_processor_threads = 1;
+        apply_test_backend_override(&mut config);
         config
     }
 
     pub fn default_config_without_backlog_scan() -> NodeConfig {
-        NodeConfig {
-            backlog_scan: BacklogScanConfig {
-                enabled: false,
-                ..Default::default()
-            },
-            ..Self::default_config()
-        }
+        let mut config = Self::default_config();
+        config.backlog_scan = BacklogScanConfig {
+            enabled: false,
+            ..Default::default()
+        };
+        config
     }
 
     pub fn build_node(&mut self) -> TestNodeBuilder<'_> {
@@ -208,6 +210,21 @@ impl System {
         drop(node);
         let mut node = self.nodes.remove(index);
         Arc::get_mut(&mut node).unwrap().stop();
+    }
+}
+
+fn apply_test_backend_override(config: &mut NodeConfig) {
+    if let Some(backend) = test_backend_from_env() {
+        config.ledger_store_config.backend = backend;
+    }
+}
+
+fn test_backend_from_env() -> Option<LedgerBackend> {
+    let value = std::env::var(TEST_LEDGER_BACKEND_ENV).ok()?;
+    match value.to_ascii_lowercase().as_str() {
+        "rocksdb" => Some(LedgerBackend::RocksDb(RocksDbConfig::default())),
+        "lmdb" => Some(LedgerBackend::Lmdb(LmdbConfig::default())),
+        _ => None,
     }
 }
 
