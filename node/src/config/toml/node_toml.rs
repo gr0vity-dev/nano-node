@@ -4,8 +4,8 @@ use bounded_backlog_toml::BoundedBacklogToml;
 use rsnano_types::{Account, Amount, Peer};
 use serde::{Deserialize, Serialize};
 use std::{str::FromStr, time::Duration};
-use tcp_toml::TcpToml;
 use store_traits::config::LedgerBackend;
+use tcp_toml::TcpToml;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct NodeToml {
@@ -501,10 +501,7 @@ impl From<&NodeConfig> for NodeToml {
             bootstrap: Some((&config.bootstrap).into()),
             bootstrap_server: Some(config.into()),
             websocket: Some((&config.websocket_config).into()),
-            lmdb: if matches!(
-                config.ledger_store_config.backend,
-                LedgerBackend::Lmdb(_)
-            ) {
+            lmdb: if matches!(config.ledger_store_config.backend, LedgerBackend::Lmdb(_)) {
                 Some((&config.ledger_store_config).into())
             } else {
                 None

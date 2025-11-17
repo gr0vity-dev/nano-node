@@ -33,7 +33,7 @@ use store_traits::environment::{
 };
 use store_traits::ledger::{
     AccountStore, BlockStore, ConfirmationHeightStore, FinalVoteStore, LedgerCache, LedgerStore,
-    LedgerStoreFactory, MemoryStats, OnlineWeightStore, PendingStore, PeerStore, RangeBounds,
+    LedgerStoreFactory, MemoryStats, OnlineWeightStore, PeerStore, PendingStore, RangeBounds,
     RepWeightStore, StoreIterator, SuccessorStore, VersionStore,
 };
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
@@ -520,10 +520,7 @@ impl AccountStore for RocksdbAccountStore {
         RocksdbAccountStore::del(self, txn, account);
     }
 
-    fn iter<'a>(
-        &'a self,
-        txn: &'a dyn LedgerReadTxn,
-    ) -> StoreIterator<'a, (Account, AccountInfo)> {
+    fn iter<'a>(&'a self, txn: &'a dyn LedgerReadTxn) -> StoreIterator<'a, (Account, AccountInfo)> {
         RocksdbAccountStore::iter(self, txn)
     }
 
@@ -862,20 +859,11 @@ impl RocksdbConfirmationHeightStore {
 }
 
 impl ConfirmationHeightStore for RocksdbConfirmationHeightStore {
-    fn put(
-        &self,
-        txn: &mut dyn LedgerWriteTxn,
-        account: &Account,
-        info: &ConfirmationHeightInfo,
-    ) {
+    fn put(&self, txn: &mut dyn LedgerWriteTxn, account: &Account, info: &ConfirmationHeightInfo) {
         RocksdbConfirmationHeightStore::put(self, txn, account, info);
     }
 
-    fn get(
-        &self,
-        txn: &dyn LedgerReadTxn,
-        account: &Account,
-    ) -> Option<ConfirmationHeightInfo> {
+    fn get(&self, txn: &dyn LedgerReadTxn, account: &Account) -> Option<ConfirmationHeightInfo> {
         RocksdbConfirmationHeightStore::get(self, txn, account)
     }
 
@@ -1009,7 +997,10 @@ impl RocksdbRepWeightStore {
         txn.count(self.database())
     }
 
-    pub fn iter<'txn>(&'txn self, txn: &'txn dyn LedgerReadTxn) -> StoreIterator<'txn, (PublicKey, Amount)> {
+    pub fn iter<'txn>(
+        &'txn self,
+        txn: &'txn dyn LedgerReadTxn,
+    ) -> StoreIterator<'txn, (PublicKey, Amount)> {
         let cursor = txn
             .open_ro_cursor(self.database())
             .expect("failed to open rep weight cursor");
@@ -1123,8 +1114,7 @@ impl RocksdbOnlineWeightStore {
             match cursor.next().expect("failed to advance RocksDB cursor") {
                 Some((key, value)) => {
                     let time = u64::from_be_bytes(
-                        key.try_into()
-                            .expect("invalid online weight key length"),
+                        key.try_into().expect("invalid online weight key length"),
                     );
                     let amount = Amount::from_be_bytes(
                         value
@@ -1145,7 +1135,8 @@ impl RocksdbOnlineWeightStore {
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.clear_db(self.database()).expect("failed to clear online weight");
+        txn.clear_db(self.database())
+            .expect("failed to clear online weight");
     }
 }
 
@@ -1259,8 +1250,8 @@ impl RocksdbFinalVoteStore {
                 true
             }
             Ok(existing) => {
-                let stored =
-                    BlockHash::from_slice(existing).expect("invalid block hash stored in final vote");
+                let stored = BlockHash::from_slice(existing)
+                    .expect("invalid block hash stored in final vote");
                 stored == *hash
             }
             Err(e) => panic!("failed to read final vote: {e}"),
@@ -1269,9 +1260,9 @@ impl RocksdbFinalVoteStore {
 
     pub fn get(&self, txn: &dyn LedgerReadTxn, root: &QualifiedRoot) -> Option<BlockHash> {
         match txn.get(self.database(), &root.to_bytes()) {
-            Ok(mut bytes) => Some(
-                BlockHash::deserialize(&mut bytes).expect("failed to deserialize block hash"),
-            ),
+            Ok(mut bytes) => {
+                Some(BlockHash::deserialize(&mut bytes).expect("failed to deserialize block hash"))
+            }
             Err(e) if e.is_not_found() => None,
             Err(e) => panic!("failed to read final vote: {e}"),
         }
@@ -1380,13 +1371,8 @@ impl RocksdbPeerStore {
         }
         let key = encode_endpoint(&endpoint);
         let value = encode_time(time);
-        txn.put(
-            self.database(),
-            &key,
-            &value,
-            StoreWriteFlags::default(),
-        )
-        .expect("failed to store peer");
+        txn.put(self.database(), &key, &value, StoreWriteFlags::default())
+            .expect("failed to store peer");
     }
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, endpoint: SocketAddrV6) {
@@ -1419,7 +1405,8 @@ impl RocksdbPeerStore {
     }
 
     pub fn clear(&self, txn: &mut dyn LedgerWriteTxn) {
-        txn.clear_db(self.database()).expect("failed to clear peers");
+        txn.clear_db(self.database())
+            .expect("failed to clear peers");
     }
 }
 
@@ -1496,13 +1483,8 @@ impl RocksdbVersionStore {
     pub fn put(&self, txn: &mut dyn LedgerWriteTxn, version: i32) {
         let key = version_key();
         let value = version_value(version);
-        txn.put(
-            self.database(),
-            &key,
-            &value,
-            StoreWriteFlags::default(),
-        )
-        .expect("failed to write version");
+        txn.put(self.database(), &key, &value, StoreWriteFlags::default())
+            .expect("failed to write version");
     }
 
     pub fn get(&self, txn: &dyn LedgerReadTxn) -> Option<i32> {
@@ -1679,8 +1661,8 @@ impl LedgerStore for RocksdbLedgerStore {
         &self,
         _thread_count: usize,
         action: &(
-            dyn Fn(&mut dyn Iterator<Item = (Account, ConfirmationHeightInfo)>) + Send + Sync
-        ),
+             dyn Fn(&mut dyn Iterator<Item = (Account, ConfirmationHeightInfo)>) + Send + Sync
+         ),
     ) {
         let txn = RocksdbLedgerReadTxn::new(&self.env);
         let mut iter = self.confirmation_height.iter(&txn);
@@ -2413,8 +2395,8 @@ fn store_error_from_rocksdb(err: RocksError) -> StoreError {
 mod tests {
     use super::*;
     use rsnano_types::{Amount, Block, BlockHash, PrivateKey, PublicKey, QualifiedRoot};
-    use std::ops::Bound;
     use std::net::Ipv6Addr;
+    use std::ops::Bound;
     use tempfile::tempdir;
 
     struct BlockFixture {
@@ -3103,9 +3085,18 @@ mod tests {
     fn confirmation_store_iter_range() {
         let fixture = ConfirmationFixture::new();
         let entries = vec![
-            (Account::from(1), ConfirmationHeightInfo::new(1, BlockHash::from(1))),
-            (Account::from(2), ConfirmationHeightInfo::new(2, BlockHash::from(2))),
-            (Account::from(3), ConfirmationHeightInfo::new(3, BlockHash::from(3))),
+            (
+                Account::from(1),
+                ConfirmationHeightInfo::new(1, BlockHash::from(1)),
+            ),
+            (
+                Account::from(2),
+                ConfirmationHeightInfo::new(2, BlockHash::from(2)),
+            ),
+            (
+                Account::from(3),
+                ConfirmationHeightInfo::new(3, BlockHash::from(3)),
+            ),
         ];
         fixture.insert_entries(&entries);
 
@@ -3117,7 +3108,10 @@ mod tests {
         let entries: Vec<_> = fixture.store.iter_range(&read_txn, range).collect();
         assert_eq!(
             entries,
-            vec![(Account::from(2), ConfirmationHeightInfo::new(2, BlockHash::from(2)))]
+            vec![(
+                Account::from(2),
+                ConfirmationHeightInfo::new(2, BlockHash::from(2))
+            )]
         );
     }
 
@@ -3248,10 +3242,12 @@ mod tests {
     fn successor_store_no_entry() {
         let fixture = SuccessorFixture::new();
         let read_txn = fixture.begin_read();
-        assert!(fixture
-            .store
-            .get(&read_txn, &BlockHash::from(999))
-            .is_none());
+        assert!(
+            fixture
+                .store
+                .get(&read_txn, &BlockHash::from(999))
+                .is_none()
+        );
     }
 
     #[test]
@@ -3358,12 +3354,8 @@ mod tests {
         let fixture = FinalVoteFixture::new();
         let root = QualifiedRoot::new_test_instance();
         let mut txn = fixture.begin_write();
-        assert!(fixture
-            .store
-            .put(&mut txn, &root, &BlockHash::from(1)));
-        assert!(!fixture
-            .store
-            .put(&mut txn, &root, &BlockHash::from(2)));
+        assert!(fixture.store.put(&mut txn, &root, &BlockHash::from(1)));
+        assert!(!fixture.store.put(&mut txn, &root, &BlockHash::from(2)));
     }
 
     #[test]

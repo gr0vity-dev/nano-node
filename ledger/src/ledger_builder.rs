@@ -4,10 +4,10 @@ use std::{
     sync::Arc,
 };
 
+use rsnano_store_lmdb::LmdbLedgerStoreFactory;
 use rsnano_types::Amount;
 use rsnano_utils::get_cpu_count;
 use rsnano_utils::stats::Stats;
-use rsnano_store_lmdb::LmdbLedgerStoreFactory;
 use store_rocksdb::RocksdbLedgerStoreFactory;
 use store_traits::{
     config::{LedgerBackend, LedgerStoreConfig},
@@ -102,11 +102,9 @@ impl<'a> LedgerBuilder<'a> {
         }
 
         let store = match self.store_factory {
-            Some(factory) => factory.create_store(
-                self.path,
-                store_config,
-                rep_weights.ledger_cache.clone(),
-            )?,
+            Some(factory) => {
+                factory.create_store(self.path, store_config, rep_weights.ledger_cache.clone())?
+            }
             None => Self::create_store_from_config(
                 self.path,
                 store_config,
