@@ -1,4 +1,9 @@
-use std::{cell::RefCell, collections::BTreeMap, num::NonZeroUsize, sync::Arc};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, HashMap},
+    num::NonZeroUsize,
+    sync::Arc,
+};
 
 use rocksdb::{IteratorMode, WriteBatch};
 use store_traits::environment::{StoreCursor, StoreReadTxn, StoreWriteTxn};
@@ -205,6 +210,7 @@ pub struct RocksdbWriteTxn<'env> {
     batch: WriteBatch,
     buffers: RefCell<Vec<Vec<u8>>>,
     ops: Vec<WriteOp>,
+    snapshot_counts: RefCell<HashMap<usize, u64>>,
 }
 
 impl<'env> RocksdbWriteTxn<'env> {
@@ -216,6 +222,7 @@ impl<'env> RocksdbWriteTxn<'env> {
             batch: WriteBatch::default(),
             buffers: RefCell::new(Vec::new()),
             ops: Vec::new(),
+            snapshot_counts: RefCell::new(HashMap::new()),
         }
     }
 
@@ -324,8 +331,9 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
     }
 
     fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
-        let map = self.inner.snapshot_entries_map(&self.snapshot, database)?;
-        Ok(self.apply_ops_to_map(database, map).len() as u64)
+        let mut cache = self.snapshot_counts.borrow_mut();
+        let key = database.into_raw().get();
+        Ok(*cache.entry(key).or_insert(0))
     }
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
