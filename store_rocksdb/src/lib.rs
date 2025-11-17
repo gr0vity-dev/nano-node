@@ -3,11 +3,11 @@ use std::{
     collections::{BTreeMap, HashMap},
     fs,
     io::Cursor,
-    marker::PhantomData,
     mem,
     net::SocketAddrV6,
     num::NonZeroUsize,
     path::{Path, PathBuf},
+    slice,
     sync::{
         Arc, OnceLock,
         atomic::{AtomicU64, Ordering},
@@ -2045,6 +2045,13 @@ impl<'env> RocksdbReadTxn<'env> {
         drop(buffers);
         unsafe { (&*ptr).as_slice() }
     }
+
+    fn cursor_cache<'txn>(&'txn self) -> CursorCache<'txn>
+    where
+        'env: 'txn,
+    {
+        CursorCache::new(&self.buffers)
+    }
 }
 
 impl<'env> StoreReadTxn<'env> for RocksdbReadTxn<'env> {
@@ -2081,10 +2088,9 @@ impl<'env> StoreReadTxn<'env> for RocksdbReadTxn<'env> {
     where
         'env: 'txn,
     {
-        let entries = self
-            .inner
-            .collect_snapshot_entries(&self.snapshot, database)?;
-        Ok(RocksdbCursor::new(entries))
+        let handle = self.inner.cf_handle(database)?;
+        let iter = self.snapshot.iterator_cf(&handle, IteratorMode::Start);
+        Ok(RocksdbCursor::streaming(self.cursor_cache(), iter))
     }
 
     fn commit(self)
@@ -2156,6 +2162,13 @@ impl<'env> RocksdbWriteTxn<'env> {
         let ptr: *const Vec<u8> = &buffers[idx];
         drop(buffers);
         unsafe { (&*ptr).as_slice() }
+    }
+
+    fn cursor_cache<'txn>(&'txn self) -> CursorCache<'txn>
+    where
+        'env: 'txn,
+    {
+        CursorCache::new(&self.buffers)
     }
 
     fn apply_ops_to_map(
@@ -2239,7 +2252,7 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
             .into_iter()
             .map(|(k, v)| (k.into_boxed_slice(), v.into_boxed_slice()))
             .collect();
-        Ok(RocksdbCursor::new(entries))
+        Ok(RocksdbCursor::from_entries(self.cursor_cache(), entries))
     }
 
     fn commit(self)
@@ -2317,32 +2330,82 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
     }
 }
 
-pub struct RocksdbCursor<'data> {
-    entries: Vec<(Box<[u8]>, Box<[u8]>)>,
-    index: usize,
-    _marker: PhantomData<&'data ()>,
+enum RocksdbCursorSource<'txn> {
+    Streaming(DBIteratorWithThreadMode<'txn, RocksDb>),
+    Buffered(std::vec::IntoIter<(Box<[u8]>, Box<[u8]>)>),
 }
 
-impl<'data> RocksdbCursor<'data> {
-    fn new(entries: Vec<(Box<[u8]>, Box<[u8]>)>) -> Self {
+pub struct RocksdbCursor<'txn> {
+    cache: CursorCache<'txn>,
+    source: RocksdbCursorSource<'txn>,
+}
+
+impl<'txn> RocksdbCursor<'txn> {
+    fn streaming(cache: CursorCache<'txn>, iter: DBIteratorWithThreadMode<'txn, RocksDb>) -> Self {
         Self {
-            entries,
-            index: 0,
-            _marker: PhantomData,
+            cache,
+            source: RocksdbCursorSource::Streaming(iter),
         }
+    }
+
+    fn from_entries(cache: CursorCache<'txn>, entries: Vec<(Box<[u8]>, Box<[u8]>)>) -> Self {
+        Self {
+            cache,
+            source: RocksdbCursorSource::Buffered(entries.into_iter()),
+        }
+    }
+
+    fn cache_pair(&self, key: Box<[u8]>, value: Box<[u8]>) -> (&'txn [u8], &'txn [u8]) {
+        let key_ref = self.cache.cache_boxed(key);
+        let value_ref = self.cache.cache_boxed(value);
+        (key_ref, value_ref)
     }
 }
 
 impl<'txn> StoreCursor<'txn> for RocksdbCursor<'txn> {
     fn next(&mut self) -> StoreResult<Option<(&'txn [u8], &'txn [u8])>> {
-        if self.index >= self.entries.len() {
-            return Ok(None);
+        match &mut self.source {
+            RocksdbCursorSource::Streaming(iter) => match iter.next() {
+                Some(item) => {
+                    let (key, value) = item.map_err(store_error_from_rocksdb)?;
+                    let (key_ref, value_ref) = self.cache_pair(key, value);
+                    Ok(Some((key_ref, value_ref)))
+                }
+                None => Ok(None),
+            },
+            RocksdbCursorSource::Buffered(iter) => match iter.next() {
+                Some((key, value)) => {
+                    let (key_ref, value_ref) = self.cache_pair(key, value);
+                    Ok(Some((key_ref, value_ref)))
+                }
+                None => Ok(None),
+            },
         }
-        let (key, value) = &self.entries[self.index];
-        self.index += 1;
-        let key_ref: &'txn [u8] = unsafe { mem::transmute::<&[u8], &'txn [u8]>(key.as_ref()) };
-        let value_ref: &'txn [u8] = unsafe { mem::transmute::<&[u8], &'txn [u8]>(value.as_ref()) };
-        Ok(Some((key_ref, value_ref)))
+    }
+}
+
+struct CursorCache<'txn> {
+    buffers: &'txn RefCell<Vec<Vec<u8>>>,
+}
+
+impl<'txn> CursorCache<'txn> {
+    fn new(buffers: &'txn RefCell<Vec<Vec<u8>>>) -> Self {
+        Self { buffers }
+    }
+
+    fn cache_boxed(&self, data: Box<[u8]>) -> &'txn [u8] {
+        self.cache_vec(data.into_vec())
+    }
+
+    fn cache_vec(&self, data: Vec<u8>) -> &'txn [u8] {
+        let mut buffers = self.buffers.borrow_mut();
+        buffers.push(data);
+        let idx = buffers.len() - 1;
+        let slice_ref = buffers[idx].as_slice();
+        let ptr = slice_ref.as_ptr();
+        let len = slice_ref.len();
+        drop(buffers);
+        unsafe { slice::from_raw_parts(ptr, len) }
     }
 }
 
@@ -2413,8 +2476,8 @@ fn store_error_from_rocksdb(err: RocksError) -> StoreError {
 mod tests {
     use super::*;
     use rsnano_types::{Amount, Block, BlockHash, PrivateKey, PublicKey, QualifiedRoot};
-    use std::{fs, net::Ipv6Addr};
     use std::ops::Bound;
+    use std::{fs, net::Ipv6Addr};
     use tempfile::tempdir;
 
     #[test]
