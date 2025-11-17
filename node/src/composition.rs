@@ -194,11 +194,13 @@ pub(crate) fn build_foundation(
             })?;
     }
 
-    let mut ledger_path = application_path.clone();
-    ledger_path.push("data.ldb");
-
     let ledger_store_config = config.ledger_store_config.clone();
     let ledger_backend_name = ledger_store_config.backend_name();
+    let mut ledger_path = application_path.clone();
+    match &ledger_store_config.backend {
+        LedgerBackend::Lmdb(_) => ledger_path.push("data.ldb"),
+        LedgerBackend::RocksDb(_) => ledger_path.push("data.rocksdb"),
+    }
     let mut nulled_lmdb_factory: Option<LmdbLedgerStoreFactory> = None;
     let mut nulled_rocksdb_factory: Option<RocksdbNullLedgerStoreFactory> = None;
     if is_nulled {
