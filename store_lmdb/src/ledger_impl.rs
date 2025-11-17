@@ -135,6 +135,26 @@ fn lmdb_vendor() -> StoreVendor {
         .clone()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::lmdb_vendor;
+
+    #[test]
+    fn vendor_matches_lmdb_version() {
+        let vendor = lmdb_vendor();
+        assert_eq!(vendor.name, "lmdb");
+
+        let mut major = 0;
+        let mut minor = 0;
+        let mut patch = 0;
+        unsafe {
+            rsnano_nullable_lmdb::sys::mdb_version(&mut major, &mut minor, &mut patch);
+        }
+
+        assert_eq!(vendor.version, format!("{major}.{minor}.{patch}"));
+    }
+}
+
 impl BlockStore for LmdbBlockStore {
     fn put(&self, txn: &mut dyn LedgerWriteTxn, block: &SavedBlock) {
         LmdbBlockStore::put(self, txn, block);

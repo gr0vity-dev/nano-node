@@ -15,6 +15,10 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(test)]
+#[path = "../build_support.rs"]
+mod build_support;
+
 use anyhow::{Result, anyhow, bail};
 use parking_lot::RwLock;
 use rocksdb::{
@@ -2409,9 +2413,27 @@ fn store_error_from_rocksdb(err: RocksError) -> StoreError {
 mod tests {
     use super::*;
     use rsnano_types::{Amount, Block, BlockHash, PrivateKey, PublicKey, QualifiedRoot};
-    use std::net::Ipv6Addr;
+    use std::{fs, net::Ipv6Addr};
     use std::ops::Bound;
     use tempfile::tempdir;
+
+    #[test]
+    fn vendor_matches_librocksdb_version() {
+        let vendor = rocksdb_vendor();
+        assert_eq!(vendor.name, "rocksdb");
+
+        let lock_path = build_support::workspace_lock_path().expect("workspace Cargo.lock");
+        let contents = fs::read_to_string(lock_path).expect("read Cargo.lock");
+        let version = build_support::find_version(&contents, "librocksdb-sys")
+            .expect("librocksdb-sys version");
+        let expected = version
+            .split('+')
+            .nth(1)
+            .unwrap_or(version.as_str())
+            .to_string();
+
+        assert_eq!(vendor.version, expected);
+    }
 
     struct BlockFixture {
         env: Arc<RocksdbStoreEnvironment>,
