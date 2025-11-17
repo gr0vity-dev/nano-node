@@ -1945,6 +1945,21 @@ impl RocksDbInner {
             .ok_or_else(|| StoreError::backend(format!("missing column family {name}")))
     }
 
+    fn count_snapshot_entries(
+        &self,
+        snapshot: &RocksDbSnapshot<'_>,
+        database: StoreDatabase,
+    ) -> StoreResult<u64> {
+        let handle = self.cf_handle(database)?;
+        let mut iter = snapshot.iterator_cf(&handle, IteratorMode::Start);
+        let mut count = 0u64;
+        while let Some(item) = iter.next() {
+            item.map_err(store_error_from_rocksdb)?;
+            count += 1;
+        }
+        Ok(count)
+    }
+
     fn collect_snapshot_entries(
         &self,
         snapshot: &RocksDbSnapshot<'_>,
@@ -2077,22 +2092,9 @@ impl<'env> StoreReadTxn<'env> for RocksdbReadTxn<'env> {
     }
 
     fn count(&self, database: StoreDatabase) -> u64 {
-        let handle = self
-            .inner
-            .cf_handle(database)
-            .unwrap_or_else(|e| panic!("failed to count RocksDB records: {e}"));
-        let mut iter = self.snapshot.iterator_cf(&handle, IteratorMode::Start);
-        let mut count = 0u64;
-        while let Some(item) = iter.next() {
-            match item {
-                Ok(_) => count += 1,
-                Err(err) => {
-                    let err = store_error_from_rocksdb(err);
-                    panic!("failed to count RocksDB records: {err}");
-                }
-            }
-        }
-        count
+        self.inner
+            .count_snapshot_entries(&self.snapshot, database)
+            .unwrap_or_else(|e| panic!("failed to count RocksDB records: {e}"))
     }
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
