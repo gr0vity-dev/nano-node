@@ -7,9 +7,13 @@ use rsnano_nullable_lmdb::{
 };
 use rsnano_types::{BlockHash, KeyDerivationFunction};
 use store_traits::{
-    WalletReadTxn, WalletWriteTxn, environment::StoreEnvironmentOptions, types::StoreDatabase,
-    wallet::WalletEnvironment as WalletEnvironmentTrait,
-    wallet_environment_factory::WalletEnvironmentFactory as WalletEnvironmentFactoryTrait,
+    WalletReadTxn, WalletWriteTxn,
+    environment::StoreEnvironmentOptions,
+    types::StoreDatabase,
+    wallet::{WalletEnvironment as WalletEnvironmentTrait, WalletStoreFactory},
+    wallet_environment_factory::{
+        WalletEnvironmentBundle, WalletEnvironmentFactory as WalletEnvironmentFactoryTrait,
+    },
 };
 
 use crate::{
@@ -144,17 +148,23 @@ impl LmdbWalletEnvironmentFactory {
 }
 
 impl WalletEnvironmentFactoryTrait for LmdbWalletEnvironmentFactory {
-    fn create_environment(
+    fn create(
         &self,
         options: StoreEnvironmentOptions,
-    ) -> Result<Arc<dyn WalletEnvironmentTrait>> {
-        let env_options = EnvironmentOptions {
+        fanout: usize,
+        kdf: KeyDerivationFunction,
+    ) -> Result<WalletEnvironmentBundle> {
+        let env = self.create(EnvironmentOptions {
             path: options.path,
             max_dbs: options.max_databases,
             map_size: options.map_size,
             flags: lmdb_env_flags_from(options.flags),
-        };
-        let env = self.create(env_options)?;
-        Ok(env)
+        })?;
+        let store_factory: Arc<dyn WalletStoreFactory> =
+            Arc::new(LmdbWalletStoreFactory::new(env.env(), fanout, kdf));
+        Ok(WalletEnvironmentBundle {
+            environment: env,
+            store_factory,
+        })
     }
 }

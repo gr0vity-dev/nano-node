@@ -22,9 +22,7 @@ use rsnano_network_protocol::{
     MessageCallback, SynCookies,
 };
 use rsnano_nullable_clock::{SteadyClock, SystemTimeFactory};
-use rsnano_store_lmdb::{
-    EnvironmentFlags, EnvironmentOptions, LmdbWalletEnvironment, LmdbWalletEnvironmentFactory,
-};
+use rsnano_store_lmdb::EnvironmentFlags;
 use rsnano_types::{KeyDerivationFunction, Networks, NodeId, PrivateKey};
 use rsnano_utils::{
     CancellationToken,
@@ -35,9 +33,7 @@ use rsnano_utils::{
     thread_pool::ThreadPool,
     ticker::{Tickable, TickerPool, TimerThread},
 };
-use rsnano_wallet::{
-    ReceivableSearch, WalletBackup, WalletEnvHandle, WalletStoreFactory, Wallets, WalletsTicker,
-};
+use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
 
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
@@ -92,7 +88,10 @@ use crate::{
     work::WorkFactory,
     working_path_for,
 };
-use store_traits::config::LedgerBackend;
+use store_traits::{
+    config::LedgerBackend, environment::StoreEnvironmentOptions, types::StoreEnvironmentFlags,
+    wallet_environment_factory::WalletEnvironmentFactory,
+};
 
 #[derive(Default)]
 pub struct NodeCallbacks {
@@ -330,7 +329,7 @@ fn build_infrastructure(
     network_params: &NetworkParams,
     application_path: &PathBuf,
     is_nulled: bool,
-    wallet_env_factory: &LmdbWalletEnvironmentFactory,
+    wallet_env_factory: Arc<dyn WalletEnvironmentFactory>,
     ledger: &Arc<Ledger>,
     steady_clock: &Arc<SteadyClock>,
     global_config: &GlobalConfig,
@@ -362,40 +361,33 @@ fn build_infrastructure(
     let mut wallets_path = application_path.clone();
     wallets_path.push("wallets.ldb");
 
-    let wallet_env_impl: Arc<LmdbWalletEnvironment> = if is_nulled {
-        Arc::new(
-            LmdbWalletEnvironment::new_null().context("Failed to initialize wallet environment")?,
-        )
-    } else {
-        let options = EnvironmentOptions {
-            path: wallets_path,
-            max_dbs: 128,
-            map_size: 1024 * 1024 * 1024,
-            flags: EnvironmentFlags::NO_SUB_DIR
-                | EnvironmentFlags::NO_TLS
-                | EnvironmentFlags::NO_READAHEAD,
-        };
-        wallet_env_factory
-            .create(options)
-            .context("Failed to initialize wallet environment")?
-    };
-
-    let wallet_env: Arc<WalletEnvHandle> = wallet_env_impl.clone();
-
     let wallets_config = global_config.wallets_config();
 
-    let kdf = KeyDerivationFunction::new(wallets_config.kdf_work);
-    let wallet_store_factory: Arc<dyn WalletStoreFactory> = Arc::new(
-        wallet_env_impl.create_store_factory(wallets_config.password_fanout as usize, kdf),
-    );
+    let env_flags = if is_nulled {
+        EnvironmentFlags::empty()
+    } else {
+        EnvironmentFlags::NO_SUB_DIR | EnvironmentFlags::NO_TLS | EnvironmentFlags::NO_READAHEAD
+    };
+    let env_bundle = wallet_env_factory
+        .create(
+            StoreEnvironmentOptions {
+                path: wallets_path,
+                max_databases: 128,
+                map_size: 1024 * 1024 * 1024,
+                flags: StoreEnvironmentFlags::from_bits(env_flags.bits()),
+            },
+            wallets_config.password_fanout,
+            KeyDerivationFunction::new(wallets_config.kdf_work),
+        )
+        .context("Failed to initialize wallet environment")?;
 
     let mut wallets = Wallets::new(
         wallets_config.clone(),
-        wallet_env,
+        env_bundle.environment,
         ledger.clone(),
         network_params.work.clone(),
         steady_clock.clone(),
-        wallet_store_factory,
+        env_bundle.store_factory,
     );
     if !is_nulled {
         wallets
@@ -984,7 +976,7 @@ pub(crate) fn compose_root(
         &network_params,
         &application_path,
         is_nulled,
-        &wallet_env_factory,
+        Arc::clone(&wallet_env_factory),
         &ledger,
         &steady_clock,
         &global_config,

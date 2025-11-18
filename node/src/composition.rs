@@ -30,6 +30,7 @@ use store_rocksdb::RocksdbLedgerStoreFactory;
 use store_traits::{
     config::{LedgerBackend, LedgerStoreConfig},
     ledger::{LedgerCache, LedgerStore, LedgerStoreFactory},
+    wallet_environment_factory::WalletEnvironmentFactory,
 };
 use tracing::info;
 
@@ -69,7 +70,7 @@ pub(crate) struct FoundationBits {
     pub(crate) workers: Arc<ThreadPool>,
     pub(crate) ticker_pool: TickerPool,
     pub(crate) current_network: Networks,
-    pub(crate) wallet_env_factory: LmdbWalletEnvironmentFactory,
+    pub(crate) wallet_env_factory: Arc<dyn WalletEnvironmentFactory>,
     pub(crate) syn_cookies: Arc<SynCookies>,
 }
 
@@ -210,10 +211,10 @@ pub(crate) fn build_foundation(
         };
     let store_factory = store_factory_box.as_ref();
 
-    let wallet_env_factory = if is_nulled {
-        LmdbWalletEnvironmentFactory::new_null()
+    let wallet_env_factory: Arc<dyn WalletEnvironmentFactory> = if is_nulled {
+        Arc::new(LmdbWalletEnvironmentFactory::new_null())
     } else {
-        LmdbWalletEnvironmentFactory::default()
+        Arc::new(LmdbWalletEnvironmentFactory::default())
     };
 
     info!(

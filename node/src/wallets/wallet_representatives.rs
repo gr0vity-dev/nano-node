@@ -150,18 +150,18 @@ impl WalletRepresentatives {
 #[cfg(test)]
 fn create_test_wallets() -> Wallets {
     let network = Networks::NanoLiveNetwork;
-    let wallet_env_impl = Arc::new(
-        LmdbWalletEnvironment::new_null().expect("Failed to initialize LMDB wallet environment"),
-    );
-    let wallet_env: Arc<WalletEnvHandle> = wallet_env_impl.clone();
     let ledger = Arc::new(Ledger::new_null(null_ledger_store_factory()));
     let wallets_config = WalletsConfig::default();
     let work = WorkThresholds::default_for(network);
     let clock = Arc::new(SteadyClock::new_null());
-    let kdf = KeyDerivationFunction::new(wallets_config.kdf_work);
-    let store_factory: Arc<dyn WalletStoreFactory> = Arc::new(
-        wallet_env_impl.create_store_factory(wallets_config.password_fanout as usize, kdf),
+    let env_impl = Arc::new(
+        LmdbWalletEnvironment::new_null().expect("Failed to initialize wallet LMDB environment"),
     );
+    let wallet_env: Arc<WalletEnvHandle> = env_impl.clone();
+    let store_factory: Arc<dyn WalletStoreFactory> = Arc::new(env_impl.create_store_factory(
+        wallets_config.password_fanout,
+        KeyDerivationFunction::new(wallets_config.kdf_work),
+    ));
 
     Wallets::new(
         wallets_config,
