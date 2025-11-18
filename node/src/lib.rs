@@ -13,6 +13,7 @@ mod composition;
 pub mod config;
 pub mod consensus;
 mod ledger_event_processor;
+mod ledger_factory;
 #[cfg(feature = "ledger_snapshots")]
 pub mod ledger_snapshots;
 mod node;

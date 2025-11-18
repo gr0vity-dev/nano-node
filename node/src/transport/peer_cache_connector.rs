@@ -76,10 +76,10 @@ mod tests {
 
     use tracing_test::traced_test;
 
+    use crate::ledger_factory::default_ledger_store_factory;
     use rsnano_network::{TEST_ENDPOINT_1, TEST_ENDPOINT_2, TEST_ENDPOINT_3};
     use rsnano_output_tracker::OutputTrackerMt;
     use rsnano_utils::stats::Direction;
-    use store_rocksdb::default_ledger_store_factory;
 
     use super::*;
 

@@ -1,6 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 #[cfg(test)]
+use crate::ledger_factory::default_ledger_store_factory;
+#[cfg(test)]
 use rsnano_ledger::Ledger;
 use rsnano_ledger::RepWeightCache;
 #[cfg(test)]
@@ -16,8 +18,6 @@ use rsnano_wallet::Wallets;
 use rsnano_wallet::{WalletEnvHandle, WalletStoreFactory, WalletsConfig};
 #[cfg(test)]
 use rsnano_work_validation::WorkThresholds;
-#[cfg(test)]
-use store_rocksdb::default_ledger_store_factory;
 
 use crate::representatives::OnlineReps;
 

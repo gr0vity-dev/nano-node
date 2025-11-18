@@ -11,6 +11,7 @@ pub use optimistic_scheduler::*;
 
 use std::sync::{Arc, Mutex, RwLock};
 
+use crate::ledger_factory::default_ledger_store_factory;
 use rsnano_ledger::{AnySet, Ledger};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
@@ -19,7 +20,6 @@ use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{Stats, StatsCollection, StatsSource},
 };
-use store_rocksdb::default_ledger_store_factory;
 
 use super::{ActiveElectionsContainer, VoteCache};
 use crate::{

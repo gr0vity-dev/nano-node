@@ -61,9 +61,9 @@ impl<'a> FrontierWorker<'a> {
 mod tests {
     use super::*;
     use crate::bootstrap::state::CandidateAccounts;
+    use crate::ledger_factory::default_ledger_store_factory;
     use rsnano_ledger::Ledger;
     use rsnano_types::{Account, AccountInfo, BlockHash};
-    use store_rocksdb::default_ledger_store_factory;
 
     #[test]
     fn empty() {

@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use crate::ledger_factory::default_ledger_store_factory;
 use rsnano_ledger::{Ledger, LedgerSet};
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::SteadyClock;
@@ -15,7 +16,6 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
     ticker::Tickable,
 };
-use store_rocksdb::default_ledger_store_factory;
 
 use super::UncheckedMap;
 use crate::block_processing::{BlockContext, BlockProcessorQueue, BlockSource};

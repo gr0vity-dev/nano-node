@@ -13,8 +13,8 @@ use rsnano_ledger::Ledger;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 
 use super::BlockProcessorQueue;
+use crate::ledger_factory::default_ledger_store_factory;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
-use store_rocksdb::default_ledger_store_factory;
 
 /// Waits for the backlog to fall below the backlog limit
 pub(crate) struct BacklogWaiter {

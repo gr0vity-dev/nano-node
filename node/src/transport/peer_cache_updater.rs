@@ -6,6 +6,8 @@ use std::{
 
 use tracing::debug;
 
+#[cfg(test)]
+use crate::ledger_factory::default_ledger_store_factory;
 use rsnano_ledger::{Ledger, LedgerWriteTxn};
 use rsnano_network::{Channel, Network};
 use rsnano_nullable_clock::SystemTimeFactory;
@@ -14,8 +16,6 @@ use rsnano_utils::{
     stats::{DetailType, StatType, Stats},
     ticker::Tickable,
 };
-#[cfg(test)]
-use store_rocksdb::default_ledger_store_factory;
 
 /// Writes a snapshot of the current peers to the database,
 /// so that we can reconnect to them when the node is restarted

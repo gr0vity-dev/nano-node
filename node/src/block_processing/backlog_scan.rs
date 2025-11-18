@@ -342,8 +342,7 @@ impl StatsSource for BacklogScanStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use store_rocksdb::RocksdbLedgerStoreFactory;
-    use store_traits::ledger::LedgerStoreFactory;
+    use crate::ledger_factory::default_ledger_store_factory;
 
     #[test]
     fn scan_accounts() {
@@ -435,9 +434,5 @@ mod tests {
                 Account::from(2)
             ]
         );
-    }
-
-    fn default_ledger_store_factory() -> Arc<dyn LedgerStoreFactory> {
-        Arc::new(RocksdbLedgerStoreFactory::default())
     }
 }

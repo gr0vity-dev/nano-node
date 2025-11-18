@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
+#[cfg(test)]
+use crate::ledger_factory::default_ledger_store_factory;
 use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, LedgerSet};
 use rsnano_messages::{AscPullReqType, BlocksReqPayload, HashType};
 use rsnano_network::Channel;
 use rsnano_types::{Account, BlockHash, HashOrAccount};
-#[cfg(test)]
-use store_rocksdb::default_ledger_store_factory;
 
 use super::{
     pull_count_decider::PullCountDecider,

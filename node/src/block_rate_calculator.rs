@@ -3,11 +3,11 @@ use std::sync::{
     atomic::{AtomicI64, Ordering},
 };
 
+#[cfg(test)]
+use crate::ledger_factory::default_ledger_store_factory;
 use rsnano_ledger::Ledger;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::{CancellationToken, ticker::Tickable};
-#[cfg(test)]
-use store_rocksdb::default_ledger_store_factory;
 
 use crate::utils::RateCalculator;
 

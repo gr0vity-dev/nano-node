@@ -126,8 +126,8 @@ impl<'a> CrawlSource<'a> for PendingCrawlSource<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::ledger_factory::default_ledger_store_factory;
     use rsnano_ledger::{DEV_GENESIS_ACCOUNT, Ledger, LedgerSet};
-    use store_rocksdb::default_ledger_store_factory;
 
     use super::*;
 

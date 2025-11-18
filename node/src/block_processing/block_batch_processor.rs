@@ -9,13 +9,13 @@ use std::{
 use strum::{EnumCount, IntoEnumIterator};
 use tracing::{trace, warn};
 
+use crate::ledger_factory::default_ledger_store_factory;
 use rsnano_ledger::{BlockError, Ledger};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
     sync::backpressure_channel::{Sender, channel},
 };
-use store_rocksdb::default_ledger_store_factory;
 
 use super::{BlockContext, BlockSource, LedgerEvent, UncheckedBlockReenqueuer, UncheckedMap};
 use crate::block_processing::ProcessedResult;

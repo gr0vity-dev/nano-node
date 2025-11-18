@@ -45,6 +45,7 @@ impl LedgerEventProcessorPlugin for ForkDetector {
 
 #[cfg(test)]
 mod tests {
+    use crate::ledger_factory::default_ledger_store_factory;
     use crate::{
         block_processing::{BlockSource, LedgerEvent, ProcessedResult},
         consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior},
@@ -55,7 +56,6 @@ mod tests {
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{Block, BlockPriority, SavedBlock};
     use std::sync::{Arc, RwLock};
-    use store_rocksdb::default_ledger_store_factory;
 
     #[test]
     fn marks_a_forked_block_in_the_ledger() {

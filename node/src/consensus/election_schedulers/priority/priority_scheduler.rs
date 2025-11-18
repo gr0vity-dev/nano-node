@@ -318,9 +318,9 @@ static BUCKET_NAMES: LazyLock<Vec<String>> = LazyLock::new(|| {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ledger_factory::default_ledger_store_factory;
     use rsnano_ledger::{Ledger, LedgerInserter};
     use rsnano_types::PrivateKey;
-    use store_rocksdb::default_ledger_store_factory;
 
     #[test]
     fn can_track_successor_activation() {

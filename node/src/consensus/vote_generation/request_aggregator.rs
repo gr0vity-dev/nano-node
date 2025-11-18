@@ -13,8 +13,6 @@ use rsnano_utils::{
     stats::{DetailType, Direction, StatType, Stats},
 };
 #[cfg(test)]
-use store_rocksdb::RocksdbLedgerStoreFactory;
-#[cfg(test)]
 use store_traits::ledger::LedgerStoreFactory;
 
 use super::{
@@ -22,6 +20,8 @@ use super::{
     request_aggregator_impl::{AggregateResult, RequestAggregatorImpl},
 };
 use crate::consensus::election::VoteType;
+#[cfg(test)]
+use crate::ledger_factory::default_ledger_store_factory;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RequestAggregatorConfig {
@@ -205,11 +205,6 @@ impl ContainerInfoProvider for RequestAggregator {
 pub struct AggregatorRequest {
     pub channel: Arc<Channel>,
     pub roots_hashes: Vec<(BlockHash, Root)>,
-}
-
-#[cfg(test)]
-fn default_ledger_store_factory() -> Arc<dyn LedgerStoreFactory> {
-    Arc::new(RocksdbLedgerStoreFactory::default())
 }
 
 pub(crate) struct RequestAggregatorState {

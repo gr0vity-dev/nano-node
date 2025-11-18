@@ -156,10 +156,10 @@ impl StatsSource for PriorityRequesterStats {
 mod tests {
     use std::sync::{Arc, Mutex, RwLock};
 
+    use crate::ledger_factory::default_ledger_store_factory;
     use rsnano_ledger::Ledger;
     use rsnano_network::{Network, token_bucket::TokenBucket};
     use rsnano_types::Account;
-    use store_rocksdb::default_ledger_store_factory;
 
     use super::PriorityRequester;
     use crate::{

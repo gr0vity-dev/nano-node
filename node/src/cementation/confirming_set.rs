@@ -8,6 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::ledger_factory::default_ledger_store_factory;
 use rsnano_ledger::{CementingObserver, Ledger};
 use rsnano_types::{BlockHash, SavedBlock};
 use rsnano_utils::{
@@ -16,7 +17,6 @@ use rsnano_utils::{
     sync::backpressure_channel::Sender,
     thread_pool::ThreadPool,
 };
-use store_rocksdb::default_ledger_store_factory;
 
 use super::ordered_entries::OrderedEntries;
 use crate::{

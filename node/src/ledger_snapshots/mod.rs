@@ -2,6 +2,7 @@ mod aggregator;
 pub(crate) mod fork_detector;
 mod state;
 
+use crate::ledger_factory::default_ledger_store_factory;
 use crate::{
     ledger_snapshots::{aggregator::Aggregator, state::State},
     representatives::OnlineReps,
@@ -14,7 +15,6 @@ use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{Account, BlockHash};
 use rsnano_types::{PrivateKey, SnapshotNumber};
 use std::sync::{Arc, Mutex};
-use store_rocksdb::default_ledger_store_factory;
 use tracing::warn;
 
 pub struct LedgerSnapshots {

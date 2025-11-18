@@ -3,6 +3,8 @@ use std::{
     time::Duration,
 };
 
+#[cfg(test)]
+use crate::ledger_factory::default_ledger_store_factory;
 use rsnano_ledger::Ledger;
 use rsnano_network::{Channel, ChannelId};
 use rsnano_nullable_clock::SteadyClock;
@@ -12,8 +14,6 @@ use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
 };
-#[cfg(test)]
-use store_rocksdb::default_ledger_store_factory;
 
 use super::{LocalVoteHistory, vote_generator::VoteGenerator};
 use crate::{

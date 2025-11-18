@@ -9,6 +9,7 @@ use std::{
     time::Duration,
 };
 
+use crate::ledger_factory::default_ledger_store_factory;
 use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, OwningAnySet};
 use rsnano_messages::{
     AccountInfoAckPayload, AccountInfoReqPayload, AscPullAck, AscPullAckType, AscPullReq,
@@ -23,7 +24,6 @@ use rsnano_utils::{
     fair_queue::FairQueue,
     stats::{DetailType, Direction, StatType, Stats},
 };
-use store_rocksdb::default_ledger_store_factory;
 
 use crate::transport::MessageSender;
 

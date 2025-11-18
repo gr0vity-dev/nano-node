@@ -10,7 +10,7 @@ use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{PrivateKey, Signature};
 
 use crate::block_processing::UncheckedMap;
-use store_rocksdb::RocksdbLedgerStoreFactory;
+use crate::ledger_factory::default_ledger_store_factory;
 
 use super::{get_pre_release_version, rsnano_version};
 
@@ -79,8 +79,4 @@ impl TelemetryFactory {
         telemetry_data.sign(&self.node_id_key).unwrap();
         telemetry_data
     }
-}
-
-fn default_ledger_store_factory() -> Arc<dyn LedgerStoreFactory> {
-    Arc::new(RocksdbLedgerStoreFactory::default())
 }

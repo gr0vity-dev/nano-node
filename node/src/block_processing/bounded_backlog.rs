@@ -7,6 +7,7 @@ use std::{
 
 use tracing::warn;
 
+use crate::ledger_factory::default_ledger_store_factory;
 use rsnano_ledger::{AnySet, Ledger, LedgerSet, OwningAnySet};
 use rsnano_network::token_bucket::TokenBucket;
 use rsnano_nullable_clock::SteadyClock;
@@ -16,7 +17,6 @@ use rsnano_utils::{
     stats::{DetailType, StatType, Stats},
     sync::backpressure_channel::{Sender, channel},
 };
-use store_rocksdb::RocksdbLedgerStoreFactory;
 use store_traits::ledger::LedgerStoreFactory;
 
 use super::{
@@ -238,10 +238,6 @@ impl BoundedBacklog {
         // Remove confirmed blocks from the backlog
         self.erase_hashes(confirmed.iter().map(|i| i.0.hash()));
     }
-}
-
-fn default_ledger_store_factory() -> Arc<dyn LedgerStoreFactory> {
-    Arc::new(RocksdbLedgerStoreFactory::default())
 }
 
 impl Drop for BoundedBacklog {

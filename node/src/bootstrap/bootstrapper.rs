@@ -6,6 +6,7 @@ use std::{
 
 use tracing::{trace, warn};
 
+use crate::ledger_factory::default_ledger_store_factory;
 use rsnano_ledger::Ledger;
 use rsnano_messages::{AscPullAck, BlocksAckPayload};
 use rsnano_network::{ChannelId, DeadChannelCleanupStep, Network, token_bucket::TokenBucket};
@@ -13,7 +14,6 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::Account;
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 use rsnano_utils::stats::{DetailType, Sample, StatType, Stats, StatsCollection, StatsSource};
-use store_rocksdb::default_ledger_store_factory;
 
 use super::{
     FrontierScanConfig,

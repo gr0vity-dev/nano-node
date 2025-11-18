@@ -9,6 +9,7 @@ use std::{
 
 use tracing::debug;
 
+use crate::ledger_factory::default_ledger_store_factory;
 use rsnano_ledger::{Ledger, LedgerSet};
 use rsnano_messages::{Message, Publish};
 use rsnano_network::{TrafficType, token_bucket::TokenBucket};
@@ -18,7 +19,6 @@ use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Direction, StatType, Stats},
 };
-use store_rocksdb::default_ledger_store_factory;
 
 use super::{BlockSource, LedgerEvent, ProcessedResult};
 use crate::{
