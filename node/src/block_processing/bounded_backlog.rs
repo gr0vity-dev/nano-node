@@ -16,6 +16,8 @@ use rsnano_utils::{
     stats::{DetailType, StatType, Stats},
     sync::backpressure_channel::{Sender, channel},
 };
+use store_rocksdb::RocksdbLedgerStoreFactory;
+use store_traits::ledger::LedgerStoreFactory;
 
 use super::{
     LedgerEvent, ProcessedResult,
@@ -82,10 +84,12 @@ impl BoundedBacklog {
     }
 
     pub fn new_null() -> Self {
+        Self::new_null_with_factory(default_ledger_store_factory())
+    }
+
+    pub fn new_null_with_factory(store_factory: Arc<dyn LedgerStoreFactory>) -> Self {
         let config = BoundedBacklogConfig::default();
-        let ledger = Arc::new(Ledger::new_null(
-            rsnano_store_lmdb::null_ledger_store_factory(),
-        ));
+        let ledger = Arc::new(Ledger::new_null(store_factory));
         let stats = Arc::new(Stats::default());
         let clock = Arc::new(SteadyClock::new_null());
         let (sender, _) = channel(0);
@@ -234,6 +238,10 @@ impl BoundedBacklog {
         // Remove confirmed blocks from the backlog
         self.erase_hashes(confirmed.iter().map(|i| i.0.hash()));
     }
+}
+
+fn default_ledger_store_factory() -> Arc<dyn LedgerStoreFactory> {
+    Arc::new(RocksdbLedgerStoreFactory::default())
 }
 
 impl Drop for BoundedBacklog {

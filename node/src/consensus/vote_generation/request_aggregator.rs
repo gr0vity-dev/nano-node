@@ -12,6 +12,10 @@ use rsnano_utils::{
     fair_queue::FairQueue,
     stats::{DetailType, Direction, StatType, Stats},
 };
+#[cfg(test)]
+use store_rocksdb::RocksdbLedgerStoreFactory;
+#[cfg(test)]
+use store_traits::ledger::LedgerStoreFactory;
 
 use super::{
     VoteGenerators,
@@ -78,11 +82,16 @@ impl RequestAggregator {
 
     #[cfg(test)]
     pub fn new_null() -> Self {
+        Self::new_null_with_factory(default_ledger_store_factory())
+    }
+
+    #[cfg(test)]
+    pub fn new_null_with_factory(store_factory: Arc<dyn LedgerStoreFactory>) -> Self {
         Self::new(
             RequestAggregatorConfig::new(1),
             Stats::default().into(),
             VoteGenerators::new_null().into(),
-            Ledger::new_null(rsnano_store_lmdb::null_ledger_store_factory()).into(),
+            Ledger::new_null(store_factory).into(),
         )
     }
 
@@ -196,6 +205,11 @@ impl ContainerInfoProvider for RequestAggregator {
 pub struct AggregatorRequest {
     pub channel: Arc<Channel>,
     pub roots_hashes: Vec<(BlockHash, Root)>,
+}
+
+#[cfg(test)]
+fn default_ledger_store_factory() -> Arc<dyn LedgerStoreFactory> {
+    Arc::new(RocksdbLedgerStoreFactory::default())
 }
 
 pub(crate) struct RequestAggregatorState {
