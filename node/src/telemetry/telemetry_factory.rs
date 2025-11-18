@@ -3,13 +3,14 @@ use std::{
     time::SystemTime,
 };
 
-use rsnano_ledger::Ledger;
+use rsnano_ledger::{Ledger, LedgerStoreFactory};
 use rsnano_messages::{TelemetryData, TelemetryMaker};
 use rsnano_network::{ChannelMode, Network};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{PrivateKey, Signature};
 
 use crate::block_processing::UncheckedMap;
+use store_rocksdb::RocksdbLedgerStoreFactory;
 
 use super::{get_pre_release_version, rsnano_version};
 
@@ -25,8 +26,12 @@ pub struct TelemetryFactory {
 
 impl TelemetryFactory {
     pub fn new_null() -> Self {
+        Self::new_null_with_factory(default_ledger_store_factory())
+    }
+
+    pub fn new_null_with_factory(store_factory: Arc<dyn LedgerStoreFactory>) -> Self {
         Self {
-            ledger: Ledger::new_null(rsnano_store_lmdb::null_ledger_store_factory()).into(),
+            ledger: Ledger::new_null(store_factory).into(),
             network: RwLock::new(Network::new_test_instance()).into(),
             node_id_key: PrivateKey::from(1),
             unchecked: Mutex::new(UncheckedMap::default()).into(),
@@ -74,4 +79,8 @@ impl TelemetryFactory {
         telemetry_data.sign(&self.node_id_key).unwrap();
         telemetry_data
     }
+}
+
+fn default_ledger_store_factory() -> Arc<dyn LedgerStoreFactory> {
+    Arc::new(RocksdbLedgerStoreFactory::default())
 }

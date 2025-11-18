@@ -342,11 +342,13 @@ impl StatsSource for BacklogScanStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use store_rocksdb::RocksdbLedgerStoreFactory;
+    use store_traits::ledger::LedgerStoreFactory;
 
     #[test]
     fn scan_accounts() {
         let ledger = Arc::new(
-            Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+            Ledger::new_null_builder(default_ledger_store_factory())
                 .account_info(&Account::from(1), &AccountInfo::new_test_instance())
                 .account_info(&Account::from(2), &AccountInfo::new_test_instance())
                 .finish(),
@@ -388,7 +390,7 @@ mod tests {
     #[test]
     fn iterate_ledger_multiple_times() {
         let ledger = Arc::new(
-            Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+            Ledger::new_null_builder(default_ledger_store_factory())
                 .account_info(&Account::from(1), &AccountInfo::new_test_instance())
                 .account_info(&Account::from(2), &AccountInfo::new_test_instance())
                 .finish(),
@@ -433,5 +435,9 @@ mod tests {
                 Account::from(2)
             ]
         );
+    }
+
+    fn default_ledger_store_factory() -> Arc<dyn LedgerStoreFactory> {
+        Arc::new(RocksdbLedgerStoreFactory::default())
     }
 }
