@@ -364,11 +364,8 @@ impl<'txn> RocksdbCursor<'txn> {
             self.iter.next();
         }
     }
-}
 
-impl<'txn> StoreCursor<'txn> for RocksdbCursor<'txn> {
-    fn next(&mut self) -> StoreResult<Option<(StoreValue, StoreValue)>> {
-        self.advance();
+    fn current_entry(&self) -> StoreResult<Option<(StoreValue, StoreValue)>> {
         if !self.iter.valid() {
             self.iter.status().map_err(store_error_from_rocksdb)?;
             return Ok(None);
@@ -379,6 +376,32 @@ impl<'txn> StoreCursor<'txn> for RocksdbCursor<'txn> {
             StoreValue::from_slice(key),
             StoreValue::from_slice(value),
         )))
+    }
+}
+
+impl<'txn> StoreCursor<'txn> for RocksdbCursor<'txn> {
+    fn next(&mut self) -> StoreResult<Option<(StoreValue, StoreValue)>> {
+        self.advance();
+        self.current_entry()
+    }
+
+    fn seek_lower_bound(&mut self, key: &[u8]) -> StoreResult<Option<(StoreValue, StoreValue)>> {
+        self.iter.seek(key);
+        self.started = true;
+        self.current_entry()
+    }
+
+    fn seek_upper_bound(&mut self, key: &[u8]) -> StoreResult<Option<(StoreValue, StoreValue)>> {
+        self.iter.seek(key);
+        self.started = true;
+        if self.iter.valid() {
+            if let Some(current_key) = self.iter.key() {
+                if current_key == key {
+                    self.iter.next();
+                }
+            }
+        }
+        self.current_entry()
     }
 }
 

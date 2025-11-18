@@ -1,12 +1,33 @@
 use std::{path::PathBuf, sync::Arc};
 
 use crate::types::{
-    StoreDatabase, StoreEnvironmentFlags, StoreResult, StoreValue, StoreWriteFlags,
+    StoreDatabase, StoreEnvironmentFlags, StoreError, StoreErrorKind, StoreResult, StoreValue,
+    StoreWriteFlags,
 };
 
 /// Cursor over a database view that yields key/value pairs tied to the cursor lifetime.
 pub trait StoreCursor<'txn> {
     fn next(&mut self) -> StoreResult<Option<(StoreValue, StoreValue)>>;
+
+    /// Positions the cursor at the first key that is greater than or equal to `key`.
+    /// Returns the entry at that position when it exists and leaves the cursor ready
+    /// for subsequent `next()` calls.
+    fn seek_lower_bound(&mut self, key: &[u8]) -> StoreResult<Option<(StoreValue, StoreValue)>> {
+        let _ = key;
+        Err(StoreError::new(
+            StoreErrorKind::Backend,
+            "seek_lower_bound not supported by backend",
+        ))
+    }
+
+    /// Positions the cursor at the first key that is strictly greater than `key`.
+    fn seek_upper_bound(&mut self, key: &[u8]) -> StoreResult<Option<(StoreValue, StoreValue)>> {
+        let _ = key;
+        Err(StoreError::new(
+            StoreErrorKind::Backend,
+            "seek_upper_bound not supported by backend",
+        ))
+    }
 }
 
 /// Read-only transaction interface with lifetime-aware cursors.

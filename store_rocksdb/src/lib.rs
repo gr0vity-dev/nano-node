@@ -488,6 +488,47 @@ mod tests {
     }
 
     #[test]
+    fn cursor_seek_respects_lower_and_upper_bounds() {
+        let env = create_env();
+        let database = env.open_db(Some("cursor_seek_test")).unwrap();
+
+        {
+            let mut txn = env.begin_write();
+            txn.put(database, b"key01", b"value01", StoreWriteFlags::default())
+                .unwrap();
+            txn.put(database, b"key03", b"value03", StoreWriteFlags::default())
+                .unwrap();
+            txn.put(database, b"key05", b"value05", StoreWriteFlags::default())
+                .unwrap();
+            txn.commit().expect("rocksdb write txn commit failed");
+        }
+
+        let read_txn = env.begin_read();
+        let mut cursor = read_txn.open_cursor(database).unwrap();
+
+        let lower = cursor
+            .seek_lower_bound(b"key02")
+            .expect("lower-bound seek should succeed")
+            .expect("lower bound should yield an entry");
+        assert_eq!(lower.0.as_ref(), b"key03");
+        assert_eq!(lower.1.as_ref(), b"value03");
+
+        let next = cursor.next().unwrap().unwrap();
+        assert_eq!(next.0.as_ref(), b"key05");
+
+        let upper = cursor
+            .seek_upper_bound(b"key03")
+            .expect("upper-bound seek should succeed")
+            .expect("upper bound should yield remaining entry");
+        assert_eq!(upper.0.as_ref(), b"key05");
+
+        let none = cursor
+            .seek_upper_bound(b"key05")
+            .expect("upper bound search should succeed even when empty");
+        assert!(none.is_none());
+    }
+
+    #[test]
     fn cursor_reflects_overlay() {
         let env = create_env();
         let database = env.open_db(Some("accounts")).unwrap();
