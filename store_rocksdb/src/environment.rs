@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     sync::Arc,
@@ -245,21 +245,6 @@ impl RocksDbInner {
             count += 1;
         }
         Ok(count)
-    }
-
-    pub(crate) fn snapshot_entries_map(
-        &self,
-        snapshot: &RocksDbSnapshot<'_>,
-        database: StoreDatabase,
-    ) -> StoreResult<BTreeMap<Vec<u8>, Vec<u8>>> {
-        let handle = self.cf_handle(database)?;
-        let mut iter = snapshot.iterator_cf(&handle, IteratorMode::Start);
-        let mut map = BTreeMap::new();
-        while let Some(item) = iter.next() {
-            let (key, value) = item.map_err(store_error_from_rocksdb)?;
-            map.insert(key.into(), value.into());
-        }
-        Ok(map)
     }
 
     pub(crate) fn delete_cf(&self, database: StoreDatabase) -> StoreResult<()> {
