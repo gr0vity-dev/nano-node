@@ -319,8 +319,6 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
     }
 }
 
-
-
 pub struct RocksdbCursor<'txn> {
     iter: DBRawIteratorWithThreadMode<'txn, RocksDb>,
     started: bool,
@@ -351,14 +349,8 @@ impl<'txn> StoreCursor<'txn> for RocksdbCursor<'txn> {
             self.iter.status().map_err(store_error_from_rocksdb)?;
             return Ok(None);
         }
-        let key = self
-            .iter
-            .key()
-            .expect("iterator valid without key");
-        let value = self
-            .iter
-            .value()
-            .expect("iterator valid without value");
+        let key = self.iter.key().expect("iterator valid without key");
+        let value = self.iter.value().expect("iterator valid without value");
         Ok(Some((
             StoreValue::from_slice(key),
             StoreValue::from_slice(value),

@@ -89,10 +89,7 @@ impl LmdbFinalVoteStore {
             Err(e) if e.is_not_found() => None,
             Ok(bytes) => {
                 let mut slice = bytes.as_ref();
-                Some(
-                    BlockHash::deserialize(&mut slice)
-                        .expect("Should be valid block hash data"),
-                )
+                Some(BlockHash::deserialize(&mut slice).expect("Should be valid block hash data"))
             }
             Err(e) => panic!("Could not load final vote info {:?}", e),
         }

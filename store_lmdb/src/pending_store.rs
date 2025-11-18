@@ -73,9 +73,7 @@ impl LmdbPendingStore {
         match txn.get(self.store_database(), &key_bytes) {
             Ok(bytes) => {
                 let mut slice = bytes.as_ref();
-                Some(
-                    PendingInfo::deserialize(&mut slice).expect("Should be valid pending info"),
-                )
+                Some(PendingInfo::deserialize(&mut slice).expect("Should be valid pending info"))
             }
             Err(e) if e.is_not_found() => None,
             Err(e) => {

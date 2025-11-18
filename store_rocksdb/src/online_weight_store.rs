@@ -128,20 +128,9 @@ impl<'txn> Iterator for RocksdbOnlineWeightIterator<'txn> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let entry = self.cursor.next().expect("failed to advance cursor")?;
-        let time = u64::from_be_bytes(
-            entry
-                .0
-                .as_ref()
-                .try_into()
-                .expect("invalid time bytes"),
-        );
-        let amount = Amount::from_be_bytes(
-            entry
-                .1
-                .as_ref()
-                .try_into()
-                .expect("invalid amount bytes"),
-        );
+        let time = u64::from_be_bytes(entry.0.as_ref().try_into().expect("invalid time bytes"));
+        let amount =
+            Amount::from_be_bytes(entry.1.as_ref().try_into().expect("invalid amount bytes"));
         Some((time, amount))
     }
 }

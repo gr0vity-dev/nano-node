@@ -588,6 +588,109 @@ mod tests {
     }
 
     #[test]
+    fn write_txn_reads_put_before_commit() {
+        let env = create_env();
+        let database = env.open_db(Some("read_own_put")).unwrap();
+
+        let mut txn = env.begin_write();
+        txn.put(database, b"alpha", b"value", StoreWriteFlags::empty())
+            .unwrap();
+        let fetched = txn.get(database, b"alpha").unwrap();
+        assert_eq!(fetched.as_ref(), b"value");
+        Box::new(txn)
+            .commit()
+            .expect("rocksdb write txn commit failed");
+    }
+
+    #[test]
+    fn write_txn_reads_delete_before_commit() {
+        let env = create_env();
+        let database = env.open_db(Some("read_own_delete")).unwrap();
+
+        {
+            let mut init = env.begin_write();
+            init.put(database, b"beta", b"persisted", StoreWriteFlags::empty())
+                .unwrap();
+            init.commit().expect("rocksdb write txn commit failed");
+        }
+
+        let mut txn = env.begin_write();
+        txn.delete(database, b"beta", None).unwrap();
+        let result = txn.get(database, b"beta");
+        assert!(result.is_err() && result.unwrap_err().is_not_found());
+        Box::new(txn)
+            .commit()
+            .expect("rocksdb write txn commit failed");
+    }
+
+    #[test]
+    fn write_txn_clear_then_put_only_sees_new_entry() {
+        let env = create_env();
+        let database = env.open_db(Some("clear_then_put")).unwrap();
+
+        {
+            let mut init = env.begin_write();
+            init.put(database, b"old", b"value", StoreWriteFlags::empty())
+                .unwrap();
+            init.commit().expect("rocksdb write txn commit failed");
+        }
+
+        let mut txn = env.begin_write();
+        txn.clear_db(database).unwrap();
+        txn.put(database, b"new", b"value", StoreWriteFlags::empty())
+            .unwrap();
+
+        let fetched = txn.get(database, b"new").unwrap();
+        assert_eq!(fetched.as_ref(), b"value");
+        assert!(txn.get(database, b"old").is_err());
+
+        let mut cursor = txn.open_rw_cursor(database).unwrap();
+        let first = cursor.next().unwrap().unwrap();
+        assert_eq!(first.0.as_ref(), b"new");
+        assert!(cursor.next().unwrap().is_none());
+    }
+
+    #[test]
+    fn write_txn_cursor_orders_mixed_changes() {
+        let env = create_env();
+        let database = env.open_db(Some("cursor_mixed")).unwrap();
+
+        {
+            let mut init = env.begin_write();
+            init.put(database, b"b", b"base_b", StoreWriteFlags::empty())
+                .unwrap();
+            init.put(database, b"d", b"base_d", StoreWriteFlags::empty())
+                .unwrap();
+            init.commit().expect("rocksdb write txn commit failed");
+        }
+
+        let mut txn = env.begin_write();
+        txn.put(database, b"a", b"overlay_a", StoreWriteFlags::empty())
+            .unwrap();
+        txn.delete(database, b"b", None).unwrap();
+        txn.put(database, b"c", b"overlay_c", StoreWriteFlags::empty())
+            .unwrap();
+        txn.put(database, b"e", b"overlay_e", StoreWriteFlags::empty())
+            .unwrap();
+
+        let mut cursor = txn.open_rw_cursor(database).unwrap();
+        let mut entries = Vec::new();
+        while let Some((key, value)) = cursor.next().unwrap() {
+            entries.push((key.to_vec(), value.to_vec()));
+        }
+
+        assert_eq!(
+            entries,
+            vec![
+                (b"a".to_vec(), b"overlay_a".to_vec()),
+                (b"c".to_vec(), b"overlay_c".to_vec()),
+                (b"d".to_vec(), b"base_d".to_vec()),
+                (b"e".to_vec(), b"overlay_e".to_vec())
+            ]
+        );
+    }
+
+    #[test]
     fn block_store_put_get() {
         let fixture = BlockFixture::new();
         let block = SavedBlock::new_test_open_block();

@@ -56,10 +56,7 @@ impl RocksdbFinalVoteStore {
         match txn.get(self.database(), &root.to_bytes()) {
             Ok(bytes) => {
                 let mut slice = bytes.as_ref();
-                Some(
-                    BlockHash::deserialize(&mut slice)
-                        .expect("failed to deserialize block hash"),
-                )
+                Some(BlockHash::deserialize(&mut slice).expect("failed to deserialize block hash"))
             }
             Err(e) if e.is_not_found() => None,
             // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.

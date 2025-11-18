@@ -1546,17 +1546,22 @@ impl Tickable for WalletsTicker {
 mod tests {
     use super::*;
     use crate::test_helpers::WalletEnvTestHarness;
-    use rsnano_store_lmdb::{LmdbWalletEnvironment, null_ledger_store_factory};
+    use rsnano_store_lmdb::LmdbWalletEnvironment;
     use rsnano_types::{KeyDerivationFunction, Networks, PendingInfo};
     use std::time::Duration;
+    use store_rocksdb::RocksdbLedgerStoreFactory;
+    use store_traits::ledger::LedgerStoreFactory;
 
     #[test]
     fn enqueue_work_request() {
         let account_key = PrivateKey::from_bytes(&[42; 32]);
-        let (ledger, send_hash, amount) = ledger_with_pending_receive(&account_key);
+        let ledger_factory = default_ledger_store_factory();
+        let (ledger, send_hash, amount) =
+            ledger_with_pending_receive(&ledger_factory, &account_key);
 
         let fixture = Fixture::new(FixtureArgs {
             ledger: Some(ledger),
+            ledger_store_factory: ledger_factory.clone(),
             ..Default::default()
         });
         let wallets = &fixture.wallets;
@@ -1596,11 +1601,14 @@ mod tests {
     #[test]
     fn fail_when_no_work_queue_provided() {
         let account_key = PrivateKey::from_bytes(&[42; 32]);
-        let (ledger, send_hash, amount) = ledger_with_pending_receive(&account_key);
+        let ledger_factory = default_ledger_store_factory();
+        let (ledger, send_hash, amount) =
+            ledger_with_pending_receive(&ledger_factory, &account_key);
 
         let fixture = Fixture::new(FixtureArgs {
             ledger: Some(ledger),
             disable_work_queue: true,
+            ledger_store_factory: ledger_factory,
         });
         let wallets = &fixture.wallets;
 
@@ -1625,12 +1633,13 @@ mod tests {
     }
 
     fn ledger_with_pending_receive(
+        factory: &Arc<dyn LedgerStoreFactory>,
         receiver_account: impl Into<Account>,
     ) -> (Ledger, BlockHash, Amount) {
         let send = SavedBlock::new_test_instance();
         let amount = Amount::nano(1);
 
-        let ledger = Ledger::new_null_builder(null_ledger_store_factory())
+        let ledger = Ledger::new_null_builder(Arc::clone(factory))
             .block(&send)
             .pending(
                 &PendingKey::new(receiver_account.into(), send.hash()),
@@ -1645,10 +1654,20 @@ mod tests {
         (ledger, send.hash(), amount)
     }
 
-    #[derive(Default)]
     struct FixtureArgs {
         ledger: Option<Ledger>,
         disable_work_queue: bool,
+        ledger_store_factory: Arc<dyn LedgerStoreFactory>,
+    }
+
+    impl Default for FixtureArgs {
+        fn default() -> Self {
+            Self {
+                ledger: None,
+                disable_work_queue: false,
+                ledger_store_factory: default_ledger_store_factory(),
+            }
+        }
     }
 
     struct Fixture {
@@ -1658,6 +1677,11 @@ mod tests {
 
     impl Fixture {
         fn new(args: FixtureArgs) -> Self {
+            let FixtureArgs {
+                ledger,
+                disable_work_queue,
+                ledger_store_factory,
+            } = args;
             let network = Networks::NanoLiveNetwork;
             let wallets_config = WalletsConfig::default();
             let env_impl = Arc::new(
@@ -1673,8 +1697,7 @@ mod tests {
             let env_harness = WalletEnvTestHarness::new(wallet_env, store_factory);
             let work = WorkThresholds::default_for(network);
             let ledger = Arc::new(
-                args.ledger
-                    .unwrap_or_else(|| Ledger::new_null(null_ledger_store_factory())),
+                ledger.unwrap_or_else(|| Ledger::new_null(Arc::clone(&ledger_store_factory))),
             );
             let clock = Arc::new(SteadyClock::new_null());
 
@@ -1688,7 +1711,7 @@ mod tests {
             ));
 
             let (tx_work, rx_work) = mpsc::channel();
-            if !args.disable_work_queue {
+            if !disable_work_queue {
                 wallets.set_work_queue(tx_work);
             }
 
@@ -1700,5 +1723,9 @@ mod tests {
                 .recv_timeout(Duration::from_secs(3))
                 .expect("A work request should've been enqueued")
         }
+    }
+
+    fn default_ledger_store_factory() -> Arc<dyn LedgerStoreFactory> {
+        Arc::new(RocksdbLedgerStoreFactory::default())
     }
 }

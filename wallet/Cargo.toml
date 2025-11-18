@@ -21,3 +21,4 @@ tracing = "0"
 
 [dev-dependencies]
 rsnano_store_lmdb = { path = "../store_lmdb" }
+store_rocksdb = { path = "../store_rocksdb" }

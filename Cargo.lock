@@ -4671,6 +4671,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "store_rocksdb",
  "store_traits",
  "tracing",
 ]

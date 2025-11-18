@@ -1,8 +1,6 @@
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
 };
 
 use anyhow::{Result, anyhow};
@@ -138,10 +136,7 @@ impl RocksdbBlockStore {
         match txn.get(self.data_cf(), id_bytes) {
             Ok(data) => {
                 let mut slice = data.as_ref();
-                Some(
-                    SavedBlock::deserialize(&mut slice)
-                        .expect("failed to deserialize block"),
-                )
+                Some(SavedBlock::deserialize(&mut slice).expect("failed to deserialize block"))
             }
             Err(e) if e.is_not_found() => None,
             // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.

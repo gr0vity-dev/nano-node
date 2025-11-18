@@ -202,11 +202,7 @@ impl LmdbBlockStore {
         .expect("Couldn't insert into block data table'");
     }
 
-    fn load_block_bytes(
-        &self,
-        txn: &dyn LedgerReadTxn,
-        hash: &BlockHash,
-    ) -> Option<StoreValue> {
+    fn load_block_bytes(&self, txn: &dyn LedgerReadTxn, hash: &BlockHash) -> Option<StoreValue> {
         match txn.get(self.index_db_handle(), hash.as_bytes()) {
             Err(e) if e.is_not_found() => None,
             Ok(id_bytes) => Some(
