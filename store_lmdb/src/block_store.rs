@@ -14,7 +14,7 @@ use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{BlockHash, SavedBlock};
 use store_traits::{
     transaction::{LedgerReadTxn, LedgerWriteTxn},
-    types::StoreDatabase,
+    types::{StoreDatabase, StoreValue},
 };
 
 use crate::{
@@ -112,15 +112,16 @@ impl LmdbBlockStore {
     }
 
     pub fn get(&self, txn: &dyn LedgerReadTxn, hash: &BlockHash) -> Option<SavedBlock> {
-        self.load_block_bytes(txn, hash).map(|mut block_bytes| {
-            SavedBlock::deserialize(&mut block_bytes)
+        self.load_block_bytes(txn, hash).map(|bytes| {
+            let mut slice = bytes.as_ref();
+            SavedBlock::deserialize(&mut slice)
                 .unwrap_or_else(|e| panic!("Could not deserialize block {}: {:?}", hash, e))
         })
     }
 
     pub fn del(&self, txn: &mut dyn LedgerWriteTxn, hash: &BlockHash) {
         let id = match txn.get(self.index_db_handle(), hash.as_bytes()) {
-            Ok(id_bytes) => get_block_id(id_bytes),
+            Ok(id_bytes) => get_block_id(id_bytes.as_ref()),
             Err(e) if e.is_not_found() => return,
             Err(e) => panic!("Could not delete block: {e:?} (hash: {hash})"),
         };
@@ -145,11 +146,11 @@ impl LmdbBlockStore {
         let cursor = lmdb_ro_cursor_from_store(cursor);
 
         LmdbIterator::new(cursor, read_block_index_record).map(move |(_, id)| {
-            let mut data = tx
+            let data = tx
                 .get(self.block_db_handle(), &id.to_be_bytes())
                 .expect("Block data should exist");
-
-            SavedBlock::deserialize(&mut data).expect("Block data should be valid")
+            let mut slice = data.as_ref();
+            SavedBlock::deserialize(&mut slice).expect("Block data should be valid")
         })
     }
 
@@ -173,12 +174,11 @@ impl LmdbBlockStore {
             read_block_index_record,
         )
         .map(move |(_, id)| {
-            let mut data = tx
+            let data = tx
                 .get(self.block_db_handle(), &id.to_be_bytes())
                 .expect("Block data should exist");
-
-            let block = SavedBlock::deserialize(&mut data).expect("Block data should be valid");
-            block
+            let mut slice = data.as_ref();
+            SavedBlock::deserialize(&mut slice).expect("Block data should be valid")
         })
     }
 
@@ -202,15 +202,15 @@ impl LmdbBlockStore {
         .expect("Couldn't insert into block data table'");
     }
 
-    fn load_block_bytes<'a>(
+    fn load_block_bytes(
         &self,
-        txn: &'a dyn LedgerReadTxn,
+        txn: &dyn LedgerReadTxn,
         hash: &BlockHash,
-    ) -> Option<&'a [u8]> {
+    ) -> Option<StoreValue> {
         match txn.get(self.index_db_handle(), hash.as_bytes()) {
             Err(e) if e.is_not_found() => None,
             Ok(id_bytes) => Some(
-                txn.get(self.block_db_handle(), id_bytes)
+                txn.get(self.block_db_handle(), id_bytes.as_ref())
                     .expect("Block data missing"),
             ),
             Err(e) => panic!("Could not load block. {:?}", e),

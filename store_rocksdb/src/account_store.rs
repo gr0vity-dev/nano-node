@@ -7,7 +7,7 @@ use store_traits::{
     environment::StoreCursor,
     ledger::{AccountStore, RangeBounds, StoreIterator},
     transaction::{LedgerReadTxn, LedgerWriteTxn},
-    types::{StoreDatabase, StoreWriteFlags},
+    types::{StoreDatabase, StoreValue, StoreWriteFlags},
 };
 
 use crate::{
@@ -53,7 +53,10 @@ impl RocksdbAccountStore {
 
     pub fn get(&self, txn: &dyn LedgerReadTxn, account: &Account) -> Option<AccountInfo> {
         match txn.get(self.database(), account.as_bytes()) {
-            Ok(mut bytes) => AccountInfo::deserialize(&mut bytes).ok(),
+            Ok(bytes) => {
+                let mut slice = bytes.as_ref();
+                AccountInfo::deserialize(&mut slice).ok()
+            }
             Err(e) if e.is_not_found() => None,
             // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read account info: {e}"),
@@ -167,13 +170,14 @@ impl<'txn> Iterator for RocksdbAccountRangeIterator<'txn> {
     }
 }
 
-fn read_account_record((key, value): (&[u8], &[u8])) -> (Account, AccountInfo) {
+fn read_account_record((key, value): (StoreValue, StoreValue)) -> (Account, AccountInfo) {
     let account = Account::from_bytes(
-        key.try_into()
+        key.as_ref()
+            .try_into()
             .expect("invalid account key length in RocksDB"),
     );
-    let mut bytes = value;
+    let mut slice = value.as_ref();
     let info =
-        AccountInfo::deserialize(&mut bytes).expect("failed to deserialize RocksDB account info");
+        AccountInfo::deserialize(&mut slice).expect("failed to deserialize RocksDB account info");
     (account, info)
 }

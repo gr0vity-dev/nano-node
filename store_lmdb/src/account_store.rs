@@ -61,10 +61,12 @@ impl LmdbAccountStore {
     }
 
     pub fn get(&self, transaction: &dyn LedgerReadTxn, account: &Account) -> Option<AccountInfo> {
-        let result = transaction.get(self.store_database(), account.as_bytes());
-        match result {
+        match transaction.get(self.store_database(), account.as_bytes()) {
             Err(e) if e.is_not_found() => None,
-            Ok(mut bytes) => AccountInfo::deserialize(&mut bytes).ok(),
+            Ok(bytes) => {
+                let mut slice = bytes.as_ref();
+                AccountInfo::deserialize(&mut slice).ok()
+            }
             Err(e) => panic!("Could not load account info {:?}", e),
         }
     }

@@ -7,7 +7,7 @@ use store_traits::{
     environment::StoreCursor,
     ledger::{RepWeightStore, StoreIterator},
     transaction::{LedgerReadTxn, LedgerWriteTxn},
-    types::{StoreDatabase, StoreWriteFlags},
+    types::{StoreDatabase, StoreValue, StoreWriteFlags},
 };
 
 use crate::{
@@ -44,7 +44,10 @@ impl RocksdbRepWeightStore {
 
     pub fn get(&self, txn: &dyn LedgerReadTxn, pub_key: &PublicKey) -> Option<Amount> {
         match txn.get(self.database(), pub_key.as_bytes()) {
-            Ok(mut bytes) => Amount::deserialize(&mut bytes).ok(),
+            Ok(bytes) => {
+                let mut slice = bytes.as_ref();
+                Amount::deserialize(&mut slice).ok()
+            }
             Err(e) if e.is_not_found() => None,
             // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read rep weight: {e}"),
@@ -129,13 +132,14 @@ impl<'txn> Iterator for RocksdbRepWeightIterator<'txn> {
     }
 }
 
-fn read_rep_weight_record((key, value): (&[u8], &[u8])) -> (PublicKey, Amount) {
+fn read_rep_weight_record((key, value): (StoreValue, StoreValue)) -> (PublicKey, Amount) {
     let pub_key = PublicKey::from_slice(
-        key.try_into()
+        key.as_ref()
+            .try_into()
             .expect("invalid representative key length in RocksDB"),
     )
     .expect("failed to parse public key");
-    let mut bytes = value;
-    let amount = Amount::deserialize(&mut bytes).expect("failed to deserialize amount");
+    let mut slice = value.as_ref();
+    let amount = Amount::deserialize(&mut slice).expect("failed to deserialize amount");
     (pub_key, amount)
 }

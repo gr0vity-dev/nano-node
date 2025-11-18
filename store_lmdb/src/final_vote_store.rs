@@ -52,7 +52,7 @@ impl LmdbFinalVoteStore {
                 .unwrap();
                 true
             }
-            Ok(bytes) => BlockHash::from_slice(bytes).unwrap() == *hash,
+            Ok(bytes) => BlockHash::from_slice(bytes.as_ref()).unwrap() == *hash,
             Err(e) => {
                 panic!("Could not get final vote: {:?}", e);
             }
@@ -87,8 +87,12 @@ impl LmdbFinalVoteStore {
         let result = tx.get(self.store_database(), &root.to_bytes());
         match result {
             Err(e) if e.is_not_found() => None,
-            Ok(mut bytes) => {
-                Some(BlockHash::deserialize(&mut bytes).expect("Should be valid block hash data"))
+            Ok(bytes) => {
+                let mut slice = bytes.as_ref();
+                Some(
+                    BlockHash::deserialize(&mut slice)
+                        .expect("Should be valid block hash data"),
+                )
             }
             Err(e) => panic!("Could not load final vote info {:?}", e),
         }

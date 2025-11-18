@@ -1,5 +1,4 @@
 use std::{
-    cell::RefCell,
     cmp::Ordering,
     collections::{BTreeMap, HashMap, VecDeque},
     num::NonZeroUsize,
@@ -10,7 +9,8 @@ use rocksdb::{DBIteratorWithThreadMode, IteratorMode, WriteBatch};
 use store_traits::environment::{StoreCursor, StoreReadTxn, StoreWriteTxn};
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 use store_traits::types::{
-    StoreDatabase, StoreError, StoreResult, StoreRoCursor, StoreRwCursor, StoreWriteFlags,
+    StoreDatabase, StoreError, StoreResult, StoreRoCursor, StoreRwCursor, StoreValue,
+    StoreWriteFlags,
 };
 
 use crate::environment::{
@@ -52,7 +52,7 @@ impl LedgerReadTxn for RocksdbLedgerReadTxn {
         false
     }
 
-    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue> {
         self.inner.get(database, key)
     }
 
@@ -71,7 +71,7 @@ impl LedgerReadTxn for RocksdbLedgerWriteTxn {
         false
     }
 
-    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue> {
         self.inner.get(database, key)
     }
 
@@ -126,7 +126,6 @@ impl LedgerWriteTxn for RocksdbLedgerWriteTxn {
 pub struct RocksdbReadTxn<'env> {
     inner: Arc<RocksDbInner>,
     snapshot: RocksDbSnapshot<'env>,
-    buffers: RefCell<Vec<Vec<u8>>>,
 }
 
 impl<'env> RocksdbReadTxn<'env> {
@@ -135,27 +134,7 @@ impl<'env> RocksdbReadTxn<'env> {
         Self {
             inner: Arc::clone(inner),
             snapshot,
-            buffers: RefCell::new(Vec::new()),
         }
-    }
-
-    fn cache_bytes<'txn>(&'txn self, data: &[u8]) -> &'txn [u8]
-    where
-        'env: 'txn,
-    {
-        let mut buffers = self.buffers.borrow_mut();
-        buffers.push(data.to_vec());
-        let idx = buffers.len() - 1;
-        let ptr: *const Vec<u8> = &buffers[idx];
-        drop(buffers);
-        unsafe { (&*ptr).as_slice() }
-    }
-
-    fn cursor_cache<'txn>(&'txn self) -> CursorCache<'txn>
-    where
-        'env: 'txn,
-    {
-        CursorCache::new(&self.buffers)
     }
 }
 
@@ -166,17 +145,14 @@ impl<'env> StoreReadTxn<'env> for RocksdbReadTxn<'env> {
         Self: 'txn,
         'env: 'txn;
 
-    fn get<'txn>(&'txn self, database: StoreDatabase, key: &[u8]) -> StoreResult<&'txn [u8]>
-    where
-        'env: 'txn,
-    {
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue> {
         let handle = self.inner.cf_handle(database)?;
         match self
             .snapshot
             .get_pinned_cf(&handle, key)
             .map_err(store_error_from_rocksdb)?
         {
-            Some(value) => Ok(self.cache_bytes(value.as_ref())),
+            Some(value) => Ok(StoreValue::from_slice(value.as_ref())),
             None => Err(StoreError::not_found()),
         }
     }
@@ -192,9 +168,9 @@ impl<'env> StoreReadTxn<'env> for RocksdbReadTxn<'env> {
         let map = self.inner.snapshot_entries_map(&self.snapshot, database)?;
         let entries = map
             .into_iter()
-            .map(|(k, v)| (k.into_boxed_slice(), v.into_boxed_slice()))
+            .map(|(k, v)| (StoreValue::from(k), StoreValue::from(v)))
             .collect();
-        Ok(RocksdbCursor::from_entries(self.cursor_cache(), entries))
+        Ok(RocksdbCursor::from_entries(entries))
     }
 
     fn commit(self) -> StoreResult<()>
@@ -209,7 +185,6 @@ pub struct RocksdbWriteTxn<'env> {
     inner: Arc<RocksDbInner>,
     snapshot: RocksDbSnapshot<'env>,
     batch: WriteBatch,
-    buffers: RefCell<Vec<Vec<u8>>>,
     ops: Vec<WriteOp>,
     overlays: HashMap<usize, ColumnOverlay>,
 }
@@ -221,31 +196,20 @@ impl<'env> RocksdbWriteTxn<'env> {
             inner: Arc::clone(inner),
             snapshot,
             batch: WriteBatch::default(),
-            buffers: RefCell::new(Vec::new()),
             ops: Vec::new(),
             overlays: HashMap::new(),
         }
     }
 
-    fn cursor_cache<'txn>(&'txn self) -> CursorCache<'txn>
-    where
-        'env: 'txn,
-    {
-        CursorCache::new(&self.buffers)
-    }
-
     fn lookup_overlay<'txn>(
-        &'txn self,
+        &self,
         database: StoreDatabase,
         key: &[u8],
-    ) -> Option<Option<&'txn [u8]>>
-    where
-        'env: 'txn,
-    {
+    ) -> Option<Option<StoreValue>> {
         if let Some(overlay) = self.column_overlay(database) {
             if let Some(entry) = overlay.get(key) {
                 return match entry {
-                    OverlayValue::Put(value) => Some(Some(self.cache_bytes(value.as_slice()))),
+                    OverlayValue::Put(value) => Some(Some(StoreValue::from(value.clone()))),
                     OverlayValue::Delete => Some(None),
                 };
             } else if overlay.is_cleared() {
@@ -260,7 +224,7 @@ impl<'env> RocksdbWriteTxn<'env> {
                     key: op_key,
                     value,
                 } if *db == database && op_key.as_slice() == key => {
-                    return Some(Some(self.cache_bytes(value.as_slice())));
+                    return Some(Some(StoreValue::from(value.clone())));
                 }
                 WriteOp::Delete {
                     database: db,
@@ -275,18 +239,6 @@ impl<'env> RocksdbWriteTxn<'env> {
             }
         }
         None
-    }
-
-    fn cache_bytes<'txn>(&'txn self, data: &[u8]) -> &'txn [u8]
-    where
-        'env: 'txn,
-    {
-        let mut buffers = self.buffers.borrow_mut();
-        buffers.push(data.to_vec());
-        let idx = buffers.len() - 1;
-        let ptr: *const Vec<u8> = &buffers[idx];
-        drop(buffers);
-        unsafe { (&*ptr).as_slice() }
     }
 
     fn column_overlay(&self, database: StoreDatabase) -> Option<&ColumnOverlay> {
@@ -333,10 +285,7 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
         Self: 'txn,
         'env: 'txn;
 
-    fn get<'txn>(&'txn self, database: StoreDatabase, key: &[u8]) -> StoreResult<&'txn [u8]>
-    where
-        'env: 'txn,
-    {
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue> {
         if let Some(result) = self.lookup_overlay(database, key) {
             return result.map_or(Err(StoreError::not_found()), Ok);
         }
@@ -347,7 +296,7 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
             .get_pinned_cf(&handle, key)
             .map_err(store_error_from_rocksdb)?
         {
-            Some(value) => Ok(self.cache_bytes(value.as_ref())),
+            Some(value) => Ok(StoreValue::from_slice(value.as_ref())),
             None => Err(StoreError::not_found()),
         }
     }
@@ -366,7 +315,7 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
         'env: 'txn,
     {
         let merge = self.merge_iterator(database)?;
-        Ok(RocksdbCursor::streaming(self.cursor_cache(), merge))
+        Ok(RocksdbCursor::streaming(merge))
     }
 
     fn commit(self) -> StoreResult<()>
@@ -449,7 +398,7 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
         'env: 'txn,
     {
         let merge = self.merge_iterator(database)?;
-        Ok(RocksdbCursor::streaming(self.cursor_cache(), merge))
+        Ok(RocksdbCursor::streaming(merge))
     }
 
     unsafe fn drop_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
@@ -620,73 +569,37 @@ enum WriteOp {
 }
 
 pub struct RocksdbCursor<'txn> {
-    cache: CursorCache<'txn>,
     source: RocksdbCursorSource<'txn>,
 }
 
 impl<'txn> RocksdbCursor<'txn> {
-    fn from_entries(cache: CursorCache<'txn>, entries: Vec<(Box<[u8]>, Box<[u8]>)>) -> Self {
+    fn from_entries(entries: Vec<(StoreValue, StoreValue)>) -> Self {
         Self {
-            cache,
             source: RocksdbCursorSource::Buffered(entries.into_iter()),
         }
     }
 
-    fn streaming(cache: CursorCache<'txn>, merge: RocksdbMergeIterator<'txn>) -> Self {
+    fn streaming(merge: RocksdbMergeIterator<'txn>) -> Self {
         Self {
-            cache,
             source: RocksdbCursorSource::Streaming(merge),
         }
     }
 }
 
 impl<'txn> StoreCursor<'txn> for RocksdbCursor<'txn> {
-    fn next(&mut self) -> StoreResult<Option<(&'txn [u8], &'txn [u8])>> {
+    fn next(&mut self) -> StoreResult<Option<(StoreValue, StoreValue)>> {
         match &mut self.source {
-            RocksdbCursorSource::Buffered(iter) => match iter.next() {
-                Some((key, value)) => Ok(Some((
-                    self.cache.cache_boxed_bytes(key),
-                    self.cache.cache_boxed_bytes(value),
-                ))),
-                None => Ok(None),
-            },
-            RocksdbCursorSource::Streaming(iter) => match iter.next_entry()? {
-                Some((key, value)) => Ok(Some((
-                    self.cache.cache_vec_bytes(key),
-                    self.cache.cache_vec_bytes(value),
-                ))),
-                None => Ok(None),
-            },
+            RocksdbCursorSource::Buffered(iter) => Ok(iter.next()),
+            RocksdbCursorSource::Streaming(iter) => {
+                Ok(iter.next_entry()?.map(|(key, value)| (key.into(), value.into())))
+            }
         }
     }
 }
 
 enum RocksdbCursorSource<'txn> {
-    Buffered(std::vec::IntoIter<(Box<[u8]>, Box<[u8]>)>),
+    Buffered(std::vec::IntoIter<(StoreValue, StoreValue)>),
     Streaming(RocksdbMergeIterator<'txn>),
-}
-
-struct CursorCache<'txn> {
-    buffers: &'txn RefCell<Vec<Vec<u8>>>,
-}
-
-impl<'txn> CursorCache<'txn> {
-    fn new(buffers: &'txn RefCell<Vec<Vec<u8>>>) -> Self {
-        Self { buffers }
-    }
-
-    fn cache_boxed_bytes(&self, bytes: Box<[u8]>) -> &'txn [u8] {
-        self.cache_vec_bytes(bytes.into())
-    }
-
-    fn cache_vec_bytes(&self, bytes: Vec<u8>) -> &'txn [u8] {
-        let mut buffers = self.buffers.borrow_mut();
-        buffers.push(bytes);
-        let idx = buffers.len() - 1;
-        let ptr: *const Vec<u8> = &buffers[idx];
-        drop(buffers);
-        unsafe { (&*ptr).as_slice() }
-    }
 }
 
 pub(crate) fn store_ro_cursor_from_rocksdb<'txn>(

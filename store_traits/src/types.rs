@@ -1,11 +1,93 @@
 use std::{
+    borrow::Borrow,
     fmt,
     marker::PhantomData,
     num::NonZeroUsize,
-    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign},
+    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Deref},
+    sync::Arc,
 };
 
 pub type StoreResult<T> = Result<T, StoreError>;
+
+/// Owned value returned by store backends.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct StoreValue(Arc<[u8]>);
+
+impl StoreValue {
+    pub fn new(bytes: Arc<[u8]>) -> Self {
+        Self(bytes)
+    }
+
+    pub fn from_slice(slice: &[u8]) -> Self {
+        Self(Arc::<[u8]>::from(slice))
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn into_arc(self) -> Arc<[u8]> {
+        self.0
+    }
+}
+
+impl Deref for StoreValue {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl From<Vec<u8>> for StoreValue {
+    fn from(value: Vec<u8>) -> Self {
+        Self(Arc::from(value.into_boxed_slice()))
+    }
+}
+
+impl From<Box<[u8]>> for StoreValue {
+    fn from(value: Box<[u8]>) -> Self {
+        Self(Arc::from(value))
+    }
+}
+
+impl From<&[u8]> for StoreValue {
+    fn from(value: &[u8]) -> Self {
+        Self::from_slice(value)
+    }
+}
+
+impl From<Arc<[u8]>> for StoreValue {
+    fn from(value: Arc<[u8]>) -> Self {
+        Self(value)
+    }
+}
+
+impl From<StoreValue> for Arc<[u8]> {
+    fn from(value: StoreValue) -> Self {
+        value.into_arc()
+    }
+}
+
+impl AsRef<[u8]> for StoreValue {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl Borrow<[u8]> for StoreValue {
+    fn borrow(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
 
 /// Backend database handles are encoded as opaque `NonZeroUsize` values.  Backends
 /// must use `from_raw`/`into_raw` to wrap and unwrap their own representations,

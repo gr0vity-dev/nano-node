@@ -51,7 +51,10 @@ impl LmdbForksStore {
         let result = tx.get(self.store_database(), &root.to_bytes());
         match result {
             Err(Error::NotFound) => None,
-            Ok(mut bytes) => Some(read_u32_be(&mut bytes).unwrap()),
+            Ok(bytes) => {
+                let mut slice = bytes.as_ref();
+                Some(read_u32_be(&mut slice).unwrap())
+            }
             Err(e) => panic!("Could not load fork info {:?}", e),
         }
     }

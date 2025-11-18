@@ -47,7 +47,10 @@ impl LmdbRepWeightStore {
 
     pub fn get(&self, txn: &dyn LedgerReadTxn, pub_key: &PublicKey) -> Option<Amount> {
         match txn.get(self.store_database(), pub_key.as_bytes()) {
-            Ok(mut bytes) => Some(Amount::deserialize(&mut bytes).expect("Should be valid amount")),
+            Ok(bytes) => {
+                let mut slice = bytes.as_ref();
+                Some(Amount::deserialize(&mut slice).expect("Should be valid amount"))
+            }
             Err(e) if e.is_not_found() => None,
             Err(e) => {
                 panic!("Could not load rep_weight: {:?}", e);

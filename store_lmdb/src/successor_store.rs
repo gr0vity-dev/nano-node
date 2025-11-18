@@ -53,7 +53,7 @@ impl LmdbSuccessorStore {
 
     pub fn get(&self, tx: &dyn LedgerReadTxn, block: &BlockHash) -> Option<BlockHash> {
         match tx.get(self.store_database(), block.as_bytes()) {
-            Ok(bytes) => BlockHash::from_slice(bytes),
+            Ok(bytes) => BlockHash::from_slice(bytes.as_ref()),
             Err(e) if e.is_not_found() => None,
             Err(e) => match e.kind() {
                 StoreErrorKind::PageNotFound => {

@@ -138,8 +138,8 @@ impl<'txn> Iterator for RocksdbPeerIterator<'txn> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let entry = self.cursor.next().expect("failed to advance cursor")?;
-        let endpoint = decode_endpoint(entry.0);
-        let time = decode_time(entry.1);
+        let endpoint = decode_endpoint(entry.0.as_ref());
+        let time = decode_time(entry.1.as_ref());
         Some((endpoint, time))
     }
 }

@@ -1,10 +1,12 @@
 use std::{path::PathBuf, sync::Arc};
 
-use crate::types::{StoreDatabase, StoreEnvironmentFlags, StoreResult, StoreWriteFlags};
+use crate::types::{
+    StoreDatabase, StoreEnvironmentFlags, StoreResult, StoreValue, StoreWriteFlags,
+};
 
 /// Cursor over a database view that yields key/value pairs tied to the cursor lifetime.
 pub trait StoreCursor<'txn> {
-    fn next(&mut self) -> StoreResult<Option<(&'txn [u8], &'txn [u8])>>;
+    fn next(&mut self) -> StoreResult<Option<(StoreValue, StoreValue)>>;
 }
 
 /// Read-only transaction interface with lifetime-aware cursors.
@@ -14,9 +16,7 @@ pub trait StoreReadTxn<'env>: 'env {
         Self: 'txn,
         'env: 'txn;
 
-    fn get<'txn>(&'txn self, database: StoreDatabase, key: &[u8]) -> StoreResult<&'txn [u8]>
-    where
-        'env: 'txn;
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue>;
 
     fn count(&self, database: StoreDatabase) -> StoreResult<u64>;
 

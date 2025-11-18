@@ -1,7 +1,7 @@
 use rsnano_nullable_lmdb::{ReadTransaction, Transaction as LmdbTxn, WriteTransaction};
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn, WalletReadTxn, WalletWriteTxn};
 use store_traits::types::{
-    StoreDatabase, StoreResult, StoreRoCursor, StoreRwCursor, StoreWriteFlags,
+    StoreDatabase, StoreResult, StoreRoCursor, StoreRwCursor, StoreValue, StoreWriteFlags,
 };
 
 use crate::store_utils::{
@@ -37,8 +37,9 @@ impl LedgerReadTxn for LmdbLedgerReadTxn {
         LmdbTxn::is_refresh_needed(&self.inner)
     }
 
-    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue> {
         LmdbTxn::get(&self.inner, lmdb_database_from_store(database), key)
+            .map(StoreValue::from_slice)
             .map_err(store_error_from_lmdb)
     }
 
@@ -88,8 +89,9 @@ impl LedgerReadTxn for LmdbLedgerWriteTxn {
         LmdbTxn::is_refresh_needed(&self.inner)
     }
 
-    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue> {
         LmdbTxn::get(&self.inner, lmdb_database_from_store(database), key)
+            .map(StoreValue::from_slice)
             .map_err(store_error_from_lmdb)
     }
 
@@ -161,8 +163,9 @@ impl LedgerWriteTxn for LmdbLedgerWriteTxn {
 }
 
 impl WalletReadTxn for LmdbLedgerReadTxn {
-    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue> {
         LmdbTxn::get(&self.inner, lmdb_database_from_store(database), key)
+            .map(StoreValue::from_slice)
             .map_err(store_error_from_lmdb)
     }
 
@@ -186,8 +189,9 @@ impl WalletReadTxn for LmdbLedgerReadTxn {
 }
 
 impl WalletReadTxn for LmdbLedgerWriteTxn {
-    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue> {
         LmdbTxn::get(&self.inner, lmdb_database_from_store(database), key)
+            .map(StoreValue::from_slice)
             .map_err(store_error_from_lmdb)
     }
 

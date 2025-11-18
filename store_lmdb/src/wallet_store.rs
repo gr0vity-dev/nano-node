@@ -241,8 +241,9 @@ impl LmdbWalletStore {
 
     pub fn entry_get_raw(&self, txn: &dyn WalletReadTxn, pub_key: &PublicKey) -> WalletValue {
         match txn.get(self.store_db(), pub_key.as_bytes()) {
-            Ok(mut bytes) => {
-                WalletValue::deserialize(&mut bytes).expect("Should be a valid wallet value")
+            Ok(bytes) => {
+                let mut slice = bytes.as_ref();
+                WalletValue::deserialize(&mut slice).expect("Should be a valid wallet value")
             }
             _ => WalletValue::new(RawKey::ZERO, 0.into()),
         }

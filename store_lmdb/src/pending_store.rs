@@ -71,8 +71,11 @@ impl LmdbPendingStore {
     pub fn get(&self, txn: &dyn LedgerReadTxn, key: &PendingKey) -> Option<PendingInfo> {
         let key_bytes = key.to_bytes();
         match txn.get(self.store_database(), &key_bytes) {
-            Ok(mut bytes) => {
-                Some(PendingInfo::deserialize(&mut bytes).expect("Should be valid pending info"))
+            Ok(bytes) => {
+                let mut slice = bytes.as_ref();
+                Some(
+                    PendingInfo::deserialize(&mut slice).expect("Should be valid pending info"),
+                )
             }
             Err(e) if e.is_not_found() => None,
             Err(e) => {

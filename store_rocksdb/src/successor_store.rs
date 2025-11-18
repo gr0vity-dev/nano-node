@@ -53,7 +53,7 @@ impl RocksdbSuccessorStore {
 
     pub fn get(&self, txn: &dyn LedgerReadTxn, block: &BlockHash) -> Option<BlockHash> {
         match txn.get(self.database(), block.as_bytes()) {
-            Ok(bytes) => BlockHash::from_slice(bytes),
+            Ok(bytes) => BlockHash::from_slice(bytes.as_ref()),
             Err(e) if e.is_not_found() => None,
             // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read successor: {e}"),

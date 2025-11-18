@@ -81,7 +81,7 @@ impl WalletEnvironmentTrait for LmdbWalletEnvironment {
     fn get_send_action_hash(&self, txn: &dyn WalletReadTxn, id: &str) -> Result<Option<BlockHash>> {
         match txn.get(self.send_action_ids_handle(), id.as_bytes()) {
             Ok(bytes) => Ok(Some(
-                BlockHash::from_slice(bytes)
+                BlockHash::from_slice(bytes.as_ref())
                     .ok_or_else(|| anyhow::anyhow!("invalid block hash"))?,
             )),
             Err(e) if e.is_not_found() => Ok(None),

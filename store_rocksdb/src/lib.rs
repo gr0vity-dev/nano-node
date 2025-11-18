@@ -399,7 +399,8 @@ mod tests {
         }
 
         let txn = env.begin_read();
-        assert_eq!(txn.get(database, b"key").unwrap(), b"value");
+        let value = txn.get(database, b"key").unwrap();
+        assert_eq!(value.as_ref(), b"value");
     }
 
     #[test]
@@ -440,7 +441,8 @@ mod tests {
         let mut txn = env.begin_write();
         txn.put(database, b"pending", b"123", StoreWriteFlags::empty())
             .unwrap();
-        assert_eq!(txn.get(database, b"pending").unwrap(), b"123");
+        let value = txn.get(database, b"pending").unwrap();
+        assert_eq!(value.as_ref(), b"123");
     }
 
     #[test]
@@ -456,7 +458,8 @@ mod tests {
         }
 
         let read_txn = env.begin_read();
-        assert_eq!(read_txn.get(database, b"snapshot").unwrap(), b"v1");
+        let initial = read_txn.get(database, b"snapshot").unwrap();
+        assert_eq!(initial.as_ref(), b"v1");
 
         {
             let mut write_txn = env.begin_write();
@@ -467,11 +470,13 @@ mod tests {
         }
 
         // Existing read transaction should continue to see the original value.
-        assert_eq!(read_txn.get(database, b"snapshot").unwrap(), b"v1");
+        let snapshot_value = read_txn.get(database, b"snapshot").unwrap();
+        assert_eq!(snapshot_value.as_ref(), b"v1");
 
         // A fresh read transaction gets the updated value.
         let fresh_read = env.begin_read();
-        assert_eq!(fresh_read.get(database, b"snapshot").unwrap(), b"v2");
+        let updated = fresh_read.get(database, b"snapshot").unwrap();
+        assert_eq!(updated.as_ref(), b"v2");
     }
 
     #[test]
@@ -487,9 +492,11 @@ mod tests {
         let mut cursor = txn.open_rw_cursor(database).unwrap();
 
         let first = cursor.next().unwrap().unwrap();
-        assert_eq!(first, (b"a".as_ref(), b"1".as_ref()));
+        assert_eq!(first.0.as_ref(), b"a");
+        assert_eq!(first.1.as_ref(), b"1");
         let second = cursor.next().unwrap().unwrap();
-        assert_eq!(second, (b"b".as_ref(), b"2".as_ref()));
+        assert_eq!(second.0.as_ref(), b"b");
+        assert_eq!(second.1.as_ref(), b"2");
     }
 
     #[test]
@@ -575,7 +582,8 @@ mod tests {
 
         let mut cursor = txn.open_rw_cursor(database).unwrap();
         let first = cursor.next().unwrap().unwrap();
-        assert_eq!(first, (b"z".as_ref(), b"3".as_ref()));
+        assert_eq!(first.0.as_ref(), b"z");
+        assert_eq!(first.1.as_ref(), b"3");
         assert!(cursor.next().unwrap().is_none());
     }
 

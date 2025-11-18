@@ -43,7 +43,7 @@ impl RocksdbFinalVoteStore {
                 true
             }
             Ok(existing) => {
-                let stored = BlockHash::from_slice(existing)
+                let stored = BlockHash::from_slice(existing.as_ref())
                     .expect("invalid block hash stored in final vote");
                 stored == *hash
             }
@@ -54,8 +54,12 @@ impl RocksdbFinalVoteStore {
 
     pub fn get(&self, txn: &dyn LedgerReadTxn, root: &QualifiedRoot) -> Option<BlockHash> {
         match txn.get(self.database(), &root.to_bytes()) {
-            Ok(mut bytes) => {
-                Some(BlockHash::deserialize(&mut bytes).expect("failed to deserialize block hash"))
+            Ok(bytes) => {
+                let mut slice = bytes.as_ref();
+                Some(
+                    BlockHash::deserialize(&mut slice)
+                        .expect("failed to deserialize block hash"),
+                )
             }
             Err(e) if e.is_not_found() => None,
             // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.

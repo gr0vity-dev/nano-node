@@ -6,7 +6,7 @@ use store_traits::{
     environment::StoreCursor,
     ledger::{ConfirmationHeightStore, RangeBounds, StoreIterator},
     transaction::{LedgerReadTxn, LedgerWriteTxn},
-    types::{StoreDatabase, StoreWriteFlags},
+    types::{StoreDatabase, StoreValue, StoreWriteFlags},
 };
 
 use crate::{
@@ -49,7 +49,10 @@ impl RocksdbConfirmationHeightStore {
         account: &Account,
     ) -> Option<ConfirmationHeightInfo> {
         match txn.get(self.database(), account.as_bytes()) {
-            Ok(mut bytes) => ConfirmationHeightInfo::deserialize(&mut bytes).ok(),
+            Ok(bytes) => {
+                let mut slice = bytes.as_ref();
+                ConfirmationHeightInfo::deserialize(&mut slice).ok()
+            }
             Err(e) if e.is_not_found() => None,
             // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read confirmation height: {e}"),
@@ -164,14 +167,15 @@ impl<'txn> Iterator for RocksdbConfirmationHeightRangeIterator<'txn> {
 }
 
 fn read_confirmation_height_record(
-    (key, value): (&[u8], &[u8]),
+    (key, value): (StoreValue, StoreValue),
 ) -> (Account, ConfirmationHeightInfo) {
     let account = Account::from_bytes(
-        key.try_into()
+        key.as_ref()
+            .try_into()
             .expect("invalid confirmation height key length"),
     );
-    let mut bytes = value;
-    let info = ConfirmationHeightInfo::deserialize(&mut bytes)
+    let mut slice = value.as_ref();
+    let info = ConfirmationHeightInfo::deserialize(&mut slice)
         .expect("failed to deserialize confirmation height");
     (account, info)
 }

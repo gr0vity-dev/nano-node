@@ -66,10 +66,13 @@ impl RocksdbOnlineWeightStore {
             match cursor.next().expect("failed to advance RocksDB cursor") {
                 Some((key, value)) => {
                     let time = u64::from_be_bytes(
-                        key.try_into().expect("invalid online weight key length"),
+                        key.as_ref()
+                            .try_into()
+                            .expect("invalid online weight key length"),
                     );
                     let amount = Amount::from_be_bytes(
                         value
+                            .as_ref()
                             .try_into()
                             .expect("invalid online weight amount length"),
                     );
@@ -125,8 +128,20 @@ impl<'txn> Iterator for RocksdbOnlineWeightIterator<'txn> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let entry = self.cursor.next().expect("failed to advance cursor")?;
-        let time = u64::from_be_bytes(entry.0.try_into().expect("invalid time bytes"));
-        let amount = Amount::from_be_bytes(entry.1.try_into().expect("invalid amount bytes"));
+        let time = u64::from_be_bytes(
+            entry
+                .0
+                .as_ref()
+                .try_into()
+                .expect("invalid time bytes"),
+        );
+        let amount = Amount::from_be_bytes(
+            entry
+                .1
+                .as_ref()
+                .try_into()
+                .expect("invalid amount bytes"),
+        );
         Some((time, amount))
     }
 }

@@ -33,7 +33,7 @@ impl RocksdbVersionStore {
     pub fn get(&self, txn: &dyn LedgerReadTxn) -> Option<i32> {
         let key = version_key();
         match txn.get(self.database(), &key) {
-            Ok(value) => Some(decode_version(value)),
+            Ok(value) => Some(decode_version(value.as_ref())),
             Err(e) if e.is_not_found() => None,
             // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read version: {e}"),

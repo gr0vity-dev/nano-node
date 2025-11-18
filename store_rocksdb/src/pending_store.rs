@@ -7,7 +7,7 @@ use store_traits::{
     environment::StoreCursor,
     ledger::{PendingStore, RangeBounds, StoreIterator},
     transaction::{LedgerReadTxn, LedgerWriteTxn},
-    types::{StoreDatabase, StoreWriteFlags},
+    types::{StoreDatabase, StoreValue, StoreWriteFlags},
 };
 
 use crate::{
@@ -68,10 +68,13 @@ impl RocksdbPendingStore {
 
     pub fn get(&self, txn: &dyn LedgerReadTxn, key: &PendingKey) -> Option<PendingInfo> {
         match txn.get(self.database(), &key.to_bytes()) {
-            Ok(mut bytes) => Some(
-                PendingInfo::deserialize(&mut bytes)
-                    .expect("failed to deserialize RocksDB pending info"),
-            ),
+            Ok(bytes) => {
+                let mut slice = bytes.as_ref();
+                Some(
+                    PendingInfo::deserialize(&mut slice)
+                        .expect("failed to deserialize RocksDB pending info"),
+                )
+            }
             Err(e) if e.is_not_found() => None,
             // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read pending info: {e}"),
@@ -189,9 +192,9 @@ impl<'txn> Iterator for RocksdbPendingRangeIterator<'txn> {
     }
 }
 
-fn read_pending_record((key, value): (&[u8], &[u8])) -> (PendingKey, PendingInfo) {
-    let mut key_bytes = key;
-    let mut value_bytes = value;
+fn read_pending_record((key, value): (StoreValue, StoreValue)) -> (PendingKey, PendingInfo) {
+    let mut key_bytes = key.as_ref();
+    let mut value_bytes = value.as_ref();
     let key =
         PendingKey::deserialize(&mut key_bytes).expect("failed to deserialize RocksDB pending key");
     let info = PendingInfo::deserialize(&mut value_bytes)

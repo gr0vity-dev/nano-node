@@ -9,7 +9,7 @@ use store_traits::environment::{
     StoreCursor, StoreEnvironment, StoreEnvironmentFactory, StoreEnvironmentOptions, StoreReadTxn,
     StoreWriteTxn,
 };
-use store_traits::types::{StoreDatabase, StoreResult, StoreWriteFlags};
+use store_traits::types::{StoreDatabase, StoreResult, StoreValue, StoreWriteFlags};
 
 use crate::store_utils::{
     lmdb_database_from_store, lmdb_env_flags_from, lmdb_write_flags_from, store_database_from_lmdb,
@@ -31,11 +31,14 @@ impl<'txn> LmdbCursor<'txn> {
 }
 
 impl<'txn> StoreCursor<'txn> for LmdbCursor<'txn> {
-    fn next(&mut self) -> StoreResult<Option<(&'txn [u8], &'txn [u8])>> {
+    fn next(&mut self) -> StoreResult<Option<(StoreValue, StoreValue)>> {
         let op = if self.started { MDB_NEXT } else { MDB_FIRST };
         self.started = true;
         match self.inner.get(None, None, op) {
-            Ok((Some(key), value)) => Ok(Some((key, value))),
+            Ok((Some(key), value)) => Ok(Some((
+                StoreValue::from_slice(key),
+                StoreValue::from_slice(value),
+            ))),
             Ok((None, _)) => Ok(None),
             Err(rsnano_nullable_lmdb::Error::NotFound) => Ok(None),
             Err(e) => Err(store_error_from_lmdb(e)),
@@ -58,11 +61,14 @@ impl<'txn> LmdbMutCursor<'txn> {
 }
 
 impl<'txn> StoreCursor<'txn> for LmdbMutCursor<'txn> {
-    fn next(&mut self) -> StoreResult<Option<(&'txn [u8], &'txn [u8])>> {
+    fn next(&mut self) -> StoreResult<Option<(StoreValue, StoreValue)>> {
         let op = if self.started { MDB_NEXT } else { MDB_FIRST };
         self.started = true;
         match self.inner.get(None, None, op) {
-            Ok((Some(key), value)) => Ok(Some((key, value))),
+            Ok((Some(key), value)) => Ok(Some((
+                StoreValue::from_slice(key),
+                StoreValue::from_slice(value),
+            ))),
             Ok((None, _)) => Ok(None),
             Err(rsnano_nullable_lmdb::Error::NotFound) => Ok(None),
             Err(e) => Err(store_error_from_lmdb(e)),
@@ -91,11 +97,9 @@ impl<'env> StoreReadTxn<'env> for LmdbReadTxn<'env> {
         Self: 'txn,
         'env: 'txn;
 
-    fn get<'txn>(&'txn self, database: StoreDatabase, key: &[u8]) -> StoreResult<&'txn [u8]>
-    where
-        'env: 'txn,
-    {
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue> {
         LmdbTxn::get(&self.inner, lmdb_database_from_store(database), key)
+            .map(StoreValue::from_slice)
             .map_err(store_error_from_lmdb)
     }
 
@@ -145,11 +149,9 @@ impl<'env> StoreReadTxn<'env> for LmdbWriteTxn<'env> {
         Self: 'txn,
         'env: 'txn;
 
-    fn get<'txn>(&'txn self, database: StoreDatabase, key: &[u8]) -> StoreResult<&'txn [u8]>
-    where
-        'env: 'txn,
-    {
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue> {
         LmdbTxn::get(&self.inner, lmdb_database_from_store(database), key)
+            .map(StoreValue::from_slice)
             .map_err(store_error_from_lmdb)
     }
 

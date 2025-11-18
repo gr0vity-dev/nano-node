@@ -1,9 +1,11 @@
-use crate::types::{StoreDatabase, StoreResult, StoreRoCursor, StoreRwCursor, StoreWriteFlags};
+use crate::types::{
+    StoreDatabase, StoreResult, StoreRoCursor, StoreRwCursor, StoreValue, StoreWriteFlags,
+};
 
 /// Transaction interface exposed to ledger components for read-only access.
 pub trait LedgerReadTxn {
     fn is_refresh_needed(&self) -> bool;
-    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]>;
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue>;
 
     fn raw_exists(&self, database: StoreDatabase, key: &[u8]) -> bool {
         match self.get(database, key) {
@@ -16,7 +18,7 @@ pub trait LedgerReadTxn {
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>>;
     fn count(&self, database: StoreDatabase) -> StoreResult<u64>;
 
-    fn raw_get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]> {
+    fn raw_get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue> {
         self.get(database, key)
     }
 
@@ -89,7 +91,7 @@ pub trait LedgerWriteTxn: LedgerReadTxn {
 
 /// Wallet-specific read transaction surface.
 pub trait WalletReadTxn {
-    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<&[u8]>;
+    fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue>;
     fn open_ro_cursor(&self, database: StoreDatabase) -> StoreResult<StoreRoCursor<'_>>;
     fn count(&self, database: StoreDatabase) -> StoreResult<u64>;
     fn commit(self: Box<Self>) -> StoreResult<()>;

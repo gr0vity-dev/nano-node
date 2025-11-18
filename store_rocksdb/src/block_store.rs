@@ -1,5 +1,4 @@
 use std::{
-    io::Cursor,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -85,7 +84,7 @@ impl RocksdbBlockStore {
             // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to read block index: {e}"),
         };
-        self.load_block_bytes(txn, id_bytes)
+        self.load_block_bytes(txn, id_bytes.as_ref())
     }
 
     pub fn exists(&self, txn: &dyn LedgerReadTxn, hash: &BlockHash) -> bool {
@@ -99,7 +98,7 @@ impl RocksdbBlockStore {
             // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
             Err(e) => panic!("failed to delete block: {e}"),
         };
-        let id_vec = id.to_vec();
+        let id_vec = id.as_ref().to_vec();
         txn.delete(self.data_cf(), &id_vec, None)
             .expect("failed to delete block data");
         txn.delete(self.index_cf(), hash.as_bytes(), None)
@@ -138,8 +137,11 @@ impl RocksdbBlockStore {
     fn load_block_bytes(&self, txn: &dyn LedgerReadTxn, id_bytes: &[u8]) -> Option<SavedBlock> {
         match txn.get(self.data_cf(), id_bytes) {
             Ok(data) => {
-                let mut reader = Cursor::new(data.to_vec());
-                Some(SavedBlock::deserialize(&mut reader).expect("failed to deserialize block"))
+                let mut slice = data.as_ref();
+                Some(
+                    SavedBlock::deserialize(&mut slice)
+                        .expect("failed to deserialize block"),
+                )
             }
             Err(e) if e.is_not_found() => None,
             // TODO(store-errors): propagate backend errors instead of panicking once traits return StoreResult.
@@ -215,12 +217,12 @@ impl<'txn> Iterator for RocksdbBlockIterator<'txn> {
                 Some(value) => value,
                 None => return None,
             };
-            let _hash =
-                BlockHash::from_slice(hash_bytes).expect("invalid block hash bytes in RocksDB");
-            let block = match self.txn.get(self.data_cf, id_bytes) {
+            let _hash = BlockHash::from_slice(hash_bytes.as_ref())
+                .expect("invalid block hash bytes in RocksDB");
+            let block = match self.txn.get(self.data_cf, id_bytes.as_ref()) {
                 Ok(data) => {
-                    let mut reader = Cursor::new(data.to_vec());
-                    SavedBlock::deserialize(&mut reader)
+                    let mut slice = data.as_ref();
+                    SavedBlock::deserialize(&mut slice)
                         .expect("failed to deserialize RocksDB block")
                 }
                 Err(e) if e.is_not_found() => continue,
@@ -268,15 +270,15 @@ impl<'txn> Iterator for RocksdbBlockRangeIterator<'txn> {
                 Some(value) => value,
                 None => return None,
             };
-            let hash =
-                BlockHash::from_slice(hash_bytes).expect("invalid block hash bytes in RocksDB");
+            let hash = BlockHash::from_slice(hash_bytes.as_ref())
+                .expect("invalid block hash bytes in RocksDB");
             if !value_in_range(&hash, &self.range) {
                 continue;
             }
-            let block = match self.txn.get(self.data_cf, id_bytes) {
+            let block = match self.txn.get(self.data_cf, id_bytes.as_ref()) {
                 Ok(data) => {
-                    let mut reader = Cursor::new(data.to_vec());
-                    SavedBlock::deserialize(&mut reader)
+                    let mut slice = data.as_ref();
+                    SavedBlock::deserialize(&mut slice)
                         .expect("failed to deserialize RocksDB block")
                 }
                 Err(e) if e.is_not_found() => continue,
@@ -302,7 +304,8 @@ fn find_next_block_id(
         match cursor.next() {
             Ok(Some((key, _))) => {
                 let id = u64::from_be_bytes(
-                    key.try_into()
+                    key.as_ref()
+                        .try_into()
                         .map_err(|_| anyhow!("invalid block id bytes"))?,
                 );
                 max_id = Some(max_id.map_or(id, |current| current.max(id)));

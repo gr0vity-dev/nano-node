@@ -56,10 +56,13 @@ impl LmdbConfirmationHeightStore {
     ) -> Option<ConfirmationHeightInfo> {
         match txn.get(self.store_database(), account.as_bytes()) {
             Err(e) if e.is_not_found() => None,
-            Ok(mut bytes) => Some(
-                ConfirmationHeightInfo::deserialize(&mut bytes)
-                    .expect("Should be valid conf height data"),
-            ),
+            Ok(bytes) => {
+                let mut slice = bytes.as_ref();
+                Some(
+                    ConfirmationHeightInfo::deserialize(&mut slice)
+                        .expect("Should be valid conf height data"),
+                )
+            }
             Err(e) => {
                 panic!("Could not load confirmation height info: {:?}", e);
             }
