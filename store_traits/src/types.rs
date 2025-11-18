@@ -1,6 +1,7 @@
 use std::{
     borrow::Borrow,
     fmt,
+    hash::{Hash, Hasher},
     marker::PhantomData,
     num::NonZeroUsize,
     ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Deref},
@@ -9,33 +10,77 @@ use std::{
 
 pub type StoreResult<T> = Result<T, StoreError>;
 
-/// Owned value returned by store backends.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct StoreValue(Arc<[u8]>);
+/// Owned or zero-copy buffer returned by store backends.
+#[derive(Clone)]
+pub struct StoreValue(StoreValueInner);
+
+#[derive(Clone)]
+enum StoreValueInner {
+    Owned(Arc<[u8]>),
+    Borrowed(Arc<dyn StoreValueBuffer>),
+}
+
+/// Backend-provided buffer that can expose its bytes without copying.
+pub trait StoreValueBuffer: Send + Sync {
+    fn as_slice(&self) -> &[u8];
+}
 
 impl StoreValue {
     pub fn new(bytes: Arc<[u8]>) -> Self {
-        Self(bytes)
+        Self(StoreValueInner::Owned(bytes))
     }
 
     pub fn from_slice(slice: &[u8]) -> Self {
-        Self(Arc::<[u8]>::from(slice))
+        Self::from(Arc::<[u8]>::from(slice))
+    }
+
+    pub fn from_borrowed<B>(buffer: B) -> Self
+    where
+        B: StoreValueBuffer + 'static,
+    {
+        Self(StoreValueInner::Borrowed(Arc::new(buffer)))
     }
 
     pub fn as_slice(&self) -> &[u8] {
-        &self.0
+        match &self.0 {
+            StoreValueInner::Owned(bytes) => bytes.as_ref(),
+            StoreValueInner::Borrowed(buffer) => buffer.as_slice(),
+        }
     }
 
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.as_slice().len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.as_slice().is_empty()
     }
 
     pub fn into_arc(self) -> Arc<[u8]> {
-        self.0
+        match self.0 {
+            StoreValueInner::Owned(bytes) => bytes,
+            StoreValueInner::Borrowed(buffer) => Arc::from(buffer.as_slice()),
+        }
+    }
+}
+
+impl fmt::Debug for StoreValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("StoreValue").field(&self.as_slice()).finish()
+    }
+}
+
+impl PartialEq for StoreValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl Eq for StoreValue {}
+
+impl Hash for StoreValue {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_slice().hash(state);
     }
 }
 
@@ -49,13 +94,13 @@ impl Deref for StoreValue {
 
 impl From<Vec<u8>> for StoreValue {
     fn from(value: Vec<u8>) -> Self {
-        Self(Arc::from(value.into_boxed_slice()))
+        Self::from(value.into_boxed_slice())
     }
 }
 
 impl From<Box<[u8]>> for StoreValue {
     fn from(value: Box<[u8]>) -> Self {
-        Self(Arc::from(value))
+        Self(StoreValueInner::Owned(Arc::from(value)))
     }
 }
 
@@ -67,7 +112,7 @@ impl From<&[u8]> for StoreValue {
 
 impl From<Arc<[u8]>> for StoreValue {
     fn from(value: Arc<[u8]>) -> Self {
-        Self(value)
+        Self(StoreValueInner::Owned(value))
     }
 }
 
@@ -86,6 +131,38 @@ impl AsRef<[u8]> for StoreValue {
 impl Borrow<[u8]> for StoreValue {
     fn borrow(&self) -> &[u8] {
         self.as_slice()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone)]
+    struct TestBuffer(Arc<[u8]>);
+
+    impl StoreValueBuffer for TestBuffer {
+        fn as_slice(&self) -> &[u8] {
+            &self.0
+        }
+    }
+
+    #[test]
+    fn borrowed_value_exposes_bytes() {
+        let data = Arc::<[u8]>::from(*b"borrowed");
+        let value = StoreValue::from_borrowed(TestBuffer(Arc::clone(&data)));
+        assert_eq!(value.as_slice(), b"borrowed");
+        // into_arc copies borrowed data
+        let owned: Arc<[u8]> = value.clone().into_arc();
+        assert_eq!(&*owned, b"borrowed");
+    }
+
+    #[test]
+    fn owned_value_roundtrips() {
+        let value = StoreValue::from_slice(b"owned");
+        assert_eq!(value.len(), 5);
+        let arc: Arc<[u8]> = value.clone().into_arc();
+        assert_eq!(&*arc, b"owned");
     }
 }
 
