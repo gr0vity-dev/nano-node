@@ -1,9 +1,21 @@
 use std::sync::{Arc, Mutex};
 
+#[cfg(test)]
+use rsnano_ledger::Ledger;
 use rsnano_ledger::RepWeightCache;
+#[cfg(test)]
+use rsnano_nullable_clock::SteadyClock;
+#[cfg(test)]
+use rsnano_store_lmdb::{LmdbWalletEnvironment, null_ledger_store_factory};
 use rsnano_types::{Account, Amount, PrivateKey, PublicKey};
+#[cfg(test)]
+use rsnano_types::{KeyDerivationFunction, Networks};
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 use rsnano_wallet::Wallets;
+#[cfg(test)]
+use rsnano_wallet::{WalletEnvHandle, WalletStoreFactory, WalletsConfig};
+#[cfg(test)]
+use rsnano_work_validation::WorkThresholds;
 
 use crate::representatives::OnlineReps;
 
@@ -39,12 +51,13 @@ impl WalletRepresentatives {
         }
     }
 
+    #[cfg(test)]
     pub fn new_null() -> Self {
         Self::new(
             false,
             Amount::ZERO,
             Arc::new(RepWeightCache::new()),
-            Arc::new(Wallets::new_null()),
+            Arc::new(create_test_wallets()),
             Arc::new(Mutex::new(OnlineReps::new_test_instance())),
         )
     }
@@ -132,6 +145,32 @@ impl WalletRepresentatives {
         self.rep_keys.push(rep_key);
         true
     }
+}
+
+#[cfg(test)]
+fn create_test_wallets() -> Wallets {
+    let network = Networks::NanoLiveNetwork;
+    let wallet_env_impl = Arc::new(
+        LmdbWalletEnvironment::new_null().expect("Failed to initialize LMDB wallet environment"),
+    );
+    let wallet_env: Arc<WalletEnvHandle> = wallet_env_impl.clone();
+    let ledger = Arc::new(Ledger::new_null(null_ledger_store_factory()));
+    let wallets_config = WalletsConfig::default();
+    let work = WorkThresholds::default_for(network);
+    let clock = Arc::new(SteadyClock::new_null());
+    let kdf = KeyDerivationFunction::new(wallets_config.kdf_work);
+    let store_factory: Arc<dyn WalletStoreFactory> = Arc::new(
+        wallet_env_impl.create_store_factory(wallets_config.password_fanout as usize, kdf),
+    );
+
+    Wallets::new(
+        wallets_config,
+        wallet_env,
+        ledger,
+        work,
+        clock,
+        store_factory,
+    )
 }
 
 pub(crate) struct LocalRepsComputation(Arc<Mutex<WalletRepresentatives>>);

@@ -94,6 +94,7 @@ impl VoteGenerators {
         }
     }
 
+    #[cfg(test)]
     pub fn new_null() -> Self {
         let ledger = Arc::new(Ledger::new_null(
             rsnano_store_lmdb::null_ledger_store_factory(),

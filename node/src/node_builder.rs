@@ -22,7 +22,9 @@ use rsnano_network_protocol::{
     MessageCallback, SynCookies,
 };
 use rsnano_nullable_clock::{SteadyClock, SystemTimeFactory};
-use rsnano_store_lmdb::{EnvironmentFlags, EnvironmentOptions, LmdbWalletEnvironmentFactory};
+use rsnano_store_lmdb::{
+    EnvironmentFlags, EnvironmentOptions, LmdbWalletEnvironment, LmdbWalletEnvironmentFactory,
+};
 use rsnano_types::{KeyDerivationFunction, Networks, NodeId, PrivateKey};
 use rsnano_utils::{
     CancellationToken,
@@ -34,8 +36,7 @@ use rsnano_utils::{
     ticker::{Tickable, TickerPool, TimerThread},
 };
 use rsnano_wallet::{
-    LmdbWalletEnvironment, ReceivableSearch, WalletBackup, WalletEnvHandle, WalletStoreFactory,
-    Wallets, WalletsTicker,
+    ReceivableSearch, WalletBackup, WalletEnvHandle, WalletStoreFactory, Wallets, WalletsTicker,
 };
 
 #[cfg(feature = "ledger_snapshots")]

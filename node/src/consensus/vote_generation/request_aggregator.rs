@@ -76,6 +76,7 @@ impl RequestAggregator {
         }
     }
 
+    #[cfg(test)]
     pub fn new_null() -> Self {
         Self::new(
             RequestAggregatorConfig::new(1),

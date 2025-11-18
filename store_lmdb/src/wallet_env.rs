@@ -7,12 +7,13 @@ use rsnano_nullable_lmdb::{
 };
 use rsnano_types::{BlockHash, KeyDerivationFunction};
 use store_traits::{
-    WalletReadTxn, WalletWriteTxn, types::StoreDatabase,
+    WalletReadTxn, WalletWriteTxn, environment::StoreEnvironmentOptions, types::StoreDatabase,
     wallet::WalletEnvironment as WalletEnvironmentTrait,
+    wallet_environment_factory::WalletEnvironmentFactory as WalletEnvironmentFactoryTrait,
 };
 
 use crate::{
-    store_utils::{store_database_from_lmdb, store_write_flags_from},
+    store_utils::{lmdb_env_flags_from, store_database_from_lmdb, store_write_flags_from},
     transaction::{LmdbLedgerReadTxn, LmdbLedgerWriteTxn},
     wallet_factory::LmdbWalletStoreFactory,
 };
@@ -139,5 +140,21 @@ impl LmdbWalletEnvironmentFactory {
     pub fn create(&self, options: EnvironmentOptions) -> Result<Arc<LmdbWalletEnvironment>> {
         let env = self.inner.create(options)?;
         Ok(Arc::new(LmdbWalletEnvironment::new(Arc::new(env))?))
+    }
+}
+
+impl WalletEnvironmentFactoryTrait for LmdbWalletEnvironmentFactory {
+    fn create_environment(
+        &self,
+        options: StoreEnvironmentOptions,
+    ) -> Result<Arc<dyn WalletEnvironmentTrait>> {
+        let env_options = EnvironmentOptions {
+            path: options.path,
+            max_dbs: options.max_databases,
+            map_size: options.map_size,
+            flags: lmdb_env_flags_from(options.flags),
+        };
+        let env = self.create(env_options)?;
+        Ok(env)
     }
 }

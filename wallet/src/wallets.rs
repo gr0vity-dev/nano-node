@@ -12,11 +12,9 @@ use tracing::{debug, info, warn};
 
 use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_store_lmdb::{KeyType, null_ledger_store_factory};
 use rsnano_types::{
-    Account, Amount, Block, BlockDetails, BlockHash, Epoch, KeyDerivationFunction, Link, Networks,
-    PendingKey, PrivateKey, PublicKey, RawKey, Root, SavedBlock, StateBlockArgs, WalletId,
-    WorkNonce, WorkRequest,
+    Account, Amount, Block, BlockDetails, BlockHash, Epoch, Link, PendingKey, PrivateKey,
+    PublicKey, RawKey, Root, SavedBlock, StateBlockArgs, WalletId, WorkNonce, WorkRequest,
 };
 use rsnano_utils::{
     CancellationToken,
@@ -29,10 +27,11 @@ use super::{
     BlockPromise, MultiBlockPromise, Wallet, WalletStoreFactory, WalletsConfig, WalletsError,
     delayed_work_queue::DelayedWorkQueue,
 };
-use crate::{LmdbWalletEnvironment, WalletEnvironment};
+use crate::WalletEnvironment;
 use store_traits::{
     transaction::{WalletReadTxn, WalletWriteTxn},
     types::StoreResult,
+    wallet::KeyType,
 };
 
 enum PreparedSend {
@@ -91,31 +90,6 @@ impl Wallets {
             waiting_for_processor: Mutex::new(HashMap::new()),
             clock,
         }
-    }
-
-    pub fn new_null() -> Self {
-        let network = Networks::NanoLiveNetwork;
-        let wallet_env_impl = Arc::new(
-            LmdbWalletEnvironment::new_null()
-                .expect("Failed to initialize LMDB wallet environment"),
-        );
-        let wallet_env: Arc<WalletEnvHandle> = wallet_env_impl.clone();
-        let ledger = Arc::new(Ledger::new_null(null_ledger_store_factory()));
-        let wallets_config = WalletsConfig::default();
-        let work = WorkThresholds::default_for(network);
-        let clock = Arc::new(SteadyClock::new_null());
-        let kdf = KeyDerivationFunction::new(wallets_config.kdf_work);
-        let store_factory: Arc<dyn WalletStoreFactory> = Arc::new(
-            wallet_env_impl.create_store_factory(wallets_config.password_fanout as usize, kdf),
-        );
-        Self::new(
-            wallets_config,
-            wallet_env,
-            ledger,
-            work,
-            clock,
-            store_factory,
-        )
     }
 
     pub fn stop(&self) {
@@ -1572,7 +1546,8 @@ impl Tickable for WalletsTicker {
 mod tests {
     use super::*;
     use crate::test_helpers::WalletEnvTestHarness;
-    use rsnano_types::PendingInfo;
+    use rsnano_store_lmdb::null_ledger_store_factory;
+    use rsnano_types::{Networks, PendingInfo};
     use std::time::Duration;
 
     #[test]
