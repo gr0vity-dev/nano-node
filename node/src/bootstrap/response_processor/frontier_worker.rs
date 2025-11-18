@@ -1,6 +1,6 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use rsnano_ledger::OwningAnySet;
+use rsnano_ledger::Ledger;
 use rsnano_types::Frontier;
 use rsnano_utils::stats::{DetailType, StatType, Stats};
 
@@ -11,24 +11,26 @@ use crate::bootstrap::state::{BootstrapLogic, frontiers_processor::OutdatedAccou
 pub(crate) struct FrontierWorker<'a> {
     stats: &'a Stats,
     state: &'a Mutex<BootstrapLogic>,
-    checker: FrontierChecker<'a>,
+    ledger: Arc<Ledger>,
 }
 
 impl<'a> FrontierWorker<'a> {
     pub(crate) fn new(
-        any: &'a OwningAnySet<'a>,
+        ledger: Arc<Ledger>,
         stats: &'a Stats,
         state: &'a Mutex<BootstrapLogic>,
     ) -> Self {
         Self {
             stats,
             state,
-            checker: FrontierChecker::new(any),
+            ledger,
         }
     }
 
     pub fn process(&mut self, frontiers: Vec<Frontier>) {
-        let outdated = self.checker.get_outdated_accounts(&frontiers);
+        let any = self.ledger.any();
+        let mut checker = FrontierChecker::new(&any);
+        let outdated = checker.get_outdated_accounts(&frontiers);
         self.update_stats(&frontiers, &outdated);
         self.state.lock().unwrap().frontiers_processed(&outdated);
     }
@@ -67,11 +69,10 @@ mod tests {
 
     #[test]
     fn empty() {
-        let ledger = Ledger::new_null(default_ledger_store_factory());
-        let any = ledger.any();
+        let ledger = Arc::new(Ledger::new_null(default_ledger_store_factory()));
         let stats = Stats::default();
         let state = Mutex::new(BootstrapLogic::default());
-        let mut worker = FrontierWorker::new(&any, &stats, &state);
+        let mut worker = FrontierWorker::new(ledger, &stats, &state);
 
         worker.process(Vec::new());
 
@@ -81,19 +82,20 @@ mod tests {
     #[test]
     fn prioritize_one_account() {
         let account = Account::from(1);
-        let ledger = Ledger::new_null_builder(default_ledger_store_factory())
-            .account_info(
-                &account,
-                &AccountInfo {
-                    head: BlockHash::from(2),
-                    ..Default::default()
-                },
-            )
-            .finish();
-        let any = ledger.any();
+        let ledger = Arc::new(
+            Ledger::new_null_builder(default_ledger_store_factory())
+                .account_info(
+                    &account,
+                    &AccountInfo {
+                        head: BlockHash::from(2),
+                        ..Default::default()
+                    },
+                )
+                .finish(),
+        );
         let stats = Stats::default();
         let state = Mutex::new(BootstrapLogic::default());
-        let mut worker = FrontierWorker::new(&any, &stats, &state);
+        let mut worker = FrontierWorker::new(ledger, &stats, &state);
 
         worker.process(vec![Frontier::new(account, BlockHash::from(3))]);
 

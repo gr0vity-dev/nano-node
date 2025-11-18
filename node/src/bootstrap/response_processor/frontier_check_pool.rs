@@ -37,8 +37,7 @@ impl FrontierCheckPool {
             let stats = self.stats.clone();
             let state = self.logic.clone();
             self.workers.execute(move || {
-                let any = ledger.any();
-                let mut worker = FrontierWorker::new(&any, &stats, &state);
+                let mut worker = FrontierWorker::new(ledger, &stats, &state);
                 worker.process(frontiers);
             });
         }
