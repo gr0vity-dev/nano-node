@@ -10,13 +10,13 @@ ledger_snapshots = ["rsnano_store_lmdb/ledger_snapshots", "store_traits/ledger_s
 
 [dev-dependencies]
 rsnano_store_lmdb = { path = "../store_lmdb", features=["output_tracking"]}
+store_rocksdb = { path = "../store_rocksdb" }
 tempfile = "3"
 
 [dependencies]
 rsnano_types = { path = "../types" }
 rsnano_work_validation = { path = "../work_validation" }
 rsnano_utils = { path = "../utils" }
-rsnano_store_lmdb = { path = "../store_lmdb" }
 store_traits = { path = "../store_traits" }
 rsnano_nullable_lmdb = { path = "../nullables/lmdb" }
 rsnano_nullable_env = { path = "../nullables/env" }
@@ -31,4 +31,3 @@ serde_json = "1"
 tracing = "0"
 strum = "0.27.2"
 strum_macros = "0.27.2"
-store_rocksdb = { path = "../store_rocksdb" }

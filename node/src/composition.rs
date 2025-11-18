@@ -201,18 +201,14 @@ pub(crate) fn build_foundation(
         LedgerBackend::Lmdb(_) => ledger_path.push("data.ldb"),
         LedgerBackend::RocksDb(_) => ledger_path.push("data.rocksdb"),
     }
-    let mut nulled_lmdb_factory: Option<LmdbLedgerStoreFactory> = None;
-    let mut nulled_rocksdb_factory: Option<RocksdbNullLedgerStoreFactory> = None;
-    if is_nulled {
-        match &ledger_store_config.backend {
-            LedgerBackend::Lmdb(_) => {
-                nulled_lmdb_factory = Some(LmdbLedgerStoreFactory::new_null());
-            }
-            LedgerBackend::RocksDb(_) => {
-                nulled_rocksdb_factory = Some(RocksdbNullLedgerStoreFactory::default());
-            }
-        }
-    }
+    let store_factory_box: Box<dyn LedgerStoreFactory> =
+        match (&ledger_store_config.backend, is_nulled) {
+            (LedgerBackend::Lmdb(_), true) => Box::new(LmdbLedgerStoreFactory::new_null()),
+            (LedgerBackend::Lmdb(_), false) => Box::new(LmdbLedgerStoreFactory::default()),
+            (LedgerBackend::RocksDb(_), true) => Box::new(RocksdbNullLedgerStoreFactory::default()),
+            (LedgerBackend::RocksDb(_), false) => Box::new(RocksdbLedgerStoreFactory::default()),
+        };
+    let store_factory = store_factory_box.as_ref();
 
     let wallet_env_factory = if is_nulled {
         LmdbWalletEnvironmentFactory::new_null()
@@ -225,23 +221,12 @@ pub(crate) fn build_foundation(
         ledger_backend_name, config.ledger_store_config.sync
     );
     info!("Loading ledger, this may take a while...");
-    let mut ledger_builder = LedgerBuilder::new(&ledger_path)
+    let ledger_builder = LedgerBuilder::new(&ledger_path, store_factory)
         .store_config(ledger_store_config.clone())
         .constants(network_params.ledger.clone())
         .min_rep_weight(config.representative_vote_weight_minimum)
         .bootstrap_weights(bootstrap_weights)
         .stats(stats.clone());
-    if let Some(factory) = nulled_lmdb_factory
-        .as_ref()
-        .map(|f| f as &dyn LedgerStoreFactory)
-        .or_else(|| {
-            nulled_rocksdb_factory
-                .as_ref()
-                .map(|f| f as &dyn LedgerStoreFactory)
-        })
-    {
-        ledger_builder = ledger_builder.store_factory(factory);
-    }
     let ledger = ledger_builder
         .finish()
         .with_context(|| format!("Could not open ledger at {:?}", ledger_path))?;

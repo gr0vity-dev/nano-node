@@ -8,8 +8,7 @@ fn rocksdb_ledger_subset_basic_flow() {
     let dir = tempfile::tempdir().unwrap();
     let factory = RocksdbLedgerStoreFactory::default();
     let ledger_path = dir.path().join("ledger");
-    let ledger = LedgerBuilder::new(ledger_path)
-        .store_factory(&factory)
+    let ledger = LedgerBuilder::new(ledger_path, &factory)
         .config(LedgerStoreConfig::new(LedgerBackend::RocksDb(
             RocksDbConfig::default(),
         )))

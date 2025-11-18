@@ -4,14 +4,12 @@ use std::{
     sync::Arc,
 };
 
-use rsnano_store_lmdb::LmdbLedgerStoreFactory;
 use rsnano_types::Amount;
 use rsnano_utils::get_cpu_count;
 use rsnano_utils::stats::Stats;
-use store_rocksdb::RocksdbLedgerStoreFactory;
 use store_traits::{
-    config::{LedgerBackend, LedgerStoreConfig},
-    ledger::{LedgerCache, LedgerStore, LedgerStoreFactory},
+    config::LedgerStoreConfig,
+    ledger::{LedgerCache, LedgerStoreFactory},
 };
 
 use crate::{BootstrapWeights, Ledger, LedgerConstants, RepWeightCache};
@@ -19,7 +17,7 @@ use crate::{BootstrapWeights, Ledger, LedgerConstants, RepWeightCache};
 pub struct LedgerBuilder<'a> {
     path: PathBuf,
     store_config: Option<LedgerStoreConfig>,
-    store_factory: Option<&'a dyn LedgerStoreFactory>,
+    store_factory: &'a dyn LedgerStoreFactory,
     bootstrap_weights: Option<BootstrapWeights>,
     stats: Option<Arc<Stats>>,
     min_rep_weight: Amount,
@@ -28,22 +26,17 @@ pub struct LedgerBuilder<'a> {
 }
 
 impl<'a> LedgerBuilder<'a> {
-    pub fn new(path: impl Into<PathBuf>) -> Self {
+    pub fn new(path: impl Into<PathBuf>, store_factory: &'a dyn LedgerStoreFactory) -> Self {
         Self {
             path: path.into(),
             store_config: None,
-            store_factory: None,
+            store_factory,
             bootstrap_weights: None,
             stats: None,
             min_rep_weight: Amount::ZERO,
             ledger_constants: None,
             thread_count: 0,
         }
-    }
-
-    pub fn store_factory(mut self, store_factory: &'a dyn LedgerStoreFactory) -> Self {
-        self.store_factory = Some(store_factory);
-        self
     }
 
     pub fn store_config(mut self, config: LedgerStoreConfig) -> Self {
@@ -101,16 +94,11 @@ impl<'a> LedgerBuilder<'a> {
             self.thread_count = max(10, min(40, 11 * get_cpu_count()));
         }
 
-        let store = match self.store_factory {
-            Some(factory) => {
-                factory.create_store(self.path, store_config, rep_weights.ledger_cache.clone())?
-            }
-            None => Self::create_store_from_config(
-                self.path,
-                store_config,
-                rep_weights.ledger_cache.clone(),
-            )?,
-        };
+        let store = self.store_factory.create_store(
+            self.path,
+            store_config,
+            rep_weights.ledger_cache.clone(),
+        )?;
 
         Ledger::new(
             store,
@@ -120,53 +108,5 @@ impl<'a> LedgerBuilder<'a> {
             stats.clone(),
             self.thread_count,
         )
-    }
-
-    fn create_store_from_config(
-        path: PathBuf,
-        config: LedgerStoreConfig,
-        cache: Arc<LedgerCache>,
-    ) -> anyhow::Result<Arc<dyn LedgerStore>> {
-        match config.backend {
-            LedgerBackend::Lmdb(_) => {
-                let factory = LmdbLedgerStoreFactory::default();
-                factory.create_store(path, config, cache)
-            }
-            LedgerBackend::RocksDb(_) => {
-                let factory = RocksdbLedgerStoreFactory::default();
-                factory.create_store(path, config, cache)
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use store_traits::config::{LedgerBackend, RocksDbConfig};
-
-    #[test]
-    fn finish_uses_lmdb_factory_by_default() {
-        let dir = tempfile::tempdir().unwrap();
-        let ledger = LedgerBuilder::new(dir.path().join("ledger.ldb"))
-            .constants(LedgerConstants::unit_test())
-            .finish()
-            .expect("ledger builder should default to LMDB");
-
-        assert!(ledger.account_count() >= 1);
-    }
-
-    #[test]
-    fn finish_uses_rocksdb_factory_when_configured() {
-        let dir = tempfile::tempdir().unwrap();
-        let ledger = LedgerBuilder::new(dir.path().join("rocksdb-ledger"))
-            .store_config(LedgerStoreConfig::new(LedgerBackend::RocksDb(
-                RocksDbConfig::default(),
-            )))
-            .constants(LedgerConstants::unit_test())
-            .finish()
-            .expect("ledger builder should support RocksDB backend");
-
-        assert!(ledger.account_count() >= 1);
     }
 }
