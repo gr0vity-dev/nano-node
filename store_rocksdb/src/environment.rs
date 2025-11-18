@@ -58,14 +58,8 @@ impl RocksdbStoreEnvironment {
 }
 
 impl StoreEnvironment for RocksdbStoreEnvironment {
-    type ReadTxn<'env>
-        = RocksdbReadTxn<'env>
-    where
-        Self: 'env;
-    type WriteTxn<'env>
-        = RocksdbWriteTxn<'env>
-    where
-        Self: 'env;
+    type ReadTxn<'env> = RocksdbReadTxn;
+    type WriteTxn<'env> = RocksdbWriteTxn;
 
     fn begin_read(&self) -> Self::ReadTxn<'_> {
         RocksdbReadTxn::new(&self.inner)

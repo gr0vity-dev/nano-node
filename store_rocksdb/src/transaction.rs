@@ -12,32 +12,51 @@ use crate::environment::{
     RocksDb, RocksDbInner, RocksDbSnapshot, RocksdbStoreEnvironment, store_error_from_rocksdb,
 };
 
+struct SnapshotView {
+    snapshot: RocksDbSnapshot<'static>,
+    inner: Arc<RocksDbInner>,
+}
+
+impl SnapshotView {
+    fn new(inner: &Arc<RocksDbInner>) -> Self {
+        let owned_inner = Arc::clone(inner);
+        let raw = Arc::into_raw(Arc::clone(inner));
+        let static_ref: &'static RocksDbInner = unsafe { &*raw };
+        let snapshot = static_ref.snapshot();
+        unsafe {
+            Arc::from_raw(raw);
+        }
+        Self {
+            snapshot,
+            inner: owned_inner,
+        }
+    }
+}
+
 pub struct RocksdbLedgerReadTxn {
-    inner: RocksdbReadTxn<'static>,
+    inner: RocksdbReadTxn,
 }
 
 impl RocksdbLedgerReadTxn {
     pub fn new(env: &Arc<RocksdbStoreEnvironment>) -> Self {
         let inner = env.inner();
         let txn = RocksdbReadTxn::new(&inner);
-        let txn_static: RocksdbReadTxn<'static> = unsafe { std::mem::transmute(txn) };
-        Self { inner: txn_static }
+        Self { inner: txn }
     }
 }
 
 pub struct RocksdbLedgerWriteTxn {
-    inner: RocksdbWriteTxn<'static>,
+    inner: RocksdbWriteTxn,
 }
 
 impl RocksdbLedgerWriteTxn {
     pub fn new(env: &Arc<RocksdbStoreEnvironment>) -> Self {
         let inner = env.inner();
         let txn = RocksdbWriteTxn::new(&inner);
-        let txn_static: RocksdbWriteTxn<'static> = unsafe { std::mem::transmute(txn) };
-        Self { inner: txn_static }
+        Self { inner: txn }
     }
 
-    pub fn as_inner_mut(&mut self) -> &mut RocksdbWriteTxn<'static> {
+    pub fn as_inner_mut(&mut self) -> &mut RocksdbWriteTxn {
         &mut self.inner
     }
 }
@@ -118,22 +137,18 @@ impl LedgerWriteTxn for RocksdbLedgerWriteTxn {
     }
 }
 
-pub struct RocksdbReadTxn<'env> {
-    inner: Arc<RocksDbInner>,
-    snapshot: RocksDbSnapshot<'env>,
+pub struct RocksdbReadTxn {
+    view: SnapshotView,
 }
 
-impl<'env> RocksdbReadTxn<'env> {
-    pub(crate) fn new(inner: &'env Arc<RocksDbInner>) -> Self {
-        let snapshot = inner.snapshot();
-        Self {
-            inner: Arc::clone(inner),
-            snapshot,
-        }
+impl RocksdbReadTxn {
+    pub(crate) fn new(inner: &Arc<RocksDbInner>) -> Self {
+        let view = SnapshotView::new(inner);
+        Self { view }
     }
 }
 
-impl<'env> StoreReadTxn<'env> for RocksdbReadTxn<'env> {
+impl<'env> StoreReadTxn<'env> for RocksdbReadTxn {
     type Cursor<'txn>
         = RocksdbCursor<'txn>
     where
@@ -141,8 +156,9 @@ impl<'env> StoreReadTxn<'env> for RocksdbReadTxn<'env> {
         'env: 'txn;
 
     fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue> {
-        let handle = self.inner.cf_handle(database)?;
+        let handle = self.view.inner.cf_handle(database)?;
         match self
+            .view
             .snapshot
             .get_pinned_cf(&handle, key)
             .map_err(store_error_from_rocksdb)?
@@ -153,16 +169,18 @@ impl<'env> StoreReadTxn<'env> for RocksdbReadTxn<'env> {
     }
 
     fn count(&self, database: StoreDatabase) -> StoreResult<u64> {
-        self.inner.count_snapshot_entries(&self.snapshot, database)
+        self.view
+            .inner
+            .count_snapshot_entries(&self.view.snapshot, database)
     }
 
     fn open_cursor<'txn>(&'txn self, database: StoreDatabase) -> StoreResult<Self::Cursor<'txn>>
     where
         'env: 'txn,
     {
-        let handle = self.inner.cf_handle(database)?;
-        let iter = self.snapshot.raw_iterator_cf(&handle);
-        Ok(RocksdbCursor::from_raw_iterator(iter))
+        let handle = self.view.inner.cf_handle(database)?;
+        let iter = self.view.snapshot.raw_iterator_cf(&handle);
+        Ok(RocksdbCursor::from_snapshot_iter(iter))
     }
 
     fn commit(self) -> StoreResult<()>
@@ -173,43 +191,41 @@ impl<'env> StoreReadTxn<'env> for RocksdbReadTxn<'env> {
     }
 }
 
-pub struct RocksdbWriteTxn<'env> {
-    inner: Arc<RocksDbInner>,
-    snapshot: RocksDbSnapshot<'env>,
+pub struct RocksdbWriteTxn {
+    view: SnapshotView,
     batch: WriteBatchWithIndex,
 }
 
-impl<'env> RocksdbWriteTxn<'env> {
-    pub(crate) fn new(inner: &'env Arc<RocksDbInner>) -> Self {
-        let snapshot = inner.snapshot();
+impl RocksdbWriteTxn {
+    pub(crate) fn new(inner: &Arc<RocksDbInner>) -> Self {
+        let view = SnapshotView::new(inner);
         Self {
-            inner: Arc::clone(inner),
-            snapshot,
+            view,
             batch: WriteBatchWithIndex::new(0, true),
         }
     }
 
     fn snapshot_read_options(&self) -> ReadOptions {
         let mut read_options = ReadOptions::default();
-        read_options.set_snapshot(&self.snapshot);
+        read_options.set_snapshot(&self.view.snapshot);
         read_options
     }
 
     fn batch_raw_iterator<'txn>(
         &'txn self,
         database: StoreDatabase,
-    ) -> StoreResult<DBRawIteratorWithThreadMode<'txn, RocksDb>>
-    where
-        'env: 'txn,
-    {
-        let handle = self.inner.cf_handle(database)?;
+    ) -> StoreResult<DBRawIteratorWithThreadMode<'txn, RocksDb>> {
+        let handle = self.view.inner.cf_handle(database)?;
         let read_options = self.snapshot_read_options();
-        let base = self.snapshot.raw_iterator_cf_opt(&handle, read_options);
+        let base = self
+            .view
+            .snapshot
+            .raw_iterator_cf_opt(&handle, read_options);
         Ok(self.batch.iterator_with_base_cf(base, &handle))
     }
 }
 
-impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
+impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn {
     type Cursor<'txn>
         = RocksdbCursor<'txn>
     where
@@ -217,11 +233,11 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
         'env: 'txn;
 
     fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue> {
-        let handle = self.inner.cf_handle(database)?;
+        let handle = self.view.inner.cf_handle(database)?;
         let read_options = self.snapshot_read_options();
         match self
             .batch
-            .get_from_batch_and_db_cf(&self.inner.db, &handle, key, &read_options)
+            .get_from_batch_and_db_cf(&self.view.inner.db, &handle, key, &read_options)
             .map_err(store_error_from_rocksdb)?
         {
             Some(value) => Ok(StoreValue::from(value)),
@@ -243,21 +259,22 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn<'env> {
         'env: 'txn,
     {
         let iter = self.batch_raw_iterator(database)?;
-        Ok(RocksdbCursor::from_raw_iterator(iter))
+        Ok(RocksdbCursor::from_overlay_iter(iter))
     }
 
     fn commit(self) -> StoreResult<()>
     where
         Self: Sized,
     {
-        self.inner
+        self.view
+            .inner
             .db
             .write_wbwi(&self.batch)
             .map_err(store_error_from_rocksdb)
     }
 }
 
-impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
+impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn {
     type MutCursor<'txn>
         = RocksdbCursor<'txn>
     where
@@ -271,7 +288,7 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
         value: &[u8],
         _flags: StoreWriteFlags,
     ) -> StoreResult<()> {
-        let handle = self.inner.cf_handle(database)?;
+        let handle = self.view.inner.cf_handle(database)?;
         self.batch.put_cf(&handle, key, value);
         Ok(())
     }
@@ -282,7 +299,7 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
         key: &[u8],
         _value: Option<&[u8]>,
     ) -> StoreResult<()> {
-        let handle = self.inner.cf_handle(database)?;
+        let handle = self.view.inner.cf_handle(database)?;
         self.batch.delete_cf(&handle, key);
         Ok(())
     }
@@ -296,7 +313,7 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
             }
             removed
         };
-        let handle = self.inner.cf_handle(database)?;
+        let handle = self.view.inner.cf_handle(database)?;
         for key in keys {
             self.batch.delete_cf(&handle, &key);
         }
@@ -311,11 +328,11 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn<'env> {
         'env: 'txn,
     {
         let iter = self.batch_raw_iterator(database)?;
-        Ok(RocksdbCursor::from_raw_iterator(iter))
+        Ok(RocksdbCursor::from_overlay_iter(iter))
     }
 
     unsafe fn drop_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
-        self.inner.delete_cf(database)
+        self.view.inner.delete_cf(database)
     }
 }
 
@@ -325,7 +342,14 @@ pub struct RocksdbCursor<'txn> {
 }
 
 impl<'txn> RocksdbCursor<'txn> {
-    fn from_raw_iterator(iter: DBRawIteratorWithThreadMode<'txn, RocksDb>) -> Self {
+    fn from_snapshot_iter(iter: DBRawIteratorWithThreadMode<'txn, RocksDb>) -> Self {
+        Self {
+            iter,
+            started: false,
+        }
+    }
+
+    fn from_overlay_iter(iter: DBRawIteratorWithThreadMode<'txn, RocksDb>) -> Self {
         Self {
             iter,
             started: false,
