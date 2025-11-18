@@ -170,11 +170,41 @@ impl<'txn> Iterator for RocksdbPendingIterator<'txn> {
 struct RocksdbPendingRangeIterator<'txn> {
     cursor: RocksdbCursor<'txn>,
     range: RangeBounds<PendingKey>,
+    initialized: bool,
 }
 
 impl<'txn> RocksdbPendingRangeIterator<'txn> {
     fn new(cursor: RocksdbCursor<'txn>, range: RangeBounds<PendingKey>) -> Self {
-        Self { cursor, range }
+        Self {
+            cursor,
+            range,
+            initialized: false,
+        }
+    }
+
+    fn seek_start(&mut self) -> store_traits::types::StoreResult<Option<(StoreValue, StoreValue)>> {
+        match &self.range.start {
+            Bound::Included(key) => {
+                let bytes = key.to_bytes();
+                self.cursor.seek_lower_bound(bytes.as_slice())
+            }
+            Bound::Excluded(key) => {
+                let bytes = key.to_bytes();
+                self.cursor.seek_upper_bound(bytes.as_slice())
+            }
+            Bound::Unbounded => self.cursor.next(),
+        }
+    }
+
+    fn advance_cursor(
+        &mut self,
+    ) -> store_traits::types::StoreResult<Option<(StoreValue, StoreValue)>> {
+        if self.initialized {
+            self.cursor.next()
+        } else {
+            self.initialized = true;
+            self.seek_start()
+        }
     }
 }
 
@@ -183,10 +213,14 @@ impl<'txn> Iterator for RocksdbPendingRangeIterator<'txn> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let entry = self.cursor.next().expect("failed to advance cursor")?;
+            let entry = self
+                .advance_cursor()
+                .expect("failed to advance pending cursor")?;
             let record = read_pending_record(entry);
             if value_in_range(&record.0, &self.range) {
                 return Some(record);
+            } else {
+                return None;
             }
         }
     }

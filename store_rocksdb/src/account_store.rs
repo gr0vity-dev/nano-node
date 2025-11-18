@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::Bound, sync::Arc};
 
 use anyhow::Result;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
@@ -148,11 +148,35 @@ impl<'txn> Iterator for RocksdbAccountIterator<'txn> {
 struct RocksdbAccountRangeIterator<'txn> {
     cursor: RocksdbCursor<'txn>,
     range: RangeBounds<Account>,
+    initialized: bool,
 }
 
 impl<'txn> RocksdbAccountRangeIterator<'txn> {
     fn new(cursor: RocksdbCursor<'txn>, range: RangeBounds<Account>) -> Self {
-        Self { cursor, range }
+        Self {
+            cursor,
+            range,
+            initialized: false,
+        }
+    }
+
+    fn seek_start(&mut self) -> store_traits::types::StoreResult<Option<(StoreValue, StoreValue)>> {
+        match &self.range.start {
+            Bound::Included(account) => self.cursor.seek_lower_bound(account.as_bytes()),
+            Bound::Excluded(account) => self.cursor.seek_upper_bound(account.as_bytes()),
+            Bound::Unbounded => self.cursor.next(),
+        }
+    }
+
+    fn advance_cursor(
+        &mut self,
+    ) -> store_traits::types::StoreResult<Option<(StoreValue, StoreValue)>> {
+        if self.initialized {
+            self.cursor.next()
+        } else {
+            self.initialized = true;
+            self.seek_start()
+        }
     }
 }
 
@@ -161,10 +185,14 @@ impl<'txn> Iterator for RocksdbAccountRangeIterator<'txn> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let entry = self.cursor.next().expect("failed to advance cursor")?;
+            let entry = self
+                .advance_cursor()
+                .expect("failed to advance account cursor")?;
             let record = read_account_record(entry);
             if value_in_range(&record.0, &self.range) {
                 return Some(record);
+            } else {
+                return None;
             }
         }
     }

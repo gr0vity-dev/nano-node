@@ -1,6 +1,9 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
+use std::{
+    ops::Bound,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use anyhow::{Result, anyhow};
@@ -10,7 +13,7 @@ use store_traits::{
     environment::StoreCursor,
     ledger::{BlockStore, RangeBounds, StoreIterator},
     transaction::{LedgerReadTxn, LedgerWriteTxn},
-    types::{StoreDatabase, StoreWriteFlags},
+    types::{StoreDatabase, StoreValue, StoreWriteFlags},
 };
 
 use crate::{
@@ -234,6 +237,7 @@ struct RocksdbBlockRangeIterator<'txn> {
     txn: &'txn dyn LedgerReadTxn,
     data_cf: StoreDatabase,
     range: RangeBounds<BlockHash>,
+    initialized: bool,
 }
 
 impl<'txn> RocksdbBlockRangeIterator<'txn> {
@@ -248,6 +252,26 @@ impl<'txn> RocksdbBlockRangeIterator<'txn> {
             txn,
             data_cf,
             range,
+            initialized: false,
+        }
+    }
+
+    fn seek_start(&mut self) -> store_traits::types::StoreResult<Option<(StoreValue, StoreValue)>> {
+        match &self.range.start {
+            Bound::Included(hash) => self.cursor.seek_lower_bound(hash.as_bytes()),
+            Bound::Excluded(hash) => self.cursor.seek_upper_bound(hash.as_bytes()),
+            Bound::Unbounded => self.cursor.next(),
+        }
+    }
+
+    fn advance_cursor(
+        &mut self,
+    ) -> store_traits::types::StoreResult<Option<(StoreValue, StoreValue)>> {
+        if self.initialized {
+            self.cursor.next()
+        } else {
+            self.initialized = true;
+            self.seek_start()
         }
     }
 }
@@ -258,8 +282,7 @@ impl<'txn> Iterator for RocksdbBlockRangeIterator<'txn> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let item = self
-                .cursor
-                .next()
+                .advance_cursor()
                 .expect("failed to advance RocksDB cursor");
             let (hash_bytes, id_bytes) = match item {
                 Some(value) => value,
@@ -268,7 +291,7 @@ impl<'txn> Iterator for RocksdbBlockRangeIterator<'txn> {
             let hash = BlockHash::from_slice(hash_bytes.as_ref())
                 .expect("invalid block hash bytes in RocksDB");
             if !value_in_range(&hash, &self.range) {
-                continue;
+                return None;
             }
             let block = match self.txn.get(self.data_cf, id_bytes.as_ref()) {
                 Ok(data) => {
