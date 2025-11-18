@@ -14,6 +14,8 @@ use rsnano_utils::{
     stats::{DetailType, StatType, Stats},
     ticker::Tickable,
 };
+#[cfg(test)]
+use store_rocksdb::default_ledger_store_factory;
 
 /// Writes a snapshot of the current peers to the database,
 /// so that we can reconnect to them when the node is restarted
@@ -301,7 +303,7 @@ mod tests {
             channel.set_mode(ChannelMode::Realtime);
         }
         let ledger = Arc::new(
-            Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+            Ledger::new_null_builder(default_ledger_store_factory())
                 .peers(already_stored)
                 .finish(),
         );

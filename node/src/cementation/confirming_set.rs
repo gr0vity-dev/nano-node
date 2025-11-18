@@ -16,6 +16,7 @@ use rsnano_utils::{
     sync::backpressure_channel::Sender,
     thread_pool::ThreadPool,
 };
+use store_rocksdb::default_ledger_store_factory;
 
 use super::ordered_entries::OrderedEntries;
 use crate::{
@@ -92,9 +93,7 @@ impl ConfirmingSet {
     pub fn new_null() -> Self {
         Self::new(
             ConfirmingSetConfig::default(),
-            Arc::new(Ledger::new_null(
-                rsnano_store_lmdb::null_ledger_store_factory(),
-            )),
+            Arc::new(Ledger::new_null(default_ledger_store_factory())),
             Arc::new(Stats::default()),
         )
     }
@@ -444,9 +443,7 @@ mod tests {
 
     #[test]
     fn add_exists() {
-        let ledger = Arc::new(Ledger::new_null(
-            rsnano_store_lmdb::null_ledger_store_factory(),
-        ));
+        let ledger = Arc::new(Ledger::new_null(default_ledger_store_factory()));
         let confirming_set =
             ConfirmingSet::new(Default::default(), ledger, Arc::new(Stats::default()));
         let hash = BlockHash::from(1);

@@ -15,6 +15,7 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
     sync::backpressure_channel::{Sender, channel},
 };
+use store_rocksdb::default_ledger_store_factory;
 
 use super::{BlockContext, BlockSource, LedgerEvent, UncheckedBlockReenqueuer, UncheckedMap};
 use crate::block_processing::ProcessedResult;
@@ -32,9 +33,7 @@ impl BlockBatchProcessor {
     #[allow(dead_code)]
     pub fn new_null() -> Self {
         Self {
-            ledger: Arc::new(Ledger::new_null(
-                rsnano_store_lmdb::null_ledger_store_factory(),
-            )),
+            ledger: Arc::new(Ledger::new_null(default_ledger_store_factory())),
             unchecked: Arc::new(Mutex::new(UncheckedMap::default())),
             stats: Arc::new(BlockBatchProcessorStats::default()),
             event_publisher: channel(0).0,

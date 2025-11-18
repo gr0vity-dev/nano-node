@@ -6,7 +6,7 @@ use rsnano_ledger::RepWeightCache;
 #[cfg(test)]
 use rsnano_nullable_clock::SteadyClock;
 #[cfg(test)]
-use rsnano_store_lmdb::{LmdbWalletEnvironment, null_ledger_store_factory};
+use rsnano_store_lmdb::LmdbWalletEnvironment;
 use rsnano_types::{Account, Amount, PrivateKey, PublicKey};
 #[cfg(test)]
 use rsnano_types::{KeyDerivationFunction, Networks};
@@ -16,6 +16,8 @@ use rsnano_wallet::Wallets;
 use rsnano_wallet::{WalletEnvHandle, WalletStoreFactory, WalletsConfig};
 #[cfg(test)]
 use rsnano_work_validation::WorkThresholds;
+#[cfg(test)]
+use store_rocksdb::default_ledger_store_factory;
 
 use crate::representatives::OnlineReps;
 
@@ -150,7 +152,7 @@ impl WalletRepresentatives {
 #[cfg(test)]
 fn create_test_wallets() -> Wallets {
     let network = Networks::NanoLiveNetwork;
-    let ledger = Arc::new(Ledger::new_null(null_ledger_store_factory()));
+    let ledger = Arc::new(Ledger::new_null(default_ledger_store_factory()));
     let wallets_config = WalletsConfig::default();
     let work = WorkThresholds::default_for(network);
     let clock = Arc::new(SteadyClock::new_null());

@@ -6,6 +6,8 @@ use std::sync::{
 use rsnano_ledger::Ledger;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::{CancellationToken, ticker::Tickable};
+#[cfg(test)]
+use store_rocksdb::default_ledger_store_factory;
 
 use crate::utils::RateCalculator;
 
@@ -78,9 +80,7 @@ mod tests {
     #[test]
     fn initial_state() {
         let clock = Arc::new(SteadyClock::new_null());
-        let ledger = Arc::new(Ledger::new_null(
-            rsnano_store_lmdb::null_ledger_store_factory(),
-        ));
+        let ledger = Arc::new(Ledger::new_null(default_ledger_store_factory()));
 
         let calculator = BlockRateCalculator::new(clock, ledger);
 
@@ -90,9 +90,7 @@ mod tests {
     #[test]
     fn run_with_no_change() {
         let clock = Arc::new(SteadyClock::new_null());
-        let ledger = Arc::new(Ledger::new_null(
-            rsnano_store_lmdb::null_ledger_store_factory(),
-        ));
+        let ledger = Arc::new(Ledger::new_null(default_ledger_store_factory()));
         let mut calculator = BlockRateCalculator::new(clock, ledger);
 
         calculator.tick(&CancellationToken::new_null());
@@ -105,9 +103,7 @@ mod tests {
         let clock = Arc::new(SteadyClock::new_null_with_offsets([Duration::from_millis(
             500,
         )]));
-        let ledger = Arc::new(Ledger::new_null(
-            rsnano_store_lmdb::null_ledger_store_factory(),
-        ));
+        let ledger = Arc::new(Ledger::new_null(default_ledger_store_factory()));
         let mut calculator = BlockRateCalculator::new(clock, ledger.clone());
 
         calculator.tick(&CancellationToken::new_null());

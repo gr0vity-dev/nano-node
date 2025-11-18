@@ -4,6 +4,8 @@ use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, LedgerSet};
 use rsnano_messages::{AscPullReqType, BlocksReqPayload, HashType};
 use rsnano_network::Channel;
 use rsnano_types::{Account, BlockHash, HashOrAccount};
+#[cfg(test)]
+use store_rocksdb::default_ledger_store_factory;
 
 use super::{
     pull_count_decider::PullCountDecider,
@@ -337,8 +339,7 @@ mod tests {
         head: Option<BlockHash>,
         confirmed: Option<BlockHash>,
     ) -> Arc<Ledger> {
-        let mut ledger_builder =
-            Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory());
+        let mut ledger_builder = Ledger::new_null_builder(default_ledger_store_factory());
 
         if let Some(head) = head {
             ledger_builder = ledger_builder.account_info(

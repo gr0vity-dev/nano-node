@@ -127,12 +127,13 @@ impl<'a> CrawlSource<'a> for PendingCrawlSource<'a> {
 #[cfg(test)]
 mod tests {
     use rsnano_ledger::{DEV_GENESIS_ACCOUNT, Ledger, LedgerSet};
+    use store_rocksdb::default_ledger_store_factory;
 
     use super::*;
 
     #[test]
     fn empty_ledger() {
-        let ledger = Ledger::new_null(rsnano_store_lmdb::null_ledger_store_factory());
+        let ledger = Ledger::new_null(default_ledger_store_factory());
         let any = ledger.any();
         let source = AccountCrawlSource::new(&any);
         let mut crawler = DatabaseCrawler::new(source);
@@ -145,7 +146,7 @@ mod tests {
     fn seek_exact() {
         let account = Account::from(1);
         let info = AccountInfo::new_test_instance();
-        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+        let ledger = Ledger::new_null_builder(default_ledger_store_factory())
             .account_info(&account, &info)
             .finish();
         let any = ledger.any();
@@ -159,7 +160,7 @@ mod tests {
     fn seek_before() {
         let account = Account::from(2);
         let info = AccountInfo::new_test_instance();
-        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+        let ledger = Ledger::new_null_builder(default_ledger_store_factory())
             .account_info(&account, &info)
             .finish();
         let any = ledger.any();
@@ -173,7 +174,7 @@ mod tests {
     fn seek_after() {
         let account = Account::from(1);
         let info = AccountInfo::new_test_instance();
-        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+        let ledger = Ledger::new_null_builder(default_ledger_store_factory())
             .account_info(&account, &info)
             .finish();
         let any = ledger.any();
@@ -187,7 +188,7 @@ mod tests {
     fn advance_not_found() {
         let account = Account::from(1);
         let info = AccountInfo::new_test_instance();
-        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+        let ledger = Ledger::new_null_builder(default_ledger_store_factory())
             .account_info(&account, &info)
             .finish();
         let any = ledger.any();
@@ -203,7 +204,7 @@ mod tests {
         let account1 = Account::from(1);
         let account2 = Account::from(2);
         let info = AccountInfo::new_test_instance();
-        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+        let ledger = Ledger::new_null_builder(default_ledger_store_factory())
             .account_info(&account1, &info)
             .account_info(&account2, &info)
             .finish();
@@ -219,9 +220,8 @@ mod tests {
     fn advance_seek() {
         let first_account = Account::from(1);
         let info = AccountInfo::new_test_instance();
-        let mut ledger_builder =
-            Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
-                .account_info(&first_account, &info);
+        let mut ledger_builder = Ledger::new_null_builder(default_ledger_store_factory())
+            .account_info(&first_account, &info);
 
         for i in 0..SEQUENTIAL_ATTEMPTS + 1 {
             ledger_builder = ledger_builder.account_info(&Account::from(i as u64 + 2), &info);
@@ -242,7 +242,7 @@ mod tests {
     fn advance_noop() {
         let account = Account::from(1);
         let info = AccountInfo::new_test_instance();
-        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+        let ledger = Ledger::new_null_builder(default_ledger_store_factory())
             .account_info(&account, &info)
             .finish();
         let any = ledger.any();
@@ -257,7 +257,7 @@ mod tests {
     fn advance_after_nothing_found() {
         let account = Account::from(1);
         let info = AccountInfo::new_test_instance();
-        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+        let ledger = Ledger::new_null_builder(default_ledger_store_factory())
             .account_info(&account, &info)
             .finish();
         let any = ledger.any();
@@ -274,7 +274,7 @@ mod tests {
     fn pending_crawler() {
         let key = PendingKey::new_test_instance();
         let info = PendingInfo::new_test_instance();
-        let ledger = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+        let ledger = Ledger::new_null_builder(default_ledger_store_factory())
             .pending(&key, &info)
             .finish();
         let any = ledger.any();

@@ -320,12 +320,13 @@ mod tests {
     use super::*;
     use rsnano_ledger::{Ledger, LedgerInserter};
     use rsnano_types::PrivateKey;
+    use store_rocksdb::default_ledger_store_factory;
 
     #[test]
     fn can_track_successor_activation() {
         let scheduler = create_test_scheduler();
         let block = SavedBlock::new_test_instance();
-        let ledger = Ledger::new_null(rsnano_store_lmdb::null_ledger_store_factory());
+        let ledger = Ledger::new_null(default_ledger_store_factory());
         let tracker = scheduler.track_activate_successors();
 
         scheduler.activate_successors(&ledger.any(), &block);
@@ -338,7 +339,7 @@ mod tests {
     fn activate_successors() {
         let scheduler = create_test_scheduler();
 
-        let ledger = Ledger::new_null(rsnano_store_lmdb::null_ledger_store_factory());
+        let ledger = Ledger::new_null(default_ledger_store_factory());
         let inserter = LedgerInserter::new(&ledger);
         let destination = PrivateKey::from(1);
         let send1 = inserter.genesis().send(&destination, 100);

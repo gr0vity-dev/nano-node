@@ -13,7 +13,6 @@ macro_rules! ledger_backend_tests {
     };
 }
 
-ledger_backend_tests!(lmdb, rsnano_store_lmdb::null_ledger_store_factory());
 ledger_backend_tests!(
     rocksdb,
     std::sync::Arc::new(store_rocksdb::RocksdbLedgerStoreFactory::default())

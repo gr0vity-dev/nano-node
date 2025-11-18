@@ -3,6 +3,8 @@ use rsnano_types::{Account, Frontier};
 
 use super::database_crawler::{AccountCrawlSource, DatabaseCrawler, PendingCrawlSource};
 use crate::bootstrap::state::frontiers_processor::OutdatedAccounts;
+#[cfg(test)]
+use store_rocksdb::default_ledger_store_factory;
 
 pub(crate) enum FrontierCheckResult {
     /// Account doesn't exist in the ledger and has no pending blocks, can't be prioritized right now
@@ -246,8 +248,7 @@ mod tests {
     }
 
     fn build_ledger(spec: LedgerSpec) -> Ledger {
-        let mut ledger_builder =
-            Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory());
+        let mut ledger_builder = Ledger::new_null_builder(default_ledger_store_factory());
 
         for frontier in spec.frontiers {
             ledger_builder = ledger_builder.account_info(

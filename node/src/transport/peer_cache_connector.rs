@@ -79,6 +79,7 @@ mod tests {
     use rsnano_network::{TEST_ENDPOINT_1, TEST_ENDPOINT_2, TEST_ENDPOINT_3};
     use rsnano_output_tracker::OutputTrackerMt;
     use rsnano_utils::stats::Direction;
+    use store_rocksdb::default_ledger_store_factory;
 
     use super::*;
 
@@ -208,7 +209,7 @@ mod tests {
 
     fn ledger_with_peers(cached_peers: impl IntoIterator<Item = SocketAddrV6>) -> Arc<Ledger> {
         Arc::new(
-            Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+            Ledger::new_null_builder(default_ledger_store_factory())
                 .peers(cached_peers.into_iter().map(|peer| (peer, UNIX_EPOCH)))
                 .finish(),
         )

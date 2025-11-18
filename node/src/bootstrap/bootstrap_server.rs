@@ -23,6 +23,7 @@ use rsnano_utils::{
     fair_queue::FairQueue,
     stats::{DetailType, Direction, StatType, Stats},
 };
+use store_rocksdb::default_ledger_store_factory;
 
 use crate::transport::MessageSender;
 
@@ -95,7 +96,7 @@ impl BootstrapServer {
         BootstrapServer::new(
             BootstrapServerConfig::default(),
             Stats::default().into(),
-            Ledger::new_null(rsnano_store_lmdb::null_ledger_store_factory()).into(),
+            Ledger::new_null(default_ledger_store_factory()).into(),
             SteadyClock::new_null().into(),
             MessageSender::new_null(),
         )

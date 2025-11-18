@@ -12,6 +12,8 @@ use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, StatType, Stats},
 };
+#[cfg(test)]
+use store_rocksdb::default_ledger_store_factory;
 
 use super::{LocalVoteHistory, vote_generator::VoteGenerator};
 use crate::{
@@ -96,9 +98,7 @@ impl VoteGenerators {
 
     #[cfg(test)]
     pub fn new_null() -> Self {
-        let ledger = Arc::new(Ledger::new_null(
-            rsnano_store_lmdb::null_ledger_store_factory(),
-        ));
+        let ledger = Arc::new(Ledger::new_null(default_ledger_store_factory()));
         let wallet_reps = Arc::new(Mutex::new(WalletRepresentatives::new_null()));
         let history = Arc::new(LocalVoteHistory::new(Networks::NanoLiveNetwork));
         let stats = Arc::new(Stats::default());

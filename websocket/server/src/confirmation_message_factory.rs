@@ -99,13 +99,13 @@ impl ConfirmationMessageFactory<'_> {
 #[cfg(test)]
 mod tests {
     use rsnano_node::consensus::election::ConfirmationType;
-    use rsnano_store_lmdb::null_ledger_store_factory;
     use rsnano_websocket_messages::ConfirmationJsonOptions;
+    use store_rocksdb::default_ledger_store_factory;
 
     use super::*;
 
     fn new_ledger() -> Ledger {
-        Ledger::new_null(null_ledger_store_factory())
+        Ledger::new_null(default_ledger_store_factory())
     }
 
     #[test]

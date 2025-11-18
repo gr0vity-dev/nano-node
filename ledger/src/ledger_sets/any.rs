@@ -679,6 +679,7 @@ fn to_store_range<T: Clone>(range: impl RangeBounds<T>) -> StoreRangeBounds<T> {
 mod tests {
     use super::*;
     use crate::Ledger;
+    use store_rocksdb::default_ledger_store_factory;
 
     #[test]
     fn iter_all_lower_bound() {
@@ -762,7 +763,7 @@ mod tests {
 
     fn ledger_with_pending_entries(existing_keys: &[PendingKey]) -> Ledger {
         let info = PendingInfo::new_test_instance();
-        let mut builder = Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory());
+        let mut builder = Ledger::new_null_builder(default_ledger_store_factory());
         for key in existing_keys {
             builder = builder.pending(key, &info);
         }

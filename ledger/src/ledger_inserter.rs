@@ -241,12 +241,12 @@ impl<'a> LedgerBlockInserter<'a> {
 mod tests {
     use super::*;
     use crate::{DEV_GENESIS_ACCOUNT, Ledger};
-    use rsnano_store_lmdb::null_ledger_store_factory;
     use std::sync::Arc;
+    use store_rocksdb::default_ledger_store_factory;
     use store_traits::ledger::LedgerStoreFactory;
 
     fn test_store_factory() -> Arc<dyn LedgerStoreFactory> {
-        null_ledger_store_factory()
+        default_ledger_store_factory()
     }
 
     fn new_ledger() -> Ledger {

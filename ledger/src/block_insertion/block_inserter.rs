@@ -132,13 +132,13 @@ impl<'a> BlockInserter<'a> {
 mod tests {
     use super::*;
     use crate::NullLedgerBuilder;
-    use rsnano_store_lmdb::null_ledger_store_factory;
     use rsnano_types::{BlockHash, Epoch, PublicKey, TestBlockBuilder, UnixTimestamp};
     use std::sync::Arc;
+    use store_rocksdb::default_ledger_store_factory;
     use store_traits::ledger::LedgerStoreFactory;
 
     fn test_store_factory() -> Arc<dyn LedgerStoreFactory> {
-        null_ledger_store_factory()
+        default_ledger_store_factory()
     }
 
     fn new_ledger() -> Ledger {

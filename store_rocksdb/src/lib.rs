@@ -1,3 +1,7 @@
+use std::sync::Arc;
+
+use store_traits::ledger::LedgerStoreFactory;
+
 pub mod account_store;
 pub mod block_store;
 pub mod confirmation_height_store;
@@ -39,6 +43,10 @@ pub(crate) use environment::{
 };
 pub(crate) use transaction::{RocksdbCursor, rocksdb_ro_cursor_from_store};
 pub(crate) use utils::value_in_range;
+
+pub fn default_ledger_store_factory() -> Arc<dyn LedgerStoreFactory> {
+    Arc::new(RocksdbLedgerStoreFactory::default())
+}
 
 #[cfg(test)]
 #[path = "../build_support.rs"]

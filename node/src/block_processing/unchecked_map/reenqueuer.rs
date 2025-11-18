@@ -15,6 +15,7 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
     ticker::Tickable,
 };
+use store_rocksdb::default_ledger_store_factory;
 
 use super::UncheckedMap;
 use crate::block_processing::{BlockContext, BlockProcessorQueue, BlockSource};
@@ -57,9 +58,7 @@ impl UncheckedBlockReenqueuer {
     pub fn new_null() -> Self {
         Self::new(
             Arc::new(Mutex::new(UncheckedMap::default())),
-            Arc::new(Ledger::new_null(
-                rsnano_store_lmdb::null_ledger_store_factory(),
-            )),
+            Arc::new(Ledger::new_null(default_ledger_store_factory())),
             Arc::new(BlockProcessorQueue::new_null()),
             Arc::new(SteadyClock::new_null()),
         )
@@ -186,7 +185,7 @@ mod tests {
             .put(dependency_block.hash(), unchecked_block.clone(), now);
 
         let ledger = Arc::new(
-            Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+            Ledger::new_null_builder(default_ledger_store_factory())
                 .block(&dependency_block)
                 .finish(),
         );
@@ -215,9 +214,7 @@ mod tests {
             .unwrap()
             .put(dependency_hash, unchecked_block.clone(), now);
 
-        let ledger = Arc::new(Ledger::new_null(
-            rsnano_store_lmdb::null_ledger_store_factory(),
-        ));
+        let ledger = Arc::new(Ledger::new_null(default_ledger_store_factory()));
         let process_queue = Arc::new(BlockProcessorQueue::default());
         let clock = Arc::new(SteadyClock::new_null());
         let mut reenqueuer =
@@ -243,7 +240,7 @@ mod tests {
         let unchecked = Arc::new(Mutex::new(unchecked));
 
         let ledger = Arc::new(
-            Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+            Ledger::new_null_builder(default_ledger_store_factory())
                 .block(&dependency_block1)
                 .block(&dependency_block2)
                 .finish(),
@@ -277,7 +274,7 @@ mod tests {
         let unchecked = Arc::new(Mutex::new(unchecked));
 
         let ledger = Arc::new(
-            Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+            Ledger::new_null_builder(default_ledger_store_factory())
                 .block(&dependency_block1)
                 .block(&dependency_block2)
                 .block(&dependency_block3)
@@ -326,7 +323,7 @@ mod tests {
         blocks.sort_by_key(|b| b.hash());
 
         let ledger = Arc::new(
-            Ledger::new_null_builder(rsnano_store_lmdb::null_ledger_store_factory())
+            Ledger::new_null_builder(default_ledger_store_factory())
                 .block(&blocks[2])
                 .finish(),
         );
@@ -373,9 +370,7 @@ mod tests {
         unchecked.put(dependency_block3.hash(), unchecked_block3.clone(), now);
         let unchecked = Arc::new(Mutex::new(unchecked));
 
-        let ledger = Arc::new(Ledger::new_null(
-            rsnano_store_lmdb::null_ledger_store_factory(),
-        ));
+        let ledger = Arc::new(Ledger::new_null(default_ledger_store_factory()));
         let process_queue = Arc::new(BlockProcessorQueue::default());
         let clock = Arc::new(SteadyClock::new_null());
         let mut reenqueuer =
