@@ -27,6 +27,7 @@ use crate::{
     OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater, RollbackError,
     block_cementer::BlockCementer,
     block_insertion::{BlockInserter, BlockValidatorFactory},
+    iterator_metrics::{IteratorMetricsConfig, LedgerIteratorMetrics},
     vote_verifier::VoteVerifier,
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
@@ -116,6 +117,7 @@ pub struct Ledger {
     pub rep_weights: Arc<RepWeightCache>,
     pub constants: LedgerConstants,
     pub(crate) stats: Arc<Stats>,
+    ledger_metrics: Option<Arc<LedgerIteratorMetrics>>,
     rollback_listener: OutputListenerMt<BlockHash>,
 }
 
@@ -363,12 +365,26 @@ impl Ledger {
             store,
             constants,
             stats,
+            ledger_metrics: None,
             rollback_listener: Default::default(),
         };
 
         ledger.initialize(thread_count, &GenerateCacheFlags::new())?;
 
         Ok(ledger)
+    }
+
+    pub fn update_metrics_config(&mut self, config: IteratorMetricsConfig) {
+        if config.enabled {
+            let metrics = Arc::new(LedgerIteratorMetrics::new(Arc::clone(&self.stats), config));
+            self.ledger_metrics = Some(metrics);
+        } else {
+            self.ledger_metrics = None;
+        }
+    }
+
+    pub(crate) fn iterator_metrics(&self) -> Option<Arc<LedgerIteratorMetrics>> {
+        self.ledger_metrics.clone()
     }
 
     fn initialize(
@@ -461,7 +477,7 @@ impl Ledger {
     }
 
     pub fn any(&self) -> OwningAnySet<'_> {
-        OwningAnySet::new(self.store_ref(), &self.constants)
+        OwningAnySet::new_with_metrics(self.store_ref(), &self.constants, self.iterator_metrics())
     }
 
     pub fn confirmed(&self) -> OwningConfirmedSet<'_> {
@@ -651,11 +667,13 @@ impl Ledger {
         // Validate blocks
         {
             let tx = self.store.begin_read();
+            let metrics = self.iterator_metrics();
             for block in batch.into_iter() {
                 let any = BorrowingAnySet {
                     constants: &self.constants,
                     store: self.store_ref(),
                     tx: tx.as_ref(),
+                    metrics: metrics.clone(),
                 };
                 let validator =
                     BlockValidatorFactory::new(&any, &self.constants, block).create_validator();
@@ -1023,6 +1041,7 @@ impl Ledger {
             constants: &self.constants,
             store: self.store_ref(),
             tx: tx.as_ref(),
+            metrics: self.iterator_metrics(),
         };
 
         self.store

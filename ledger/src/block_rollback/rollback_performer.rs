@@ -99,6 +99,7 @@ impl<'a> BlockRollbackPerformer<'a> {
             constants: &self.ledger.constants,
             store: self.ledger.store_ref(),
             tx: self.txn,
+            metrics: self.ledger.iterator_metrics(),
         }
     }
 }

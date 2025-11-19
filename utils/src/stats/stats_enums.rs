@@ -10,6 +10,7 @@ pub enum StatType {
     Error,
     Message,
     Ledger,
+    LedgerIterator,
     Rollback,
     Network,
     VoteProcessor,
@@ -143,6 +144,12 @@ pub enum DetailType {
     BalanceMismatch,
     RepresentativeMismatch,
     BlockPosition,
+    LedgerIteratorAccountFull,
+    LedgerIteratorAccountRange,
+    LedgerIteratorPendingRange,
+    LedgerIteratorBlockRange,
+    LedgerIteratorConfirmationRange,
+    LedgerIteratorReceivable,
 
     // block source
     Live,

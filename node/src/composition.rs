@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::Context;
 use num_format::{Locale, ToFormattedString};
-use rsnano_ledger::{Ledger, LedgerBuilder};
+use rsnano_ledger::{IteratorMetricsConfig, Ledger, LedgerBuilder};
 use rsnano_messages::{Message, NetworkFilter};
 use rsnano_network::{Network, PeerConnector, TcpListener, TcpNetworkAdapter};
 use rsnano_network_protocol::{
@@ -227,7 +227,10 @@ pub(crate) fn build_foundation(
         .constants(network_params.ledger.clone())
         .min_rep_weight(config.representative_vote_weight_minimum)
         .bootstrap_weights(bootstrap_weights)
-        .stats(stats.clone());
+        .stats(stats.clone())
+        .iterator_metrics_config(IteratorMetricsConfig {
+            enabled: config.iterator_metrics_enabled,
+        });
     let ledger = ledger_builder
         .finish()
         .with_context(|| format!("Could not open ledger at {:?}", ledger_path))?;

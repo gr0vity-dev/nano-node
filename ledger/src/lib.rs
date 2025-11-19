@@ -9,6 +9,7 @@ mod block_insertion;
 mod block_rollback;
 mod dependent_blocks_finder;
 mod generate_cache_flags;
+mod iterator_metrics;
 mod ledger;
 mod ledger_builder;
 mod ledger_constants;
@@ -28,6 +29,7 @@ pub(crate) use block_rollback::BlockRollbackPerformer;
 pub use block_rollback::RollbackError;
 pub use dependent_blocks_finder::*;
 pub use generate_cache_flags::GenerateCacheFlags;
+pub use iterator_metrics::IteratorMetricsConfig;
 pub use ledger::*;
 pub use ledger_builder::*;
 pub use ledger_constants::{

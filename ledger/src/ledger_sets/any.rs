@@ -1,4 +1,7 @@
-use std::ops::{Bound, RangeBounds};
+use std::{
+    ops::{Bound, RangeBounds},
+    sync::Arc,
+};
 
 use rsnano_types::{
     Account, AccountInfo, Amount, Block, BlockHash, BlockPriority, DependentBlocks, DetailedBlock,
@@ -8,7 +11,8 @@ use rsnano_types::{
 use super::{BorrowingConfirmedSet, ConfirmedSet, LedgerSet};
 use crate::{
     DependentBlocksFinder, LedgerConstants, LedgerStore, PendingStore,
-    RangeBounds as StoreRangeBounds, RepresentativeBlockFinder,
+    RangeBounds as StoreRangeBounds, RepresentativeBlockFinder, StoreIterator,
+    iterator_metrics::{IteratorMetricKind, LedgerIteratorMetrics},
 };
 use store_traits::LedgerReadTxn;
 
@@ -85,15 +89,25 @@ pub struct OwningAnySet<'a> {
     store: &'a dyn LedgerStore,
     txn: Box<dyn LedgerReadTxn>,
     constants: &'a LedgerConstants,
+    metrics: Option<Arc<LedgerIteratorMetrics>>,
 }
 
 impl<'a> OwningAnySet<'a> {
     pub(crate) fn new(store: &'a dyn LedgerStore, constants: &'a LedgerConstants) -> Self {
+        Self::new_with_metrics(store, constants, None)
+    }
+
+    pub(crate) fn new_with_metrics(
+        store: &'a dyn LedgerStore,
+        constants: &'a LedgerConstants,
+        metrics: Option<Arc<LedgerIteratorMetrics>>,
+    ) -> Self {
         let tx = store.begin_read();
         Self {
             store,
             txn: tx,
             constants,
+            metrics,
         }
     }
 
@@ -102,6 +116,7 @@ impl<'a> OwningAnySet<'a> {
             store: self.store,
             tx: self.txn.as_ref(),
             constants: self.constants,
+            metrics: self.metrics.clone(),
         }
     }
 
@@ -112,32 +127,39 @@ impl<'a> OwningAnySet<'a> {
     pub fn accounts_range(
         &self,
         range: impl RangeBounds<Account> + 'static,
-    ) -> Box<dyn Iterator<Item = (Account, AccountInfo)> + '_> {
-        self.store
+    ) -> StoreIterator<'_, (Account, AccountInfo)> {
+        let iter = self
+            .store
             .account()
-            .iter_range(self.txn(), to_store_range(range))
+            .iter_range(self.txn(), to_store_range(range));
+        self.instrument_iter(iter, IteratorMetricKind::AccountRange)
     }
 
-    pub fn iter_accounts(&self) -> impl Iterator<Item = (Account, AccountInfo)> + '_ {
-        self.store.account().iter(self.txn())
+    pub fn iter_accounts(&self) -> StoreIterator<'_, (Account, AccountInfo)> {
+        let iter = self.store.account().iter(self.txn());
+        self.instrument_iter(iter, IteratorMetricKind::AccountFullScan)
     }
 
     pub fn iter_account_range(
         &self,
         range: impl RangeBounds<Account> + 'static,
-    ) -> Box<dyn Iterator<Item = (Account, AccountInfo)> + '_> {
-        self.store
+    ) -> StoreIterator<'_, (Account, AccountInfo)> {
+        let iter = self
+            .store
             .account()
-            .iter_range(self.txn(), to_store_range(range))
+            .iter_range(self.txn(), to_store_range(range));
+        self.instrument_iter(iter, IteratorMetricKind::AccountRange)
     }
 
     pub fn iter_pending_range(
         &self,
         range: impl RangeBounds<PendingKey> + 'static,
-    ) -> impl Iterator<Item = (PendingKey, PendingInfo)> + '_ {
-        self.store
+    ) -> StoreIterator<'_, (PendingKey, PendingInfo)> {
+        let iter = self
+            .store
             .pending()
-            .iter_range(self.txn(), to_store_range(range))
+            .iter_range(self.txn(), to_store_range(range));
+        self.instrument_iter(iter, IteratorMetricKind::PendingRange)
     }
 
     pub fn random_blocks(&self, count: usize) -> Vec<SavedBlock> {
@@ -145,19 +167,23 @@ impl<'a> OwningAnySet<'a> {
         let starting_hash = BlockHash::random();
 
         // It is more efficient to choose a random starting point and pick a few sequential blocks from there
-        let mut it = self
-            .store
-            .block()
-            .iter_range(self.txn(), to_store_range(starting_hash..));
+        let mut it = self.instrument_iter(
+            self.store
+                .block()
+                .iter_range(self.txn(), to_store_range(starting_hash..)),
+            IteratorMetricKind::BlockRange,
+        );
         while result.len() < count {
             match it.next() {
                 Some(block) => result.push(block),
                 None => {
                     // Wrap around when reaching the end
-                    it = self
-                        .store
-                        .block()
-                        .iter_range(self.txn(), to_store_range(BlockHash::ZERO..));
+                    it = self.instrument_iter(
+                        self.store
+                            .block()
+                            .iter_range(self.txn(), to_store_range(BlockHash::ZERO..)),
+                        IteratorMetricKind::BlockRange,
+                    );
                 }
             }
         }
@@ -186,7 +212,22 @@ impl<'a> OwningAnySet<'a> {
     }
 
     pub fn refresh(self) -> Self {
-        Self::new(self.store, self.constants)
+        Self::new_with_metrics(self.store, self.constants, self.metrics)
+    }
+
+    fn instrument_iter<'b, T>(
+        &self,
+        iter: StoreIterator<'b, T>,
+        kind: IteratorMetricKind,
+    ) -> StoreIterator<'b, T>
+    where
+        T: 'b,
+    {
+        if let Some(metrics) = &self.metrics {
+            metrics.instrument(iter, kind)
+        } else {
+            iter
+        }
     }
 }
 
@@ -303,6 +344,7 @@ impl<'a> AnySet for OwningAnySet<'a> {
                 Default::default(),
                 None,
                 None,
+                self.metrics.clone(),
             ),
             Some(account) => AnyReceivableIterator::new(
                 self.txn(),
@@ -310,6 +352,7 @@ impl<'a> AnySet for OwningAnySet<'a> {
                 account,
                 None,
                 Some(BlockHash::ZERO),
+                self.metrics.clone(),
             ),
         }
     }
@@ -321,6 +364,7 @@ impl<'a> AnySet for OwningAnySet<'a> {
             account,
             None,
             Some(BlockHash::ZERO),
+            self.metrics.clone(),
         )
     }
 
@@ -335,6 +379,7 @@ impl<'a> AnySet for OwningAnySet<'a> {
             account,
             Some(account),
             hash.inc(),
+            self.metrics.clone(),
         )
     }
 
@@ -352,6 +397,7 @@ pub(crate) struct BorrowingAnySet<'a> {
     pub constants: &'a LedgerConstants,
     pub store: &'a dyn LedgerStore,
     pub tx: &'a dyn LedgerReadTxn,
+    pub metrics: Option<Arc<LedgerIteratorMetrics>>,
 }
 
 impl<'a> BorrowingAnySet<'a> {
@@ -547,6 +593,7 @@ impl<'a> AnySet for BorrowingAnySet<'a> {
                 Default::default(),
                 None,
                 None,
+                self.metrics.clone(),
             ),
             Some(account) => AnyReceivableIterator::new(
                 self.tx,
@@ -554,6 +601,7 @@ impl<'a> AnySet for BorrowingAnySet<'a> {
                 account,
                 None,
                 Some(BlockHash::ZERO),
+                self.metrics.clone(),
             ),
         }
     }
@@ -565,6 +613,7 @@ impl<'a> AnySet for BorrowingAnySet<'a> {
             account,
             None,
             Some(BlockHash::ZERO),
+            self.metrics.clone(),
         )
     }
 
@@ -579,6 +628,7 @@ impl<'a> AnySet for BorrowingAnySet<'a> {
             account,
             Some(account),
             hash.inc(),
+            self.metrics.clone(),
         )
     }
 
@@ -605,6 +655,7 @@ impl<'a> AnyReceivableIterator<'a> {
         requested_account: Account,
         returned_account: Option<Account>,
         next_hash: Option<BlockHash>,
+        metrics: Option<Arc<LedgerIteratorMetrics>>,
     ) -> Self {
         let inner = match next_hash {
             Some(hash) => {
@@ -615,6 +666,12 @@ impl<'a> AnyReceivableIterator<'a> {
                 )
             }
             None => Box::new(std::iter::empty()),
+        };
+
+        let inner = if let Some(metrics) = metrics {
+            metrics.instrument(inner, IteratorMetricKind::ReceivableRange)
+        } else {
+            inner
         };
 
         Self {

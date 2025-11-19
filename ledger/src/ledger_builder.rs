@@ -12,7 +12,7 @@ use store_traits::{
     ledger::{LedgerCache, LedgerStoreFactory},
 };
 
-use crate::{BootstrapWeights, Ledger, LedgerConstants, RepWeightCache};
+use crate::{BootstrapWeights, IteratorMetricsConfig, Ledger, LedgerConstants, RepWeightCache};
 
 pub struct LedgerBuilder<'a> {
     path: PathBuf,
@@ -23,6 +23,7 @@ pub struct LedgerBuilder<'a> {
     min_rep_weight: Amount,
     ledger_constants: Option<LedgerConstants>,
     thread_count: usize,
+    iterator_metrics_config: IteratorMetricsConfig,
 }
 
 impl<'a> LedgerBuilder<'a> {
@@ -36,6 +37,7 @@ impl<'a> LedgerBuilder<'a> {
             min_rep_weight: Amount::ZERO,
             ledger_constants: None,
             thread_count: 0,
+            iterator_metrics_config: IteratorMetricsConfig::default(),
         }
     }
 
@@ -73,6 +75,11 @@ impl<'a> LedgerBuilder<'a> {
         self
     }
 
+    pub fn iterator_metrics_config(mut self, config: IteratorMetricsConfig) -> Self {
+        self.iterator_metrics_config = config;
+        self
+    }
+
     pub fn finish(mut self) -> anyhow::Result<Ledger> {
         let ledger_cache = Arc::new(LedgerCache::new());
         let bootstrap_weights = self.bootstrap_weights.unwrap_or_default();
@@ -100,13 +107,15 @@ impl<'a> LedgerBuilder<'a> {
             rep_weights.ledger_cache.clone(),
         )?;
 
-        Ledger::new(
+        let mut ledger = Ledger::new(
             store,
             ledger_constants,
             self.min_rep_weight,
             rep_weights.clone(),
             stats.clone(),
             self.thread_count,
-        )
+        )?;
+        ledger.update_metrics_config(self.iterator_metrics_config.clone());
+        Ok(ledger)
     }
 }

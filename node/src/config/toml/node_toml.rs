@@ -20,6 +20,7 @@ pub struct NodeToml {
     pub bootstrap_serving_threads: Option<u32>,
     pub confirming_set_batch_time: Option<u64>,
     pub enable_voting: Option<bool>,
+    pub iterator_metrics_enabled: Option<bool>,
     pub external_address: Option<String>,
     pub external_port: Option<u16>,
     pub io_threads: Option<usize>,
@@ -106,6 +107,9 @@ impl NodeConfig {
         }
         if let Some(enable_voting) = toml.enable_voting {
             self.enable_voting = enable_voting;
+        }
+        if let Some(iterator_metrics_enabled) = toml.iterator_metrics_enabled {
+            self.iterator_metrics_enabled = iterator_metrics_enabled;
         }
         if let Some(opt) = &toml.optimistic_scheduler {
             if let Some(enable) = opt.enable {
@@ -444,6 +448,7 @@ impl From<&NodeConfig> for NodeToml {
             bootstrap_serving_threads: Some(config.bootstrap_serving_threads),
             confirming_set_batch_time: Some(config.confirming_set_batch_time.as_millis() as u64),
             enable_voting: Some(config.enable_voting),
+            iterator_metrics_enabled: Some(config.iterator_metrics_enabled),
             external_address: Some(config.external_address.clone()),
             external_port: Some(config.external_port),
             io_threads: Some(config.io_threads),

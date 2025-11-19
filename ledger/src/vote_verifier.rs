@@ -66,6 +66,7 @@ impl<'a> VoteVerifier<'a> {
             constants: &self.constants,
             store: self.store,
             tx,
+            metrics: None,
         };
         let Some(block) = any.get_block(hash) else {
             return false;
