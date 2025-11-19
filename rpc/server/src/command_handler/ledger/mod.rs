@@ -21,6 +21,7 @@ mod frontier_count;
 mod frontiers;
 mod ledger;
 mod representatives;
+mod uncemented_blocks;
 mod unopened;
 
 pub(crate) use account_history::AccountHistoryHelper;

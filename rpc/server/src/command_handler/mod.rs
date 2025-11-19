@@ -88,6 +88,7 @@ impl RpcCommandHandler {
             RpcCommand::BlockConfirm(args) => to_value(self.block_confirm(args)?),
             RpcCommand::BlockAccount(args) => to_value(self.block_account(args)?),
             RpcCommand::BlockCount => to_value(self.block_count()),
+            RpcCommand::UncementedBlocks(args) => to_value(self.uncemented_blocks(args)),
             RpcCommand::Receive(args) => to_value(self.receive(args)?),
             RpcCommand::BlockCreate(args) => to_value(self.block_create(args)?),
             RpcCommand::BlockHash(args) => to_value(block_hash(args)),

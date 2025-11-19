@@ -23,6 +23,7 @@ mod frontiers;
 mod ledger;
 mod representatives;
 mod successors;
+mod uncemented_blocks;
 mod unopened;
 mod weight;
 
@@ -45,5 +46,6 @@ pub use delegators::*;
 pub use frontiers::*;
 pub use ledger::*;
 pub use representatives::*;
+pub use uncemented_blocks::*;
 pub use unopened::*;
 pub use weight::*;

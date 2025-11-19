@@ -43,6 +43,7 @@ pub enum RpcCommand {
     DatabaseTxnTracker(()), // TODO
     ConfirmationHistory(ConfirmationHistoryArgs),
     BlockCount,
+    UncementedBlocks(UncementedBlocksArgs),
     Uptime,
     FrontierCount,
     ValidateAccountNumber(AccountCandidateArg),

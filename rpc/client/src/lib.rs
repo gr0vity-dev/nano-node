@@ -379,6 +379,13 @@ impl NanoRpcClient {
         self.request(&RpcCommand::BlockCount).await
     }
 
+    pub async fn uncemented_blocks(
+        &self,
+        args: UncementedBlocksArgs,
+    ) -> Result<UncementedBlocksResponse> {
+        self.request(&RpcCommand::UncementedBlocks(args)).await
+    }
+
     pub async fn uptime(&self) -> Result<UptimeResponse> {
         self.request(&RpcCommand::uptime()).await
     }

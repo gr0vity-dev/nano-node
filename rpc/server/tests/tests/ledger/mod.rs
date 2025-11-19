@@ -23,4 +23,5 @@ mod frontiers;
 mod ledger;
 mod representatives;
 mod successors;
+mod uncemented_blocks;
 mod unopened;
