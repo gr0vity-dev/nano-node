@@ -8,7 +8,7 @@ use crate::Ledger;
 use store_traits::LedgerWriteTxn;
 
 #[derive(Debug, PartialEq, Clone)]
-pub(crate) struct BlockInsertInstructions {
+pub struct BlockInsertInstructions {
     pub account: Account,
     pub old_account_info: AccountInfo,
     pub set_account_info: AccountInfo,
@@ -19,7 +19,7 @@ pub(crate) struct BlockInsertInstructions {
 }
 
 /// Inserts a new block into the ledger
-pub(crate) struct BlockInserter<'a> {
+pub struct BlockInserter<'a> {
     ledger: &'a Ledger,
     txn: &'a mut dyn LedgerWriteTxn,
     block: &'a Block,
@@ -27,7 +27,7 @@ pub(crate) struct BlockInserter<'a> {
 }
 
 impl<'a> BlockInserter<'a> {
-    pub(crate) fn new(
+    pub fn new(
         ledger: &'a Ledger,
         txn: &'a mut dyn LedgerWriteTxn,
         block: &'a Block,
@@ -41,7 +41,7 @@ impl<'a> BlockInserter<'a> {
         }
     }
 
-    pub(crate) fn insert(&mut self) -> (Option<SavedBlock>, bool, bool) {
+    pub fn insert(&mut self) -> (Option<SavedBlock>, bool, bool) {
         if self.account_changed_since_validation() {
             return (None, false, false);
         }
@@ -141,11 +141,19 @@ impl<'a> BlockInserter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate as ledger_crate;
     use crate::{Ledger, NullLedgerBuilder};
+    mod insertion_test_helpers {
+        use crate as ledger_crate;
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/common/test_helpers.rs"
+        ));
+    }
+    use insertion_test_helpers::{commit_block_txn, legacy_open_block_instructions};
     use rsnano_types::{BlockHash, Epoch, PublicKey, TestBlockBuilder, UnixTimestamp};
     use std::sync::Arc;
     use store_rocksdb::default_ledger_store_factory;
-    use store_traits::LedgerWriteTxn;
     use store_traits::ledger::{LedgerStoreFactory, WriteStrategy, WriterType};
 
     fn test_store_factory() -> Arc<dyn LedgerStoreFactory> {
@@ -316,23 +324,6 @@ mod tests {
         }
     }
 
-    fn commit_block_txn(
-        ledger: &Ledger,
-        txn: Box<dyn LedgerWriteTxn>,
-        inserted: bool,
-        saved_block: Option<&SavedBlock>,
-    ) {
-        let mut hashes = Vec::new();
-        if inserted {
-            if let Some(block) = saved_block {
-                hashes.push(block.hash());
-            }
-        }
-        ledger
-            .commit_block_transaction(txn, &hashes)
-            .unwrap_or_else(|e| panic!("failed to commit block insertion: {e}"));
-    }
-
     struct InsertResult {
         saved_blocks: Vec<SavedBlock>,
         saved_accounts: Vec<(Account, AccountInfo)>,
@@ -466,27 +457,6 @@ mod tests {
             store_count,
             "parallel duplicate inserts diverge cache from store"
         );
-    }
-
-    fn legacy_open_block_instructions() -> (Block, BlockInsertInstructions) {
-        let block = TestBlockBuilder::legacy_open().build();
-        let sideband = BlockSideband::new_test_instance();
-        let account_info = AccountInfo {
-            head: block.hash(),
-            open_block: block.hash(),
-            ..AccountInfo::new_test_instance()
-        };
-        let instructions = BlockInsertInstructions {
-            account: block.account_field().unwrap(),
-            old_account_info: AccountInfo::default(),
-            set_account_info: account_info,
-            delete_pending: None,
-            insert_pending: None,
-            set_sideband: sideband,
-            is_epoch_block: false,
-        };
-
-        (block, instructions)
     }
 
     fn open_state_block_instructions() -> (Block, BlockInsertInstructions) {

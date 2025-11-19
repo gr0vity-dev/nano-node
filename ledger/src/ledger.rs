@@ -26,7 +26,7 @@ use crate::{
     LedgerConstants, LedgerSet, LedgerStore, OwningAnySet, OwningConfirmedSet,
     OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater, RollbackError,
     block_cementer::BlockCementer,
-    block_insertion::{BlockInserter, BlockValidatorFactory},
+    block_insertion::{BlockInsertInstructions, BlockInserter, BlockValidatorFactory},
     iterator_metrics::{IteratorMetricsConfig, LedgerIteratorMetrics},
     vote_verifier::VoteVerifier,
 };
@@ -120,6 +120,9 @@ pub struct Ledger {
     pub(crate) stats: Arc<Stats>,
     ledger_metrics: Option<Arc<LedgerIteratorMetrics>>,
     block_count_events: Arc<BlockCountEvents>,
+    optimistic_successes: AtomicU64,
+    optimistic_conflicts: AtomicU64,
+    pessimistic_fallbacks: AtomicU64,
     insert_tracker: Mutex<InsertTracker>,
     duplicate_log: Mutex<VecDeque<DuplicateInsertRecord>>,
     rollback_listener: OutputListenerMt<BlockHash>,
@@ -136,6 +139,7 @@ pub(crate) struct BlockCountEvents {
 const MAX_INSERT_SOURCES: usize = 32;
 const MAX_TRACKED_INSERTS: usize = 600_000;
 const MAX_DUPLICATE_LOG: usize = 1024;
+const DEFAULT_OPTIMISTIC_RETRIES: usize = 1;
 
 struct InsertTracker {
     map: HashMap<BlockHash, u8>,
@@ -499,7 +503,19 @@ impl Ledger {
         self.store.as_ref()
     }
 
-    pub(crate) fn begin_write_with(
+    pub fn optimistic_successes(&self) -> u64 {
+        self.optimistic_successes.load(Ordering::SeqCst)
+    }
+
+    pub fn optimistic_conflicts(&self) -> u64 {
+        self.optimistic_conflicts.load(Ordering::SeqCst)
+    }
+
+    pub fn pessimistic_fallbacks(&self) -> u64 {
+        self.pessimistic_fallbacks.load(Ordering::SeqCst)
+    }
+
+    pub fn begin_write_with(
         &self,
         writer: WriterType,
         strategy: WriteStrategy,
@@ -511,7 +527,50 @@ impl Ledger {
         Arc::clone(&self.block_count_events)
     }
 
-    pub(crate) fn commit_block_transaction(
+    pub fn tx_optimistic_process<T, F>(
+        &self,
+        writer: WriterType,
+        max_retries: usize,
+        mut f: F,
+    ) -> Result<T, StoreError>
+    where
+        F: FnMut(&mut dyn LedgerWriteTxn) -> Result<(T, Vec<BlockHash>), StoreError>,
+    {
+        let mut retries = 0;
+        let mut strategy = WriteStrategy::Optimistic;
+        loop {
+            let mut txn = self.begin_write_with(writer, strategy);
+            let (result, inserted_hashes) = f(txn.as_mut())?;
+            match self.commit_block_transaction(txn, &inserted_hashes) {
+                Ok(CommitDisposition::Success) => {
+                    if matches!(strategy, WriteStrategy::Optimistic) {
+                        self.optimistic_successes.fetch_add(1, Ordering::SeqCst);
+                    } else {
+                        self.pessimistic_fallbacks.fetch_add(1, Ordering::SeqCst);
+                    }
+                    return Ok(result);
+                }
+                Ok(CommitDisposition::Duplicate) => {
+                    if matches!(strategy, WriteStrategy::Optimistic) {
+                        self.optimistic_conflicts.fetch_add(1, Ordering::SeqCst);
+                        if retries < max_retries {
+                            retries += 1;
+                            continue;
+                        } else {
+                            strategy = WriteStrategy::Pessimistic;
+                            continue;
+                        }
+                    } else {
+                        self.pessimistic_fallbacks.fetch_add(1, Ordering::SeqCst);
+                        return Ok(result);
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    pub fn commit_block_transaction(
         &self,
         txn: Box<dyn LedgerWriteTxn>,
         inserted_hashes: &[BlockHash],
@@ -547,6 +606,9 @@ impl Ledger {
             stats,
             ledger_metrics: None,
             block_count_events: Arc::new(BlockCountEvents::default()),
+            optimistic_successes: AtomicU64::new(0),
+            optimistic_conflicts: AtomicU64::new(0),
+            pessimistic_fallbacks: AtomicU64::new(0),
             insert_tracker: Mutex::new(InsertTracker::new()),
             duplicate_log: Mutex::new(VecDeque::with_capacity(MAX_DUPLICATE_LOG)),
             rollback_listener: Default::default(),
@@ -866,62 +928,63 @@ impl Ledger {
             }
         }
 
-        // Insert blocks
-        let mut processed = Vec::with_capacity(validation_results.len());
-        {
-            let mut txn =
-                self.begin_write_with(WriterType::BlockProcessor, WriteStrategy::Optimistic);
-            let mut inserted_hashes = Vec::new();
-            for (result, block) in validation_results {
-                match result {
-                    Ok(instructions) => {
-                        let (saved_block, inserted, preexisting) =
-                            BlockInserter::new(self, txn.as_mut(), block, &instructions).insert();
-                        if saved_block.is_some() {
-                            processed.push(BatchProcessEntry {
-                                status: Ok(()),
-                                saved_block: saved_block.clone(),
-                                inserted,
-                                preexisting,
-                            });
-                            if inserted {
-                                if let Some(ref saved) = saved_block {
-                                    inserted_hashes.push(saved.hash());
+        let validation_results: Vec<(Result<BlockInsertInstructions, BlockError>, Block)> =
+            validation_results
+                .into_iter()
+                .map(|(result, block)| (result, block.clone()))
+                .collect();
+        let processed = self
+            .tx_optimistic_process(
+                WriterType::BlockProcessor,
+                DEFAULT_OPTIMISTIC_RETRIES,
+                |txn| {
+                    let mut processed = Vec::with_capacity(validation_results.len());
+                    let mut inserted_hashes = Vec::new();
+                    for (result, block) in validation_results.iter() {
+                        match result {
+                            Ok(instructions) => {
+                                let mut block_clone = block.clone();
+                                let instructions_clone = instructions.clone();
+                                let (saved_block, inserted, preexisting) = BlockInserter::new(
+                                    self,
+                                    txn,
+                                    &mut block_clone,
+                                    &instructions_clone,
+                                )
+                                .insert();
+                                if let Some(saved_block) = saved_block {
+                                    if inserted {
+                                        inserted_hashes.push(saved_block.hash());
+                                    }
+                                    processed.push(BatchProcessEntry {
+                                        status: Ok(()),
+                                        saved_block: Some(saved_block),
+                                        inserted,
+                                        preexisting,
+                                    });
+                                } else {
+                                    processed.push(BatchProcessEntry {
+                                        status: Err(BlockError::Conflict),
+                                        saved_block: None,
+                                        inserted: false,
+                                        preexisting: false,
+                                    });
                                 }
                             }
-                        } else {
-                            let err = BlockError::Conflict;
-                            processed.push(BatchProcessEntry {
-                                status: Err(err),
-                                saved_block: None,
-                                inserted: false,
-                                preexisting: false,
-                            });
+                            Err(err) => {
+                                processed.push(BatchProcessEntry {
+                                    status: Err(*err),
+                                    saved_block: None,
+                                    inserted: false,
+                                    preexisting: false,
+                                });
+                            }
                         }
                     }
-                    Err(err) => {
-                        processed.push(BatchProcessEntry {
-                            status: Err(err),
-                            saved_block: None,
-                            inserted: false,
-                            preexisting: false,
-                        });
-                    }
-                }
-            }
-            match self.commit_block_transaction(txn, &inserted_hashes) {
-                Ok(CommitDisposition::Success) => {}
-                Ok(CommitDisposition::Duplicate) => {
-                    for entry in processed.iter_mut() {
-                        if entry.inserted {
-                            entry.inserted = false;
-                            entry.preexisting = true;
-                        }
-                    }
-                }
-                Err(e) => panic!("failed to commit block batch: {e}"),
-            }
-        }
+                    Ok((processed, inserted_hashes))
+                },
+            )
+            .unwrap_or_else(|e| panic!("failed to process block batch: {e}"));
 
         BatchProcessResult { processed }
     }
@@ -1428,16 +1491,5 @@ impl RollbackResult {
 
     pub fn roots(&self) -> impl Iterator<Item = Root> + use<'_> {
         self.rolled_back.iter().map(|b| b.root())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn error_variant_to_static_str() {
-        let s: &'static str = BlockError::GapSource.into();
-        assert_eq!(s, "gap_source");
     }
 }

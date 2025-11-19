@@ -5,7 +5,7 @@ extern crate anyhow;
 extern crate strum_macros;
 
 mod block_cementer;
-mod block_insertion;
+pub mod block_insertion;
 mod block_rollback;
 mod dependent_blocks_finder;
 mod generate_cache_flags;
