@@ -57,6 +57,8 @@ pub trait LedgerWriteTxn: LedgerReadTxn {
 
     fn commit(self: Box<Self>) -> StoreResult<()>;
 
+    fn on_commit(&mut self, callback: Box<dyn FnOnce() + Send>);
+
     fn raw_put(
         &mut self,
         database: StoreDatabase,

@@ -21,8 +21,9 @@ use store_traits::types::{
 
 use crate::{
     transaction::{RocksdbReadTxn, RocksdbWriteTxn},
-    write_queue::{WriteQueue, WriteStrategy, WriterType},
+    write_queue::WriteQueue,
 };
+use store_traits::ledger::{WriteStrategy, WriterType};
 
 pub struct RocksdbStoreEnvironment {
     inner: Arc<RocksDbInner>,

@@ -6,7 +6,7 @@ use store_traits::{
     ledger::{
         AccountStore, BlockStore, ConfirmationHeightStore, FinalVoteStore, LedgerCache,
         LedgerStore, MemoryStats, OnlineWeightStore, PeerStore, PendingStore, RepWeightStore,
-        StoreVendor, SuccessorStore, VersionStore,
+        StoreVendor, SuccessorStore, VersionStore, WriteStrategy, WriterType,
     },
     transaction::{LedgerReadTxn, LedgerWriteTxn},
 };
@@ -119,8 +119,14 @@ impl LedgerStore for RocksdbLedgerStore {
         Box::new(RocksdbLedgerReadTxn::new(&self.env))
     }
 
-    fn begin_write(&self) -> Box<dyn LedgerWriteTxn> {
-        Box::new(RocksdbLedgerWriteTxn::new(&self.env))
+    fn begin_write_with_writer(
+        &self,
+        writer: WriterType,
+        strategy: WriteStrategy,
+    ) -> Box<dyn LedgerWriteTxn> {
+        Box::new(RocksdbLedgerWriteTxn::new_with_writer(
+            &self.env, writer, strategy,
+        ))
     }
 
     fn sync(&self) -> anyhow::Result<()> {

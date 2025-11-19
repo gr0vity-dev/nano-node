@@ -61,6 +61,22 @@ impl<T> StdRangeBounds<T> for RangeBounds<T> {
 
 pub type StoreIterator<'a, T> = Box<dyn Iterator<Item = T> + 'a>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WriterType {
+    Testing,
+    BlockProcessor,
+    ConfirmationHeight,
+    RepWeights,
+    Bootstrap,
+    Generic,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WriteStrategy {
+    Pessimistic,
+    Optimistic,
+}
+
 pub trait LedgerStore: Send + Sync {
     fn block_store(&self) -> &dyn BlockStore;
     fn block(&self) -> &dyn BlockStore {
@@ -120,7 +136,17 @@ pub trait LedgerStore: Send + Sync {
     }
 
     fn begin_read(&self) -> Box<dyn LedgerReadTxn>;
-    fn begin_write(&self) -> Box<dyn LedgerWriteTxn>;
+
+    fn begin_write(&self) -> Box<dyn LedgerWriteTxn> {
+        self.begin_write_with_writer(WriterType::Generic, WriteStrategy::Optimistic)
+    }
+
+    fn begin_write_with_writer(
+        &self,
+        writer: WriterType,
+        strategy: WriteStrategy,
+    ) -> Box<dyn LedgerWriteTxn>;
+
     fn sync(&self) -> Result<()>;
     fn cache(&self) -> &LedgerCache;
     fn memory_stats(&self) -> Result<MemoryStats>;

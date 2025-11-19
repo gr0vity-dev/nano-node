@@ -36,7 +36,7 @@ pub use rep_weight_store::RocksdbRepWeightStore;
 pub use successor_store::RocksdbSuccessorStore;
 pub use transaction::{RocksdbLedgerReadTxn, RocksdbLedgerWriteTxn};
 pub use version_store::RocksdbVersionStore;
-pub use write_queue::{WriteQueue, WriteQueueStats, WriteStrategy, WriterType};
+pub use write_queue::{WriteQueue, WriteQueueStats};
 
 pub(crate) use environment::{
     ACCOUNTS_CF_NAME, BLOCK_DATA_CF_NAME, BLOCK_INDEX_CF_NAME, CONF_HEIGHT_CF_NAME,

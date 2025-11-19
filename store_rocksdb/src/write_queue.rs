@@ -1,5 +1,7 @@
 use std::sync::{Arc, Condvar, Mutex};
 
+use store_traits::ledger::{WriteStrategy, WriterType};
+
 #[derive(Clone)]
 pub struct WriteQueue {
     inner: Arc<QueueInner>,
@@ -16,22 +18,6 @@ struct State {
     optimistic_active: usize,
     waiting_pessimistic: usize,
     waiting_optimistic: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WriterType {
-    Testing,
-    BlockProcessor,
-    ConfirmationHeight,
-    RepWeights,
-    Bootstrap,
-    Generic,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WriteStrategy {
-    Pessimistic,
-    Optimistic,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

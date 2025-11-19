@@ -13,7 +13,8 @@ use store_traits::types::{
 use crate::environment::{
     RocksDb, RocksDbInner, RocksDbSnapshot, RocksdbStoreEnvironment, store_error_from_rocksdb,
 };
-use crate::write_queue::{WriteGuard, WriteStrategy, WriterType};
+use crate::write_queue::WriteGuard;
+use store_traits::ledger::{WriteStrategy, WriterType};
 
 struct SnapshotResources {
     snapshot: RocksDbSnapshot<'static>,
@@ -174,6 +175,10 @@ impl LedgerWriteTxn for RocksdbLedgerWriteTxn {
     fn commit(self: Box<Self>) -> StoreResult<()> {
         self.inner.commit()
     }
+
+    fn on_commit(&mut self, callback: Box<dyn FnOnce() + Send>) {
+        self.inner.on_commit(callback);
+    }
 }
 
 pub struct RocksdbReadTxn {
@@ -235,6 +240,7 @@ pub struct RocksdbWriteTxn {
     inner: Arc<RocksDbInner>,
     txn: Transaction<'static, RocksDb>,
     _guard: WriteGuard,
+    commit_callbacks: Vec<Box<dyn FnOnce() + Send>>,
 }
 
 impl RocksdbWriteTxn {
@@ -259,6 +265,7 @@ impl RocksdbWriteTxn {
             inner: Arc::clone(inner),
             txn,
             _guard: guard,
+            commit_callbacks: Vec::new(),
         }
     }
 
@@ -309,11 +316,19 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn {
         Ok(RocksdbCursor::from_txn_iter(iter))
     }
 
-    fn commit(self) -> StoreResult<()>
+    fn commit(mut self) -> StoreResult<()>
     where
         Self: Sized,
     {
-        self.txn.commit().map_err(Self::map_txn_error)
+        match self.txn.commit() {
+            Ok(()) => {
+                for callback in self.commit_callbacks.drain(..) {
+                    callback();
+                }
+                Ok(())
+            }
+            Err(e) => Err(Self::map_txn_error(e)),
+        }
     }
 }
 
@@ -381,6 +396,12 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn {
 
     unsafe fn drop_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
         self.inner.delete_cf(database)
+    }
+}
+
+impl RocksdbWriteTxn {
+    pub fn on_commit(&mut self, callback: Box<dyn FnOnce() + Send>) {
+        self.commit_callbacks.push(callback);
     }
 }
 

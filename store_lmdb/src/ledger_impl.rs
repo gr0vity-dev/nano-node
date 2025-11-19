@@ -15,7 +15,7 @@ use store_traits::ledger::SnapshotNumber;
 use store_traits::ledger::{
     AccountStore, BlockStore, ConfirmationHeightStore, FinalVoteStore, LedgerStore,
     OnlineWeightStore, PeerStore, PendingStore, RangeBounds, RepWeightStore, StoreIterator,
-    StoreVendor, SuccessorStore, VersionStore,
+    StoreVendor, SuccessorStore, VersionStore, WriteStrategy, WriterType,
 };
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 
@@ -79,7 +79,11 @@ impl LedgerStore for LmdbStore {
         Box::new(LmdbLedgerReadTxn::new(self.env.begin_read()))
     }
 
-    fn begin_write(&self) -> Box<dyn LedgerWriteTxn> {
+    fn begin_write_with_writer(
+        &self,
+        _writer: WriterType,
+        _strategy: WriteStrategy,
+    ) -> Box<dyn LedgerWriteTxn> {
         Box::new(LmdbLedgerWriteTxn::new(self.env.begin_write()))
     }
 

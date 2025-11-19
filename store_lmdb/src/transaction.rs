@@ -59,11 +59,15 @@ impl LedgerReadTxn for LmdbLedgerReadTxn {
 
 pub struct LmdbLedgerWriteTxn {
     inner: WriteTransaction,
+    commit_callbacks: Vec<Box<dyn FnOnce() + Send>>,
 }
 
 impl LmdbLedgerWriteTxn {
     pub fn new(inner: WriteTransaction) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            commit_callbacks: Vec::new(),
+        }
     }
 
     pub fn into_inner(self) -> WriteTransaction {
@@ -78,8 +82,12 @@ impl LmdbLedgerWriteTxn {
         &mut self.inner
     }
 
-    pub fn commit(self) -> StoreResult<()> {
+    pub fn commit(mut self) -> StoreResult<()> {
+        let callbacks = std::mem::take(&mut self.commit_callbacks);
         self.inner.commit();
+        for callback in callbacks {
+            callback();
+        }
         Ok(())
     }
 }
@@ -156,9 +164,17 @@ impl LedgerWriteTxn for LmdbLedgerWriteTxn {
             .map_err(store_error_from_lmdb)
     }
 
-    fn commit(self: Box<Self>) -> StoreResult<()> {
+    fn commit(mut self: Box<Self>) -> StoreResult<()> {
+        let callbacks = std::mem::take(&mut self.commit_callbacks);
         self.inner.commit();
+        for callback in callbacks {
+            callback();
+        }
         Ok(())
+    }
+
+    fn on_commit(&mut self, callback: Box<dyn FnOnce() + Send>) {
+        self.commit_callbacks.push(callback);
     }
 }
 
@@ -208,8 +224,12 @@ impl WalletReadTxn for LmdbLedgerWriteTxn {
         ))
     }
 
-    fn commit(self: Box<Self>) -> StoreResult<()> {
+    fn commit(mut self: Box<Self>) -> StoreResult<()> {
+        let callbacks = std::mem::take(&mut self.commit_callbacks);
         self.inner.commit();
+        for callback in callbacks {
+            callback();
+        }
         Ok(())
     }
 }

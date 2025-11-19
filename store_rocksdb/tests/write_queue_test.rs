@@ -1,6 +1,7 @@
 use std::{sync::mpsc, thread, time::Duration};
 
-use store_rocksdb::{WriteQueue, WriteStrategy, WriterType};
+use store_rocksdb::WriteQueue;
+use store_traits::ledger::{WriteStrategy, WriterType};
 
 #[test]
 fn optimistic_writers_can_share() {
