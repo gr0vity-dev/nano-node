@@ -3,7 +3,7 @@ use std::{
     net::SocketAddrV6,
     ops::{Deref, DerefMut},
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::SystemTime,
@@ -119,7 +119,6 @@ pub struct Ledger {
     pub(crate) stats: Arc<Stats>,
     ledger_metrics: Option<Arc<LedgerIteratorMetrics>>,
     block_count_events: BlockCountEvents,
-    insert_events: Mutex<VecDeque<BlockInsertEvent>>,
     rollback_listener: OutputListenerMt<BlockHash>,
 }
 
@@ -132,22 +131,6 @@ struct BlockCountEvents {
 }
 
 const MAX_INSERT_SOURCES: usize = 32;
-const MAX_INSERT_EVENTS: usize = 1024;
-
-struct BlockInsertEvent {
-    hash: BlockHash,
-    source: u8,
-    inserted: bool,
-    preexisting: bool,
-}
-
-#[derive(Clone)]
-pub struct BlockInsertEventSnapshot {
-    pub hash: BlockHash,
-    pub source: u8,
-    pub inserted: bool,
-    pub preexisting: bool,
-}
 
 impl Default for BlockCountEvents {
     fn default() -> Self {
@@ -463,7 +446,6 @@ impl Ledger {
             stats,
             ledger_metrics: None,
             block_count_events: BlockCountEvents::default(),
-            insert_events: Mutex::new(VecDeque::with_capacity(MAX_INSERT_EVENTS)),
             rollback_listener: Default::default(),
         };
 
@@ -788,21 +770,28 @@ impl Ledger {
             for (result, block) in validation_results {
                 match result {
                     Ok(instructions) => {
-                        let (saved_block, inserted, preexisting) =
+                        let (saved_block, inserted) =
                             BlockInserter::new(self, txn.as_mut(), block, &instructions).insert();
-                        processed.push(BatchProcessEntry {
-                            status: Ok(()),
-                            saved_block: saved_block.clone(),
-                            inserted,
-                            preexisting,
-                        });
+                        if saved_block.is_some() {
+                            processed.push(BatchProcessEntry {
+                                status: Ok(()),
+                                saved_block: saved_block.clone(),
+                                inserted,
+                            });
+                        } else {
+                            let err = BlockError::Conflict;
+                            processed.push(BatchProcessEntry {
+                                status: Err(err),
+                                saved_block: None,
+                                inserted: false,
+                            });
+                        }
                     }
                     Err(err) => {
                         processed.push(BatchProcessEntry {
                             status: Err(err),
                             saved_block: None,
                             inserted: false,
-                            preexisting: false,
                         });
                     }
                 }
@@ -1071,20 +1060,6 @@ impl Ledger {
         self.block_count_events.duplicate_sources()
     }
 
-    pub fn recent_insert_events(&self) -> Vec<BlockInsertEventSnapshot> {
-        let queue = self.insert_events.lock().unwrap();
-        queue
-            .iter()
-            .rev()
-            .map(|event| BlockInsertEventSnapshot {
-                hash: event.hash,
-                source: event.source,
-                inserted: event.inserted,
-                preexisting: event.preexisting,
-            })
-            .collect()
-    }
-
     pub fn simulate_block_count(&self, value: u64) {
         self.store
             .cache()
@@ -1121,25 +1096,6 @@ impl Ledger {
 
     pub fn record_duplicate_insert_source(&self, source: u8) {
         self.block_count_events.record_duplicate_source(source);
-    }
-
-    pub fn record_insert_event_detail(
-        &self,
-        source: u8,
-        hash: BlockHash,
-        inserted: bool,
-        preexisting: bool,
-    ) {
-        let mut queue = self.insert_events.lock().unwrap();
-        if queue.len() == MAX_INSERT_EVENTS {
-            queue.pop_front();
-        }
-        queue.push_back(BlockInsertEvent {
-            hash,
-            source,
-            inserted,
-            preexisting,
-        });
     }
 
     pub fn account_count(&self) -> u64 {
@@ -1259,7 +1215,6 @@ pub struct BatchProcessEntry {
     pub status: Result<(), BlockError>,
     pub saved_block: Option<SavedBlock>,
     pub inserted: bool,
-    pub preexisting: bool,
 }
 
 pub trait CementingObserver {

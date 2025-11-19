@@ -10,7 +10,7 @@ use strum::{EnumCount, IntoEnumIterator};
 use tracing::{trace, warn};
 
 use crate::ledger_factory::default_ledger_store_factory;
-use rsnano_ledger::{BatchProcessEntry, BlockError, Ledger};
+use rsnano_ledger::{BlockError, Ledger};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
@@ -71,7 +71,7 @@ impl BlockBatchProcessor {
         }
 
         assert_eq!(result.processed.len(), batch.len());
-        let mut result: Vec<(BatchProcessEntry, Arc<BlockContext>)> = result
+        let mut result: Vec<(Result<(), BlockError>, Arc<BlockContext>, bool)> = result
             .processed
             .drain(..)
             .zip(batch.drain(..))
@@ -79,15 +79,15 @@ impl BlockBatchProcessor {
                 if entry.saved_block.is_some() {
                     *block_ctx.saved_block.lock().unwrap() = entry.saved_block.clone();
                 }
-                (entry, block_ctx)
+
+                (entry.status, block_ctx, entry.inserted)
             })
             .collect();
 
         // Iterate in reverse order so that when consecutive blocks where processed with
         // gap_previous, that the successful insert of the first block is processed last
         // and the unchecked_map trigger succeeds.
-        for (entry, block_ctx) in result.iter().rev() {
-            let status = &entry.status;
+        for (status, block_ctx, inserted) in result.iter().rev() {
             match status {
                 Ok(()) => {
                     self.stats.progress.fetch_add(1, Relaxed);
@@ -99,10 +99,10 @@ impl BlockBatchProcessor {
 
             self.stats.sources[block_ctx.source as usize].fetch_add(1, Relaxed);
 
-            if entry.inserted {
+            if *inserted {
                 self.ledger
                     .record_block_insert_source(block_ctx.source.as_u8());
-            } else if entry.preexisting {
+            } else if status.is_ok() {
                 self.ledger
                     .record_duplicate_insert_source(block_ctx.source.as_u8());
             }
@@ -115,12 +115,6 @@ impl BlockBatchProcessor {
                     trace!(block_hash = %hash, "Block processed");
                     self.unchecked_reenqueuer
                         .enqueue_blocks_with_dependency(hash);
-                    self.ledger.record_insert_event_detail(
-                        block_ctx.source.as_u8(),
-                        hash,
-                        entry.inserted,
-                        entry.preexisting,
-                    );
                 }
                 Err(error) => {
                     trace!(block_hash = %hash, ?error, "Block processing failed");
@@ -146,12 +140,12 @@ impl BlockBatchProcessor {
         }
 
         // Set results for futures when not holding the lock
-        for (entry, context) in result.iter_mut() {
+        for (res, context, _) in result.iter_mut() {
             if let Some(cb) = &context.callback {
                 let saved_block = context.saved_block.lock().unwrap().clone();
-                (cb)(&context.block.hash(), entry.status, saved_block.as_ref());
+                (cb)(&context.block.hash(), *res, saved_block.as_ref());
             }
-            context.set_result(entry.status);
+            context.set_result(*res);
         }
     }
 

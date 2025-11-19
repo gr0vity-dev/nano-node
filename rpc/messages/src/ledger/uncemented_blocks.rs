@@ -20,7 +20,6 @@ pub struct UncementedBlocksResponse {
     pub accounts: Vec<UncementedAccountStatus>,
     pub insert_sources: Vec<UncementedInsertSource>,
     pub duplicate_sources: Vec<UncementedInsertSource>,
-    pub recent_inserts: Vec<RecentInsertEntry>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -36,12 +35,4 @@ pub struct UncementedAccountStatus {
 pub struct UncementedInsertSource {
     pub source: String,
     pub inserts: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct RecentInsertEntry {
-    pub hash: String,
-    pub source: String,
-    pub inserted: bool,
-    pub preexisting: bool,
 }
