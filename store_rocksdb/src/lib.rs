@@ -13,6 +13,7 @@ pub mod pruned_store;
 pub mod rep_weight_store;
 pub mod successor_store;
 pub mod version_store;
+pub mod write_queue;
 
 mod environment;
 mod ledger_impl;
@@ -35,6 +36,7 @@ pub use rep_weight_store::RocksdbRepWeightStore;
 pub use successor_store::RocksdbSuccessorStore;
 pub use transaction::{RocksdbLedgerReadTxn, RocksdbLedgerWriteTxn};
 pub use version_store::RocksdbVersionStore;
+pub use write_queue::{WriteQueue, WriteQueueStats, WriteStrategy, WriterType};
 
 pub(crate) use environment::{
     ACCOUNTS_CF_NAME, BLOCK_DATA_CF_NAME, BLOCK_INDEX_CF_NAME, CONF_HEIGHT_CF_NAME,

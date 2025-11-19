@@ -13,6 +13,7 @@ use store_traits::types::{
 use crate::environment::{
     RocksDb, RocksDbInner, RocksDbSnapshot, RocksdbStoreEnvironment, store_error_from_rocksdb,
 };
+use crate::write_queue::{WriteGuard, WriteStrategy, WriterType};
 
 struct SnapshotResources {
     snapshot: RocksDbSnapshot<'static>,
@@ -81,8 +82,16 @@ pub struct RocksdbLedgerWriteTxn {
 
 impl RocksdbLedgerWriteTxn {
     pub fn new(env: &Arc<RocksdbStoreEnvironment>) -> Self {
+        Self::new_with_writer(env, WriterType::Generic, WriteStrategy::Optimistic)
+    }
+
+    pub fn new_with_writer(
+        env: &Arc<RocksdbStoreEnvironment>,
+        writer_type: WriterType,
+        strategy: WriteStrategy,
+    ) -> Self {
         let inner = env.inner();
-        let txn = RocksdbWriteTxn::new(&inner);
+        let txn = RocksdbWriteTxn::new(&inner, writer_type, strategy);
         Self { inner: txn }
     }
 
@@ -225,10 +234,15 @@ impl<'env> StoreReadTxn<'env> for RocksdbReadTxn {
 pub struct RocksdbWriteTxn {
     inner: Arc<RocksDbInner>,
     txn: Transaction<'static, RocksDb>,
+    _guard: WriteGuard,
 }
 
 impl RocksdbWriteTxn {
-    pub(crate) fn new(inner: &Arc<RocksDbInner>) -> Self {
+    pub(crate) fn new(
+        inner: &Arc<RocksDbInner>,
+        writer_type: WriterType,
+        strategy: WriteStrategy,
+    ) -> Self {
         let raw = Arc::into_raw(Arc::clone(inner));
         let static_inner: &'static RocksDbInner = unsafe { &*raw };
         let write_opts = WriteOptions::default();
@@ -238,9 +252,13 @@ impl RocksdbWriteTxn {
         unsafe {
             Arc::from_raw(raw);
         }
+        let guard = static_inner
+            .write_queue()
+            .request_write(writer_type, strategy);
         Self {
             inner: Arc::clone(inner),
             txn,
+            _guard: guard,
         }
     }
 

@@ -19,7 +19,10 @@ use store_traits::types::{
     StoreDatabase, StoreEnvironmentFlags, StoreError, StoreErrorKind, StoreResult,
 };
 
-use crate::transaction::{RocksdbReadTxn, RocksdbWriteTxn};
+use crate::{
+    transaction::{RocksdbReadTxn, RocksdbWriteTxn},
+    write_queue::{WriteQueue, WriteStrategy, WriterType},
+};
 
 pub struct RocksdbStoreEnvironment {
     inner: Arc<RocksDbInner>,
@@ -66,7 +69,7 @@ impl StoreEnvironment for RocksdbStoreEnvironment {
     }
 
     fn begin_write(&self) -> Self::WriteTxn<'_> {
-        RocksdbWriteTxn::new(&self.inner)
+        RocksdbWriteTxn::new(&self.inner, WriterType::Generic, WriteStrategy::Optimistic)
     }
 
     fn open_db(&self, name: Option<&str>) -> StoreResult<StoreDatabase> {
@@ -114,6 +117,7 @@ pub(crate) struct RocksDbInner {
     pub(crate) db: RocksDb,
     registry: RwLock<CfRegistry>,
     config: Option<RocksDbConfig>,
+    write_queue: WriteQueue,
 }
 
 pub(crate) type RocksDb = OptimisticTransactionDB<MultiThreaded>;
@@ -183,6 +187,7 @@ impl RocksDbInner {
             db,
             registry: RwLock::new(registry),
             config: config.cloned(),
+            write_queue: WriteQueue::new(),
         })
     }
 
@@ -255,6 +260,10 @@ impl RocksDbInner {
                 .ok_or_else(|| StoreError::backend("unknown column family"))?
         };
         self.db.drop_cf(&name).map_err(store_error_from_rocksdb)
+    }
+
+    pub(crate) fn write_queue(&self) -> &WriteQueue {
+        &self.write_queue
     }
 }
 
