@@ -1,10 +1,13 @@
-use rocksdb::{BoundColumnFamily, DBRawIteratorWithThreadMode, ReadOptions, WriteBatchWithIndex};
+use rocksdb::{
+    BoundColumnFamily, DBRawIteratorWithThreadMode, OptimisticTransactionOptions, ReadOptions,
+    Transaction, WriteOptions,
+};
 use std::{num::NonZeroUsize, sync::Arc};
 use store_traits::environment::{StoreCursor, StoreReadTxn, StoreWriteTxn};
 use store_traits::transaction::{LedgerReadTxn, LedgerWriteTxn};
 use store_traits::types::{
-    StoreDatabase, StoreError, StoreResult, StoreRoCursor, StoreRwCursor, StoreValue,
-    StoreWriteFlags,
+    StoreDatabase, StoreError, StoreErrorKind, StoreResult, StoreRoCursor, StoreRwCursor,
+    StoreValue, StoreWriteFlags,
 };
 
 use crate::environment::{
@@ -220,36 +223,34 @@ impl<'env> StoreReadTxn<'env> for RocksdbReadTxn {
 }
 
 pub struct RocksdbWriteTxn {
-    view: SnapshotView,
-    batch: WriteBatchWithIndex,
+    inner: Arc<RocksDbInner>,
+    txn: Transaction<'static, RocksDb>,
 }
 
 impl RocksdbWriteTxn {
     pub(crate) fn new(inner: &Arc<RocksDbInner>) -> Self {
-        let view = SnapshotView::new(inner);
+        let raw = Arc::into_raw(Arc::clone(inner));
+        let static_inner: &'static RocksDbInner = unsafe { &*raw };
+        let write_opts = WriteOptions::default();
+        let mut txn_opts = OptimisticTransactionOptions::new();
+        txn_opts.set_snapshot(true);
+        let txn = static_inner.db.transaction_opt(&write_opts, &txn_opts);
+        unsafe {
+            Arc::from_raw(raw);
+        }
         Self {
-            view,
-            batch: WriteBatchWithIndex::new(0, true),
+            inner: Arc::clone(inner),
+            txn,
         }
     }
 
-    fn snapshot_read_options(&self) -> ReadOptions {
-        let mut read_options = ReadOptions::default();
-        read_options.set_snapshot(self.view.snapshot());
-        read_options
-    }
-
-    fn batch_raw_iterator<'txn>(
-        &'txn self,
-        database: StoreDatabase,
-    ) -> StoreResult<DBRawIteratorWithThreadMode<'txn, RocksDb>> {
-        let handle = self.view.inner().cf_handle(database)?;
-        let read_options = self.snapshot_read_options();
-        let base = self
-            .view
-            .snapshot()
-            .raw_iterator_cf_opt(&handle, read_options);
-        Ok(self.batch.iterator_with_base_cf(base, &handle))
+    fn map_txn_error(err: rocksdb::Error) -> StoreError {
+        match err.kind() {
+            rocksdb::ErrorKind::Busy | rocksdb::ErrorKind::TryAgain => {
+                StoreError::new(StoreErrorKind::Conflict, err.into_string())
+            }
+            _ => store_error_from_rocksdb(err),
+        }
     }
 }
 
@@ -261,11 +262,10 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn {
         'env: 'txn;
 
     fn get(&self, database: StoreDatabase, key: &[u8]) -> StoreResult<StoreValue> {
-        let handle = self.view.inner().cf_handle(database)?;
-        let read_options = self.snapshot_read_options();
+        let handle = self.inner.cf_handle(database)?;
         match self
-            .batch
-            .get_from_batch_and_db_cf(&self.view.inner().db, &handle, key, &read_options)
+            .txn
+            .get_cf(&handle, key)
             .map_err(store_error_from_rocksdb)?
         {
             Some(value) => Ok(StoreValue::from(value)),
@@ -286,19 +286,16 @@ impl<'env> StoreReadTxn<'env> for RocksdbWriteTxn {
     where
         'env: 'txn,
     {
-        let iter = self.batch_raw_iterator(database)?;
-        Ok(RocksdbCursor::from_overlay_iter(iter))
+        let handle = self.inner.cf_handle(database)?;
+        let iter = self.txn.raw_iterator_cf(&handle);
+        Ok(RocksdbCursor::from_txn_iter(iter))
     }
 
     fn commit(self) -> StoreResult<()>
     where
         Self: Sized,
     {
-        self.view
-            .inner()
-            .db
-            .write_wbwi(&self.batch)
-            .map_err(store_error_from_rocksdb)
+        self.txn.commit().map_err(Self::map_txn_error)
     }
 }
 
@@ -316,9 +313,10 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn {
         value: &[u8],
         _flags: StoreWriteFlags,
     ) -> StoreResult<()> {
-        let handle = self.view.inner().cf_handle(database)?;
-        self.batch.put_cf(&handle, key, value);
-        Ok(())
+        let handle = self.inner.cf_handle(database)?;
+        self.txn
+            .put_cf(&handle, key, value)
+            .map_err(store_error_from_rocksdb)
     }
 
     fn delete(
@@ -327,9 +325,10 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn {
         key: &[u8],
         _value: Option<&[u8]>,
     ) -> StoreResult<()> {
-        let handle = self.view.inner().cf_handle(database)?;
-        self.batch.delete_cf(&handle, key);
-        Ok(())
+        let handle = self.inner.cf_handle(database)?;
+        self.txn
+            .delete_cf(&handle, key)
+            .map_err(store_error_from_rocksdb)
     }
 
     fn clear_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
@@ -341,9 +340,11 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn {
             }
             removed
         };
-        let handle = self.view.inner().cf_handle(database)?;
+        let handle = self.inner.cf_handle(database)?;
         for key in keys {
-            self.batch.delete_cf(&handle, &key);
+            self.txn
+                .delete_cf(&handle, &key)
+                .map_err(store_error_from_rocksdb)?;
         }
         Ok(())
     }
@@ -355,55 +356,91 @@ impl<'env> StoreWriteTxn<'env> for RocksdbWriteTxn {
     where
         'env: 'txn,
     {
-        let iter = self.batch_raw_iterator(database)?;
-        Ok(RocksdbCursor::from_overlay_iter(iter))
+        let handle = self.inner.cf_handle(database)?;
+        let iter = self.txn.raw_iterator_cf(&handle);
+        Ok(RocksdbCursor::from_txn_iter(iter))
     }
 
     unsafe fn drop_db(&mut self, database: StoreDatabase) -> StoreResult<()> {
-        self.view.inner().delete_cf(database)
+        self.inner.delete_cf(database)
     }
 }
 
+enum RocksdbCursorIter<'txn> {
+    Db(DBRawIteratorWithThreadMode<'txn, RocksDb>),
+    Txn(DBRawIteratorWithThreadMode<'txn, Transaction<'static, RocksDb>>),
+}
+
 pub struct RocksdbCursor<'txn> {
-    iter: DBRawIteratorWithThreadMode<'txn, RocksDb>,
+    iter: RocksdbCursorIter<'txn>,
     started: bool,
 }
 
 impl<'txn> RocksdbCursor<'txn> {
     fn from_snapshot_iter(iter: DBRawIteratorWithThreadMode<'txn, RocksDb>) -> Self {
         Self {
-            iter,
+            iter: RocksdbCursorIter::Db(iter),
             started: false,
         }
     }
 
-    fn from_overlay_iter(iter: DBRawIteratorWithThreadMode<'txn, RocksDb>) -> Self {
+    fn from_txn_iter(
+        iter: DBRawIteratorWithThreadMode<'txn, Transaction<'static, RocksDb>>,
+    ) -> Self {
         Self {
-            iter,
+            iter: RocksdbCursorIter::Txn(iter),
             started: false,
         }
     }
 
     fn advance(&mut self) {
-        if !self.started {
-            self.iter.seek_to_first();
-            self.started = true;
-        } else {
-            self.iter.next();
+        match &mut self.iter {
+            RocksdbCursorIter::Db(iter) => {
+                if !self.started {
+                    iter.seek_to_first();
+                    self.started = true;
+                } else {
+                    iter.next();
+                }
+            }
+            RocksdbCursorIter::Txn(iter) => {
+                if !self.started {
+                    iter.seek_to_first();
+                    self.started = true;
+                } else {
+                    iter.next();
+                }
+            }
         }
     }
 
     fn current_entry(&self) -> StoreResult<Option<(StoreValue, StoreValue)>> {
-        if !self.iter.valid() {
-            self.iter.status().map_err(store_error_from_rocksdb)?;
-            return Ok(None);
+        match &self.iter {
+            RocksdbCursorIter::Db(iter) => {
+                if !iter.valid() {
+                    iter.status().map_err(store_error_from_rocksdb)?;
+                    return Ok(None);
+                }
+                let key = iter.key().expect("iterator valid without key");
+                let value = iter.value().expect("iterator valid without value");
+                Ok(Some((
+                    StoreValue::from_slice(key),
+                    StoreValue::from_slice(value),
+                )))
+            }
+            RocksdbCursorIter::Txn(iter) => {
+                if !iter.valid() {
+                    iter.status().map_err(store_error_from_rocksdb)?;
+                    return Ok(None);
+                }
+                let key = iter.key().expect("iterator valid without key");
+                let value = iter.value().expect("iterator valid without value");
+                Ok(Some((
+                    StoreValue::from_slice(key),
+                    StoreValue::from_slice(value),
+                )))
+            }
         }
-        let key = self.iter.key().expect("iterator valid without key");
-        let value = self.iter.value().expect("iterator valid without value");
-        Ok(Some((
-            StoreValue::from_slice(key),
-            StoreValue::from_slice(value),
-        )))
     }
 }
 
@@ -414,18 +451,36 @@ impl<'txn> StoreCursor<'txn> for RocksdbCursor<'txn> {
     }
 
     fn seek_lower_bound(&mut self, key: &[u8]) -> StoreResult<Option<(StoreValue, StoreValue)>> {
-        self.iter.seek(key);
+        match &mut self.iter {
+            RocksdbCursorIter::Db(iter) => iter.seek(key),
+            RocksdbCursorIter::Txn(iter) => iter.seek(key),
+        }
         self.started = true;
         self.current_entry()
     }
 
     fn seek_upper_bound(&mut self, key: &[u8]) -> StoreResult<Option<(StoreValue, StoreValue)>> {
-        self.iter.seek(key);
-        self.started = true;
-        if self.iter.valid() {
-            if let Some(current_key) = self.iter.key() {
-                if current_key == key {
-                    self.iter.next();
+        match &mut self.iter {
+            RocksdbCursorIter::Db(iter) => {
+                iter.seek(key);
+                self.started = true;
+                if iter.valid() {
+                    if let Some(current_key) = iter.key() {
+                        if current_key == key {
+                            iter.next();
+                        }
+                    }
+                }
+            }
+            RocksdbCursorIter::Txn(iter) => {
+                iter.seek(key);
+                self.started = true;
+                if iter.valid() {
+                    if let Some(current_key) = iter.key() {
+                        if current_key == key {
+                            iter.next();
+                        }
+                    }
                 }
             }
         }

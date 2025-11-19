@@ -8,8 +8,8 @@ use std::{
 use anyhow::Result;
 use parking_lot::RwLock;
 use rocksdb::{
-    BoundColumnFamily, ColumnFamilyDescriptor, DBWithThreadMode, Error as RocksError, IteratorMode,
-    MultiThreaded, Options, SnapshotWithThreadMode,
+    BoundColumnFamily, ColumnFamilyDescriptor, Error as RocksError, IteratorMode, MultiThreaded,
+    OptimisticTransactionDB, Options, SnapshotWithThreadMode,
 };
 use store_traits::config::RocksDbConfig;
 use store_traits::environment::{
@@ -116,7 +116,7 @@ pub(crate) struct RocksDbInner {
     config: Option<RocksDbConfig>,
 }
 
-pub(crate) type RocksDb = DBWithThreadMode<MultiThreaded>;
+pub(crate) type RocksDb = OptimisticTransactionDB<MultiThreaded>;
 pub(crate) type RocksDbSnapshot<'a> = SnapshotWithThreadMode<'a, RocksDb>;
 
 pub(crate) const BLOCK_INDEX_CF_NAME: &str = "rocksdb_block_index";
@@ -309,6 +309,7 @@ pub(crate) fn store_error_from_rocksdb(err: RocksError) -> StoreError {
         rocksdb::ErrorKind::NotFound => StoreErrorKind::NotFound,
         rocksdb::ErrorKind::InvalidArgument => StoreErrorKind::InvalidArgument,
         rocksdb::ErrorKind::Corruption => StoreErrorKind::Corruption,
+        rocksdb::ErrorKind::Busy | rocksdb::ErrorKind::TryAgain => StoreErrorKind::Conflict,
         _ => StoreErrorKind::Backend,
     };
     StoreError::new(kind, err.to_string())

@@ -200,6 +200,7 @@ pub enum StoreErrorKind {
     InvalidArgument,
     Corruption,
     PageNotFound,
+    Conflict,
     Backend,
 }
 

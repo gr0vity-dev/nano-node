@@ -141,9 +141,9 @@ impl<'a> BlockInserter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{sync::Arc, thread};
     use crate::NullLedgerBuilder;
     use rsnano_types::{BlockHash, Epoch, PublicKey, TestBlockBuilder, UnixTimestamp};
+    use std::{sync::Arc, thread};
     use store_rocksdb::default_ledger_store_factory;
     use store_traits::ledger::LedgerStoreFactory;
 
@@ -430,7 +430,13 @@ mod tests {
                 let mut block_clone = (*block).clone();
                 let instructions_clone = (*instructions).clone();
                 let mut txn = ledger.store_ref().begin_write();
-                let _ = BlockInserter::new(&ledger, txn.as_mut(), &mut block_clone, &instructions_clone).insert();
+                let _ = BlockInserter::new(
+                    &ledger,
+                    txn.as_mut(),
+                    &mut block_clone,
+                    &instructions_clone,
+                )
+                .insert();
                 txn.commit().unwrap();
             }));
         }
