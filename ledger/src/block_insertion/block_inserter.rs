@@ -4,7 +4,7 @@ use rsnano_types::{
     Account, AccountInfo, Amount, Block, BlockSideband, PendingInfo, PendingKey, SavedBlock,
 };
 
-use crate::Ledger;
+use crate::{DeferredLedgerOperations, Ledger};
 use store_traits::LedgerWriteTxn;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -41,7 +41,10 @@ impl<'a> BlockInserter<'a> {
         }
     }
 
-    pub fn insert(&mut self) -> (Option<SavedBlock>, bool, bool) {
+    pub fn insert(
+        &mut self,
+        deferred: &mut DeferredLedgerOperations,
+    ) -> (Option<SavedBlock>, bool, bool) {
         if self.account_changed_since_validation() {
             if let Some(existing_block) = self
                 .ledger
@@ -73,7 +76,7 @@ impl<'a> BlockInserter<'a> {
         self.update_account();
         self.delete_old_pending_info();
         self.insert_new_pending_info();
-        self.update_representative_cache();
+        self.update_representative_cache(deferred);
         if !already_exists {
             let store = Arc::clone(&self.ledger.store);
             let events = self.ledger.block_count_events_arc();
@@ -126,11 +129,10 @@ impl<'a> BlockInserter<'a> {
         }
     }
 
-    fn update_representative_cache(&mut self) {
+    fn update_representative_cache(&mut self, deferred: &mut DeferredLedgerOperations) {
         if !self.instructions.old_account_info.head.is_zero() {
             // Move existing representation & add in amount delta
-            self.ledger.rep_weights_updater.representation_add_dual(
-                self.txn,
+            deferred.add_rep_weight_dual(
                 self.instructions.old_account_info.representative,
                 Amount::ZERO.wrapping_sub(self.instructions.old_account_info.balance),
                 self.instructions.set_account_info.representative,
@@ -138,8 +140,7 @@ impl<'a> BlockInserter<'a> {
             );
         } else {
             // Add in amount delta only
-            self.ledger.rep_weights_updater.representation_add(
-                self.txn,
+            deferred.add_rep_weight(
                 self.instructions.set_account_info.representative,
                 self.instructions.set_account_info.balance,
             );
@@ -150,7 +151,7 @@ impl<'a> BlockInserter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Ledger, NullLedgerBuilder};
+    use crate::{CommitDisposition, DeferredLedgerOperations, Ledger, NullLedgerBuilder};
     mod insertion_test_helpers {
         use crate as ledger_crate;
         include!(concat!(
@@ -312,27 +313,36 @@ mod tests {
 
         // First insertion succeeds and commits
         let mut first_txn = ledger.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
+        let mut first_deferred = DeferredLedgerOperations::new();
         let (saved, inserted, _) =
-            BlockInserter::new(&ledger, first_txn.as_mut(), &mut block, &instructions).insert();
+            BlockInserter::new(&ledger, first_txn.as_mut(), &mut block, &instructions)
+                .insert(&mut first_deferred);
         assert!(inserted);
-        commit_block_txn(&ledger, first_txn, inserted, saved.as_ref());
+        let disposition = commit_block_txn(&ledger, first_txn, inserted, saved.as_ref());
+        if inserted && matches!(disposition, CommitDisposition::Success) {
+            first_deferred.execute(&ledger);
+        }
 
         // Second insertion sees updated account info and should surface the preexisting block
         let mut block_again = block.clone();
         let mut second_txn =
             ledger.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
+        let mut second_deferred = DeferredLedgerOperations::new();
         let (saved_again, inserted_again, preexisting_again) = BlockInserter::new(
             &ledger,
             second_txn.as_mut(),
             &mut block_again,
             &instructions,
         )
-        .insert();
+        .insert(&mut second_deferred);
 
         assert!(!inserted_again);
         assert!(preexisting_again);
         assert!(saved_again.is_some());
-        commit_block_txn(&ledger, second_txn, inserted_again, saved_again.as_ref());
+        let disposition = commit_block_txn(&ledger, second_txn, inserted_again, saved_again.as_ref());
+        if inserted_again && matches!(disposition, CommitDisposition::Success) {
+            second_deferred.execute(&ledger);
+        }
 
         assert_eq!(ledger.store.cache().block_count.load(Ordering::SeqCst), 2);
     }
@@ -348,12 +358,16 @@ mod tests {
         let saved_pending = ledger.store.pending().track_puts();
         let saved_successors = ledger.store.successors().track_puts();
         let deleted_pending = ledger.store.pending().track_deletions();
+        let mut deferred = DeferredLedgerOperations::new();
 
         let mut block_inserter = BlockInserter::new(&ledger, txn.as_mut(), block, &instructions);
-        let (saved_block, inserted, _) = block_inserter.insert();
+        let (saved_block, inserted, _) = block_inserter.insert(&mut deferred);
         assert!(inserted, "expected block to be inserted");
         saved_block.as_ref().expect("block should be saved");
-        commit_block_txn(ledger, txn, inserted, saved_block.as_ref());
+        let disposition = commit_block_txn(ledger, txn, inserted, saved_block.as_ref());
+        if inserted && matches!(disposition, CommitDisposition::Success) {
+            deferred.execute(ledger);
+        }
 
         InsertResult {
             saved_blocks: saved_blocks.output(),
@@ -382,12 +396,17 @@ mod tests {
 
         {
             let mut txn = ledger.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
+            let mut deferred = DeferredLedgerOperations::new();
             let (saved_block, inserted, preexisting) =
-                BlockInserter::new(&ledger, txn.as_mut(), &mut block, &instructions).insert();
+                BlockInserter::new(&ledger, txn.as_mut(), &mut block, &instructions)
+                    .insert(&mut deferred);
             assert!(inserted);
             assert!(!preexisting);
             assert!(saved_block.is_some());
-            commit_block_txn(&ledger, txn, inserted, saved_block.as_ref());
+            let disposition = commit_block_txn(&ledger, txn, inserted, saved_block.as_ref());
+            if inserted && matches!(disposition, CommitDisposition::Success) {
+                deferred.execute(&ledger);
+            }
         }
 
         assert_eq!(ledger.block_cache_inserts(), start_inserts + 1);
@@ -413,12 +432,16 @@ mod tests {
 
         {
             let mut txn = ledger.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
+            let mut deferred = DeferredLedgerOperations::new();
             let (_saved_block, inserted, preexisting) =
                 BlockInserter::new(&ledger, txn.as_mut(), &mut block, &duplicate_instructions)
-                    .insert();
+                    .insert(&mut deferred);
             assert!(!inserted, "duplicate insert should not report insertion");
             assert!(preexisting);
-            commit_block_txn(&ledger, txn, inserted, None);
+            let disposition = commit_block_txn(&ledger, txn, inserted, None);
+            if inserted && matches!(disposition, CommitDisposition::Success) {
+                deferred.execute(&ledger);
+            }
         }
 
         assert_eq!(ledger.block_cache_inserts(), start_inserts + 1);
@@ -434,21 +457,33 @@ mod tests {
 
         {
             let mut txn = ledger.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
+            let mut deferred = DeferredLedgerOperations::new();
 
             let (saved_block, inserted, preexisting) =
-                BlockInserter::new(&ledger, txn.as_mut(), &mut block, &instructions).insert();
+                BlockInserter::new(&ledger, txn.as_mut(), &mut block, &instructions)
+                    .insert(&mut deferred);
             assert!(inserted);
             assert!(!preexisting);
             assert!(saved_block.is_some());
 
             let mut txn2 = ledger.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
+            let mut deferred2 = DeferredLedgerOperations::new();
             let (duplicate_block, inserted_again, preexisting_again) =
-                BlockInserter::new(&ledger, txn2.as_mut(), &mut block, &instructions).insert();
+                BlockInserter::new(&ledger, txn2.as_mut(), &mut block, &instructions)
+                    .insert(&mut deferred2);
             assert!(inserted_again);
             assert!(!preexisting_again);
 
-            commit_block_txn(&ledger, txn, inserted, saved_block.as_ref());
-            commit_block_txn(&ledger, txn2, inserted_again, duplicate_block.as_ref());
+            let disposition = commit_block_txn(&ledger, txn, inserted, saved_block.as_ref());
+            let disposition2 =
+                commit_block_txn(&ledger, txn2, inserted_again, duplicate_block.as_ref());
+
+            if inserted && matches!(disposition, CommitDisposition::Success) {
+                deferred.execute(&ledger);
+            }
+            if inserted_again && matches!(disposition2, CommitDisposition::Success) {
+                deferred2.execute(&ledger);
+            }
         }
 
         assert_eq!(
@@ -475,14 +510,18 @@ mod tests {
                 let instructions_clone = (*instructions).clone();
                 let mut txn =
                     ledger.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
+                let mut deferred = DeferredLedgerOperations::new();
                 let (saved_block, inserted, _) = BlockInserter::new(
                     &ledger,
                     txn.as_mut(),
                     &mut block_clone,
                     &instructions_clone,
                 )
-                .insert();
-                commit_block_txn(&ledger, txn, inserted, saved_block.as_ref());
+                .insert(&mut deferred);
+                let disposition = commit_block_txn(&ledger, txn, inserted, saved_block.as_ref());
+                if matches!(disposition, CommitDisposition::Success) && inserted {
+                    deferred.execute(&ledger);
+                }
             }));
         }
 

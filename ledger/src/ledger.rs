@@ -27,6 +27,7 @@ use crate::{
     OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater, RollbackError,
     block_cementer::BlockCementer,
     block_insertion::{BlockInsertInstructions, BlockInserter, BlockValidatorFactory},
+    deferred_operations::DeferredLedgerOperations,
     iterator_metrics::{IteratorMetricsConfig, LedgerIteratorMetrics},
     vote_verifier::VoteVerifier,
 };
@@ -534,13 +535,17 @@ impl Ledger {
         mut f: F,
     ) -> Result<T, StoreError>
     where
-        F: FnMut(&mut dyn LedgerWriteTxn) -> Result<(T, Vec<BlockHash>), StoreError>,
+        F: FnMut(
+            &mut dyn LedgerWriteTxn,
+            &mut DeferredLedgerOperations,
+        ) -> Result<(T, Vec<BlockHash>), StoreError>,
     {
         let mut retries = 0;
         let mut strategy = WriteStrategy::Optimistic;
         loop {
+            let mut deferred = DeferredLedgerOperations::new();
             let mut txn = self.begin_write_with(writer, strategy);
-            let (result, inserted_hashes) = f(txn.as_mut())?;
+            let (result, inserted_hashes) = f(txn.as_mut(), &mut deferred)?;
             match self.commit_block_transaction(txn, &inserted_hashes) {
                 Ok(CommitDisposition::Success) => {
                     if matches!(strategy, WriteStrategy::Optimistic) {
@@ -548,6 +553,7 @@ impl Ledger {
                     } else {
                         self.pessimistic_fallbacks.fetch_add(1, Ordering::SeqCst);
                     }
+                    deferred.execute(self);
                     return Ok(result);
                 }
                 Ok(CommitDisposition::Duplicate) => {
@@ -937,7 +943,7 @@ impl Ledger {
             .tx_optimistic_process(
                 WriterType::BlockProcessor,
                 DEFAULT_OPTIMISTIC_RETRIES,
-                |txn| {
+                |txn, deferred| {
                     let mut processed = Vec::with_capacity(validation_results.len());
                     let mut inserted_hashes = Vec::new();
                     for (result, block) in validation_results.iter() {
@@ -951,7 +957,7 @@ impl Ledger {
                                     &mut block_clone,
                                     &instructions_clone,
                                 )
-                                .insert();
+                                .insert(deferred);
                                 if let Some(saved_block) = saved_block {
                                     if inserted {
                                         inserted_hashes.push(saved_block.hash());

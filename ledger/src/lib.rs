@@ -8,6 +8,7 @@ mod block_cementer;
 pub mod block_insertion;
 mod block_rollback;
 mod dependent_blocks_finder;
+mod deferred_operations;
 mod generate_cache_flags;
 mod iterator_metrics;
 mod ledger;
@@ -37,6 +38,7 @@ pub use ledger_constants::{
 };
 pub use ledger_inserter::*;
 pub use ledger_sets::*;
+pub use deferred_operations::*;
 pub use rep_weight_cache::*;
 pub use rep_weights_updater::*;
 pub(crate) use representative_block_finder::RepresentativeBlockFinder;

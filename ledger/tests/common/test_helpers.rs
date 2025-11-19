@@ -1,4 +1,4 @@
-use ledger_crate::{block_insertion::BlockInsertInstructions, Ledger};
+use ledger_crate::{block_insertion::BlockInsertInstructions, CommitDisposition, Ledger};
 use rsnano_types::{AccountInfo, Block, BlockSideband, SavedBlock, TestBlockBuilder};
 use store_traits::LedgerWriteTxn;
 
@@ -28,7 +28,7 @@ pub fn commit_block_txn(
     txn: Box<dyn LedgerWriteTxn>,
     inserted: bool,
     saved_block: Option<&SavedBlock>,
-) {
+) -> CommitDisposition {
     let mut hashes = Vec::new();
     if inserted {
         if let Some(block) = saved_block {
@@ -37,5 +37,5 @@ pub fn commit_block_txn(
     }
     ledger
         .commit_block_transaction(txn, &hashes)
-        .unwrap_or_else(|e| panic!("failed to commit block insertion: {e}"));
+        .unwrap_or_else(|e| panic!("failed to commit block insertion: {e}"))
 }

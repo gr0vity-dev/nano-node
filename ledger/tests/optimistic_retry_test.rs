@@ -1,4 +1,6 @@
-use rsnano_ledger::{Ledger, block_insertion::BlockInserter};
+use rsnano_ledger::{
+    CommitDisposition, DeferredLedgerOperations, Ledger, block_insertion::BlockInserter,
+};
 mod insertion_test_helpers {
     use rsnano_ledger as ledger_crate;
     include!(concat!(
@@ -14,7 +16,9 @@ use std::{
         mpsc,
     },
     thread,
+    time::Duration,
 };
+use store_traits::types::{StoreError, StoreErrorKind};
 use store_rocksdb::default_ledger_store_factory;
 use store_traits::ledger::{LedgerStoreFactory, WriteStrategy, WriterType};
 
@@ -31,32 +35,43 @@ fn optimistic_retry_recovers_after_conflict() {
     let mut thread_block = block.clone();
     let thread_instructions = instructions.clone();
     let handle = thread::spawn(move || {
-        signal_rx.recv().unwrap();
+        signal_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("worker did not receive start signal in time");
         let mut txn = ledger_clone.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
+        let mut deferred = DeferredLedgerOperations::new();
         let (saved, inserted, _) = BlockInserter::new(
             &ledger_clone,
             txn.as_mut(),
             &mut thread_block,
             &thread_instructions,
         )
-        .insert();
+        .insert(&mut deferred);
         assert!(inserted);
-        commit_block_txn(&ledger_clone, txn, inserted, saved.as_ref());
+        let disposition = commit_block_txn(&ledger_clone, txn, inserted, saved.as_ref());
         done_tx.send(()).unwrap();
+        if inserted && matches!(disposition, CommitDisposition::Success) {
+            deferred.execute(&ledger_clone);
+        }
     });
 
     let attempts = Arc::new(AtomicUsize::new(0));
     let attempts_clone = Arc::clone(&attempts);
     ledger
-        .tx_optimistic_process(WriterType::Testing, 1, |txn| {
+        .tx_optimistic_process(WriterType::Testing, 1, |txn, deferred| {
             attempts_clone.fetch_add(1, Ordering::SeqCst);
             let mut block_local = block.clone();
             let instructions_local = instructions.clone();
             let (saved, inserted, _) =
-                BlockInserter::new(&ledger, txn, &mut block_local, &instructions_local).insert();
+                BlockInserter::new(&ledger, txn, &mut block_local, &instructions_local)
+                    .insert(deferred);
             if first_attempt_clone.swap(false, Ordering::SeqCst) {
-                signal_tx.send(()).unwrap();
-                done_rx.recv().unwrap();
+                signal_tx
+                    .send(())
+                    .expect("failed to signal worker to proceed");
+                done_rx
+                    .recv_timeout(Duration::from_secs(2))
+                    .expect("worker did not finish in time");
             }
             let hashes = saved
                 .iter()
@@ -67,7 +82,7 @@ fn optimistic_retry_recovers_after_conflict() {
         })
         .expect("optimistic retry should succeed");
 
-    handle.join().unwrap();
+    handle.join().expect("worker thread panicked");
 
     assert_eq!(attempts.load(Ordering::SeqCst), 2);
     assert_eq!(ledger.optimistic_conflicts(), 1);
@@ -88,29 +103,40 @@ fn pessimistic_fallback_after_conflict() {
     let mut thread_block = block.clone();
     let thread_instructions = instructions.clone();
     let handle = thread::spawn(move || {
-        signal_rx.recv().unwrap();
+        signal_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("worker did not receive start signal in time");
         let mut txn = ledger_clone.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
+        let mut deferred = DeferredLedgerOperations::new();
         let (saved, inserted, _) = BlockInserter::new(
             &ledger_clone,
             txn.as_mut(),
             &mut thread_block,
             &thread_instructions,
         )
-        .insert();
+        .insert(&mut deferred);
         assert!(inserted);
-        commit_block_txn(&ledger_clone, txn, inserted, saved.as_ref());
+        let disposition = commit_block_txn(&ledger_clone, txn, inserted, saved.as_ref());
         done_tx.send(()).unwrap();
+        if inserted && matches!(disposition, CommitDisposition::Success) {
+            deferred.execute(&ledger_clone);
+        }
     });
 
     ledger
-        .tx_optimistic_process(WriterType::Testing, 0, |txn| {
+        .tx_optimistic_process(WriterType::Testing, 0, |txn, deferred| {
             let mut block_local = block.clone();
             let instructions_local = instructions.clone();
             let (saved, inserted, _) =
-                BlockInserter::new(&ledger, txn, &mut block_local, &instructions_local).insert();
+                BlockInserter::new(&ledger, txn, &mut block_local, &instructions_local)
+                    .insert(deferred);
             if first_attempt_clone.swap(false, Ordering::SeqCst) {
-                signal_tx.send(()).unwrap();
-                done_rx.recv().unwrap();
+                signal_tx
+                    .send(())
+                    .expect("failed to signal worker to proceed");
+                done_rx
+                    .recv_timeout(Duration::from_secs(2))
+                    .expect("worker did not finish in time");
             }
             let hashes = saved
                 .iter()
@@ -119,9 +145,13 @@ fn pessimistic_fallback_after_conflict() {
                 .collect();
             Ok(((), hashes))
         })
+        .map_err(|e| match e.kind() {
+            StoreErrorKind::Conflict => StoreError::new(StoreErrorKind::Conflict, "conflict"),
+            other => StoreError::new(other, "tx_optimistic_process failed"),
+        })
         .expect("fallback should succeed");
 
-    handle.join().unwrap();
+    handle.join().expect("worker thread panicked");
 
     assert_eq!(ledger.optimistic_conflicts(), 1);
     assert_eq!(ledger.optimistic_successes(), 0);
