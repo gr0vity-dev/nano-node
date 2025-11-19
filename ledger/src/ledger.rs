@@ -125,7 +125,9 @@ pub struct Ledger {
 struct BlockCountEvents {
     inserts: AtomicU64,
     rollbacks: AtomicU64,
+    duplicate_inserts: AtomicU64,
     insert_sources: Vec<AtomicU64>,
+    duplicate_sources: Vec<AtomicU64>,
 }
 
 const MAX_INSERT_SOURCES: usize = 32;
@@ -133,13 +135,17 @@ const MAX_INSERT_SOURCES: usize = 32;
 impl Default for BlockCountEvents {
     fn default() -> Self {
         let mut insert_sources = Vec::with_capacity(MAX_INSERT_SOURCES);
+        let mut duplicate_sources = Vec::with_capacity(MAX_INSERT_SOURCES);
         for _ in 0..MAX_INSERT_SOURCES {
             insert_sources.push(AtomicU64::new(0));
+            duplicate_sources.push(AtomicU64::new(0));
         }
         Self {
             inserts: AtomicU64::new(0),
             rollbacks: AtomicU64::new(0),
+            duplicate_inserts: AtomicU64::new(0),
             insert_sources,
+            duplicate_sources,
         }
     }
 }
@@ -158,6 +164,15 @@ impl BlockCountEvents {
         self.rollbacks.fetch_add(1, Ordering::SeqCst);
     }
 
+    fn record_duplicate_insert(&self) {
+        self.duplicate_inserts.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn record_duplicate_source(&self, source: u8) {
+        let index = (source as usize).min(self.duplicate_sources.len() - 1);
+        self.duplicate_sources[index].fetch_add(1, Ordering::SeqCst);
+    }
+
     fn inserts(&self) -> u64 {
         self.inserts.load(Ordering::SeqCst)
     }
@@ -168,6 +183,17 @@ impl BlockCountEvents {
 
     fn insert_sources(&self) -> Vec<u64> {
         self.insert_sources
+            .iter()
+            .map(|counter| counter.load(Ordering::SeqCst))
+            .collect()
+    }
+
+    fn duplicate_inserts(&self) -> u64 {
+        self.duplicate_inserts.load(Ordering::SeqCst)
+    }
+
+    fn duplicate_sources(&self) -> Vec<u64> {
+        self.duplicate_sources
             .iter()
             .map(|counter| counter.load(Ordering::SeqCst))
             .collect()
@@ -705,7 +731,8 @@ impl Ledger {
     pub fn process_one(&self, block: &Block) -> Result<SavedBlock, BlockError> {
         let mut result = self.process_batch(std::iter::once(block));
         let mut drain = result.processed.drain(..);
-        match drain.next().unwrap() {
+        let entry = drain.next().unwrap();
+        match (entry.status, entry.saved_block) {
             (Ok(_), Some(block)) => Ok(block),
             (Ok(_), None) => unreachable!(),
             (Err(e), _) => Err(e),
@@ -743,17 +770,29 @@ impl Ledger {
             for (result, block) in validation_results {
                 match result {
                     Ok(instructions) => {
-                        if let Some(saved_block) =
-                            BlockInserter::new(self, txn.as_mut(), block, &instructions).insert()
-                        {
-                            processed.push((Ok(()), Some(saved_block.clone())));
+                        let (saved_block, inserted) =
+                            BlockInserter::new(self, txn.as_mut(), block, &instructions).insert();
+                        if saved_block.is_some() {
+                            processed.push(BatchProcessEntry {
+                                status: Ok(()),
+                                saved_block: saved_block.clone(),
+                                inserted,
+                            });
                         } else {
                             let err = BlockError::Conflict;
-                            processed.push((Err(err), None));
+                            processed.push(BatchProcessEntry {
+                                status: Err(err),
+                                saved_block: None,
+                                inserted: false,
+                            });
                         }
                     }
                     Err(err) => {
-                        processed.push((Err(err), None));
+                        processed.push(BatchProcessEntry {
+                            status: Err(err),
+                            saved_block: None,
+                            inserted: false,
+                        });
                     }
                 }
             }
@@ -1013,6 +1052,14 @@ impl Ledger {
         self.block_count_events.insert_sources()
     }
 
+    pub fn block_cache_duplicate_inserts(&self) -> u64 {
+        self.block_count_events.duplicate_inserts()
+    }
+
+    pub fn block_cache_duplicate_sources(&self) -> Vec<u64> {
+        self.block_count_events.duplicate_sources()
+    }
+
     pub fn simulate_block_count(&self, value: u64) {
         self.store
             .cache()
@@ -1041,6 +1088,14 @@ impl Ledger {
 
     pub(crate) fn record_block_rollback_event(&self) {
         self.block_count_events.record_rollback();
+    }
+
+    pub(crate) fn record_duplicate_insert_event(&self) {
+        self.block_count_events.record_duplicate_insert();
+    }
+
+    pub fn record_duplicate_insert_source(&self, source: u8) {
+        self.block_count_events.record_duplicate_source(source);
     }
 
     pub fn account_count(&self) -> u64 {
@@ -1153,7 +1208,13 @@ impl ContainerInfoProvider for Ledger {
 }
 
 pub struct BatchProcessResult {
-    pub processed: Vec<(Result<(), BlockError>, Option<SavedBlock>)>,
+    pub processed: Vec<BatchProcessEntry>,
+}
+
+pub struct BatchProcessEntry {
+    pub status: Result<(), BlockError>,
+    pub saved_block: Option<SavedBlock>,
+    pub inserted: bool,
 }
 
 pub trait CementingObserver {

@@ -53,11 +53,11 @@ impl BlockBatchProcessor {
             .processed
             .iter()
             .zip(&batch)
-            .map(|((result, block), ctx)| ProcessedResult {
+            .map(|(entry, ctx)| ProcessedResult {
                 block: ctx.block.clone(),
                 source: ctx.source,
-                status: *result,
-                saved_block: block.clone(),
+                status: entry.status,
+                saved_block: entry.saved_block.clone(),
             })
             .collect();
 
@@ -75,13 +75,12 @@ impl BlockBatchProcessor {
             .processed
             .drain(..)
             .zip(batch.drain(..))
-            .map(|((status, saved_block), block_ctx)| {
-                let inserted = saved_block.is_some();
-                if inserted {
-                    *block_ctx.saved_block.lock().unwrap() = saved_block;
+            .map(|(entry, block_ctx)| {
+                if entry.saved_block.is_some() {
+                    *block_ctx.saved_block.lock().unwrap() = entry.saved_block.clone();
                 }
 
-                (status, block_ctx, inserted)
+                (entry.status, block_ctx, entry.inserted)
             })
             .collect();
 
@@ -103,6 +102,9 @@ impl BlockBatchProcessor {
             if *inserted {
                 self.ledger
                     .record_block_insert_source(block_ctx.source.as_u8());
+            } else if status.is_ok() {
+                self.ledger
+                    .record_duplicate_insert_source(block_ctx.source.as_u8());
             }
 
             let hash = block_ctx.block.hash();

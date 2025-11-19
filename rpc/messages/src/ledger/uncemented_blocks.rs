@@ -15,9 +15,11 @@ pub struct UncementedBlocksResponse {
     pub confirmed_count: String,
     pub cache_inserts: String,
     pub cache_rollbacks: String,
+    pub duplicate_inserts: String,
     pub total_uncemented: String,
     pub accounts: Vec<UncementedAccountStatus>,
     pub insert_sources: Vec<UncementedInsertSource>,
+    pub duplicate_sources: Vec<UncementedInsertSource>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

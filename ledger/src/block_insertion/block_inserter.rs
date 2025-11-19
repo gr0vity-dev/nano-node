@@ -41,13 +41,18 @@ impl<'a> BlockInserter<'a> {
         }
     }
 
-    pub(crate) fn insert(&mut self) -> Option<SavedBlock> {
+    pub(crate) fn insert(&mut self) -> (Option<SavedBlock>, bool) {
         if self.account_changed_since_validation() {
-            return None;
+            return (None, false);
         }
 
         let sideband = self.instructions.set_sideband.clone();
         let saved_block = SavedBlock::new(self.block.clone(), sideband);
+        let already_exists = self
+            .ledger
+            .store
+            .block()
+            .exists(self.txn, &saved_block.hash());
         self.ledger.store.block().put(self.txn, &saved_block);
         if !saved_block.previous().is_zero() {
             self.ledger.store.successors().put(
@@ -60,14 +65,18 @@ impl<'a> BlockInserter<'a> {
         self.delete_old_pending_info();
         self.insert_new_pending_info();
         self.update_representative_cache();
-        self.ledger
-            .store
-            .cache()
-            .block_count
-            .fetch_add(1, Ordering::SeqCst);
-        self.ledger.record_block_insert_event();
+        if !already_exists {
+            self.ledger
+                .store
+                .cache()
+                .block_count
+                .fetch_add(1, Ordering::SeqCst);
+            self.ledger.record_block_insert_event();
+        } else {
+            self.ledger.record_duplicate_insert_event();
+        }
 
-        Some(saved_block)
+        (Some(saved_block), !already_exists)
     }
 
     fn account_changed_since_validation(&mut self) -> bool {
@@ -292,7 +301,9 @@ mod tests {
         let deleted_pending = ledger.store.pending().track_deletions();
 
         let mut block_inserter = BlockInserter::new(&ledger, txn.as_mut(), block, &instructions);
-        block_inserter.insert().unwrap();
+        let (saved_block, inserted) = block_inserter.insert();
+        assert!(inserted, "expected block to be inserted");
+        saved_block.expect("block should be saved");
         txn.commit()
             .unwrap_or_else(|e| panic!("failed to commit block insertion: {e}"));
 
@@ -311,6 +322,62 @@ mod tests {
         saved_pending: Vec<(PendingKey, PendingInfo)>,
         saved_successors: Vec<(BlockHash, BlockHash)>,
         deleted_pending: Vec<PendingKey>,
+    }
+
+    #[test]
+    fn duplicate_insert_does_not_increment_cache() {
+        let (mut block, instructions) = legacy_open_block_instructions();
+        let ledger = new_ledger();
+
+        let start_inserts = ledger.block_cache_inserts();
+        let start_duplicates = ledger.block_cache_duplicate_inserts();
+
+        {
+            let mut txn = ledger.store_ref().begin_write();
+            let (saved_block, inserted) =
+                BlockInserter::new(&ledger, txn.as_mut(), &mut block, &instructions).insert();
+            assert!(inserted);
+            assert!(saved_block.is_some());
+            txn.commit()
+                .unwrap_or_else(|e| panic!("failed to commit block insertion: {e}"));
+        }
+
+        assert_eq!(ledger.block_cache_inserts(), start_inserts + 1);
+        assert_eq!(ledger.block_cache_duplicate_inserts(), start_duplicates);
+
+        let read_txn = ledger.store.begin_read();
+        let current_info = ledger
+            .store
+            .account()
+            .get(read_txn.as_ref(), &instructions.account)
+            .unwrap();
+        drop(read_txn);
+
+        let duplicate_instructions = BlockInsertInstructions {
+            account: instructions.account,
+            old_account_info: current_info.clone(),
+            set_account_info: current_info,
+            delete_pending: None,
+            insert_pending: None,
+            set_sideband: instructions.set_sideband.clone(),
+            is_epoch_block: instructions.is_epoch_block,
+        };
+
+        {
+            let mut txn = ledger.store_ref().begin_write();
+            let (_saved_block, inserted) =
+                BlockInserter::new(&ledger, txn.as_mut(), &mut block, &duplicate_instructions)
+                    .insert();
+            assert!(!inserted, "duplicate insert should not report insertion");
+            txn.commit()
+                .unwrap_or_else(|e| panic!("failed to commit block insertion: {e}"));
+        }
+
+        assert_eq!(ledger.block_cache_inserts(), start_inserts + 1);
+        assert_eq!(
+            ledger.block_cache_duplicate_inserts(),
+            start_duplicates + 1
+        );
     }
 
     fn legacy_open_block_instructions() -> (Block, BlockInsertInstructions) {

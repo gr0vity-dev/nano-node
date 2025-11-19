@@ -34,6 +34,8 @@ fn build_uncemented_response(
     let cache_inserts = ledger.block_cache_inserts();
     let cache_rollbacks = ledger.block_cache_rollbacks();
     let insert_sources_snapshot = ledger.block_cache_insert_sources();
+    let duplicate_inserts = ledger.block_cache_duplicate_inserts();
+    let duplicate_sources_snapshot = ledger.block_cache_duplicate_sources();
 
     let mut accounts = Vec::new();
     let mut total_uncemented = 0u64;
@@ -74,9 +76,11 @@ fn build_uncemented_response(
         confirmed_count: confirmed_count.to_string(),
         cache_inserts: cache_inserts.to_string(),
         cache_rollbacks: cache_rollbacks.to_string(),
+        duplicate_inserts: duplicate_inserts.to_string(),
         total_uncemented: total_uncemented.to_string(),
         accounts,
         insert_sources: build_insert_sources(insert_sources_snapshot),
+        duplicate_sources: build_insert_sources(duplicate_sources_snapshot),
     }
 }
 

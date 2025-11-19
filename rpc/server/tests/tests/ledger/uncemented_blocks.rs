@@ -41,6 +41,7 @@ fn uncemented_blocks_reports_missing_entries() {
     assert_eq!(entry.missing_count, "1");
     assert_eq!(response.cache_inserts, expected_inserts);
     assert_eq!(response.cache_rollbacks, expected_rollbacks);
+    assert_eq!(response.duplicate_inserts, "0");
 
     assert_eq!(response.insert_sources.len(), BlockSource::COUNT);
     let total_from_sources: u64 = response
@@ -49,10 +50,23 @@ fn uncemented_blocks_reports_missing_entries() {
         .map(|entry| entry.inserts.parse::<u64>().unwrap())
         .sum();
     assert_eq!(total_from_sources.to_string(), response.cache_inserts);
+    assert_eq!(response.duplicate_sources.len(), BlockSource::COUNT);
+    let duplicate_from_sources: u64 = response
+        .duplicate_sources
+        .iter()
+        .map(|entry| entry.inserts.parse::<u64>().unwrap())
+        .sum();
+    assert_eq!(duplicate_from_sources, 0);
     for source in BlockSource::iter() {
         assert!(
             response
                 .insert_sources
+                .iter()
+                .any(|entry| entry.source == source.as_str())
+        );
+        assert!(
+            response
+                .duplicate_sources
                 .iter()
                 .any(|entry| entry.source == source.as_str())
         );
