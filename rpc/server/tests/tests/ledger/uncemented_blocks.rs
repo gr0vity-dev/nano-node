@@ -71,4 +71,5 @@ fn uncemented_blocks_reports_missing_entries() {
                 .any(|entry| entry.source == source.as_str())
         );
     }
+    assert!(!response.recent_inserts.is_empty());
 }

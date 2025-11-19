@@ -1,7 +1,8 @@
-use rsnano_ledger::{BlockStore, Ledger, LedgerReadTxn};
+use rsnano_ledger::{BlockInsertEventSnapshot, BlockStore, Ledger, LedgerReadTxn};
 use rsnano_node::block_processing::BlockSource;
 use rsnano_rpc_messages::{
-    UncementedAccountStatus, UncementedBlocksArgs, UncementedBlocksResponse, UncementedInsertSource,
+    RecentInsertEntry, UncementedAccountStatus, UncementedBlocksArgs, UncementedBlocksResponse,
+    UncementedInsertSource,
 };
 use rsnano_types::{AccountInfo, ConfirmationHeightInfo};
 use strum::IntoEnumIterator;
@@ -36,6 +37,7 @@ fn build_uncemented_response(
     let insert_sources_snapshot = ledger.block_cache_insert_sources();
     let duplicate_inserts = ledger.block_cache_duplicate_inserts();
     let duplicate_sources_snapshot = ledger.block_cache_duplicate_sources();
+    let recent_insert_events = ledger.recent_insert_events();
 
     let mut accounts = Vec::new();
     let mut total_uncemented = 0u64;
@@ -81,6 +83,7 @@ fn build_uncemented_response(
         accounts,
         insert_sources: build_insert_sources(insert_sources_snapshot),
         duplicate_sources: build_insert_sources(duplicate_sources_snapshot),
+        recent_inserts: build_recent_inserts(recent_insert_events),
     }
 }
 
@@ -92,6 +95,21 @@ fn build_insert_sources(snapshot: Vec<u64>) -> Vec<UncementedInsertSource> {
             UncementedInsertSource {
                 source: source.as_str().to_string(),
                 inserts: count.to_string(),
+            }
+        })
+        .collect()
+}
+
+fn build_recent_inserts(snapshot: Vec<BlockInsertEventSnapshot>) -> Vec<RecentInsertEntry> {
+    snapshot
+        .into_iter()
+        .map(|event| {
+            let source = BlockSource::from_u8(event.source);
+            RecentInsertEntry {
+                hash: event.hash.to_string(),
+                source: source.as_str().to_string(),
+                inserted: event.inserted,
+                preexisting: event.preexisting,
             }
         })
         .collect()

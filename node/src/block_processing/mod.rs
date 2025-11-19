@@ -86,4 +86,18 @@ impl BlockSource {
     pub fn as_str(&self) -> &'static str {
         self.into()
     }
+
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            x if x == BlockSource::Live as u8 => BlockSource::Live,
+            x if x == BlockSource::LiveOriginator as u8 => BlockSource::LiveOriginator,
+            x if x == BlockSource::Bootstrap as u8 => BlockSource::Bootstrap,
+            x if x == BlockSource::BootstrapLegacy as u8 => BlockSource::BootstrapLegacy,
+            x if x == BlockSource::Unchecked as u8 => BlockSource::Unchecked,
+            x if x == BlockSource::Local as u8 => BlockSource::Local,
+            x if x == BlockSource::Forced as u8 => BlockSource::Forced,
+            x if x == BlockSource::Election as u8 => BlockSource::Election,
+            _ => BlockSource::Unknown,
+        }
+    }
 }
