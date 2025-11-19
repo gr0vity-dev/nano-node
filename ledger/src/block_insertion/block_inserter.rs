@@ -7,7 +7,7 @@ use rsnano_types::{
 use crate::Ledger;
 use store_traits::LedgerWriteTxn;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) struct BlockInsertInstructions {
     pub account: Account,
     pub old_account_info: AccountInfo,
@@ -141,9 +141,9 @@ impl<'a> BlockInserter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{sync::Arc, thread};
     use crate::NullLedgerBuilder;
     use rsnano_types::{BlockHash, Epoch, PublicKey, TestBlockBuilder, UnixTimestamp};
-    use std::sync::Arc;
     use store_rocksdb::default_ledger_store_factory;
     use store_traits::ledger::LedgerStoreFactory;
 
@@ -377,6 +377,75 @@ mod tests {
 
         assert_eq!(ledger.block_cache_inserts(), start_inserts + 1);
         assert_eq!(ledger.block_cache_duplicate_inserts(), start_duplicates + 1);
+    }
+
+    #[test]
+    fn duplicate_insert_across_txns_increments_cache() {
+        let (mut block, instructions) = legacy_open_block_instructions();
+        let ledger = new_ledger();
+
+        let start_inserts = ledger.block_cache_inserts();
+
+        {
+            let mut txn = ledger.store_ref().begin_write();
+
+            let (saved_block, inserted, preexisting) =
+                BlockInserter::new(&ledger, txn.as_mut(), &mut block, &instructions).insert();
+            assert!(inserted);
+            assert!(!preexisting);
+            assert!(saved_block.is_some());
+
+            let mut txn2 = ledger.store_ref().begin_write();
+            let (_duplicate, inserted_again, preexisting_again) =
+                BlockInserter::new(&ledger, txn2.as_mut(), &mut block, &instructions).insert();
+            assert!(inserted_again);
+            assert!(!preexisting_again);
+
+            txn.commit()
+                .unwrap_or_else(|e| panic!("failed to commit block insertion: {e}"));
+            txn2.commit()
+                .unwrap_or_else(|e| panic!("failed to commit duplicate insertion: {e}"));
+        }
+
+        assert_eq!(
+            ledger.block_cache_inserts(),
+            start_inserts + 1,
+            "duplicate insert across txns increments cache twice"
+        );
+    }
+
+    #[test]
+    fn parallel_duplicate_inserts_diverge_cache() {
+        let (block, instructions) = legacy_open_block_instructions();
+        let ledger = Arc::new(new_ledger());
+        let block = Arc::new(block);
+        let instructions = Arc::new(instructions);
+
+        let mut handles = Vec::new();
+        for _ in 0..100 {
+            let ledger = Arc::clone(&ledger);
+            let block = Arc::clone(&block);
+            let instructions = Arc::clone(&instructions);
+            handles.push(std::thread::spawn(move || {
+                let mut block_clone = (*block).clone();
+                let instructions_clone = (*instructions).clone();
+                let mut txn = ledger.store_ref().begin_write();
+                let _ = BlockInserter::new(&ledger, txn.as_mut(), &mut block_clone, &instructions_clone).insert();
+                txn.commit().unwrap();
+            }));
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let tx = ledger.store.begin_read();
+        let store_count = ledger.store.block().iter(tx.as_ref()).count() as u64;
+        assert_eq!(
+            ledger.block_count(),
+            store_count,
+            "parallel duplicate inserts diverge cache from store"
+        );
     }
 
     fn legacy_open_block_instructions() -> (Block, BlockInsertInstructions) {
