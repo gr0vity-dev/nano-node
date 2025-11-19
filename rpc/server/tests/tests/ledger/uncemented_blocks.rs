@@ -7,12 +7,12 @@ fn uncemented_blocks_reports_missing_entries() {
     let node = system.make_node();
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let ledger = &node.ledger_services.ledger;
+    let ledger = node.ledger_query_services().ledger.clone();
     let genesis_account = node.network_params.ledger.genesis_account;
     let genesis_hash = node.network_params.ledger.genesis_block.hash();
 
     {
-        let mut txn = ledger.store_ref().begin_write();
+        let mut txn = ledger.store.begin_write();
         ledger.store.confirmation_height().put(
             txn.as_mut(),
             &genesis_account.into(),

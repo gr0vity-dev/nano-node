@@ -1,9 +1,8 @@
-use rsnano_ledger::Ledger;
+use rsnano_ledger::{BlockStore, Ledger, LedgerReadTxn};
 use rsnano_rpc_messages::{
     UncementedAccountStatus, UncementedBlocksArgs, UncementedBlocksResponse,
 };
 use rsnano_types::{AccountInfo, ConfirmationHeightInfo};
-use store_traits::{LedgerReadTxn, ledger::BlockStore};
 
 use crate::command_handler::RpcCommandHandler;
 
@@ -21,13 +20,13 @@ fn build_uncemented_response(
     let max_accounts = args.max_accounts.unwrap_or(16);
     let max_blocks_per_account = args.max_blocks_per_account.unwrap_or(32);
 
-    let store = ledger.store_ref();
+    let store = ledger.store.as_ref();
     let tx = store.begin_read();
     let account_store = store.account();
     let block_store = store.block();
     let conf_store = store.confirmation_height();
 
-    let store_count = block_store.count(tx.as_ref()).unwrap_or(0);
+    let store_count = block_store.iter(tx.as_ref()).count() as u64;
     let cache_count = ledger.block_count();
     let confirmed_count = ledger.confirmed_count();
 
@@ -74,8 +73,8 @@ fn build_uncemented_response(
 }
 
 fn collect_recent_hashes(
-    block_store: &dyn store_traits::ledger::BlockStore,
-    tx: &dyn store_traits::LedgerReadTxn,
+    block_store: &dyn BlockStore,
+    tx: &dyn LedgerReadTxn,
     info: &AccountInfo,
     confirmed_height: u64,
     max_hashes: usize,

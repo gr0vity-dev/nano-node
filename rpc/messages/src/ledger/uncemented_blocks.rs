@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UncementedBlocksArgs {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_accounts: Option<usize>,
@@ -8,7 +8,7 @@ pub struct UncementedBlocksArgs {
     pub max_blocks_per_account: Option<usize>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UncementedBlocksResponse {
     pub cache_count: String,
     pub store_count: String,
@@ -17,7 +17,7 @@ pub struct UncementedBlocksResponse {
     pub accounts: Vec<UncementedAccountStatus>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UncementedAccountStatus {
     pub account: String,
     pub head: String,
