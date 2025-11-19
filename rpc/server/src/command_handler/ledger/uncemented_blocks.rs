@@ -1,8 +1,10 @@
 use rsnano_ledger::{BlockStore, Ledger, LedgerReadTxn};
+use rsnano_node::block_processing::BlockSource;
 use rsnano_rpc_messages::{
-    UncementedAccountStatus, UncementedBlocksArgs, UncementedBlocksResponse,
+    UncementedAccountStatus, UncementedBlocksArgs, UncementedBlocksResponse, UncementedInsertSource,
 };
 use rsnano_types::{AccountInfo, ConfirmationHeightInfo};
+use strum::IntoEnumIterator;
 
 use crate::command_handler::RpcCommandHandler;
 
@@ -31,6 +33,7 @@ fn build_uncemented_response(
     let confirmed_count = ledger.confirmed_count();
     let cache_inserts = ledger.block_cache_inserts();
     let cache_rollbacks = ledger.block_cache_rollbacks();
+    let insert_sources_snapshot = ledger.block_cache_insert_sources();
 
     let mut accounts = Vec::new();
     let mut total_uncemented = 0u64;
@@ -73,7 +76,21 @@ fn build_uncemented_response(
         cache_rollbacks: cache_rollbacks.to_string(),
         total_uncemented: total_uncemented.to_string(),
         accounts,
+        insert_sources: build_insert_sources(insert_sources_snapshot),
     }
+}
+
+fn build_insert_sources(snapshot: Vec<u64>) -> Vec<UncementedInsertSource> {
+    BlockSource::iter()
+        .map(|source| {
+            let idx = source as usize;
+            let count = snapshot.get(idx).copied().unwrap_or_default();
+            UncementedInsertSource {
+                source: source.as_str().to_string(),
+                inserts: count.to_string(),
+            }
+        })
+        .collect()
 }
 
 fn collect_recent_hashes(

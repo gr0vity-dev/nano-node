@@ -17,6 +17,7 @@ pub struct UncementedBlocksResponse {
     pub cache_rollbacks: String,
     pub total_uncemented: String,
     pub accounts: Vec<UncementedAccountStatus>,
+    pub insert_sources: Vec<UncementedInsertSource>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -26,4 +27,10 @@ pub struct UncementedAccountStatus {
     pub confirmed_frontier: String,
     pub missing_count: String,
     pub sample_hashes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UncementedInsertSource {
+    pub source: String,
+    pub inserts: String,
 }

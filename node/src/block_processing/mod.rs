@@ -48,6 +48,7 @@ pub struct ProcessedResult {
 #[derive(
     Copy, Clone, PartialEq, Eq, Debug, PartialOrd, Ord, EnumIter, EnumCount, Hash, IntoStaticStr,
 )]
+#[repr(u8)]
 #[strum(serialize_all = "snake_case")]
 pub enum BlockSource {
     Unknown = 0,
@@ -74,5 +75,15 @@ impl From<BlockSource> for DetailType {
             BlockSource::Forced => DetailType::Forced,
             BlockSource::Election => DetailType::Election,
         }
+    }
+}
+
+impl BlockSource {
+    pub fn as_u8(self) -> u8 {
+        self as u8
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        self.into()
     }
 }

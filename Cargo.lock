@@ -4582,6 +4582,7 @@ dependencies = [
  "rsnano_wallet",
  "serde",
  "serde_json",
+ "strum 0.27.2",
  "test_helpers",
  "tokio",
  "toml 0.9.5",

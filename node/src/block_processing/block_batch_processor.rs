@@ -71,23 +71,24 @@ impl BlockBatchProcessor {
         }
 
         assert_eq!(result.processed.len(), batch.len());
-        let mut result: Vec<(Result<(), BlockError>, Arc<BlockContext>)> = result
+        let mut result: Vec<(Result<(), BlockError>, Arc<BlockContext>, bool)> = result
             .processed
             .drain(..)
             .zip(batch.drain(..))
             .map(|((status, saved_block), block_ctx)| {
-                if saved_block.is_some() {
+                let inserted = saved_block.is_some();
+                if inserted {
                     *block_ctx.saved_block.lock().unwrap() = saved_block;
                 }
 
-                (status, block_ctx)
+                (status, block_ctx, inserted)
             })
             .collect();
 
         // Iterate in reverse order so that when consecutive blocks where processed with
         // gap_previous, that the successful insert of the first block is processed last
         // and the unchecked_map trigger succeeds.
-        for (status, block_ctx) in result.iter().rev() {
+        for (status, block_ctx, inserted) in result.iter().rev() {
             match status {
                 Ok(()) => {
                     self.stats.progress.fetch_add(1, Relaxed);
@@ -98,6 +99,11 @@ impl BlockBatchProcessor {
             }
 
             self.stats.sources[block_ctx.source as usize].fetch_add(1, Relaxed);
+
+            if *inserted {
+                self.ledger
+                    .record_block_insert_source(block_ctx.source.as_u8());
+            }
 
             let hash = block_ctx.block.hash();
             let block = &block_ctx.block;
@@ -132,7 +138,7 @@ impl BlockBatchProcessor {
         }
 
         // Set results for futures when not holding the lock
-        for (res, context) in result.iter_mut() {
+        for (res, context, _) in result.iter_mut() {
             if let Some(cb) = &context.callback {
                 let saved_block = context.saved_block.lock().unwrap().clone();
                 (cb)(&context.block.hash(), *res, saved_block.as_ref());

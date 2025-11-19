@@ -1,4 +1,6 @@
+use rsnano_node::block_processing::BlockSource;
 use rsnano_types::{BlockHash, ConfirmationHeightInfo};
+use strum::{EnumCount, IntoEnumIterator};
 use test_helpers::{System, setup_rpc_client_and_server};
 
 #[test]
@@ -39,4 +41,20 @@ fn uncemented_blocks_reports_missing_entries() {
     assert_eq!(entry.missing_count, "1");
     assert_eq!(response.cache_inserts, expected_inserts);
     assert_eq!(response.cache_rollbacks, expected_rollbacks);
+
+    assert_eq!(response.insert_sources.len(), BlockSource::COUNT);
+    let total_from_sources: u64 = response
+        .insert_sources
+        .iter()
+        .map(|entry| entry.inserts.parse::<u64>().unwrap())
+        .sum();
+    assert_eq!(total_from_sources.to_string(), response.cache_inserts);
+    for source in BlockSource::iter() {
+        assert!(
+            response
+                .insert_sources
+                .iter()
+                .any(|entry| entry.source == source.as_str())
+        );
+    }
 }

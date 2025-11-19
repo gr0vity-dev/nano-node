@@ -122,15 +122,36 @@ pub struct Ledger {
     rollback_listener: OutputListenerMt<BlockHash>,
 }
 
-#[derive(Default)]
 struct BlockCountEvents {
     inserts: AtomicU64,
     rollbacks: AtomicU64,
+    insert_sources: Vec<AtomicU64>,
+}
+
+const MAX_INSERT_SOURCES: usize = 32;
+
+impl Default for BlockCountEvents {
+    fn default() -> Self {
+        let mut insert_sources = Vec::with_capacity(MAX_INSERT_SOURCES);
+        for _ in 0..MAX_INSERT_SOURCES {
+            insert_sources.push(AtomicU64::new(0));
+        }
+        Self {
+            inserts: AtomicU64::new(0),
+            rollbacks: AtomicU64::new(0),
+            insert_sources,
+        }
+    }
 }
 
 impl BlockCountEvents {
     fn record_insert(&self) {
         self.inserts.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn record_insert_source(&self, source: u8) {
+        let index = (source as usize).min(self.insert_sources.len() - 1);
+        self.insert_sources[index].fetch_add(1, Ordering::SeqCst);
     }
 
     fn record_rollback(&self) {
@@ -143,6 +164,13 @@ impl BlockCountEvents {
 
     fn rollbacks(&self) -> u64 {
         self.rollbacks.load(Ordering::SeqCst)
+    }
+
+    fn insert_sources(&self) -> Vec<u64> {
+        self.insert_sources
+            .iter()
+            .map(|counter| counter.load(Ordering::SeqCst))
+            .collect()
     }
 }
 
@@ -981,6 +1009,10 @@ impl Ledger {
         self.block_count_events.rollbacks()
     }
 
+    pub fn block_cache_insert_sources(&self) -> Vec<u64> {
+        self.block_count_events.insert_sources()
+    }
+
     pub fn simulate_block_count(&self, value: u64) {
         self.store
             .cache()
@@ -1001,6 +1033,10 @@ impl Ledger {
 
     pub(crate) fn record_block_insert_event(&self) {
         self.block_count_events.record_insert();
+    }
+
+    pub fn record_block_insert_source(&self, source: u8) {
+        self.block_count_events.record_insert_source(source);
     }
 
     pub(crate) fn record_block_rollback_event(&self) {
