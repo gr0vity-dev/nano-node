@@ -8,3 +8,7 @@ cargo
 .cache/
 config-node.toml.sample
 config-rpc.toml.sample
+.maestro
+.gemini
+.cursor
+.debug
