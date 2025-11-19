@@ -21,6 +21,9 @@ fn uncemented_blocks_reports_missing_entries() {
         txn.commit().unwrap();
     }
 
+    let expected_inserts = ledger.block_cache_inserts().to_string();
+    let expected_rollbacks = ledger.block_cache_rollbacks().to_string();
+
     let response = node.runtime.block_on(async {
         server
             .client
@@ -34,4 +37,6 @@ fn uncemented_blocks_reports_missing_entries() {
     assert_eq!(entry.account, genesis_account.encode_account());
     assert_eq!(entry.head, genesis_hash.to_string());
     assert_eq!(entry.missing_count, "1");
+    assert_eq!(response.cache_inserts, expected_inserts);
+    assert_eq!(response.cache_rollbacks, expected_rollbacks);
 }

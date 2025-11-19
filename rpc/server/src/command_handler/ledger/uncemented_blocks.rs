@@ -29,6 +29,8 @@ fn build_uncemented_response(
     let store_count = block_store.iter(tx.as_ref()).count() as u64;
     let cache_count = ledger.block_count();
     let confirmed_count = ledger.confirmed_count();
+    let cache_inserts = ledger.block_cache_inserts();
+    let cache_rollbacks = ledger.block_cache_rollbacks();
 
     let mut accounts = Vec::new();
     let mut total_uncemented = 0u64;
@@ -67,6 +69,8 @@ fn build_uncemented_response(
         cache_count: cache_count.to_string(),
         store_count: store_count.to_string(),
         confirmed_count: confirmed_count.to_string(),
+        cache_inserts: cache_inserts.to_string(),
+        cache_rollbacks: cache_rollbacks.to_string(),
         total_uncemented: total_uncemented.to_string(),
         accounts,
     }

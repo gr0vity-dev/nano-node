@@ -37,6 +37,7 @@ impl<'a> RollbackInstructionsExecutor<'a> {
             .cache()
             .block_count
             .fetch_sub(1, Ordering::SeqCst);
+        self.ledger.record_block_rollback_event();
 
         self.ledger.stats.inc(
             StatType::Rollback,

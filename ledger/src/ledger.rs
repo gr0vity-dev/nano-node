@@ -4,7 +4,7 @@ use std::{
     ops::{Deref, DerefMut},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::SystemTime,
 };
@@ -118,7 +118,32 @@ pub struct Ledger {
     pub constants: LedgerConstants,
     pub(crate) stats: Arc<Stats>,
     ledger_metrics: Option<Arc<LedgerIteratorMetrics>>,
+    block_count_events: BlockCountEvents,
     rollback_listener: OutputListenerMt<BlockHash>,
+}
+
+#[derive(Default)]
+struct BlockCountEvents {
+    inserts: AtomicU64,
+    rollbacks: AtomicU64,
+}
+
+impl BlockCountEvents {
+    fn record_insert(&self) {
+        self.inserts.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn record_rollback(&self) {
+        self.rollbacks.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn inserts(&self) -> u64 {
+        self.inserts.load(Ordering::SeqCst)
+    }
+
+    fn rollbacks(&self) -> u64 {
+        self.rollbacks.load(Ordering::SeqCst)
+    }
 }
 
 pub struct NullLedgerBuilder {
@@ -366,6 +391,7 @@ impl Ledger {
             constants,
             stats,
             ledger_metrics: None,
+            block_count_events: BlockCountEvents::default(),
             rollback_listener: Default::default(),
         };
 
@@ -947,6 +973,14 @@ impl Ledger {
         self.store.cache().block_count.load(Ordering::SeqCst)
     }
 
+    pub fn block_cache_inserts(&self) -> u64 {
+        self.block_count_events.inserts()
+    }
+
+    pub fn block_cache_rollbacks(&self) -> u64 {
+        self.block_count_events.rollbacks()
+    }
+
     pub fn simulate_block_count(&self, value: u64) {
         self.store
             .cache()
@@ -963,6 +997,14 @@ impl Ledger {
             .cache()
             .confirmed_count
             .store(value, Ordering::SeqCst)
+    }
+
+    pub(crate) fn record_block_insert_event(&self) {
+        self.block_count_events.record_insert();
+    }
+
+    pub(crate) fn record_block_rollback_event(&self) {
+        self.block_count_events.record_rollback();
     }
 
     pub fn account_count(&self) -> u64 {

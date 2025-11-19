@@ -65,6 +65,7 @@ impl<'a> BlockInserter<'a> {
             .cache()
             .block_count
             .fetch_add(1, Ordering::SeqCst);
+        self.ledger.record_block_insert_event();
 
         Some(saved_block)
     }

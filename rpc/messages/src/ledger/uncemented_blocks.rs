@@ -13,6 +13,8 @@ pub struct UncementedBlocksResponse {
     pub cache_count: String,
     pub store_count: String,
     pub confirmed_count: String,
+    pub cache_inserts: String,
+    pub cache_rollbacks: String,
     pub total_uncemented: String,
     pub accounts: Vec<UncementedAccountStatus>,
 }
