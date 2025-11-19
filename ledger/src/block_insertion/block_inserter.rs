@@ -1,4 +1,4 @@
-use std::sync::atomic::Ordering;
+use std::sync::{Arc, atomic::Ordering};
 
 use rsnano_types::{
     Account, AccountInfo, Amount, Block, BlockSideband, PendingInfo, PendingKey, SavedBlock,
@@ -66,12 +66,12 @@ impl<'a> BlockInserter<'a> {
         self.insert_new_pending_info();
         self.update_representative_cache();
         if !already_exists {
-            self.ledger
-                .store
-                .cache()
-                .block_count
-                .fetch_add(1, Ordering::SeqCst);
-            self.ledger.record_block_insert_event();
+            let store = Arc::clone(&self.ledger.store);
+            let events = self.ledger.block_count_events_arc();
+            self.txn.on_commit(Box::new(move || {
+                store.cache().block_count.fetch_add(1, Ordering::SeqCst);
+                events.record_insert();
+            }));
         } else {
             self.ledger.record_duplicate_insert_event();
         }
@@ -141,11 +141,12 @@ impl<'a> BlockInserter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::NullLedgerBuilder;
+    use crate::{Ledger, NullLedgerBuilder};
     use rsnano_types::{BlockHash, Epoch, PublicKey, TestBlockBuilder, UnixTimestamp};
-    use std::{sync::Arc, thread};
+    use std::sync::Arc;
     use store_rocksdb::default_ledger_store_factory;
-    use store_traits::ledger::LedgerStoreFactory;
+    use store_traits::LedgerWriteTxn;
+    use store_traits::ledger::{LedgerStoreFactory, WriteStrategy, WriterType};
 
     fn test_store_factory() -> Arc<dyn LedgerStoreFactory> {
         default_ledger_store_factory()
@@ -293,7 +294,7 @@ mod tests {
         block: &mut Block,
         instructions: &BlockInsertInstructions,
     ) -> InsertResult {
-        let mut txn = ledger.store_ref().begin_write();
+        let mut txn = ledger.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
         let saved_blocks = ledger.store.block().track_puts();
         let saved_accounts = ledger.store.account().track_puts();
         let saved_pending = ledger.store.pending().track_puts();
@@ -303,9 +304,8 @@ mod tests {
         let mut block_inserter = BlockInserter::new(&ledger, txn.as_mut(), block, &instructions);
         let (saved_block, inserted, _) = block_inserter.insert();
         assert!(inserted, "expected block to be inserted");
-        saved_block.expect("block should be saved");
-        txn.commit()
-            .unwrap_or_else(|e| panic!("failed to commit block insertion: {e}"));
+        saved_block.as_ref().expect("block should be saved");
+        commit_block_txn(ledger, txn, inserted, saved_block.as_ref());
 
         InsertResult {
             saved_blocks: saved_blocks.output(),
@@ -314,6 +314,23 @@ mod tests {
             saved_successors: saved_successors.output(),
             deleted_pending: deleted_pending.output(),
         }
+    }
+
+    fn commit_block_txn(
+        ledger: &Ledger,
+        txn: Box<dyn LedgerWriteTxn>,
+        inserted: bool,
+        saved_block: Option<&SavedBlock>,
+    ) {
+        let mut hashes = Vec::new();
+        if inserted {
+            if let Some(block) = saved_block {
+                hashes.push(block.hash());
+            }
+        }
+        ledger
+            .commit_block_transaction(txn, &hashes)
+            .unwrap_or_else(|e| panic!("failed to commit block insertion: {e}"));
     }
 
     struct InsertResult {
@@ -333,14 +350,13 @@ mod tests {
         let start_duplicates = ledger.block_cache_duplicate_inserts();
 
         {
-            let mut txn = ledger.store_ref().begin_write();
+            let mut txn = ledger.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
             let (saved_block, inserted, preexisting) =
                 BlockInserter::new(&ledger, txn.as_mut(), &mut block, &instructions).insert();
             assert!(inserted);
             assert!(!preexisting);
             assert!(saved_block.is_some());
-            txn.commit()
-                .unwrap_or_else(|e| panic!("failed to commit block insertion: {e}"));
+            commit_block_txn(&ledger, txn, inserted, saved_block.as_ref());
         }
 
         assert_eq!(ledger.block_cache_inserts(), start_inserts + 1);
@@ -365,14 +381,13 @@ mod tests {
         };
 
         {
-            let mut txn = ledger.store_ref().begin_write();
+            let mut txn = ledger.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
             let (_saved_block, inserted, preexisting) =
                 BlockInserter::new(&ledger, txn.as_mut(), &mut block, &duplicate_instructions)
                     .insert();
             assert!(!inserted, "duplicate insert should not report insertion");
             assert!(preexisting);
-            txn.commit()
-                .unwrap_or_else(|e| panic!("failed to commit block insertion: {e}"));
+            commit_block_txn(&ledger, txn, inserted, None);
         }
 
         assert_eq!(ledger.block_cache_inserts(), start_inserts + 1);
@@ -387,7 +402,7 @@ mod tests {
         let start_inserts = ledger.block_cache_inserts();
 
         {
-            let mut txn = ledger.store_ref().begin_write();
+            let mut txn = ledger.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
 
             let (saved_block, inserted, preexisting) =
                 BlockInserter::new(&ledger, txn.as_mut(), &mut block, &instructions).insert();
@@ -395,16 +410,14 @@ mod tests {
             assert!(!preexisting);
             assert!(saved_block.is_some());
 
-            let mut txn2 = ledger.store_ref().begin_write();
-            let (_duplicate, inserted_again, preexisting_again) =
+            let mut txn2 = ledger.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
+            let (duplicate_block, inserted_again, preexisting_again) =
                 BlockInserter::new(&ledger, txn2.as_mut(), &mut block, &instructions).insert();
             assert!(inserted_again);
             assert!(!preexisting_again);
 
-            txn.commit()
-                .unwrap_or_else(|e| panic!("failed to commit block insertion: {e}"));
-            txn2.commit()
-                .unwrap_or_else(|e| panic!("failed to commit duplicate insertion: {e}"));
+            commit_block_txn(&ledger, txn, inserted, saved_block.as_ref());
+            commit_block_txn(&ledger, txn2, inserted_again, duplicate_block.as_ref());
         }
 
         assert_eq!(
@@ -429,15 +442,16 @@ mod tests {
             handles.push(std::thread::spawn(move || {
                 let mut block_clone = (*block).clone();
                 let instructions_clone = (*instructions).clone();
-                let mut txn = ledger.store_ref().begin_write();
-                let _ = BlockInserter::new(
+                let mut txn =
+                    ledger.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
+                let (saved_block, inserted, _) = BlockInserter::new(
                     &ledger,
                     txn.as_mut(),
                     &mut block_clone,
                     &instructions_clone,
                 )
                 .insert();
-                txn.commit().unwrap();
+                commit_block_txn(&ledger, txn, inserted, saved_block.as_ref());
             }));
         }
 

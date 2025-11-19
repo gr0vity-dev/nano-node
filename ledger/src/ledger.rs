@@ -33,7 +33,8 @@ use crate::{
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use store_traits::{
     LedgerReadTxn, LedgerWriteTxn,
-    ledger::{LedgerStoreFactory, MemoryStats},
+    ledger::{LedgerStoreFactory, MemoryStats, WriteStrategy, WriterType},
+    types::{StoreError, StoreErrorKind},
 };
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, EnumCount, EnumIter, IntoStaticStr)]
@@ -118,13 +119,13 @@ pub struct Ledger {
     pub constants: LedgerConstants,
     pub(crate) stats: Arc<Stats>,
     ledger_metrics: Option<Arc<LedgerIteratorMetrics>>,
-    block_count_events: BlockCountEvents,
+    block_count_events: Arc<BlockCountEvents>,
     insert_tracker: Mutex<InsertTracker>,
     duplicate_log: Mutex<VecDeque<DuplicateInsertRecord>>,
     rollback_listener: OutputListenerMt<BlockHash>,
 }
 
-struct BlockCountEvents {
+pub(crate) struct BlockCountEvents {
     inserts: AtomicU64,
     rollbacks: AtomicU64,
     duplicate_inserts: AtomicU64,
@@ -198,6 +199,11 @@ pub struct DuplicateInsertRecordSnapshot {
     pub timestamp: SystemTime,
 }
 
+pub enum CommitDisposition {
+    Success,
+    Duplicate,
+}
+
 impl Default for BlockCountEvents {
     fn default() -> Self {
         let mut insert_sources = Vec::with_capacity(MAX_INSERT_SOURCES);
@@ -217,48 +223,48 @@ impl Default for BlockCountEvents {
 }
 
 impl BlockCountEvents {
-    fn record_insert(&self) {
+    pub(crate) fn record_insert(&self) {
         self.inserts.fetch_add(1, Ordering::SeqCst);
     }
 
-    fn record_insert_source(&self, source: u8) {
+    pub(crate) fn record_insert_source(&self, source: u8) {
         let index = (source as usize).min(self.insert_sources.len() - 1);
         self.insert_sources[index].fetch_add(1, Ordering::SeqCst);
     }
 
-    fn record_rollback(&self) {
+    pub(crate) fn record_rollback(&self) {
         self.rollbacks.fetch_add(1, Ordering::SeqCst);
     }
 
-    fn record_duplicate_insert(&self) {
+    pub(crate) fn record_duplicate_insert(&self) {
         self.duplicate_inserts.fetch_add(1, Ordering::SeqCst);
     }
 
-    fn record_duplicate_source(&self, source: u8) {
+    pub(crate) fn record_duplicate_source(&self, source: u8) {
         let index = (source as usize).min(self.duplicate_sources.len() - 1);
         self.duplicate_sources[index].fetch_add(1, Ordering::SeqCst);
     }
 
-    fn inserts(&self) -> u64 {
+    pub(crate) fn inserts(&self) -> u64 {
         self.inserts.load(Ordering::SeqCst)
     }
 
-    fn rollbacks(&self) -> u64 {
+    pub(crate) fn rollbacks(&self) -> u64 {
         self.rollbacks.load(Ordering::SeqCst)
     }
 
-    fn insert_sources(&self) -> Vec<u64> {
+    pub(crate) fn insert_sources(&self) -> Vec<u64> {
         self.insert_sources
             .iter()
             .map(|counter| counter.load(Ordering::SeqCst))
             .collect()
     }
 
-    fn duplicate_inserts(&self) -> u64 {
+    pub(crate) fn duplicate_inserts(&self) -> u64 {
         self.duplicate_inserts.load(Ordering::SeqCst)
     }
 
-    fn duplicate_sources(&self) -> Vec<u64> {
+    pub(crate) fn duplicate_sources(&self) -> Vec<u64> {
         self.duplicate_sources
             .iter()
             .map(|counter| counter.load(Ordering::SeqCst))
@@ -493,6 +499,35 @@ impl Ledger {
         self.store.as_ref()
     }
 
+    pub(crate) fn begin_write_with(
+        &self,
+        writer: WriterType,
+        strategy: WriteStrategy,
+    ) -> Box<dyn LedgerWriteTxn> {
+        self.store.begin_write_with_writer(writer, strategy)
+    }
+
+    pub(crate) fn block_count_events_arc(&self) -> Arc<BlockCountEvents> {
+        Arc::clone(&self.block_count_events)
+    }
+
+    pub(crate) fn commit_block_transaction(
+        &self,
+        txn: Box<dyn LedgerWriteTxn>,
+        inserted_hashes: &[BlockHash],
+    ) -> Result<CommitDisposition, StoreError> {
+        match txn.commit() {
+            Ok(()) => Ok(CommitDisposition::Success),
+            Err(e) if e.kind() == StoreErrorKind::Conflict => {
+                for _hash in inserted_hashes {
+                    self.record_duplicate_insert_event();
+                }
+                Ok(CommitDisposition::Duplicate)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     pub(crate) fn new(
         store: Arc<dyn LedgerStore>,
         constants: LedgerConstants,
@@ -511,7 +546,7 @@ impl Ledger {
             constants,
             stats,
             ledger_metrics: None,
-            block_count_events: BlockCountEvents::default(),
+            block_count_events: Arc::new(BlockCountEvents::default()),
             insert_tracker: Mutex::new(InsertTracker::new()),
             duplicate_log: Mutex::new(VecDeque::with_capacity(MAX_DUPLICATE_LOG)),
             rollback_listener: Default::default(),
@@ -834,7 +869,9 @@ impl Ledger {
         // Insert blocks
         let mut processed = Vec::with_capacity(validation_results.len());
         {
-            let mut txn = self.store_ref().begin_write();
+            let mut txn =
+                self.begin_write_with(WriterType::BlockProcessor, WriteStrategy::Optimistic);
+            let mut inserted_hashes = Vec::new();
             for (result, block) in validation_results {
                 match result {
                     Ok(instructions) => {
@@ -847,6 +884,11 @@ impl Ledger {
                                 inserted,
                                 preexisting,
                             });
+                            if inserted {
+                                if let Some(ref saved) = saved_block {
+                                    inserted_hashes.push(saved.hash());
+                                }
+                            }
                         } else {
                             let err = BlockError::Conflict;
                             processed.push(BatchProcessEntry {
@@ -867,8 +909,18 @@ impl Ledger {
                     }
                 }
             }
-            txn.commit()
-                .unwrap_or_else(|e| panic!("failed to commit block batch: {e}"));
+            match self.commit_block_transaction(txn, &inserted_hashes) {
+                Ok(CommitDisposition::Success) => {}
+                Ok(CommitDisposition::Duplicate) => {
+                    for entry in processed.iter_mut() {
+                        if entry.inserted {
+                            entry.inserted = false;
+                            entry.preexisting = true;
+                        }
+                    }
+                }
+                Err(e) => panic!("failed to commit block batch: {e}"),
+            }
         }
 
         BatchProcessResult { processed }
@@ -1147,10 +1199,6 @@ impl Ledger {
             .cache()
             .confirmed_count
             .store(value, Ordering::SeqCst)
-    }
-
-    pub(crate) fn record_block_insert_event(&self) {
-        self.block_count_events.record_insert();
     }
 
     pub fn record_block_insert_source(&self, source: u8, hash: BlockHash) {
