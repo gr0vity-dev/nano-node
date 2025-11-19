@@ -10,7 +10,7 @@ use insertion_test_helpers::{commit_block_txn, legacy_open_block_instructions};
 use std::{
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc,
     },
     thread,
@@ -26,6 +26,8 @@ fn optimistic_retry_recovers_after_conflict() {
     let (signal_tx, signal_rx) = mpsc::channel();
     let (done_tx, done_rx) = mpsc::channel();
     let ledger_clone = Arc::<Ledger>::clone(&ledger);
+    let first_attempt = Arc::new(AtomicBool::new(true));
+    let first_attempt_clone = Arc::clone(&first_attempt);
     let mut thread_block = block.clone();
     let thread_instructions = instructions.clone();
     let handle = thread::spawn(move || {
@@ -52,8 +54,10 @@ fn optimistic_retry_recovers_after_conflict() {
             let instructions_local = instructions.clone();
             let (saved, inserted, _) =
                 BlockInserter::new(&ledger, txn, &mut block_local, &instructions_local).insert();
-            signal_tx.send(()).unwrap();
-            done_rx.recv().unwrap();
+            if first_attempt_clone.swap(false, Ordering::SeqCst) {
+                signal_tx.send(()).unwrap();
+                done_rx.recv().unwrap();
+            }
             let hashes = saved
                 .iter()
                 .filter(|_| inserted)
@@ -79,6 +83,8 @@ fn pessimistic_fallback_after_conflict() {
     let (signal_tx, signal_rx) = mpsc::channel();
     let (done_tx, done_rx) = mpsc::channel();
     let ledger_clone = Arc::<Ledger>::clone(&ledger);
+    let first_attempt = Arc::new(AtomicBool::new(true));
+    let first_attempt_clone = Arc::clone(&first_attempt);
     let mut thread_block = block.clone();
     let thread_instructions = instructions.clone();
     let handle = thread::spawn(move || {
@@ -102,8 +108,10 @@ fn pessimistic_fallback_after_conflict() {
             let instructions_local = instructions.clone();
             let (saved, inserted, _) =
                 BlockInserter::new(&ledger, txn, &mut block_local, &instructions_local).insert();
-            signal_tx.send(()).unwrap();
-            done_rx.recv().unwrap();
+            if first_attempt_clone.swap(false, Ordering::SeqCst) {
+                signal_tx.send(()).unwrap();
+                done_rx.recv().unwrap();
+            }
             let hashes = saved
                 .iter()
                 .filter(|_| inserted)

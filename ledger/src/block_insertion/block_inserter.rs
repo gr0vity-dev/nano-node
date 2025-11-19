@@ -43,6 +43,15 @@ impl<'a> BlockInserter<'a> {
 
     pub fn insert(&mut self) -> (Option<SavedBlock>, bool, bool) {
         if self.account_changed_since_validation() {
+            if let Some(existing_block) = self
+                .ledger
+                .store
+                .block()
+                .get(self.txn, &self.block.hash())
+            {
+                self.ledger.record_duplicate_insert_event();
+                return (Some(existing_block), false, true);
+            }
             return (None, false, false);
         }
 
@@ -141,7 +150,6 @@ impl<'a> BlockInserter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate as ledger_crate;
     use crate::{Ledger, NullLedgerBuilder};
     mod insertion_test_helpers {
         use crate as ledger_crate;
@@ -295,6 +303,38 @@ mod tests {
         let result = insert(&ledger, &mut state, &instructions);
 
         assert_eq!(result.saved_successors, vec![(open.hash(), state.hash())]);
+    }
+
+    #[test]
+    fn returns_existing_block_when_account_changed() {
+        let (mut block, instructions) = legacy_open_block_instructions();
+        let ledger = new_ledger();
+
+        // First insertion succeeds and commits
+        let mut first_txn = ledger.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
+        let (saved, inserted, _) =
+            BlockInserter::new(&ledger, first_txn.as_mut(), &mut block, &instructions).insert();
+        assert!(inserted);
+        commit_block_txn(&ledger, first_txn, inserted, saved.as_ref());
+
+        // Second insertion sees updated account info and should surface the preexisting block
+        let mut block_again = block.clone();
+        let mut second_txn =
+            ledger.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
+        let (saved_again, inserted_again, preexisting_again) = BlockInserter::new(
+            &ledger,
+            second_txn.as_mut(),
+            &mut block_again,
+            &instructions,
+        )
+        .insert();
+
+        assert!(!inserted_again);
+        assert!(preexisting_again);
+        assert!(saved_again.is_some());
+        commit_block_txn(&ledger, second_txn, inserted_again, saved_again.as_ref());
+
+        assert_eq!(ledger.store.cache().block_count.load(Ordering::SeqCst), 2);
     }
 
     fn insert(
