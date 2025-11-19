@@ -10,7 +10,9 @@ use strum::{EnumCount, IntoEnumIterator};
 use tracing::{trace, warn};
 
 use crate::ledger_factory::default_ledger_store_factory;
-use rsnano_ledger::{BatchProcessEntry, BlockError, Ledger};
+use rsnano_ledger::{
+    BatchProcessEntry, BlockError, Ledger, WriterType, DEFAULT_OPTIMISTIC_RETRIES,
+};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
@@ -20,7 +22,7 @@ use rsnano_utils::{
 use super::{BlockContext, BlockSource, LedgerEvent, UncheckedBlockReenqueuer, UncheckedMap};
 use crate::block_processing::ProcessedResult;
 
-pub(crate) struct BlockBatchProcessor {
+pub struct BlockBatchProcessor {
     pub ledger: Arc<Ledger>,
     pub unchecked: Arc<Mutex<UncheckedMap>>,
     pub stats: Arc<BlockBatchProcessorStats>,
@@ -42,15 +44,36 @@ impl BlockBatchProcessor {
         }
     }
 
-    pub(crate) fn process_blocks(&mut self, mut batch: VecDeque<Arc<BlockContext>>) {
+    pub fn process_blocks(&mut self, mut batch: VecDeque<Arc<BlockContext>>) {
         let now = self.clock.now();
 
         self.roll_back_competitor_blocks(&batch);
 
-        let mut result = self.ledger.process_batch(batch.iter().map(|c| &c.block));
+        let validation_results = self.ledger.validate_batch(batch.iter().map(|c| &c.block));
+        let processed_entries = self
+            .ledger
+            .tx_optimistic_process(
+                WriterType::BlockProcessor,
+                DEFAULT_OPTIMISTIC_RETRIES,
+                |txn, deferred| {
+                    let (processed, inserted_hashes) =
+                        self.ledger
+                            .apply_validated_batch(txn, deferred, &validation_results);
+                    Ok((processed, inserted_hashes))
+                },
+            )
+            .unwrap_or_else(|e| panic!("failed to process block batch: {e}"));
+        self.stats
+            .optimistic_successes
+            .store(self.ledger.optimistic_successes(), Relaxed);
+        self.stats
+            .optimistic_conflicts
+            .store(self.ledger.optimistic_conflicts(), Relaxed);
+        self.stats
+            .pessimistic_fallbacks
+            .store(self.ledger.pessimistic_fallbacks(), Relaxed);
 
-        let processed_result: Vec<_> = result
-            .processed
+        let processed_result: Vec<_> = processed_entries
             .iter()
             .zip(&batch)
             .map(|(entry, ctx)| ProcessedResult {
@@ -70,10 +93,9 @@ impl BlockBatchProcessor {
             }
         }
 
-        assert_eq!(result.processed.len(), batch.len());
-        let mut result: Vec<(BatchProcessEntry, Arc<BlockContext>)> = result
-            .processed
-            .drain(..)
+        assert_eq!(processed_entries.len(), batch.len());
+        let mut result: Vec<(BatchProcessEntry, Arc<BlockContext>)> = processed_entries
+            .into_iter()
             .zip(batch.drain(..))
             .map(|(entry, block_ctx)| {
                 if entry.saved_block.is_some() {
@@ -162,10 +184,13 @@ impl BlockBatchProcessor {
 }
 
 #[derive(Default)]
-pub(crate) struct BlockBatchProcessorStats {
+pub struct BlockBatchProcessorStats {
     progress: AtomicU64,
     errors: [AtomicU64; BlockError::COUNT],
     sources: [AtomicU64; BlockSource::COUNT],
+    optimistic_successes: AtomicU64,
+    optimistic_conflicts: AtomicU64,
+    pessimistic_fallbacks: AtomicU64,
 }
 
 impl StatsSource for BlockBatchProcessorStats {
@@ -191,5 +216,35 @@ impl StatsSource for BlockBatchProcessorStats {
                 self.sources[s as usize].load(Relaxed),
             );
         }
+
+        result.insert(
+            "block_processor_writer",
+            "optimistic_successes",
+            self.optimistic_successes.load(Relaxed),
+        );
+        result.insert(
+            "block_processor_writer",
+            "optimistic_conflicts",
+            self.optimistic_conflicts.load(Relaxed),
+        );
+        result.insert(
+            "block_processor_writer",
+            "pessimistic_fallbacks",
+            self.pessimistic_fallbacks.load(Relaxed),
+        );
+    }
+}
+
+impl BlockBatchProcessorStats {
+    pub fn optimistic_successes(&self) -> u64 {
+        self.optimistic_successes.load(Relaxed)
+    }
+
+    pub fn optimistic_conflicts(&self) -> u64 {
+        self.optimistic_conflicts.load(Relaxed)
+    }
+
+    pub fn pessimistic_fallbacks(&self) -> u64 {
+        self.pessimistic_fallbacks.load(Relaxed)
     }
 }

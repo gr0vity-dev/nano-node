@@ -140,7 +140,7 @@ pub(crate) struct BlockCountEvents {
 const MAX_INSERT_SOURCES: usize = 32;
 const MAX_TRACKED_INSERTS: usize = 600_000;
 const MAX_DUPLICATE_LOG: usize = 1024;
-const DEFAULT_OPTIMISTIC_RETRIES: usize = 1;
+pub const DEFAULT_OPTIMISTIC_RETRIES: usize = 1;
 
 struct InsertTracker {
     map: HashMap<BlockHash, u8>,
@@ -526,6 +526,75 @@ impl Ledger {
 
     pub(crate) fn block_count_events_arc(&self) -> Arc<BlockCountEvents> {
         Arc::clone(&self.block_count_events)
+    }
+
+    pub fn validate_batch<'a>(
+        &self,
+        batch: impl IntoIterator<Item = &'a Block>,
+    ) -> Vec<(Result<BlockInsertInstructions, BlockError>, Block)> {
+        let mut validation_results = Vec::new();
+        let tx = self.store.begin_read();
+        let metrics = self.iterator_metrics();
+        for block in batch.into_iter() {
+            let any = BorrowingAnySet {
+                constants: &self.constants,
+                store: self.store_ref(),
+                tx: tx.as_ref(),
+                metrics: metrics.clone(),
+            };
+            let validator = BlockValidatorFactory::new(&any, &self.constants, block).create_validator();
+            let result = validator.validate();
+            validation_results.push((result, block.clone()));
+        }
+        validation_results
+    }
+
+    pub fn apply_validated_batch(
+        &self,
+        txn: &mut dyn LedgerWriteTxn,
+        deferred: &mut DeferredLedgerOperations,
+        validation_results: &[(Result<BlockInsertInstructions, BlockError>, Block)],
+    ) -> (Vec<BatchProcessEntry>, Vec<BlockHash>) {
+        let mut processed = Vec::with_capacity(validation_results.len());
+        let mut inserted_hashes = Vec::new();
+        for (result, block) in validation_results.iter() {
+            match result {
+                Ok(instructions) => {
+                    let mut block_clone = block.clone();
+                    let instructions_clone = instructions.clone();
+                    let (saved_block, inserted, preexisting) =
+                        BlockInserter::new(self, txn, &mut block_clone, &instructions_clone)
+                            .insert(deferred);
+                    if let Some(saved_block) = saved_block {
+                        if inserted {
+                            inserted_hashes.push(saved_block.hash());
+                        }
+                        processed.push(BatchProcessEntry {
+                            status: Ok(()),
+                            saved_block: Some(saved_block),
+                            inserted,
+                            preexisting,
+                        });
+                    } else {
+                        processed.push(BatchProcessEntry {
+                            status: Err(BlockError::Conflict),
+                            saved_block: None,
+                            inserted: false,
+                            preexisting: false,
+                        });
+                    }
+                }
+                Err(err) => {
+                    processed.push(BatchProcessEntry {
+                        status: Err(*err),
+                        saved_block: None,
+                        inserted: false,
+                        preexisting: false,
+                    });
+                }
+            }
+        }
+        (processed, inserted_hashes)
     }
 
     pub fn tx_optimistic_process<T, F>(
@@ -914,79 +983,14 @@ impl Ledger {
         &self,
         batch: impl IntoIterator<Item = &'a Block>,
     ) -> BatchProcessResult {
-        let mut validation_results = Vec::new();
-
-        // Validate blocks
-        {
-            let tx = self.store.begin_read();
-            let metrics = self.iterator_metrics();
-            for block in batch.into_iter() {
-                let any = BorrowingAnySet {
-                    constants: &self.constants,
-                    store: self.store_ref(),
-                    tx: tx.as_ref(),
-                    metrics: metrics.clone(),
-                };
-                let validator =
-                    BlockValidatorFactory::new(&any, &self.constants, block).create_validator();
-                let result = validator.validate();
-                validation_results.push((result, block));
-            }
-        }
-
-        let validation_results: Vec<(Result<BlockInsertInstructions, BlockError>, Block)> =
-            validation_results
-                .into_iter()
-                .map(|(result, block)| (result, block.clone()))
-                .collect();
+        let validation_results = self.validate_batch(batch);
         let processed = self
             .tx_optimistic_process(
                 WriterType::BlockProcessor,
                 DEFAULT_OPTIMISTIC_RETRIES,
                 |txn, deferred| {
-                    let mut processed = Vec::with_capacity(validation_results.len());
-                    let mut inserted_hashes = Vec::new();
-                    for (result, block) in validation_results.iter() {
-                        match result {
-                            Ok(instructions) => {
-                                let mut block_clone = block.clone();
-                                let instructions_clone = instructions.clone();
-                                let (saved_block, inserted, preexisting) = BlockInserter::new(
-                                    self,
-                                    txn,
-                                    &mut block_clone,
-                                    &instructions_clone,
-                                )
-                                .insert(deferred);
-                                if let Some(saved_block) = saved_block {
-                                    if inserted {
-                                        inserted_hashes.push(saved_block.hash());
-                                    }
-                                    processed.push(BatchProcessEntry {
-                                        status: Ok(()),
-                                        saved_block: Some(saved_block),
-                                        inserted,
-                                        preexisting,
-                                    });
-                                } else {
-                                    processed.push(BatchProcessEntry {
-                                        status: Err(BlockError::Conflict),
-                                        saved_block: None,
-                                        inserted: false,
-                                        preexisting: false,
-                                    });
-                                }
-                            }
-                            Err(err) => {
-                                processed.push(BatchProcessEntry {
-                                    status: Err(*err),
-                                    saved_block: None,
-                                    inserted: false,
-                                    preexisting: false,
-                                });
-                            }
-                        }
-                    }
+                    let (processed, inserted_hashes) =
+                        self.apply_validated_batch(txn, deferred, &validation_results);
                     Ok((processed, inserted_hashes))
                 },
             )

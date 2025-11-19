@@ -16,6 +16,7 @@ use rsnano_types::{Block, BlockHash, SavedBlock};
 
 pub use backlog_scan::{BacklogScan, BacklogScanConfig};
 pub(crate) use backlog_waiter::BacklogWaiter;
+pub use block_batch_processor::{BlockBatchProcessor, BlockBatchProcessorStats};
 pub use block_context::*;
 pub use block_processor::*;
 pub(crate) use block_processor_queue::*;
