@@ -1,7 +1,10 @@
-use rsnano_ledger::{BlockStore, Ledger, LedgerReadTxn};
+use std::time::SystemTime;
+
+use rsnano_ledger::{BlockStore, DuplicateInsertRecordSnapshot, Ledger, LedgerReadTxn};
 use rsnano_node::block_processing::BlockSource;
 use rsnano_rpc_messages::{
-    UncementedAccountStatus, UncementedBlocksArgs, UncementedBlocksResponse, UncementedInsertSource,
+    DuplicateInsertEntry, UncementedAccountStatus, UncementedBlocksArgs, UncementedBlocksResponse,
+    UncementedInsertSource,
 };
 use rsnano_types::{AccountInfo, ConfirmationHeightInfo};
 use strum::IntoEnumIterator;
@@ -36,6 +39,7 @@ fn build_uncemented_response(
     let insert_sources_snapshot = ledger.block_cache_insert_sources();
     let duplicate_inserts = ledger.block_cache_duplicate_inserts();
     let duplicate_sources_snapshot = ledger.block_cache_duplicate_sources();
+    let duplicate_events_snapshot = ledger.duplicate_insert_log();
 
     let mut accounts = Vec::new();
     let mut total_uncemented = 0u64;
@@ -81,6 +85,7 @@ fn build_uncemented_response(
         accounts,
         insert_sources: build_insert_sources(insert_sources_snapshot),
         duplicate_sources: build_insert_sources(duplicate_sources_snapshot),
+        duplicate_events: build_duplicate_events(duplicate_events_snapshot),
     }
 }
 
@@ -92,6 +97,29 @@ fn build_insert_sources(snapshot: Vec<u64>) -> Vec<UncementedInsertSource> {
             UncementedInsertSource {
                 source: source.as_str().to_string(),
                 inserts: count.to_string(),
+            }
+        })
+        .collect()
+}
+
+fn build_duplicate_events(
+    snapshot: Vec<DuplicateInsertRecordSnapshot>,
+) -> Vec<DuplicateInsertEntry> {
+    snapshot
+        .into_iter()
+        .map(|record| {
+            let first = BlockSource::from_u8(record.first_source);
+            let second = BlockSource::from_u8(record.second_source);
+            let timestamp = record
+                .timestamp
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            DuplicateInsertEntry {
+                hash: record.hash.to_string(),
+                first_source: first.as_str().to_string(),
+                second_source: second.as_str().to_string(),
+                timestamp,
             }
         })
         .collect()

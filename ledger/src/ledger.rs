@@ -3,7 +3,7 @@ use std::{
     net::SocketAddrV6,
     ops::{Deref, DerefMut},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::SystemTime,
@@ -119,6 +119,8 @@ pub struct Ledger {
     pub(crate) stats: Arc<Stats>,
     ledger_metrics: Option<Arc<LedgerIteratorMetrics>>,
     block_count_events: BlockCountEvents,
+    insert_tracker: Mutex<InsertTracker>,
+    duplicate_log: Mutex<VecDeque<DuplicateInsertRecord>>,
     rollback_listener: OutputListenerMt<BlockHash>,
 }
 
@@ -131,6 +133,70 @@ struct BlockCountEvents {
 }
 
 const MAX_INSERT_SOURCES: usize = 32;
+const MAX_TRACKED_INSERTS: usize = 600_000;
+const MAX_DUPLICATE_LOG: usize = 1024;
+
+struct InsertTracker {
+    map: HashMap<BlockHash, u8>,
+    order: VecDeque<BlockHash>,
+}
+
+impl InsertTracker {
+    fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+            order: VecDeque::new(),
+        }
+    }
+
+    fn record_insert(&mut self, hash: BlockHash, source: u8) -> Option<DuplicateInsertRecord> {
+        if let Some(prev) = self.map.get(&hash).copied() {
+            Some(DuplicateInsertRecord::new(hash, prev, source))
+        } else {
+            self.map.insert(hash, source);
+            self.order.push_back(hash);
+            if self.order.len() > MAX_TRACKED_INSERTS {
+                if let Some(old) = self.order.pop_front() {
+                    self.map.remove(&old);
+                }
+            }
+            None
+        }
+    }
+
+    fn check_existing(&self, hash: &BlockHash, source: u8) -> Option<DuplicateInsertRecord> {
+        self.map
+            .get(hash)
+            .copied()
+            .map(|prev| DuplicateInsertRecord::new(*hash, prev, source))
+    }
+}
+
+struct DuplicateInsertRecord {
+    hash: BlockHash,
+    first_source: u8,
+    second_source: u8,
+    timestamp: SystemTime,
+}
+
+impl DuplicateInsertRecord {
+    fn new(hash: BlockHash, first_source: u8, second_source: u8) -> Self {
+        Self {
+            hash,
+            first_source,
+            second_source,
+            timestamp: SystemTime::now(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct DuplicateInsertRecordSnapshot {
+    pub hash: BlockHash,
+    pub first_source: u8,
+    pub second_source: u8,
+    pub timestamp: SystemTime,
+}
 
 impl Default for BlockCountEvents {
     fn default() -> Self {
@@ -446,6 +512,8 @@ impl Ledger {
             stats,
             ledger_metrics: None,
             block_count_events: BlockCountEvents::default(),
+            insert_tracker: Mutex::new(InsertTracker::new()),
+            duplicate_log: Mutex::new(VecDeque::with_capacity(MAX_DUPLICATE_LOG)),
             rollback_listener: Default::default(),
         };
 
@@ -770,13 +838,14 @@ impl Ledger {
             for (result, block) in validation_results {
                 match result {
                     Ok(instructions) => {
-                        let (saved_block, inserted) =
+                        let (saved_block, inserted, preexisting) =
                             BlockInserter::new(self, txn.as_mut(), block, &instructions).insert();
                         if saved_block.is_some() {
                             processed.push(BatchProcessEntry {
                                 status: Ok(()),
                                 saved_block: saved_block.clone(),
                                 inserted,
+                                preexisting,
                             });
                         } else {
                             let err = BlockError::Conflict;
@@ -784,6 +853,7 @@ impl Ledger {
                                 status: Err(err),
                                 saved_block: None,
                                 inserted: false,
+                                preexisting: false,
                             });
                         }
                     }
@@ -792,6 +862,7 @@ impl Ledger {
                             status: Err(err),
                             saved_block: None,
                             inserted: false,
+                            preexisting: false,
                         });
                     }
                 }
@@ -1082,8 +1153,13 @@ impl Ledger {
         self.block_count_events.record_insert();
     }
 
-    pub fn record_block_insert_source(&self, source: u8) {
+    pub fn record_block_insert_source(&self, source: u8, hash: BlockHash) {
         self.block_count_events.record_insert_source(source);
+        let mut tracker = self.insert_tracker.lock().unwrap();
+        if let Some(record) = tracker.record_insert(hash, source) {
+            drop(tracker);
+            self.push_duplicate_record(record);
+        }
     }
 
     pub(crate) fn record_block_rollback_event(&self) {
@@ -1094,8 +1170,34 @@ impl Ledger {
         self.block_count_events.record_duplicate_insert();
     }
 
-    pub fn record_duplicate_insert_source(&self, source: u8) {
+    pub fn record_duplicate_insert_source(&self, source: u8, hash: BlockHash) {
         self.block_count_events.record_duplicate_source(source);
+        let tracker = self.insert_tracker.lock().unwrap();
+        if let Some(record) = tracker.check_existing(&hash, source) {
+            drop(tracker);
+            self.push_duplicate_record(record);
+        }
+    }
+
+    fn push_duplicate_record(&self, record: DuplicateInsertRecord) {
+        let mut log = self.duplicate_log.lock().unwrap();
+        if log.len() == MAX_DUPLICATE_LOG {
+            log.pop_front();
+        }
+        log.push_back(record);
+    }
+
+    pub fn duplicate_insert_log(&self) -> Vec<DuplicateInsertRecordSnapshot> {
+        let log = self.duplicate_log.lock().unwrap();
+        log.iter()
+            .rev()
+            .map(|record| DuplicateInsertRecordSnapshot {
+                hash: record.hash,
+                first_source: record.first_source,
+                second_source: record.second_source,
+                timestamp: record.timestamp,
+            })
+            .collect()
     }
 
     pub fn account_count(&self) -> u64 {
@@ -1215,6 +1317,7 @@ pub struct BatchProcessEntry {
     pub status: Result<(), BlockError>,
     pub saved_block: Option<SavedBlock>,
     pub inserted: bool,
+    pub preexisting: bool,
 }
 
 pub trait CementingObserver {
