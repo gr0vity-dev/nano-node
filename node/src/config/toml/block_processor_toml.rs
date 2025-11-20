@@ -9,6 +9,7 @@ pub struct BlockProcessorToml {
     pub priority_bootstrap: Option<usize>,
     pub priority_live: Option<usize>,
     pub priority_local: Option<usize>,
+    pub batch_size: Option<usize>,
 }
 
 impl From<&NodeConfig> for BlockProcessorToml {
@@ -20,6 +21,7 @@ impl From<&NodeConfig> for BlockProcessorToml {
             priority_live: Some(config.block_processor.priority_live),
             priority_bootstrap: Some(config.block_processor.priority_bootstrap),
             priority_local: Some(config.block_processor.priority_local),
+            batch_size: Some(config.block_processor.batch_size),
         }
     }
 }
@@ -40,6 +42,9 @@ impl ProcessQueueConfig {
         }
         if let Some(priority_bootstrap) = toml.priority_bootstrap {
             self.priority_bootstrap = priority_bootstrap;
+        }
+        if let Some(batch_size) = toml.batch_size {
+            self.batch_size = batch_size;
         }
     }
 }

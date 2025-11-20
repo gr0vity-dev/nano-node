@@ -657,6 +657,7 @@ mod tests {
                 priority_bootstrap: Some(45),
                 priority_live: Some(46),
                 priority_local: Some(47),
+                batch_size: Some(48),
             }),
             ..Default::default()
         };
@@ -674,6 +675,7 @@ mod tests {
         assert_eq!(cfg.block_processor.priority_bootstrap, 45);
         assert_eq!(cfg.block_processor.priority_live, 46);
         assert_eq!(cfg.block_processor.priority_local, 47);
+        assert_eq!(cfg.block_processor.batch_size, 48);
     }
 
     #[test]
@@ -712,6 +714,7 @@ mod tests {
         assert_eq!(block_proc.priority_live, Some(46));
         assert_eq!(block_proc.priority_bootstrap, Some(47));
         assert_eq!(block_proc.priority_local, Some(48));
+        assert_eq!(block_proc.batch_size, Some(50));
     }
 
     #[test]
