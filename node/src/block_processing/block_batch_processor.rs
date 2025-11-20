@@ -49,6 +49,10 @@ impl BlockBatchProcessor {
 
         self.roll_back_competitor_blocks(&batch);
 
+        let prev_optimistic_successes = self.ledger.optimistic_successes();
+        let prev_optimistic_conflicts = self.ledger.optimistic_conflicts();
+        let prev_pessimistic_fallbacks = self.ledger.pessimistic_fallbacks();
+
         let validation_results = self.ledger.validate_batch(batch.iter().map(|c| &c.block));
         let processed_entries = self
             .ledger
@@ -63,15 +67,22 @@ impl BlockBatchProcessor {
                 },
             )
             .unwrap_or_else(|e| panic!("failed to process block batch: {e}"));
-        self.stats
-            .optimistic_successes
-            .store(self.ledger.optimistic_successes(), Relaxed);
-        self.stats
-            .optimistic_conflicts
-            .store(self.ledger.optimistic_conflicts(), Relaxed);
-        self.stats
-            .pessimistic_fallbacks
-            .store(self.ledger.pessimistic_fallbacks(), Relaxed);
+        let optimistic_successes = self.ledger.optimistic_successes();
+        let optimistic_conflicts = self.ledger.optimistic_conflicts();
+        let pessimistic_fallbacks = self.ledger.pessimistic_fallbacks();
+
+        self.stats.optimistic_successes.fetch_add(
+            optimistic_successes.saturating_sub(prev_optimistic_successes),
+            Relaxed,
+        );
+        self.stats.optimistic_conflicts.fetch_add(
+            optimistic_conflicts.saturating_sub(prev_optimistic_conflicts),
+            Relaxed,
+        );
+        self.stats.pessimistic_fallbacks.fetch_add(
+            pessimistic_fallbacks.saturating_sub(prev_pessimistic_fallbacks),
+            Relaxed,
+        );
 
         let processed_result: Vec<_> = processed_entries
             .iter()
