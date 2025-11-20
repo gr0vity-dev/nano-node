@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use rsnano_ledger::{Ledger, LedgerSet};
-use rsnano_types::{Account, Amount};
+use rsnano_types::{Account, Amount, BlockHash, Link};
 
 #[derive(Clone)]
 pub struct ProductionHandles {
@@ -11,6 +11,7 @@ pub struct ProductionHandles {
     ledger_account_count: LedgerAccountCountHandle,
     ledger_account_balances: LedgerAccountBalanceHandle,
     ledger_work_thresholds: LedgerWorkThresholdHandle,
+    ledger_state_checks: LedgerStateCheckHandle,
 }
 
 impl ProductionHandles {
@@ -21,7 +22,8 @@ impl ProductionHandles {
             ledger_counts: LedgerCountsHandle::new(ledger.clone()),
             ledger_account_count: LedgerAccountCountHandle::new(ledger.clone()),
             ledger_account_balances: LedgerAccountBalanceHandle::new(ledger.clone()),
-            ledger_work_thresholds: LedgerWorkThresholdHandle::new(ledger),
+            ledger_work_thresholds: LedgerWorkThresholdHandle::new(ledger.clone()),
+            ledger_state_checks: LedgerStateCheckHandle::new(ledger),
         }
     }
 
@@ -43,6 +45,10 @@ impl ProductionHandles {
 
     pub fn ledger_work_thresholds(&self) -> LedgerWorkThresholdHandle {
         self.ledger_work_thresholds.clone()
+    }
+
+    pub fn ledger_state_checks(&self) -> LedgerStateCheckHandle {
+        self.ledger_state_checks.clone()
     }
 }
 
@@ -145,5 +151,28 @@ impl LedgerWorkThresholdHandle {
 
     pub fn threshold_base(&self) -> u64 {
         self.ledger.work_thresholds().threshold_base()
+    }
+}
+
+#[derive(Clone)]
+pub struct LedgerStateCheckHandle {
+    ledger: Arc<Ledger>,
+}
+
+impl LedgerStateCheckHandle {
+    pub(crate) fn new(ledger: Arc<Ledger>) -> Self {
+        Self { ledger }
+    }
+
+    pub fn block_exists(&self, hash: &BlockHash) -> bool {
+        self.ledger.any().block_exists(hash)
+    }
+
+    pub fn account_balance(&self, account: &Account) -> Amount {
+        self.ledger.any().account_balance(account)
+    }
+
+    pub fn is_epoch_link(&self, link: &Link) -> bool {
+        self.ledger.is_epoch_link(link)
     }
 }

@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail};
 
-use rsnano_ledger::{BlockError, LedgerSet};
+use rsnano_ledger::BlockError;
 use rsnano_network::ChannelId;
 use rsnano_node::block_processing::{BlockContext, BlockSource};
 use rsnano_rpc_messages::{BlockSubTypeDto, HashRpcMessage, ProcessArgs, StartedResponse};
@@ -14,14 +14,14 @@ impl RpcCommandHandler {
         let block: Block = args.block.into();
 
         // State blocks subtype check
-        if let Block::State(state) = &block
-            && let Some(subtype) = args.subtype
-        {
-            let any = self.ledger_services.ledger.any();
-            if !state.previous().is_zero() && !any.block_exists(&state.previous()) {
+        if let Block::State(state) = &block && let Some(subtype) = args.subtype {
+            let previous = state.previous();
+            if !previous.is_zero() && !self.ledger_state_checks.block_exists(&previous) {
                 bail!("Gap previous block")
             } else {
-                let balance = any.account_balance(&state.account());
+                let balance = self
+                    .ledger_state_checks
+                    .account_balance(&state.account());
                 match subtype {
                     BlockSubTypeDto::Send => {
                         if balance <= state.balance() {
@@ -50,7 +50,7 @@ impl RpcCommandHandler {
                     BlockSubTypeDto::Epoch => {
                         if balance != state.balance() {
                             bail!("Invalid block balance for given subtype");
-                        } else if !self.ledger_services.ledger.is_epoch_link(&state.link()) {
+                        } else if !self.ledger_state_checks.is_epoch_link(&state.link()) {
                             bail!("Invalid epoch link");
                         }
                     }

@@ -1,5 +1,6 @@
 use rsnano_ledger::LedgerSet;
 use rsnano_node::Node;
+use rsnano_types::Epoch;
 
 #[test]
 fn ledger_info_handle_matches_ledger_metadata() {
@@ -82,4 +83,23 @@ fn ledger_work_threshold_handle_matches_ledger_constants() {
         handle.threshold_base(),
         node.ledger_query_services().ledger.work_thresholds().threshold_base()
     );
+}
+
+#[test]
+fn ledger_state_check_handle_matches_ledger_queries() {
+    let node = Node::new_null();
+    let handle = node.production_handles().ledger_state_checks();
+    let ledger = node.ledger_query_services().ledger;
+    let genesis_hash = node.network_params.ledger.genesis_block.hash();
+    let genesis_account = node.network_params.ledger.genesis_account;
+
+    assert!(handle.block_exists(&genesis_hash));
+    assert_eq!(
+        handle.account_balance(&genesis_account),
+        ledger.any().account_balance(&genesis_account)
+    );
+
+    if let Some(link) = node.network_params.ledger.epochs.link(Epoch::Epoch1) {
+        assert!(handle.is_epoch_link(link));
+    }
 }
