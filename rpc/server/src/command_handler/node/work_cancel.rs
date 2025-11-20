@@ -3,7 +3,7 @@ use rsnano_rpc_messages::{HashRpcMessage, SuccessResponse};
 
 impl RpcCommandHandler {
     pub(crate) fn work_cancel(&self, args: HashRpcMessage) -> SuccessResponse {
-        self.bootstrap_work_services
+        self.bootstrap
             .work_factory
             .cancel(args.hash.into());
         SuccessResponse::new()
@@ -29,7 +29,8 @@ mod tests {
     fn handle_work_cancel_command() {
         let node = Arc::new(Node::new_null());
         let cancel_tracker = node
-            .bootstrap_work_services()
+            .bootstrap_subsystem()
+            .test_handles()
             .work_factory
             .track_cancellations();
         let root = Root::from(42);

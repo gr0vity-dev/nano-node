@@ -4,7 +4,7 @@ use rsnano_rpc_messages::WorkPeersResponse;
 impl RpcCommandHandler {
     pub(crate) fn work_peers(&self) -> WorkPeersResponse {
         WorkPeersResponse {
-            work_peers: self.bootstrap_work_services.work_factory.peers(),
+            work_peers: self.bootstrap.work_factory.peers(),
         }
     }
 }

@@ -34,7 +34,7 @@ use crate::{
     consensus::{AecTicker, AecVoter, election::ConfirmedElection},
     node_builder::ComposedNode,
     node_id_key_file::NodeIdKeyFile,
-    subsystems::{ConsensusSubsystem, Lifecycle, NetworkSubsystem},
+    subsystems::{BootstrapSubsystem, ConsensusSubsystem, Lifecycle, NetworkSubsystem},
     tokio_runner::TokioRunner,
 };
 
@@ -61,6 +61,7 @@ pub struct Node {
     container_info_factory: ContainerInfoFactory,
     aec_voter: TimerThread<AecVoter>,
     ticker_services: TickerServices,
+    bootstrap_subsystem: BootstrapSubsystem,
     #[cfg(feature = "ledger_snapshots")]
     pub ledger_snapshots: Arc<LedgerSnapshots>,
 }
@@ -139,6 +140,10 @@ impl Node {
         self.services.bootstrap_work_services()
     }
 
+    pub fn bootstrap_subsystem(&self) -> BootstrapSubsystem {
+        self.bootstrap_subsystem.clone()
+    }
+
     pub fn stats_service(&self) -> Arc<Stats> {
         self.services.stats.clone()
     }
@@ -210,6 +215,12 @@ impl Node {
             );
             ConsensusSubsystem::new(services, composed.config.clone(), composed.flags.clone())
         };
+        let bootstrap_subsystem = BootstrapSubsystem::new(
+            composed.services.bootstrapper.clone(),
+            composed.services.bootstrap_server.clone(),
+            composed.services.work_factory.clone(),
+            composed.config.enable_bootstrap_responder,
+        );
 
         Ok(Self {
             is_nulled: composed.is_nulled,
@@ -223,6 +234,7 @@ impl Node {
             services: composed.services,
             network_subsystem,
             consensus_subsystem,
+            bootstrap_subsystem,
             unchecked: composed.unchecked,
             backlog_scan: composed.backlog_scan,
             stopped: AtomicBool::new(false),
@@ -437,7 +449,6 @@ impl Node {
             panic!("Genesis block not found!");
         }
 
-        let bootstrap_work_services = self.bootstrap_work_services();
         let telemetry_services = self.telemetry_services();
 
         self.network_subsystem.start();
@@ -446,7 +457,7 @@ impl Node {
 
         Lifecycle::start(&mut self.consensus_subsystem);
         self.backlog_scan.start();
-        bootstrap_work_services.start(self.config.enable_bootstrap_responder);
+        Lifecycle::start(&mut self.bootstrap_subsystem);
         telemetry_services.start();
 
         self.ticker_services_mut().start();
@@ -464,14 +475,13 @@ impl Node {
         }
         info!("Node stopping...");
 
-        let bootstrap_work_services = self.bootstrap_work_services();
         let telemetry_services = self.telemetry_services();
         let wallet_services = self.wallet_services();
 
         self.ticker_services_mut().stop();
         self.network_subsystem.stop_listeners();
         self.consensus_timer_services().stop();
-        bootstrap_work_services.stop();
+        Lifecycle::stop(&mut self.bootstrap_subsystem);
         self.backlog_scan.stop();
         Lifecycle::stop(&mut self.consensus_subsystem);
         telemetry_services.stop();
