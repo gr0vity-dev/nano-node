@@ -34,7 +34,7 @@ pub(crate) const NODE_CONFIG: &str = r#"
 [node.network]
     max_peers_per_ip = 256
 
-[node.consensus_services().bounded_backlog]
+[node.consensus.bounded_backlog]
     enable = false
 
 [node.bootstrap_work_services().bootstrap_server]

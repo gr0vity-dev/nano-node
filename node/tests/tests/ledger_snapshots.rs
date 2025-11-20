@@ -47,7 +47,7 @@ fn ledger_snapshot_integration_test() {
 // -----------------------------------------------------------------------------
 
 fn assert_peered_principal_reps(node: &Node, expected_rep_count: usize) {
-    let online_reps = node.consensus_services().online_reps.clone();
+    let online_reps = node.consensus_subsystem().test_handles().online_reps.clone();
     assert_timely2(|| {
         online_reps.lock().unwrap().peered_principal_reps().len() == expected_rep_count
     });

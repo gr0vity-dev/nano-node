@@ -114,7 +114,7 @@ fn frontier_scan() {
     );
 
     // Frontier scan should detect all the accounts with missing blocks
-    let node1_bootstrapper = node1.consensus_services().bootstrapper;
+    let node1_bootstrapper = node1.consensus_subsystem().test_handles().bootstrapper;
     assert_timely(Duration::from_secs(10), || {
         updates
             .iter()
@@ -175,7 +175,7 @@ fn frontier_scan_pending() {
     );
 
     // Frontier scan should detect all the accounts with missing blocks
-    let node1_bootstrapper = node1.consensus_services().bootstrapper;
+    let node1_bootstrapper = node1.consensus_subsystem().test_handles().bootstrapper;
     assert_timely(Duration::from_secs(10), || {
         opens
             .iter()
@@ -245,7 +245,7 @@ fn frontier_scan_cannot_prioritize() {
         blocks.len() + 1,
     );
     // Frontier scan should not detect the accounts
-    let node1_bootstrapper = node1.consensus_services().bootstrapper;
+    let node1_bootstrapper = node1.consensus_subsystem().test_handles().bootstrapper;
     assert_always_eq(
         Duration::from_secs(1),
         || {

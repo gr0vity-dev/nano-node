@@ -36,7 +36,7 @@ fn block_processor_and_confirming_set_make_progress_concurrently() {
     for block in [&send1, &send2] {
         let ctx = BlockContext::new(block.clone(), BlockSource::Local, ChannelId::LOOPBACK);
         assert!(node
-            .consensus_services()
+            .consensus_subsystem().test_handles()
             .block_processor_queue
             .push(ctx));
     }
@@ -54,10 +54,10 @@ fn block_processor_and_confirming_set_make_progress_concurrently() {
     });
 
     // Drive confirmation height processing concurrently.
-    node.consensus_services()
+    node.consensus_subsystem().test_handles()
         .confirming_set
         .add_block(send1.hash());
-    node.consensus_services()
+    node.consensus_subsystem().test_handles()
         .confirming_set
         .add_block(send2.hash());
 
@@ -73,13 +73,13 @@ fn block_processor_and_confirming_set_make_progress_concurrently() {
                 .block_exists(&send2.hash())
     });
 
-    let bp_stats = node.consensus_services().block_processor.stats();
+    let bp_stats = node.consensus_subsystem().test_handles().block_processor.stats();
     assert!(
         bp_stats.max_optimistic_concurrency() >= 2,
         "expected block processor optimistic concurrency to reach at least 2"
     );
 
-    let conf_stats = node.consensus_services().confirming_set.writer_stats();
+    let conf_stats = node.consensus_subsystem().test_handles().confirming_set.writer_stats();
     assert!(
         conf_stats.max_optimistic_concurrency() >= 1,
         "confirmation height writer should have executed optimistically"

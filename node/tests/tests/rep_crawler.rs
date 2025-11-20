@@ -34,7 +34,7 @@ fn ignore_rebroadcast() {
         .expect("channel not found 2 to 1");
 
     node1
-        .consensus_services()
+        .consensus_subsystem().test_handles()
         .rep_crawler
         .force_query(*DEV_GENESIS_HASH, channel1to2);
 
@@ -42,7 +42,7 @@ fn ignore_rebroadcast() {
         Duration::from_millis(100),
         || {
             node1
-                .consensus_services()
+                .consensus_subsystem().test_handles()
                 .online_reps
                 .lock()
                 .unwrap()
@@ -59,7 +59,7 @@ fn ignore_rebroadcast() {
         vec![*DEV_GENESIS_HASH],
     );
     node1
-        .consensus_services()
+        .consensus_subsystem().test_handles()
         .rep_crawler
         .force_query(*DEV_GENESIS_HASH, channel1to2);
 
@@ -76,7 +76,7 @@ fn ignore_rebroadcast() {
     assert_never(Duration::from_secs(1), || {
         tick()
             || node1
-                .consensus_services()
+                .consensus_subsystem().test_handles()
                 .online_reps
                 .lock()
                 .unwrap()
@@ -108,7 +108,7 @@ fn rep_weight() {
     node2.process_multi(&blocks);
     node3.process_multi(&blocks);
     assert_eq!(
-        node.consensus_services()
+        node.consensus_subsystem().test_handles()
             .online_reps
             .lock()
             .unwrap()
@@ -171,13 +171,13 @@ fn rep_weight() {
         Some(channel3.clone()),
     );
 
-    node.consensus_services().rep_crawler.force_process2(vote0);
-    node.consensus_services().rep_crawler.force_process2(vote1);
-    node.consensus_services().rep_crawler.force_process2(vote2);
+    node.consensus_subsystem().test_handles().rep_crawler.force_process2(vote0);
+    node.consensus_subsystem().test_handles().rep_crawler.force_process2(vote1);
+    node.consensus_subsystem().test_handles().rep_crawler.force_process2(vote2);
 
     assert_timely_eq2(
         || {
-            node.consensus_services()
+            node.consensus_subsystem().test_handles()
                 .online_reps
                 .lock()
                 .unwrap()
@@ -187,7 +187,7 @@ fn rep_weight() {
     );
     // Make sure we get the rep with the most weight first
     let rep = node
-        .consensus_services()
+        .consensus_subsystem().test_handles()
         .online_reps
         .lock()
         .unwrap()
@@ -199,7 +199,7 @@ fn rep_weight() {
     );
     assert_eq!(channel1, rep.channel);
     assert_eq!(
-        node.consensus_services()
+        node.consensus_subsystem().test_handles()
             .online_reps
             .lock()
             .unwrap()
@@ -207,7 +207,7 @@ fn rep_weight() {
         true
     );
     assert_eq!(
-        node.consensus_services()
+        node.consensus_subsystem().test_handles()
             .online_reps
             .lock()
             .unwrap()
@@ -215,7 +215,7 @@ fn rep_weight() {
         false
     );
     assert_eq!(
-        node.consensus_services()
+        node.consensus_subsystem().test_handles()
             .online_reps
             .lock()
             .unwrap()
@@ -233,7 +233,7 @@ fn rep_list() {
     assert_eq!(
         0,
         node2
-            .consensus_services()
+            .consensus_subsystem().test_handles()
             .online_reps
             .lock()
             .unwrap()
@@ -245,7 +245,7 @@ fn rep_list() {
         Duration::from_secs(5),
         || {
             node2
-                .consensus_services()
+                .consensus_subsystem().test_handles()
                 .online_reps
                 .lock()
                 .unwrap()
@@ -256,7 +256,7 @@ fn rep_list() {
     assert_eq!(
         *DEV_GENESIS_PUB_KEY,
         node2
-            .consensus_services()
+            .consensus_subsystem().test_handles()
             .online_reps
             .lock()
             .unwrap()
@@ -276,7 +276,7 @@ fn rep_connection_close() {
         Duration::from_secs(10),
         || {
             node1
-                .consensus_services()
+                .consensus_subsystem().test_handles()
                 .online_reps
                 .lock()
                 .unwrap()
@@ -289,7 +289,7 @@ fn rep_connection_close() {
         Duration::from_secs(10),
         || {
             node1
-                .consensus_services()
+                .consensus_subsystem().test_handles()
                 .online_reps
                 .lock()
                 .unwrap()
@@ -306,7 +306,7 @@ fn rep_local() {
     node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     assert_timely_eq2(
         || {
-            node.consensus_services()
+            node.consensus_subsystem().test_handles()
                 .online_reps
                 .lock()
                 .unwrap()

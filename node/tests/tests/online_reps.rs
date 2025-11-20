@@ -9,7 +9,7 @@ fn observe() {
     let node = system.make_node();
     assert_eq!(
         Amount::ZERO,
-        node.consensus_services()
+        node.consensus_subsystem().test_handles()
             .online_reps
             .lock()
             .unwrap()
@@ -25,7 +25,7 @@ fn observe() {
     // The node should see that weight as online
     assert_timely_eq2(
         || {
-            node.consensus_services()
+            node.consensus_subsystem().test_handles()
                 .online_reps
                 .lock()
                 .unwrap()
@@ -43,7 +43,7 @@ fn observe_local() {
     node.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
     assert_timely_eq2(
         || {
-            node.consensus_services()
+            node.consensus_subsystem().test_handles()
                 .online_reps
                 .lock()
                 .unwrap()
@@ -54,7 +54,7 @@ fn observe_local() {
     assert_always_eq(
         Duration::from_secs(1),
         || {
-            node.consensus_services()
+            node.consensus_subsystem().test_handles()
                 .online_reps
                 .lock()
                 .unwrap()

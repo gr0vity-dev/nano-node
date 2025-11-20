@@ -114,7 +114,7 @@ fn send_discarded_publish() {
     .into();
 
     node1
-        .consensus_services()
+        .consensus_subsystem().test_handles()
         .local_block_broadcaster
         .flood_block_initial(block);
 
@@ -132,7 +132,7 @@ fn send_discarded_publish() {
 fn receivable_processor_confirm_insufficient_pos() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let consensus_services = node1.consensus_services();
+    let consensus_services = node1.consensus_subsystem().test_handles();
     let active = consensus_services.active.clone();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -177,7 +177,7 @@ fn receivable_processor_confirm_insufficient_pos() {
 fn receivable_processor_confirm_sufficient_pos() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let consensus_services = node1.consensus_services();
+    let consensus_services = node1.consensus_subsystem().test_handles();
     let active = consensus_services.active.clone();
     let ledger_services = node1.ledger_query_services();
 

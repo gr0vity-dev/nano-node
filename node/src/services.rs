@@ -342,31 +342,6 @@ impl NodeServices {
         TelemetryServices::new(self.telemetry.clone(), self.tcp_listener.clone())
     }
 
-    pub fn consensus_services(&self) -> ConsensusServices {
-        ConsensusServices::new(
-            self.active.clone(),
-            self.election_schedulers.clone(),
-            self.vote_processor.clone(),
-            self.vote_generators.clone(),
-            self.vote_history.clone(),
-            self.request_aggregator.clone(),
-            self.bounded_backlog.clone(),
-            self.bootstrapper.clone(),
-            self.rep_crawler.clone(),
-            self.online_reps.clone(),
-            self.rep_tiers.clone(),
-            self.local_block_broadcaster.clone(),
-            self.winner_block_broadcaster.clone(),
-            self.vote_processor_queue.clone(),
-            self.vote_cache.clone(),
-            self.vote_cache_processor.clone(),
-            self.confirming_set.clone(),
-            self.block_processor.clone(),
-            self.block_processor_queue.clone(),
-            self.vote_rebroadcaster.clone(),
-        )
-    }
-
     pub fn ledger_query_services(&self) -> LedgerQueryServices {
         LedgerQueryServices::new(
             self.ledger.clone(),

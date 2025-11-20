@@ -11,7 +11,7 @@ use test_helpers::{System, assert_timely, assert_timely2, start_election, start_
 fn start_stop() {
     let mut system = System::new();
     let node1 = system.make_node();
-    let consensus_services = node1.consensus_services();
+    let consensus_services = node1.consensus_subsystem().test_handles();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
     let send1 = lattice.genesis().send(&key1, Amount::MAX);
@@ -49,7 +49,7 @@ fn add_existing() {
     // the block processor will notice that the block is a fork and it will try to publish it
     // which will update the election object
     node1
-        .consensus_services()
+        .consensus_subsystem().test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             send2.clone().into(),

@@ -11,7 +11,7 @@ use test_helpers::{System, assert_never, assert_timely, assert_timely2, setup_ch
 pub fn activate_one() {
     let mut system = System::new();
     let node = system.make_node();
-    let consensus_services = node.consensus_services();
+    let consensus_services = node.consensus_subsystem().test_handles();
 
     // Needs to be greater than optimistic scheduler `gap_threshold`
     let howmany_blocks = 64;
@@ -52,7 +52,7 @@ pub fn activate_one() {
 pub fn activate_one_zero_conf() {
     let mut system = System::new();
     let node = system.make_node();
-    let consensus_services = node.consensus_services();
+    let consensus_services = node.consensus_subsystem().test_handles();
 
     // Can be smaller than optimistic scheduler `gap_threshold`
     // This is meant to activate short account chains (eg. binary tree spam leaf accounts)
@@ -91,7 +91,7 @@ pub fn activate_one_zero_conf() {
 pub fn activate_many() {
     let mut system = System::new();
     let node = system.make_node();
-    let consensus_services = node.consensus_services();
+    let consensus_services = node.consensus_subsystem().test_handles();
 
     // Needs to be greater than optimistic scheduler `gap_threshold`
     let howmany_blocks = 64;

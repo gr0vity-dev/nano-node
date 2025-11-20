@@ -26,7 +26,7 @@ mod election_scheduler {
             .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
 
         let ledger_services = node.ledger_query_services();
-        let consensus_services = node.consensus_services();
+        let consensus_services = node.consensus_subsystem().test_handles();
         ledger_services.ledger.process_one(&send1).unwrap();
 
         consensus_services
@@ -50,7 +50,7 @@ mod election_scheduler {
 
         // Process the block
         let ledger_services = node.ledger_query_services();
-        let consensus_services = node.consensus_services();
+        let consensus_services = node.consensus_subsystem().test_handles();
         ledger_services.ledger.process_one(&send1).unwrap();
 
         // Activate the account
@@ -98,7 +98,7 @@ mod election_scheduler {
         // Activating accounts depends on confirmed dependencies. First, prepare 2 accounts
         let send = lattice.genesis().send(&key, Amount::nano(1000));
         let send = node.process(send.clone());
-        let consensus_services = node.consensus_services();
+        let consensus_services = node.consensus_subsystem().test_handles();
         consensus_services.confirming_set.add_block(send.hash());
 
         let receive = lattice.account(&key).receive(&send);
@@ -188,7 +188,7 @@ mod election_scheduler {
         // Wait for optimistic election to start for last block
         let block = blocks.last().unwrap();
         assert_timely2(|| node.is_active_hash(&block.hash()));
-        let consensus_services = node.consensus_services();
+        let consensus_services = node.consensus_subsystem().test_handles();
         assert_eq!(
             consensus_services
                 .active

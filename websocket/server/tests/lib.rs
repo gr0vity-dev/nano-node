@@ -107,7 +107,7 @@ fn stopped_election() {
             .inbound_message_queue
             .put(publish1, channel1);
         assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
-        let active = node1.consensus_services().active.clone();
+        let active = node1.consensus_subsystem().test_handles().active.clone();
         spawn_blocking(move || active.write().unwrap().erase(&send1.qualified_root()))
             .await
             .unwrap();
@@ -200,7 +200,7 @@ fn confirmation() {
         let mut lattice = unsaved_block_lattice_builder;
         let key = PrivateKey::new();
         let send_amount = node1
-            .consensus_services()
+            .consensus_subsystem().test_handles()
             .online_reps
             .lock()
             .unwrap()
@@ -256,7 +256,7 @@ fn confirmation_options() {
         let key = PrivateKey::new();
         let mut balance = Amount::MAX;
         let send_amount = node1
-            .consensus_services()
+            .consensus_subsystem().test_handles()
             .online_reps
             .lock()
             .unwrap()
@@ -561,7 +561,7 @@ fn vote_options_representatives() {
         let mut lattice = UnsavedBlockLatticeBuilder::new();
         let key = PrivateKey::new();
         let send_amount = node1
-            .consensus_services()
+            .consensus_subsystem().test_handles()
             .online_reps
             .lock()
             .unwrap()

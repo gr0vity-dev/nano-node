@@ -127,10 +127,6 @@ impl Node {
         self.network_subsystem.clone()
     }
 
-    pub fn consensus_services(&self) -> ConsensusServices {
-        self.consensus_subsystem.services()
-    }
-
     pub fn consensus_subsystem(&self) -> ConsensusSubsystem {
         self.consensus_subsystem.clone()
     }
@@ -189,7 +185,29 @@ impl Node {
         };
 
         let consensus_subsystem = {
-            let services = composed.services.consensus_services();
+            let s = &composed.services;
+            let services = ConsensusServices::new(
+                s.active.clone(),
+                s.election_schedulers.clone(),
+                s.vote_processor.clone(),
+                s.vote_generators.clone(),
+                s.vote_history.clone(),
+                s.request_aggregator.clone(),
+                s.bounded_backlog.clone(),
+                s.bootstrapper.clone(),
+                s.rep_crawler.clone(),
+                s.online_reps.clone(),
+                s.rep_tiers.clone(),
+                s.local_block_broadcaster.clone(),
+                s.winner_block_broadcaster.clone(),
+                s.vote_processor_queue.clone(),
+                s.vote_cache.clone(),
+                s.vote_cache_processor.clone(),
+                s.confirming_set.clone(),
+                s.block_processor.clone(),
+                s.block_processor_queue.clone(),
+                s.vote_rebroadcaster.clone(),
+            );
             ConsensusSubsystem::new(services, composed.config.clone(), composed.flags.clone())
         };
 
@@ -595,7 +613,7 @@ mod tests {
     #[test]
     fn connect_winner_block_rebroadcaster() {
         let node = Node::new_null();
-        let consensus_services = node.consensus_services();
+        let consensus_services = node.consensus_subsystem().test_handles();
         let broadcast_tracker = consensus_services
             .winner_block_broadcaster
             .lock()

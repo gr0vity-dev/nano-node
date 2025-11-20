@@ -20,7 +20,7 @@ fn codes() {
     config.enable_optimistic_scheduler = false;
     let node = system.build_node().config(config).finish();
     let blocks = setup_chain(&node, 1, &DEV_GENESIS_KEY, false);
-    let consensus_services = node.consensus_services();
+    let consensus_services = node.consensus_subsystem().test_handles();
     let vote_processor = consensus_services.vote_processor.clone();
     let vote_cache = consensus_services.vote_cache.clone();
     let active = consensus_services.active.clone();
@@ -83,7 +83,7 @@ fn invalid_signature() {
     let mut system = System::new();
     let node = system.make_node();
     let chain = setup_chain(&node, 1, &DEV_GENESIS_KEY, false);
-    let consensus_services = node.consensus_services();
+    let consensus_services = node.consensus_subsystem().test_handles();
     let vote_processor_queue = consensus_services.vote_processor_queue.clone();
     let active = consensus_services.active.clone();
     let key = PrivateKey::new();
@@ -115,7 +115,7 @@ fn overflow() {
     let mut system = System::new();
     let node = system.make_node();
     let key = PrivateKey::new();
-    let consensus_services = node.consensus_services();
+    let consensus_services = node.consensus_subsystem().test_handles();
     let vote_processor_queue = consensus_services.vote_processor_queue.clone();
     let stats = node.ledger_query_services().stats.clone();
     let vote = Arc::new(Vote::new(
@@ -170,7 +170,7 @@ fn weights() {
     let node1_wallets = node1.wallet_services();
     let node2_wallets = node2.wallet_services();
     let node3_wallets = node3.wallet_services();
-    let node0_consensus = node0.consensus_services();
+    let node0_consensus = node0.consensus_subsystem().test_handles();
     let node0_ledger = node0.ledger_query_services();
 
     // Create representatives of different weight levels

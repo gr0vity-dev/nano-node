@@ -15,7 +15,7 @@ fn quorum_minimum_confirm_fail() {
     };
     let node1 = system.build_node().config(config).finish();
     let wallet_services = node1.wallet_services();
-    let consensus_services = node1.consensus_services();
+    let consensus_services = node1.consensus_subsystem().test_handles();
     let wallet_id = wallet_services.wallets.wallet_ids()[0];
     wallet_services
         .wallets
@@ -62,7 +62,7 @@ fn quorum_minimum_confirm_success() {
     };
     let node1 = system.build_node().config(config).finish();
     let wallet_services = node1.wallet_services();
-    let consensus_services = node1.consensus_services();
+    let consensus_services = node1.consensus_subsystem().test_handles();
     let wallet_id = wallet_services.wallets.wallet_ids()[0];
     wallet_services
         .wallets
@@ -103,7 +103,7 @@ fn quorum_minimum_flip_fail() {
         ..System::default_config_without_backlog_scan()
     };
     let node1 = system.build_node().config(config).finish();
-    let consensus_services = node1.consensus_services();
+    let consensus_services = node1.consensus_subsystem().test_handles();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
@@ -155,7 +155,7 @@ fn quorum_minimum_flip_success() {
         ..System::default_config_without_backlog_scan()
     };
     let node1 = system.build_node().config(config).finish();
-    let consensus_services = node1.consensus_services();
+    let consensus_services = node1.consensus_subsystem().test_handles();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let key1 = PrivateKey::new();
