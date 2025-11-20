@@ -1,6 +1,5 @@
 use anyhow::anyhow;
 
-use rsnano_ledger::LedgerSet;
 use rsnano_rpc_messages::{
     AccountHistoryArgs, AccountHistoryResponse, BlockSubTypeDto, BlockTypeDto, HistoryEntry,
     unwrap_bool_or_false, unwrap_u64_or_zero,
@@ -31,6 +30,8 @@ pub(crate) struct AccountHistoryHelper {
     output_raw: bool,
     count: u64,
     include_linked_account: bool,
+    account: Account,
+    current_block_hash: BlockHash,
 }
 
 impl AccountHistoryHelper {
@@ -45,6 +46,8 @@ impl AccountHistoryHelper {
             output_raw: unwrap_bool_or_false(args.raw),
             count: args.count.into(),
             include_linked_account: unwrap_bool_or_false(args.include_linked_account),
+            account: Account::ZERO,
+            current_block_hash: BlockHash::ZERO,
         }
     }
 
@@ -77,6 +80,9 @@ impl AccountHistoryHelper {
             .ledger_queries
             .get_block(&current_hash)
             .ok_or_else(|| anyhow!(RpcCommandHandler::BLOCK_NOT_FOUND))?;
+        self.account = self
+            .requested_account
+            .unwrap_or_else(|| current_block.account());
         let mut seen = 0u64;
 
         while seen < self.count && !current_hash.is_zero() {
@@ -100,9 +106,14 @@ impl AccountHistoryHelper {
             } else {
                 break;
             }
+
+            self.current_block_hash = current_hash;
+            if self.reverse {
+                self.account = current_block.account();
+            }
         }
 
-        Ok(self.create_response(history))
+        Ok(self.create_response(history, current_hash, self.account))
     }
 
     fn should_ignore_account(&self, account: &Account) -> bool {
@@ -118,7 +129,7 @@ impl AccountHistoryHelper {
                 let mut entry = empty_entry();
                 entry.block_type = Some(BlockTypeDto::Send);
                 entry.account = Some(self.account);
-                if let Some(amount) = any.block_amount_for(block) {
+                if let Some(amount) = self.ledger_queries.block_amount_for(block) {
                     entry.amount = Some(amount);
                 } else {
                     entry.destination = Some(self.account);
@@ -130,8 +141,10 @@ impl AccountHistoryHelper {
             Block::LegacyReceive(b) => {
                 let mut entry = empty_entry();
                 entry.block_type = Some(BlockTypeDto::Receive);
-                if let Some(amount) = any.block_amount_for(block) {
-                    if let Some(source_account) = any.block_account(&b.source()) {
+                if let Some(amount) = self.ledger_queries.block_amount_for(block) {
+                    if let Some(source_account) =
+                        self.ledger_queries.block_account(&b.source())
+                    {
                         entry.account = Some(source_account);
                     }
                     entry.amount = Some(amount);
@@ -155,8 +168,8 @@ impl AccountHistoryHelper {
                 }
 
                 if b.source() != self.ledger_queries.constants().genesis_account.into() {
-                    if let Some(amount) = any.block_amount_for(block) {
-                        entry.account = any.block_account(&b.source());
+                    if let Some(amount) = self.ledger_queries.block_amount_for(block) {
+                        entry.account = self.ledger_queries.block_account(&b.source());
                         entry.amount = Some(amount);
                     }
                 } else {
@@ -187,7 +200,7 @@ impl AccountHistoryHelper {
                 }
 
                 let balance = b.balance();
-                let previous_balance_raw = any.block_balance(&b.previous());
+                let previous_balance_raw = self.ledger_queries.block_balance(&b.previous());
                 let previous_balance = previous_balance_raw.unwrap_or_default();
                 if !b.previous().is_zero() && previous_balance_raw.is_none() {
                     // If previous hash is non-zero and we can't query the balance, e.g. it's pruned, we can't determine the block type
@@ -218,21 +231,18 @@ impl AccountHistoryHelper {
                         None
                     }
                 } else if balance == previous_balance
-                    && self
-                        .ledger_queries
-                        .constants()
-                        .epochs
-                        .is_epoch_link(&b.link())
+                    && self.ledger_queries.is_epoch_link(&b.link())
                 {
                     if self.output_raw && self.accounts_to_filter.is_empty() {
                         entry.subtype = Some(BlockSubTypeDto::Epoch);
-                        entry.account = self.ledger.epoch_signer(&b.link());
+                        entry.account = self.ledger_queries.epoch_signer(&b.link());
                         Some(entry)
                     } else {
                         None
                     }
                 } else {
-                    let source_account_opt = any.block_account(&b.link().into());
+                    let source_account_opt =
+                        self.ledger_queries.block_account(&b.link().into());
                     let source_account = source_account_opt.unwrap_or_default();
 
                     if source_account_opt.is_some() && self.should_ignore_account(&source_account) {
@@ -254,22 +264,25 @@ impl AccountHistoryHelper {
         };
 
         if let Some(entry) = &mut entry {
-            self.set_common_fields(entry, block, any);
+            self.set_common_fields(entry, block);
         }
         entry
     }
 
-    fn set_common_fields(&self, entry: &mut HistoryEntry, block: &SavedBlock, any: &impl AnySet) {
+    fn set_common_fields(&self, entry: &mut HistoryEntry, block: &SavedBlock) {
         entry.local_timestamp = UnixTimestamp::from(block.timestamp()).as_u64().into();
         entry.height = block.height().into();
         entry.hash = block.hash();
-        entry.confirmed = any.confirmed().block_exists(&block.hash()).into();
+        entry.confirmed = self
+            .ledger_queries
+            .confirmed_block_exists(&block.hash())
+            .into();
         if self.output_raw {
             entry.work = Some(block.work());
             entry.signature = Some(block.signature().clone());
         }
         if self.include_linked_account {
-            let linked_account = match any.linked_account(block) {
+            let linked_account = match self.ledger_queries.linked_account(block) {
                 Some(a) => a.encode_account(),
                 None => "0".to_owned(),
             };
@@ -277,19 +290,24 @@ impl AccountHistoryHelper {
         }
     }
 
-    fn create_response(&self, history: Vec<HistoryEntry>) -> AccountHistoryResponse {
+    fn create_response(
+        &self,
+        history: Vec<HistoryEntry>,
+        current_block_hash: BlockHash,
+        account: Account,
+    ) -> AccountHistoryResponse {
         let mut response = AccountHistoryResponse {
-            account: self.account,
+            account,
             history,
             previous: None,
             next: None,
         };
 
-        if !self.current_block_hash.is_zero() {
+        if !current_block_hash.is_zero() {
             if self.reverse {
-                response.next = Some(self.current_block_hash);
+                response.next = Some(current_block_hash);
             } else {
-                response.previous = Some(self.current_block_hash);
+                response.previous = Some(current_block_hash);
             }
         }
         response

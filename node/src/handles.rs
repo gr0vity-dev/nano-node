@@ -267,14 +267,6 @@ impl LedgerQueryHandle {
         self.ledger.any().block_account(hash)
     }
 
-    pub fn block_amount_for(&self, block: &SavedBlock) -> Option<Amount> {
-        self.ledger.any().block_amount_for(block)
-    }
-
-    pub fn block_account(&self, hash: &BlockHash) -> Option<Account> {
-        self.ledger.any().block_account(hash)
-    }
-
     pub fn find_receive_block_by_send_hash(
         &self,
         destination: &Account,

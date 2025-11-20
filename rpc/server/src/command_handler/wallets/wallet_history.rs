@@ -1,6 +1,6 @@
 use rsnano_ledger::{AnySet, LedgerSet};
-use rsnano_rpc_messages::{HistoryEntry, WalletHistoryArgs, WalletHistoryResponse};
-use rsnano_types::{Account, BlockHash, UnixTimestamp};
+use rsnano_rpc_messages::{AccountHistoryArgs, HistoryEntry, WalletHistoryArgs, WalletHistoryResponse};
+use rsnano_types::{BlockHash, UnixTimestamp};
 
 use crate::command_handler::{RpcCommandHandler, ledger::AccountHistoryHelper};
 
@@ -28,14 +28,10 @@ impl RpcCommandHandler {
 
                         let helper = AccountHistoryHelper::new(
                             self.ledger_queries.clone(),
-                            WalletHistoryArgs {
-                                account: Some(account),
-                                modified_since: Some(timestamp.into()),
-                                ..WalletHistoryArgs::default()
-                            },
+                            AccountHistoryArgs::new(account, u64::MAX),
                         );
 
-                        let entry = helper.entry_for(&block, &any);
+                        let entry = helper.entry_for(&block);
 
                         if let Some(mut entry) = entry {
                             entry.block_account = Some(account);
