@@ -33,14 +33,16 @@ fn ledger_stats_collect_conflict_hotspots() {
     let ledger = Arc::new(new_ledger());
     let (block, instructions) = legacy_open_block_instructions();
 
-    let (signal_tx, signal_rx) = mpsc::channel();
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let (start_tx, start_rx) = mpsc::channel();
     let (committed_tx, committed_rx) = mpsc::channel();
     let ledger_clone = Arc::clone(&ledger);
     let mut thread_block = block.clone();
     let thread_instructions = instructions.clone();
     let writer = WriterType::Testing;
     let worker = thread::spawn(move || {
-        signal_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        ready_tx.send(()).unwrap();
+        start_rx.recv().unwrap();
         let mut txn = ledger_clone.begin_write_with(writer, WriteStrategy::Optimistic);
         let mut deferred = DeferredLedgerOperations::new();
         let (saved, inserted, _) = BlockInserter::new(
@@ -57,6 +59,8 @@ fn ledger_stats_collect_conflict_hotspots() {
         committed_tx.send(()).unwrap();
     });
 
+    ready_rx.recv().unwrap();
+
     ledger
         .tx_optimistic_process(writer, 0, |txn, deferred| {
             let mut block_local = block.clone();
@@ -64,7 +68,7 @@ fn ledger_stats_collect_conflict_hotspots() {
             let (saved, inserted, _) =
                 BlockInserter::new(&ledger, txn, &mut block_local, &instructions_local)
                     .insert(deferred);
-            signal_tx.send(()).unwrap();
+            start_tx.send(()).unwrap();
             committed_rx.recv_timeout(Duration::from_secs(2)).unwrap();
             let hashes = saved
                 .iter()
