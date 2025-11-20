@@ -29,3 +29,14 @@ fn ledger_counts_handle_matches_ledger_counters() {
         node.ledger_query_services().ledger.confirmed_count()
     );
 }
+
+#[test]
+fn ledger_account_count_handle_matches_ledger_account_count() {
+    let node = Node::new_null();
+    let account_count = node.production_handles().ledger_account_count();
+
+    assert_eq!(
+        account_count.account_count(),
+        node.ledger_query_services().ledger.account_count()
+    );
+}

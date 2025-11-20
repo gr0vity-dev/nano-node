@@ -7,6 +7,7 @@ use rsnano_ledger::Ledger;
 pub struct ProductionHandles {
     ledger_info: LedgerInfoHandle,
     ledger_counts: LedgerCountsHandle,
+    ledger_account_count: LedgerAccountCountHandle,
 }
 
 impl ProductionHandles {
@@ -14,7 +15,8 @@ impl ProductionHandles {
         let ledger_info = LedgerInfoHandle::new(ledger.clone());
         Self {
             ledger_info,
-            ledger_counts: LedgerCountsHandle::new(ledger),
+            ledger_counts: LedgerCountsHandle::new(ledger.clone()),
+            ledger_account_count: LedgerAccountCountHandle::new(ledger),
         }
     }
 
@@ -24,6 +26,10 @@ impl ProductionHandles {
 
     pub fn ledger_counts(&self) -> LedgerCountsHandle {
         self.ledger_counts.clone()
+    }
+
+    pub fn ledger_account_count(&self) -> LedgerAccountCountHandle {
+        self.ledger_account_count.clone()
     }
 }
 
@@ -62,5 +68,20 @@ impl LedgerCountsHandle {
 
     pub fn confirmed_count(&self) -> u64 {
         self.ledger.confirmed_count()
+    }
+}
+
+#[derive(Clone)]
+pub struct LedgerAccountCountHandle {
+    ledger: Arc<Ledger>,
+}
+
+impl LedgerAccountCountHandle {
+    pub(crate) fn new(ledger: Arc<Ledger>) -> Self {
+        Self { ledger }
+    }
+
+    pub fn account_count(&self) -> u64 {
+        self.ledger.account_count()
     }
 }
