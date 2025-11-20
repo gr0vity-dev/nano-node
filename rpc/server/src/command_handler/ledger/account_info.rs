@@ -1,5 +1,6 @@
+use anyhow::anyhow;
+
 use crate::command_handler::RpcCommandHandler;
-use rsnano_ledger::{AnySet, ConfirmedSet, LedgerSet};
 use rsnano_rpc_messages::{AccountInfoArgs, AccountInfoResponse, unwrap_bool_or_false};
 use rsnano_types::{Amount, Epoch};
 
@@ -8,19 +9,23 @@ impl RpcCommandHandler {
         &self,
         args: AccountInfoArgs,
     ) -> anyhow::Result<AccountInfoResponse> {
-        let any = self.ledger_services.ledger.any();
         let include_confirmed = unwrap_bool_or_false(args.include_confirmed);
-        let info = self.load_account(&any, &args.account)?;
+        let info = self
+            .ledger_queries
+            .account_info(&args.account)
+            .ok_or_else(|| anyhow!(Self::ACCOUNT_NOT_FOUND))?;
 
-        let conf_info = any
-            .confirmed()
-            .get_conf_info(&args.account)
+        let conf_info = self
+            .ledger_queries
+            .confirmation_height_info(&args.account)
             .unwrap_or_default();
 
         let mut account_info = AccountInfoResponse {
             frontier: info.head,
             open_block: info.open_block,
-            representative_block: any.representative_block_hash(&info.head),
+            representative_block: self
+                .ledger_queries
+                .representative_block_hash(&info.head),
             balance: info.balance,
             modified_timestamp: info.modified.as_u64().into(),
             block_count: info.block_count.into(),
@@ -41,7 +46,8 @@ impl RpcCommandHandler {
 
         if include_confirmed {
             let confirmed_balance = if info.block_count != conf_info.height {
-                any.block_balance(&conf_info.frontier)
+                self.ledger_queries
+                    .block_balance(&conf_info.frontier)
                     .unwrap_or(Amount::ZERO)
             } else {
                 // block_height and confirmed height are the same, so can just reuse balance
@@ -62,13 +68,17 @@ impl RpcCommandHandler {
             account_info.representative = Some(info.representative.into());
             if include_confirmed {
                 let confirmed_representative = if conf_info.height > 0 {
-                    if let Some(confirmed_frontier_block) = any.get_block(&conf_info.frontier) {
+                    if let Some(confirmed_frontier_block) =
+                        self.ledger_queries.get_block(&conf_info.frontier)
+                    {
                         confirmed_frontier_block
                             .representative_field()
                             .unwrap_or_else(|| {
-                                let rep_block_hash =
-                                    any.representative_block_hash(&conf_info.frontier);
-                                any.get_block(&rep_block_hash)
+                                let rep_block_hash = self
+                                    .ledger_queries
+                                    .representative_block_hash(&conf_info.frontier);
+                                self.ledger_queries
+                                    .get_block(&rep_block_hash)
                                     .unwrap()
                                     .representative_field()
                                     .unwrap()
@@ -85,21 +95,19 @@ impl RpcCommandHandler {
 
         if unwrap_bool_or_false(args.weight) {
             account_info.weight = Some(
-                self.ledger_services
-                    .ledger
-                    .any()
-                    .weight_exact(args.account.into()),
+                self.ledger_queries.weight_exact(args.account.into()),
             );
         }
 
         let receivable = unwrap_bool_or_false(args.receivable);
         if receivable {
-            let account_receivable = any.account_receivable(&args.account);
+            let account_receivable = self.ledger_queries.account_receivable(&args.account);
             account_info.pending = Some(account_receivable);
             account_info.receivable = Some(account_receivable);
 
             if include_confirmed {
-                let confirmed_receivable = any.confirmed().account_receivable(&args.account);
+                let confirmed_receivable =
+                    self.ledger_queries.confirmed_account_receivable(&args.account);
                 account_info.confirmed_pending = Some(confirmed_receivable);
                 account_info.confirmed_receivable = Some(confirmed_receivable);
             }

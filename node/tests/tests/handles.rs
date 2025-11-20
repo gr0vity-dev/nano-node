@@ -1,6 +1,6 @@
-use rsnano_ledger::LedgerSet;
+use rsnano_ledger::{AnySet, ConfirmedSet, LedgerSet};
 use rsnano_node::Node;
-use rsnano_types::Epoch;
+use rsnano_types::{Epoch, SavedBlock};
 
 #[test]
 fn ledger_info_handle_matches_ledger_metadata() {
@@ -102,4 +102,45 @@ fn ledger_state_check_handle_matches_ledger_queries() {
     if let Some(link) = node.network_params.ledger.epochs.link(Epoch::Epoch1) {
         assert!(handle.is_epoch_link(link));
     }
+}
+
+#[test]
+fn ledger_query_handle_matches_ledger_reads() {
+    let node = Node::new_null();
+    let handle = node.production_handles().ledger_queries();
+    let ledger = node.ledger_query_services().ledger;
+    let genesis_account = node.network_params.ledger.genesis_account;
+    let genesis_hash = node.network_params.ledger.genesis_block.hash();
+
+    let account_info = handle.account_info(&genesis_account).unwrap();
+    let ledger_account_info = ledger.any().get_account(&genesis_account).unwrap();
+    assert_eq!(account_info.head, ledger_account_info.head);
+
+    let conf_info = handle.confirmation_height_info(&genesis_account).unwrap();
+    let ledger_conf_info = ledger
+        .confirmed()
+        .get_conf_info(&genesis_account)
+        .unwrap();
+    assert_eq!(conf_info.height, ledger_conf_info.height);
+
+    assert_eq!(
+        handle.representative_block_hash(&ledger_account_info.head),
+        ledger.any().representative_block_hash(&ledger_account_info.head)
+    );
+
+    assert_eq!(
+        handle.block_balance(&genesis_hash),
+        ledger.any().block_balance(&genesis_hash)
+    );
+
+    let saved_block: SavedBlock = handle.get_block(&genesis_hash).unwrap();
+    assert_eq!(saved_block.hash(), genesis_hash);
+
+    let detailed = handle.detailed_block(&genesis_hash).unwrap();
+    assert_eq!(detailed.block.hash(), genesis_hash);
+
+    assert_eq!(
+        handle.block_successor(&genesis_hash),
+        ledger.any().block_successor(&genesis_hash)
+    );
 }

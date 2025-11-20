@@ -1,3 +1,5 @@
+use anyhow::anyhow;
+
 use crate::command_handler::RpcCommandHandler;
 use rsnano_rpc_messages::{AccountArg, AccountRepresentativeDto};
 
@@ -6,8 +8,10 @@ impl RpcCommandHandler {
         &self,
         args: AccountArg,
     ) -> anyhow::Result<AccountRepresentativeDto> {
-        let any = self.ledger_services.ledger.any();
-        let account_info = self.load_account(&any, &args.account)?;
+        let account_info = self
+            .ledger_queries
+            .account_info(&args.account)
+            .ok_or_else(|| anyhow!(Self::ACCOUNT_NOT_FOUND))?;
         Ok(AccountRepresentativeDto::new(
             account_info.representative.as_account(),
         ))

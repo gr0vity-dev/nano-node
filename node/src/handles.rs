@@ -1,8 +1,11 @@
 //! Narrow production handles for node-managed subsystems.
 use std::sync::Arc;
 
-use rsnano_ledger::{Ledger, LedgerSet};
-use rsnano_types::{Account, Amount, BlockHash, Link};
+use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, LedgerSet};
+use rsnano_types::{
+    Account, AccountInfo, Amount, BlockHash, ConfirmationHeightInfo, DetailedBlock, Link,
+    SavedBlock,
+};
 
 #[derive(Clone)]
 pub struct ProductionHandles {
@@ -12,6 +15,7 @@ pub struct ProductionHandles {
     ledger_account_balances: LedgerAccountBalanceHandle,
     ledger_work_thresholds: LedgerWorkThresholdHandle,
     ledger_state_checks: LedgerStateCheckHandle,
+    ledger_queries: LedgerQueryHandle,
 }
 
 impl ProductionHandles {
@@ -23,7 +27,8 @@ impl ProductionHandles {
             ledger_account_count: LedgerAccountCountHandle::new(ledger.clone()),
             ledger_account_balances: LedgerAccountBalanceHandle::new(ledger.clone()),
             ledger_work_thresholds: LedgerWorkThresholdHandle::new(ledger.clone()),
-            ledger_state_checks: LedgerStateCheckHandle::new(ledger),
+            ledger_state_checks: LedgerStateCheckHandle::new(ledger.clone()),
+            ledger_queries: LedgerQueryHandle::new(ledger),
         }
     }
 
@@ -49,6 +54,10 @@ impl ProductionHandles {
 
     pub fn ledger_state_checks(&self) -> LedgerStateCheckHandle {
         self.ledger_state_checks.clone()
+    }
+
+    pub fn ledger_queries(&self) -> LedgerQueryHandle {
+        self.ledger_queries.clone()
     }
 }
 
@@ -174,5 +183,60 @@ impl LedgerStateCheckHandle {
 
     pub fn is_epoch_link(&self, link: &Link) -> bool {
         self.ledger.is_epoch_link(link)
+    }
+}
+
+#[derive(Clone)]
+pub struct LedgerQueryHandle {
+    ledger: Arc<Ledger>,
+}
+
+impl LedgerQueryHandle {
+    pub(crate) fn new(ledger: Arc<Ledger>) -> Self {
+        Self { ledger }
+    }
+
+    pub fn account_info(&self, account: &Account) -> Option<AccountInfo> {
+        self.ledger.any().get_account(account)
+    }
+
+    pub fn confirmation_height_info(&self, account: &Account) -> Option<ConfirmationHeightInfo> {
+        self.ledger.confirmed().get_conf_info(account)
+    }
+
+    pub fn representative_block_hash(&self, head: &BlockHash) -> BlockHash {
+        self.ledger.any().representative_block_hash(head)
+    }
+
+    pub fn block_balance(&self, hash: &BlockHash) -> Option<Amount> {
+        self.ledger.any().block_balance(hash)
+    }
+
+    pub fn get_block(&self, hash: &BlockHash) -> Option<SavedBlock> {
+        self.ledger.any().get_block(hash)
+    }
+
+    pub fn detailed_block(&self, hash: &BlockHash) -> Option<DetailedBlock> {
+        self.ledger.any().detailed_block(hash)
+    }
+
+    pub fn linked_account(&self, block: &SavedBlock) -> Option<Account> {
+        self.ledger.any().linked_account(block)
+    }
+
+    pub fn block_successor(&self, hash: &BlockHash) -> Option<BlockHash> {
+        self.ledger.any().block_successor(hash)
+    }
+
+    pub fn weight_exact(&self, account: Account) -> Amount {
+        self.ledger.any().weight_exact(account.into())
+    }
+
+    pub fn account_receivable(&self, account: &Account) -> Amount {
+        self.ledger.any().account_receivable(account)
+    }
+
+    pub fn confirmed_account_receivable(&self, account: &Account) -> Amount {
+        self.ledger.confirmed().account_receivable(account)
     }
 }

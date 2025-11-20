@@ -1,6 +1,4 @@
 use anyhow::anyhow;
-
-use rsnano_ledger::AnySet;
 use rsnano_rpc_messages::{
     BlockInfoArgs, BlockInfoResponse, BlockSubTypeDto, unwrap_bool_or_false,
 };
@@ -11,13 +9,13 @@ use crate::command_handler::RpcCommandHandler;
 impl RpcCommandHandler {
     pub(crate) fn block_info(&self, args: BlockInfoArgs) -> anyhow::Result<BlockInfoResponse> {
         let include_linked_account = unwrap_bool_or_false(args.include_linked_account);
-        let any = self.ledger_services.ledger.any();
-        let block = any
+        let block = self
+            .ledger_queries
             .detailed_block(&args.hash)
             .ok_or_else(|| anyhow!(Self::BLOCK_NOT_FOUND))?;
 
         let linked_account = if include_linked_account {
-            match any.linked_account(&block.block) {
+            match self.ledger_queries.linked_account(&block.block) {
                 Some(a) => Some(a.encode_account()),
                 None => Some("0".to_owned()),
             }
@@ -31,7 +29,10 @@ impl RpcCommandHandler {
             balance: block.block.balance(),
             height: block.block.height().into(),
             local_timestamp: UnixTimestamp::from(block.block.timestamp()).as_u64().into(),
-            successor: any.block_successor(&block.block.hash()).unwrap_or_default(),
+            successor: self
+                .ledger_queries
+                .block_successor(&block.block.hash())
+                .unwrap_or_default(),
             confirmed: block.confirmed.into(),
             contents: block.block.json_representation(),
             subtype: Self::subtype_for(&block.block),
