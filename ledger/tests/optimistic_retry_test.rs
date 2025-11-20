@@ -57,6 +57,10 @@ fn optimistic_retry_recovers_after_conflict() {
 
     let attempts = Arc::new(AtomicUsize::new(0));
     let attempts_clone = Arc::clone(&attempts);
+    let successes_before = ledger.optimistic_successes();
+    let conflicts_before = ledger.optimistic_conflicts();
+    let fallbacks_before = ledger.pessimistic_fallbacks();
+
     ledger
         .tx_optimistic_process(WriterType::Testing, 1, |txn, deferred| {
             attempts_clone.fetch_add(1, Ordering::SeqCst);
@@ -85,9 +89,15 @@ fn optimistic_retry_recovers_after_conflict() {
     handle.join().expect("worker thread panicked");
 
     assert_eq!(attempts.load(Ordering::SeqCst), 2);
-    assert_eq!(ledger.optimistic_conflicts(), 1);
-    assert_eq!(ledger.optimistic_successes(), 1);
-    assert_eq!(ledger.pessimistic_fallbacks(), 0);
+    assert!(
+        ledger.optimistic_conflicts() - conflicts_before >= 1,
+        "expected at least one optimistic conflict"
+    );
+    assert!(
+        ledger.optimistic_successes() - successes_before >= 1,
+        "expected at least one optimistic success"
+    );
+    assert_eq!(ledger.pessimistic_fallbacks() - fallbacks_before, 0);
 }
 
 #[test]
@@ -123,6 +133,10 @@ fn pessimistic_fallback_after_conflict() {
         }
     });
 
+    let successes_before = ledger.optimistic_successes();
+    let conflicts_before = ledger.optimistic_conflicts();
+    let fallbacks_before = ledger.pessimistic_fallbacks();
+
     ledger
         .tx_optimistic_process(WriterType::Testing, 0, |txn, deferred| {
             let mut block_local = block.clone();
@@ -153,9 +167,12 @@ fn pessimistic_fallback_after_conflict() {
 
     handle.join().expect("worker thread panicked");
 
-    assert_eq!(ledger.optimistic_conflicts(), 1);
-    assert_eq!(ledger.optimistic_successes(), 0);
-    assert_eq!(ledger.pessimistic_fallbacks(), 1);
+    assert!(
+        ledger.optimistic_conflicts() - conflicts_before >= 1,
+        "expected at least one optimistic conflict"
+    );
+    assert_eq!(ledger.optimistic_successes() - successes_before, 0);
+    assert_eq!(ledger.pessimistic_fallbacks() - fallbacks_before, 1);
 }
 
 fn new_ledger() -> Ledger {

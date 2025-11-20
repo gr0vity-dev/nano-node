@@ -148,7 +148,7 @@ impl RepWeightWriterStats {
         self.max_optimistic_concurrency.load(Relaxed)
     }
 
-    pub fn start_optimistic_writer(&self) -> OptimisticWriterGuard<'_> {
+    pub(crate) fn start_optimistic_writer(&self) -> OptimisticWriterGuard<'_> {
         let active = self.optimistic_active.fetch_add(1, Relaxed) + 1;
         let mut observed = self.max_optimistic_concurrency.load(Relaxed);
         while active > observed {
@@ -174,7 +174,7 @@ impl RepWeightWriterStats {
     }
 }
 
-pub struct OptimisticWriterGuard<'a> {
+pub(crate) struct OptimisticWriterGuard<'a> {
     stats: &'a RepWeightWriterStats,
 }
 

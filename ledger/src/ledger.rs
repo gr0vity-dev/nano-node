@@ -28,6 +28,7 @@ use crate::{
     block_cementer::BlockCementer,
     block_insertion::{BlockInsertInstructions, BlockInserter, BlockValidatorFactory},
     deferred_operations::DeferredLedgerOperations,
+    final_vote_writer::FinalVoteWriterStats,
     iterator_metrics::{IteratorMetricsConfig, LedgerIteratorMetrics},
     vote_verifier::VoteVerifier,
 };
@@ -127,6 +128,7 @@ pub struct Ledger {
     insert_tracker: Mutex<InsertTracker>,
     duplicate_log: Mutex<VecDeque<DuplicateInsertRecord>>,
     rollback_listener: OutputListenerMt<BlockHash>,
+    final_vote_writer_stats: Arc<FinalVoteWriterStats>,
 }
 
 pub(crate) struct BlockCountEvents {
@@ -520,6 +522,50 @@ impl Ledger {
         self.rep_weights_updater.stats().clone()
     }
 
+    pub fn final_vote_writer_stats(&self) -> Arc<FinalVoteWriterStats> {
+        Arc::clone(&self.final_vote_writer_stats)
+    }
+
+    pub fn record_final_vote(
+        &self,
+        root: &QualifiedRoot,
+        hash: &BlockHash,
+    ) -> Result<(), StoreError> {
+        self.apply_final_vote_op(|txn| {
+            self.store.final_vote().put(txn, root, hash);
+        })
+    }
+
+    pub fn apply_final_vote_op<F>(&self, mut f: F) -> Result<(), StoreError>
+    where
+        F: FnMut(&mut dyn LedgerWriteTxn),
+    {
+        let stats = self.final_vote_writer_stats();
+        let _guard = stats.start_optimistic_writer();
+        let prev_successes = self.optimistic_successes();
+        let prev_conflicts = self.optimistic_conflicts();
+        let prev_fallbacks = self.pessimistic_fallbacks();
+
+        self.tx_optimistic_process(
+            WriterType::VotingFinalizer,
+            DEFAULT_OPTIMISTIC_RETRIES,
+            |txn, _deferred| {
+                f(txn);
+                Ok(((), Vec::new()))
+            },
+        )?;
+
+        stats.add_deltas(
+            self.optimistic_successes()
+                .saturating_sub(prev_successes),
+            self.optimistic_conflicts()
+                .saturating_sub(prev_conflicts),
+            self.pessimistic_fallbacks()
+                .saturating_sub(prev_fallbacks),
+        );
+        Ok(())
+    }
+
     pub fn apply_rep_weight_ops<F>(&self, mut f: F)
     where
         F: FnMut(&mut dyn LedgerWriteTxn),
@@ -706,6 +752,7 @@ impl Ledger {
     ) -> anyhow::Result<Self> {
         let rep_weights_updater =
             RepWeightsUpdater::new(store.rep_weight_store(), min_rep_weight, &rep_weights);
+        let final_vote_writer_stats = Arc::new(FinalVoteWriterStats::default());
 
         let mut ledger = Self {
             rep_weights,
@@ -721,6 +768,7 @@ impl Ledger {
             insert_tracker: Mutex::new(InsertTracker::new()),
             duplicate_log: Mutex::new(VecDeque::with_capacity(MAX_DUPLICATE_LOG)),
             rollback_listener: Default::default(),
+            final_vote_writer_stats,
         };
 
         ledger.initialize(thread_count, &GenerateCacheFlags::new())?;

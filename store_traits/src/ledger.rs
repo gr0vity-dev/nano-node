@@ -68,6 +68,7 @@ pub enum WriterType {
     ConfirmationHeight,
     RepWeights,
     RepWeightUpdater,
+    VotingFinalizer,
     Bootstrap,
     Generic,
 }
