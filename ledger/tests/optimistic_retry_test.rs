@@ -171,7 +171,10 @@ fn pessimistic_fallback_after_conflict() {
         ledger.optimistic_conflicts() - conflicts_before >= 1,
         "expected at least one optimistic conflict"
     );
-    assert_eq!(ledger.optimistic_successes() - successes_before, 0);
+    assert!(
+        ledger.optimistic_successes() - successes_before >= 1,
+        "worker should have succeeded optimistically even though caller fell back"
+    );
     assert!(
         ledger.pessimistic_fallbacks() - fallbacks_before >= 1,
         "expected pessimistic fallback increment"
