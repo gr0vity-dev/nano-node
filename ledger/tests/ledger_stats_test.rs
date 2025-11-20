@@ -34,7 +34,7 @@ fn ledger_stats_collect_conflict_hotspots() {
     let (block, instructions) = legacy_open_block_instructions();
 
     let (ready_tx, ready_rx) = mpsc::channel();
-    let (start_tx, start_rx) = mpsc::channel();
+    let (start_tx, start_rx) = mpsc::channel::<()>();
     let (committed_tx, committed_rx) = mpsc::channel();
     let ledger_clone = Arc::clone(&ledger);
     let mut thread_block = block.clone();
@@ -61,6 +61,10 @@ fn ledger_stats_collect_conflict_hotspots() {
 
     ready_rx.recv().unwrap();
 
+    // Allow the worker to begin its optimistic transaction, then run the main writer to race
+    // and force a conflict.
+    start_tx.send(()).unwrap();
+
     ledger
         .tx_optimistic_process(writer, 0, |txn, deferred| {
             let mut block_local = block.clone();
@@ -68,7 +72,6 @@ fn ledger_stats_collect_conflict_hotspots() {
             let (saved, inserted, _) =
                 BlockInserter::new(&ledger, txn, &mut block_local, &instructions_local)
                     .insert(deferred);
-            start_tx.send(()).unwrap();
             committed_rx.recv_timeout(Duration::from_secs(2)).unwrap();
             let hashes = saved
                 .iter()
