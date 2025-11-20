@@ -23,6 +23,7 @@ mod node_monitor;
 mod recently_cemented_inserter;
 pub mod representatives;
 pub mod services;
+pub mod subsystems;
 pub mod telemetry;
 pub mod tokio_runner;
 pub mod transport;
