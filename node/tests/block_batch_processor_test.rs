@@ -2,6 +2,7 @@ use std::{collections::VecDeque, sync::Arc};
 
 use rsnano_ledger::WriterType;
 use rsnano_node::block_processing::{BlockBatchProcessor, BlockContext};
+use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 #[test]
 fn block_batch_processor_uses_optimistic_transactions() {
@@ -44,4 +45,26 @@ fn writer_stats_ignore_external_ledger_activity() {
     assert_eq!(processor.stats.optimistic_conflicts(), 0);
     assert_eq!(processor.stats.pessimistic_fallbacks(), 0);
     assert!(processor.stats.max_optimistic_concurrency() >= 1);
+}
+
+#[test]
+fn records_batch_metrics() {
+    let mut processor = BlockBatchProcessor::new_null();
+
+    let mut first_batch = VecDeque::new();
+    first_batch.push_back(Arc::new(BlockContext::new_test_instance()));
+    processor.process_blocks(first_batch, 5);
+
+    let mut second_batch = VecDeque::new();
+    second_batch.push_back(Arc::new(BlockContext::new_test_instance()));
+    second_batch.push_back(Arc::new(BlockContext::new_test_instance()));
+    processor.process_blocks(second_batch, 7);
+
+    let mut stats = StatsCollection::new();
+    processor.stats.collect_stats(&mut stats);
+
+    assert_eq!(stats.get("block_processor_batch", "count"), 2);
+    assert_eq!(stats.get("block_processor_batch", "blocks"), 3);
+    assert_eq!(stats.get("block_processor_batch", "dequeue_wait_ns"), 12);
+    assert_eq!(stats.get("block_processor_batch", "max_size"), 2);
 }

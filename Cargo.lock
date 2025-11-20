@@ -5223,6 +5223,7 @@ dependencies = [
  "rust-rocksdb",
  "store_traits",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]

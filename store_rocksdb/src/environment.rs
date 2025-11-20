@@ -18,6 +18,7 @@ use store_traits::environment::{
 use store_traits::types::{
     StoreDatabase, StoreEnvironmentFlags, StoreError, StoreErrorKind, StoreResult,
 };
+use tracing::info;
 
 use crate::{
     transaction::{RocksdbReadTxn, RocksdbWriteTxn},
@@ -158,6 +159,7 @@ impl RocksDbInner {
         } else {
             Vec::new()
         };
+        let cf_count = cf_names.len().max(1);
 
         let db = if cf_names.is_empty() {
             let descriptor = ColumnFamilyDescriptor::new(
@@ -183,6 +185,8 @@ impl RocksDbInner {
                 registry.insert_existing(&name);
             }
         }
+
+        log_applied_options(config, path, cf_count, &db);
 
         Ok(Self {
             db,
@@ -353,5 +357,37 @@ fn apply_tuning_options(options: &mut Options, config: &RocksDbConfig) {
     }
     if let Some(jobs) = config.max_background_jobs {
         options.set_max_background_jobs(jobs);
+    }
+}
+
+fn log_applied_options(config: Option<&RocksDbConfig>, path: &Path, cf_count: usize, db: &RocksDb) {
+    let column_families = cf_count;
+    if let Some(cfg) = config {
+        let cur_memtable_bytes = db
+            .property_int_value("rocksdb.cur-size-all-mem-tables")
+            .ok()
+            .flatten();
+
+        info!(
+            target = "store_rocksdb",
+            path = %path.display(),
+            column_families,
+            enable_pipelined_write = cfg.enable_pipelined_write,
+            allow_concurrent_memtable_write = cfg.allow_concurrent_memtable_write,
+            write_buffer_size = ?cfg.write_buffer_size,
+            max_write_buffer_number = ?cfg.max_write_buffer_number,
+            min_write_buffer_number_to_merge = ?cfg.min_write_buffer_number_to_merge,
+            max_background_jobs = ?cfg.max_background_jobs,
+            max_open_files = ?cfg.max_open_files,
+            cur_memtable_bytes = ?cur_memtable_bytes,
+            "RocksDB tuning options applied and database opened"
+        );
+    } else {
+        info!(
+            target = "store_rocksdb",
+            path = %path.display(),
+            column_families,
+            "RocksDB opened with default options"
+        );
     }
 }
