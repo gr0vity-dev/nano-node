@@ -10,8 +10,10 @@ impl RpcCommandHandler {
         let start = args.account.unwrap_or(Account::from(1)); // exclude burn account by default
         let mut accounts: HashMap<Account, Amount> = HashMap::new();
 
-        let any = self.ledger_services.ledger.any();
-        let mut iterator = any.iter_pending_range(PendingKey::new(start, BlockHash::ZERO)..);
+        let mut iterator = self
+            .ledger_queries
+            .pending_from(PendingKey::new(start, BlockHash::ZERO))
+            .into_iter();
 
         let mut current_account = start;
         let mut current_account_sum = Amount::ZERO;
@@ -30,8 +32,10 @@ impl RpcCommandHandler {
                     break;
                 }
                 // Skip existing accounts
-                iterator = any
-                    .iter_pending_range(PendingKey::new(account.inc().unwrap(), BlockHash::ZERO)..);
+                iterator = self
+                    .ledger_queries
+                    .pending_from(PendingKey::new(account.inc().unwrap(), BlockHash::ZERO))
+                    .into_iter();
                 current = iterator.next();
             } else {
                 if account != current_account {

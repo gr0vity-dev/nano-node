@@ -1,6 +1,5 @@
 use crate::command_handler::RpcCommandHandler;
 use indexmap::IndexMap;
-use rsnano_ledger::AnySet;
 use rsnano_rpc_messages::{
     AccountsReceivableArgs, AccountsReceivableResponse, AccountsReceivableSimple,
     AccountsReceivableSource, AccountsReceivableThreshold, SourceInfo, unwrap_bool_or_false,
@@ -30,8 +29,10 @@ impl RpcCommandHandler {
         };
 
         for account in args.accounts {
-            let any = self.ledger_queries.any_set();
-            for (key, info) in any.account_receivable_upper_bound(account, BlockHash::ZERO) {
+            for (key, info) in self
+                .ledger_queries
+                .receivable_upper_bound(account, BlockHash::ZERO)
+            {
                 if response_builder.len() as u64 >= count {
                     break;
                 }

@@ -1,7 +1,7 @@
 //! Narrow production handles for node-managed subsystems.
 use std::sync::Arc;
 
-use rsnano_ledger::{AnyReceivableIterator, AnySet, ConfirmedSet, Ledger, LedgerSet, OwningAnySet};
+use rsnano_ledger::{AnyReceivableIterator, AnySet, ConfirmedSet, Ledger, LedgerSet};
 use rsnano_types::{
     Account, AccountInfo, Amount, BlockHash, ConfirmationHeightInfo, DetailedBlock, Link,
     PendingInfo, PendingKey, SavedBlock,
@@ -196,10 +196,6 @@ impl LedgerQueryHandle {
         Self { ledger }
     }
 
-    pub fn any_set(&self) -> OwningAnySet<'_> {
-        self.ledger.any()
-    }
-
     pub fn account_info(&self, account: &Account) -> Option<AccountInfo> {
         self.ledger.any().get_account(account)
     }
@@ -272,5 +268,23 @@ impl LedgerQueryHandle {
 
     pub fn get_pending(&self, key: &PendingKey) -> Option<PendingInfo> {
         self.ledger.any().get_pending(key)
+    }
+
+    pub fn receivable_upper_bound(
+        &self,
+        account: Account,
+        start: BlockHash,
+    ) -> Vec<(PendingKey, PendingInfo)> {
+        self.ledger
+            .any()
+            .account_receivable_upper_bound(account, start)
+            .collect()
+    }
+
+    pub fn pending_from(&self, start: PendingKey) -> Vec<(PendingKey, PendingInfo)> {
+        self.ledger
+            .any()
+            .iter_pending_range(start..)
+            .collect()
     }
 }
