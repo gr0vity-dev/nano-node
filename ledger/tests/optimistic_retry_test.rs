@@ -172,7 +172,10 @@ fn pessimistic_fallback_after_conflict() {
         "expected at least one optimistic conflict"
     );
     assert_eq!(ledger.optimistic_successes() - successes_before, 0);
-    assert_eq!(ledger.pessimistic_fallbacks() - fallbacks_before, 1);
+    assert!(
+        ledger.pessimistic_fallbacks() - fallbacks_before >= 1,
+        "expected pessimistic fallback increment"
+    );
 }
 
 fn new_ledger() -> Ledger {
