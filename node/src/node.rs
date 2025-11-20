@@ -27,16 +27,20 @@ use rsnano_utils::{
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
     BacklogServices, BootstrapWorkServices, ConsensusServices, ConsensusTimerServices,
-    LedgerQueryServices, NodeCallbacks, NodeServices, TelemetryServices, TickerServices,
-    WalletServices,
+    LedgerQueryServices, NodeCallbacks, NodeServices, WalletServices,
     block_processing::{BlockContext, BlockSource, ProcessedResult, UncheckedMap},
     config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{AecTicker, AecVoter, election::ConfirmedElection},
     node_builder::ComposedNode,
     node_id_key_file::NodeIdKeyFile,
-    subsystems::{BootstrapSubsystem, ConsensusSubsystem, Lifecycle, NetworkSubsystem, TelemetrySubsystem},
+    subsystems::{
+        BootstrapSubsystem, ConsensusSubsystem, Lifecycle, NetworkSubsystem, TelemetrySubsystem,
+        TickerSubsystem,
+    },
     tokio_runner::TokioRunner,
 };
+#[cfg(test)]
+use crate::TelemetryServices;
 
 #[allow(dead_code)]
 pub struct Node {
@@ -60,7 +64,7 @@ pub struct Node {
     pub stats_collector: StatsCollector,
     container_info_factory: ContainerInfoFactory,
     aec_voter: TimerThread<AecVoter>,
-    ticker_services: TickerServices,
+    ticker_subsystem: TickerSubsystem,
     bootstrap_subsystem: BootstrapSubsystem,
     telemetry_subsystem: TelemetrySubsystem,
     #[cfg(feature = "ledger_snapshots")]
@@ -154,12 +158,8 @@ impl Node {
         self.services.stats.clone()
     }
 
-    pub fn ticker_services(&self) -> &TickerServices {
-        &self.ticker_services
-    }
-
-    pub fn ticker_services_mut(&mut self) -> &mut TickerServices {
-        &mut self.ticker_services
+    pub fn ticker_subsystem(&self) -> &TickerSubsystem {
+        &self.ticker_subsystem
     }
 
     fn consensus_timer_services(&self) -> ConsensusTimerServices<'_> {
@@ -231,6 +231,7 @@ impl Node {
             composed.services.telemetry.clone(),
             composed.services.tcp_listener.clone(),
         );
+        let ticker_subsystem = TickerSubsystem::new(composed.ticker_services);
 
         Ok(Self {
             is_nulled: composed.is_nulled,
@@ -246,6 +247,7 @@ impl Node {
             consensus_subsystem,
             bootstrap_subsystem,
             telemetry_subsystem,
+            ticker_subsystem,
             unchecked: composed.unchecked,
             backlog_scan: composed.backlog_scan,
             stopped: AtomicBool::new(false),
@@ -255,7 +257,6 @@ impl Node {
             stats_collector: composed.stats_collector,
             container_info_factory: composed.container_info_factory,
             aec_voter: composed.aec_voter,
-            ticker_services: composed.ticker_services,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots: composed.ledger_snapshots,
         })
@@ -471,7 +472,7 @@ impl Node {
         Lifecycle::start(&mut self.bootstrap_subsystem);
         telemetry_services.start();
 
-        self.ticker_services_mut().start();
+        self.ticker_subsystem.start();
     }
 
     pub fn stop(&mut self) {
@@ -489,7 +490,7 @@ impl Node {
         let mut telemetry_services = self.telemetry_subsystem();
         let wallet_services = self.wallet_services();
 
-        self.ticker_services_mut().stop();
+        self.ticker_subsystem.stop();
         self.network_subsystem.stop_listeners();
         self.consensus_timer_services().stop();
         Lifecycle::stop(&mut self.bootstrap_subsystem);
@@ -579,7 +580,7 @@ mod tests {
 
         // helper:
         fn assert_ticker<T: Tickable + 'static>(node: &Node, expected: Duration) {
-            let Some(interval) = node.ticker_services().ticker_pool().get::<T>() else {
+            let Some(interval) = node.ticker_subsystem().ticker_pool().get::<T>() else {
                 panic!("Should schedule ticker of type: {}", type_name::<T>());
             };
             assert_eq!(interval, expected, "interval for {}", type_name::<T>());

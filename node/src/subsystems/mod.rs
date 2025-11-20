@@ -12,3 +12,4 @@ pub use network::{NetworkSubsystem, NetworkTestHandles};
 pub use consensus::{ConsensusSubsystem, ConsensusTestHandles};
 pub use bootstrap::{BootstrapSubsystem, BootstrapTestHandles};
 pub use telemetry::{TelemetrySubsystem, TelemetryTestHandles};
+pub use ticker::{TickerSubsystem, TickerTestHandles};

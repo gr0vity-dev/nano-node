@@ -1,27 +1,39 @@
+use rsnano_utils::ticker::TickerPool;
+
+use crate::services::TickerServices;
+
 use super::lifecycle::Lifecycle;
 
-/// Facade over generic ticker pool scheduling.
 pub struct TickerSubsystem {
-    _private: (),
+    ticker_services: TickerServices,
+}
+
+pub struct TickerTestHandles<'a> {
+    pub ticker_pool: &'a TickerPool,
 }
 
 impl TickerSubsystem {
-    pub fn new() -> Self {
-        Self { _private: () }
+    pub fn new(ticker_services: TickerServices) -> Self {
+        Self { ticker_services }
     }
 
-    /// Schedule a named periodic task.
-    pub fn schedule(&self, _label: &str) {
-        todo!("schedule task")
+    pub fn ticker_pool(&self) -> &TickerPool {
+        self.ticker_services.ticker_pool()
+    }
+
+    pub fn test_handles(&self) -> TickerTestHandles<'_> {
+        TickerTestHandles {
+            ticker_pool: self.ticker_services.ticker_pool(),
+        }
     }
 }
 
 impl Lifecycle for TickerSubsystem {
     fn start(&mut self) {
-        todo!("start ticker pool")
+        self.ticker_services.start();
     }
 
     fn stop(&mut self) {
-        todo!("stop ticker pool")
+        self.ticker_services.stop();
     }
 }
