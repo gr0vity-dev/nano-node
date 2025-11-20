@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 
-use rsnano_ledger::{AnySet, Ledger, LedgerSet};
+use rsnano_ledger::{AnySet, LedgerSet};
 use rsnano_rpc_messages::{
     AccountHistoryArgs, AccountHistoryResponse, BlockSubTypeDto, BlockTypeDto, HistoryEntry,
     unwrap_bool_or_false, unwrap_u64_or_zero,
@@ -14,13 +14,13 @@ impl RpcCommandHandler {
         &self,
         args: AccountHistoryArgs,
     ) -> anyhow::Result<AccountHistoryResponse> {
-        let helper = AccountHistoryHelper::new(&self.ledger_services.ledger, args);
+        let helper = AccountHistoryHelper::new(self.ledger_queries.clone(), args);
         helper.account_history()
     }
 }
 
 pub(crate) struct AccountHistoryHelper<'a> {
-    pub ledger: &'a Ledger,
+    pub ledger_queries: LedgerQueryHandle,
     pub accounts_to_filter: Vec<Account>,
     pub reverse: bool,
     pub offset: u64,
