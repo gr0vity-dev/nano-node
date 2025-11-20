@@ -72,3 +72,14 @@ fn ledger_account_balance_handle_matches_ledger_sets() {
         any_set.get_account(&account).map(|info| info.block_count)
     );
 }
+
+#[test]
+fn ledger_work_threshold_handle_matches_ledger_constants() {
+    let node = Node::new_null();
+    let handle = node.production_handles().ledger_work_thresholds();
+
+    assert_eq!(
+        handle.threshold_base(),
+        node.ledger_query_services().ledger.work_thresholds().threshold_base()
+    );
+}

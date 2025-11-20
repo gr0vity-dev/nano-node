@@ -10,6 +10,7 @@ pub struct ProductionHandles {
     ledger_counts: LedgerCountsHandle,
     ledger_account_count: LedgerAccountCountHandle,
     ledger_account_balances: LedgerAccountBalanceHandle,
+    ledger_work_thresholds: LedgerWorkThresholdHandle,
 }
 
 impl ProductionHandles {
@@ -19,7 +20,8 @@ impl ProductionHandles {
             ledger_info,
             ledger_counts: LedgerCountsHandle::new(ledger.clone()),
             ledger_account_count: LedgerAccountCountHandle::new(ledger.clone()),
-            ledger_account_balances: LedgerAccountBalanceHandle::new(ledger),
+            ledger_account_balances: LedgerAccountBalanceHandle::new(ledger.clone()),
+            ledger_work_thresholds: LedgerWorkThresholdHandle::new(ledger),
         }
     }
 
@@ -37,6 +39,10 @@ impl ProductionHandles {
 
     pub fn ledger_account_balances(&self) -> LedgerAccountBalanceHandle {
         self.ledger_account_balances.clone()
+    }
+
+    pub fn ledger_work_thresholds(&self) -> LedgerWorkThresholdHandle {
+        self.ledger_work_thresholds.clone()
     }
 }
 
@@ -124,5 +130,20 @@ impl LedgerAccountBalanceHandle {
             .any()
             .get_account(account)
             .map(|info| info.block_count)
+    }
+}
+
+#[derive(Clone)]
+pub struct LedgerWorkThresholdHandle {
+    ledger: Arc<Ledger>,
+}
+
+impl LedgerWorkThresholdHandle {
+    pub(crate) fn new(ledger: Arc<Ledger>) -> Self {
+        Self { ledger }
+    }
+
+    pub fn threshold_base(&self) -> u64 {
+        self.ledger.work_thresholds().threshold_base()
     }
 }

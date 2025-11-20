@@ -8,7 +8,7 @@ use crate::command_handler::RpcCommandHandler;
 
 impl RpcCommandHandler {
     pub(crate) fn work_generate(&self, args: WorkGenerateArgs) -> anyhow::Result<WorkGenerateDto> {
-        let default_difficulty = self.ledger_services.ledger.constants.work.threshold_base();
+        let default_difficulty = self.ledger_work_thresholds.threshold_base();
 
         let mut difficulty = args
             .difficulty
