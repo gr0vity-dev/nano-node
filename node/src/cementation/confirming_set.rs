@@ -532,6 +532,7 @@ mod tests {
     };
     use rsnano_ledger::{LedgerSet, test_helpers::SavedBlockLatticeBuilder};
     use rsnano_types::{Amount, Block, PrivateKey, WorkNonce};
+    use crate::ledger_factory::default_ledger_store_factory;
 
     #[test]
     fn add_exists() {
@@ -544,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn confirmation_height_and_block_processor_can_run_concurrently() {
+    fn confirmation_height_runs_concurrently_with_ledger_writes() {
         let ledger = Arc::new(Ledger::new_null(default_ledger_store_factory()));
         let stats = Arc::new(Stats::default());
         let confirming_set = ConfirmingSet::new(
