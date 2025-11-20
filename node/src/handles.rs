@@ -2,7 +2,8 @@
 use std::sync::Arc;
 
 use rsnano_ledger::{
-    AnyReceivableIterator, AnySet, ConfirmedSet, Ledger, LedgerSet, OwningAnySet, StoreIterator,
+    AnyReceivableIterator, AnySet, ConfirmedSet, Ledger, LedgerConstants, LedgerSet, OwningAnySet,
+    StoreIterator,
 };
 use rsnano_types::{
     Account, AccountInfo, Amount, BlockHash, ConfirmationHeightInfo, DetailedBlock, Link,
@@ -292,6 +293,22 @@ impl LedgerQueryHandle {
             start,
         }
     }
+
+    pub fn constants(&self) -> &LedgerConstants {
+        &self.ledger.constants
+    }
+
+    pub fn any_owned(&self) -> OwningAnySet<'_> {
+        self.ledger.any()
+    }
+
+    pub fn iter_account_range(&self, start: Account) -> AccountRangeIter<'_> {
+        AccountRangeIter {
+            any: self.ledger.any(),
+            start,
+            iter: None,
+        }
+    }
 }
 
 pub struct ReceivableUpperBoundIter<'a> {
@@ -336,6 +353,30 @@ impl<'a> Iterator for PendingRangeIter<'a> {
                     StoreIterator<'_, (PendingKey, PendingInfo)>,
                     StoreIterator<'a, (PendingKey, PendingInfo)>,
                 >(self.any.iter_pending_range(self.start.clone()..))
+            };
+            self.iter = Some(iter);
+        }
+        self.iter.as_mut().and_then(Iterator::next)
+    }
+}
+
+pub struct AccountRangeIter<'a> {
+    any: OwningAnySet<'a>,
+    start: Account,
+    iter: Option<StoreIterator<'a, (Account, AccountInfo)>>,
+}
+
+impl<'a> Iterator for AccountRangeIter<'a> {
+    type Item = (Account, AccountInfo);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.iter.is_none() {
+            // SAFETY: OwningAnySet lives for 'a.
+            let iter = unsafe {
+                std::mem::transmute::<
+                    StoreIterator<'_, (Account, AccountInfo)>,
+                    StoreIterator<'a, (Account, AccountInfo)>,
+                >(self.any.iter_account_range(self.start..))
             };
             self.iter = Some(iter);
         }

@@ -26,19 +26,14 @@ impl RpcCommandHandler {
                     if let Some(block) = any.get_block(&hash) {
                         timestamp = block.timestamp().into();
 
-                        let helper = AccountHistoryHelper {
-                            ledger: &self.ledger_services.ledger,
-                            accounts_to_filter: Vec::new(),
-                            reverse: false,
-                            offset: 0,
-                            head: None,
-                            requested_account: Some(account),
-                            output_raw: false,
-                            count: u64::MAX,
-                            current_block_hash: BlockHash::ZERO,
-                            account: Account::ZERO,
-                            include_linked_account: false,
-                        };
+                        let helper = AccountHistoryHelper::new(
+                            self.ledger_queries.clone(),
+                            WalletHistoryArgs {
+                                account: Some(account),
+                                modified_since: Some(timestamp.into()),
+                                ..WalletHistoryArgs::default()
+                            },
+                        );
 
                         let entry = helper.entry_for(&block, &any);
 

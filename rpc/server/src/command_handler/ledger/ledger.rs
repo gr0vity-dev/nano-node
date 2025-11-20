@@ -1,0 +1,109 @@
+use std::collections::HashMap;
+
+use rsnano_rpc_messages::{
+    LedgerAccountInfo, LedgerArgs, LedgerResponse, unwrap_bool_or_false, unwrap_u64_or_max,
+    unwrap_u64_or_zero,
+};
+use rsnano_types::{Account, Amount, UnixTimestamp};
+
+use crate::command_handler::RpcCommandHandler;
+
+impl RpcCommandHandler {
+    pub(crate) fn ledger(&self, args: LedgerArgs) -> LedgerResponse {
+        let count = unwrap_u64_or_max(args.count);
+        let threshold = args.threshold.unwrap_or(Amount::ZERO);
+        let start = args.account.unwrap_or_default();
+        let modified_since: UnixTimestamp = unwrap_u64_or_zero(args.modified_since).into();
+        let sorting = unwrap_bool_or_false(args.sorting);
+        let representative = unwrap_bool_or_false(args.representative);
+        let weight = unwrap_bool_or_false(args.weight);
+        let receivable = unwrap_bool_or_false(args.receivable);
+
+        let mut accounts: HashMap<Account, LedgerAccountInfo> = HashMap::new();
+        let mut any = self.ledger_queries.iter_account_range(start);
+
+        if !sorting {
+            for (account, info) in &mut any {
+                if info.modified < modified_since || (!receivable && info.balance < threshold) {
+                    continue;
+                }
+
+                let pending_amount = if receivable {
+                    let account_receivable = self.ledger_queries.account_receivable(&account);
+                    if info.balance + account_receivable < threshold {
+                        continue;
+                    }
+                    Some(account_receivable)
+                } else {
+                    None
+                };
+
+                let entry = LedgerAccountInfo {
+                    frontier: info.head,
+                    open_block: info.open_block,
+                    representative_block: self
+                        .ledger_queries
+                        .representative_block_hash(&info.head),
+                    balance: info.balance,
+                    modified_timestamp: info.modified.as_u64().into(),
+                    block_count: info.block_count.into(),
+                    representative: representative.then(|| info.representative.into()),
+                    weight: weight.then(|| self.ledger_queries.weight_exact(account.into())),
+                    pending: pending_amount,
+                    receivable: pending_amount,
+                };
+                accounts.insert(account, entry);
+                if accounts.len() >= count as usize {
+                    break;
+                }
+            }
+        } else {
+            let mut ledger: Vec<(Amount, Account)> = any
+                .filter(|(_, info)| info.modified >= modified_since)
+                .map(|(account, info)| (info.balance, account))
+                .collect();
+
+            ledger.sort_by(|a, b| b.cmp(a));
+
+            for (_, account) in ledger {
+                if accounts.len() >= count as usize {
+                    break;
+                }
+                if let Some(info) = self.ledger_queries.account_info(&account)
+                    && (receivable || info.balance >= threshold)
+                {
+                    let pending = if receivable {
+                        let account_receivable = self.ledger_queries.account_receivable(&account);
+                        if info.balance + account_receivable < threshold {
+                            continue;
+                        }
+                        Some(account_receivable)
+                    } else {
+                        None
+                    };
+
+                    let entry = LedgerAccountInfo {
+                        frontier: info.head,
+                        open_block: info.open_block,
+                        representative_block: self
+                            .ledger_queries
+                            .representative_block_hash(&info.head),
+                        balance: info.balance,
+                        modified_timestamp: info.modified.as_u64().into(),
+                        block_count: info.block_count.into(),
+                        representative: representative.then(|| info.representative.into()),
+                        weight: weight.then(|| self.ledger_queries.weight_exact(account.into())),
+                        pending,
+                        receivable: pending,
+                    };
+                    accounts.insert(account, entry);
+                    if accounts.len() >= count as usize {
+                        break;
+                    }
+                }
+            }
+        }
+
+        LedgerResponse { accounts }
+    }
+}

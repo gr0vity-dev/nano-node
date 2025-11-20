@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 
-use rsnano_ledger::{AnySet, LedgerSet};
+use rsnano_ledger::{AnySet, LedgerSet, OwningAnySet};
 use rsnano_rpc_messages::{
     AccountHistoryArgs, AccountHistoryResponse, BlockSubTypeDto, BlockTypeDto, HistoryEntry,
     unwrap_bool_or_false, unwrap_u64_or_zero,
@@ -8,6 +8,7 @@ use rsnano_rpc_messages::{
 use rsnano_types::{Account, Block, BlockBase, BlockHash, SavedBlock, UnixTimestamp};
 
 use crate::command_handler::RpcCommandHandler;
+use rsnano_node::handles::LedgerQueryHandle;
 
 impl RpcCommandHandler {
     pub(crate) fn account_history(
@@ -19,7 +20,7 @@ impl RpcCommandHandler {
     }
 }
 
-pub(crate) struct AccountHistoryHelper<'a> {
+pub(crate) struct AccountHistoryHelper {
     pub ledger_queries: LedgerQueryHandle,
     pub accounts_to_filter: Vec<Account>,
     pub reverse: bool,
@@ -33,10 +34,10 @@ pub(crate) struct AccountHistoryHelper<'a> {
     pub include_linked_account: bool,
 }
 
-impl<'a> AccountHistoryHelper<'a> {
-    fn new(ledger: &'a Ledger, args: AccountHistoryArgs) -> Self {
+impl AccountHistoryHelper {
+    fn new(ledger_queries: LedgerQueryHandle, args: AccountHistoryArgs) -> Self {
         Self {
-            ledger,
+            ledger_queries,
             accounts_to_filter: args.account_filter.unwrap_or_default(),
             reverse: unwrap_bool_or_false(args.reverse),
             offset: unwrap_u64_or_zero(args.offset),
@@ -80,7 +81,7 @@ impl<'a> AccountHistoryHelper<'a> {
     }
 
     pub(crate) fn account_history(mut self) -> anyhow::Result<AccountHistoryResponse> {
-        let any = self.ledger.any();
+        let mut any = self.ledger_queries.any_owned();
         self.initialize(&any)?;
         let mut history = Vec::new();
         let mut next_block = any.get_block(&self.current_block_hash);
@@ -161,14 +162,14 @@ impl<'a> AccountHistoryHelper<'a> {
                     entry.block_type = Some(BlockTypeDto::Receive);
                 }
 
-                if b.source() != self.ledger.constants.genesis_account.into() {
+                if b.source() != self.ledger_queries.constants().genesis_account.into() {
                     if let Some(amount) = any.block_amount_for(block) {
                         entry.account = any.block_account(&b.source());
                         entry.amount = Some(amount);
                     }
                 } else {
-                    entry.account = Some(self.ledger.constants.genesis_account);
-                    entry.amount = Some(self.ledger.constants.genesis_amount);
+                    entry.account = Some(self.ledger_queries.constants().genesis_account);
+                    entry.amount = Some(self.ledger_queries.constants().genesis_amount);
                 }
                 Some(entry)
             }
@@ -224,7 +225,13 @@ impl<'a> AccountHistoryHelper<'a> {
                     } else {
                         None
                     }
-                } else if balance == previous_balance && self.ledger.is_epoch_link(&b.link()) {
+                } else if balance == previous_balance
+                    && self
+                        .ledger_queries
+                        .constants()
+                        .epochs
+                        .is_epoch_link(&b.link())
+                {
                     if self.output_raw && self.accounts_to_filter.is_empty() {
                         entry.subtype = Some(BlockSubTypeDto::Epoch);
                         entry.account = self.ledger.epoch_signer(&b.link());
