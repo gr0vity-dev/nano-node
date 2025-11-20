@@ -91,7 +91,12 @@ fn apply_rocksdb_config(config: &mut NodeConfig, rocks_config: RocksDbConfig) {
     } else {
         RocksDbConfig {
             max_open_files: rocks_config.max_open_files,
-            ..RocksDbConfig::default()
+            enable_pipelined_write: false,
+            allow_concurrent_memtable_write: false,
+            write_buffer_size: rocks_config.write_buffer_size,
+            max_write_buffer_number: rocks_config.max_write_buffer_number,
+            min_write_buffer_number_to_merge: rocks_config.min_write_buffer_number_to_merge,
+            max_background_jobs: rocks_config.max_background_jobs,
         }
     };
     config.ledger_store_config = LedgerStoreConfig {

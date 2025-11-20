@@ -195,7 +195,7 @@ impl NodeConfig {
             enable_bounded_backlog: true,
             enable_vote_rebroadcast: true,
             enable_bootstrap_responder: true,
-            rocksdb_optimizations_enabled: false,
+            rocksdb_optimizations_enabled: true,
             iterator_metrics_enabled: false,
             default_peering_port: network_params.network.default_node_port,
             bootstrap_fraction_numerator: 1,

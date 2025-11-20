@@ -334,6 +334,8 @@ fn column_family_options(config: Option<&RocksDbConfig>) -> Options {
 }
 
 fn apply_tuning_options(options: &mut Options, config: &RocksDbConfig) {
+    // Optimized for concurrent optimistic writers: keep pipelined WAL writes and memtable concurrency on
+    // by default; callers can still disable via config if needed.
     if config.enable_pipelined_write {
         options.set_enable_pipelined_write(true);
     }

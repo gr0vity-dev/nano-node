@@ -797,6 +797,7 @@ mod tests {
         };
 
         let mut cfg = NodeConfig::new_test_instance();
+        cfg.rocksdb_optimizations_enabled = false;
         cfg.merge_toml(&toml);
 
         match &cfg.ledger_store_config.backend {
@@ -809,7 +810,7 @@ mod tests {
     }
 
     #[test]
-    fn rocksdb_optimizations_require_restart() {
+    fn rocksdb_optimizations_can_be_enabled_after_flag_flip() {
         let storage = StorageToml {
             backend: Some("rocksdb".to_string()),
             rocksdb: Some(RocksDbToml {
@@ -825,6 +826,7 @@ mod tests {
         };
 
         let mut cfg = NodeConfig::new_test_instance();
+        cfg.rocksdb_optimizations_enabled = false;
         cfg.merge_toml(&NodeToml {
             storage: Some(storage.clone()),
             ..Default::default()
@@ -836,24 +838,9 @@ mod tests {
         assert!(!rocks_cfg.enable_pipelined_write);
         assert!(!rocks_cfg.allow_concurrent_memtable_write);
 
-        cfg.merge_toml(&NodeToml {
-            experimental: Some(experimental.clone()),
-            ..Default::default()
-        });
-        let rocks_cfg = match &cfg.ledger_store_config.backend {
-            LedgerBackend::RocksDb(rocks) => rocks,
-            _ => panic!("expected RocksDB backend"),
-        };
-        assert!(!rocks_cfg.enable_pipelined_write);
-        assert!(!rocks_cfg.allow_concurrent_memtable_write);
-
-        // Simulate restart: new NodeConfig instance
-        let mut cfg = NodeConfig::new_test_instance();
+        // Enable optimizations via experimental flag, then re-apply storage to pick up tuned settings.
         cfg.merge_toml(&NodeToml {
             experimental: Some(experimental),
-            ..Default::default()
-        });
-        cfg.merge_toml(&NodeToml {
             storage: Some(storage),
             ..Default::default()
         });

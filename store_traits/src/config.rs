@@ -125,8 +125,9 @@ impl Default for RocksDbConfig {
     fn default() -> Self {
         Self {
             max_open_files: None,
-            enable_pipelined_write: false,
-            allow_concurrent_memtable_write: false,
+            // Concurrent memtable+WAL pipeline are safe defaults for optimistic writers.
+            enable_pipelined_write: true,
+            allow_concurrent_memtable_write: true,
             write_buffer_size: None,
             max_write_buffer_number: None,
             min_write_buffer_number_to_merge: None,
