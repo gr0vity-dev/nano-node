@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use crate::telemetry::{TelementryExt, Telemetry};
 use crate::services::TelemetryServices;
+use crate::telemetry::{TelementryExt, Telemetry};
 use rsnano_messages::TelemetryData;
 use rsnano_network::TcpListener;
 

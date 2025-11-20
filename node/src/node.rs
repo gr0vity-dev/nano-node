@@ -23,11 +23,13 @@ use rsnano_utils::{
     ticker::TimerThread,
 };
 
+#[cfg(test)]
+use crate::TelemetryServices;
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
     BacklogServices, BootstrapWorkServices, ConsensusServices, ConsensusTimerServices,
-    LedgerQueryServices, NodeCallbacks, NodeServices, WalletServices,
+    LedgerQueryServices, NodeCallbacks, NodeServices, ProductionHandles, WalletServices,
     block_processing::{BlockContext, BlockSource, ProcessedResult, UncheckedMap},
     config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{AecTicker, AecVoter, election::ConfirmedElection},
@@ -39,8 +41,6 @@ use crate::{
     },
     tokio_runner::TokioRunner,
 };
-#[cfg(test)]
-use crate::TelemetryServices;
 
 #[allow(dead_code)]
 pub struct Node {
@@ -53,6 +53,7 @@ pub struct Node {
     workers: Arc<ThreadPool>,
     pub flags: NodeFlags,
     services: NodeServices,
+    handles: ProductionHandles,
     network_subsystem: NetworkSubsystem,
     consensus_subsystem: ConsensusSubsystem,
     pub unchecked: Arc<Mutex<UncheckedMap>>,
@@ -140,6 +141,10 @@ impl Node {
 
     pub fn consensus_subsystem(&self) -> ConsensusSubsystem {
         self.consensus_subsystem.clone()
+    }
+
+    pub fn production_handles(&self) -> ProductionHandles {
+        self.handles.clone()
     }
 
     pub fn ledger_query_services(&self) -> LedgerQueryServices {
@@ -232,6 +237,7 @@ impl Node {
             composed.services.tcp_listener.clone(),
         );
         let ticker_subsystem = TickerSubsystem::new(composed.ticker_services);
+        let handles = ProductionHandles::new(composed.services.ledger.clone());
 
         Ok(Self {
             is_nulled: composed.is_nulled,
@@ -243,6 +249,7 @@ impl Node {
             workers: composed.workers,
             flags: composed.flags,
             services: composed.services,
+            handles,
             network_subsystem,
             consensus_subsystem,
             bootstrap_subsystem,

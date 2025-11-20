@@ -61,7 +61,8 @@ fn started_election() {
         let send1 = lattice.genesis().send_max(&key1);
         let publish1 = Message::Publish(Publish::new_forward(send1.clone()));
         node1
-            .network_subsystem().test_handles()
+            .network_subsystem()
+            .test_handles()
             .inbound_message_queue
             .put(publish1, channel1);
         assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
@@ -103,7 +104,8 @@ fn stopped_election() {
         let send1 = lattice.genesis().send_max(&key1);
         let publish1 = Message::Publish(Publish::new_forward(send1.clone()));
         node1
-            .network_subsystem().test_handles()
+            .network_subsystem()
+            .test_handles()
             .inbound_message_queue
             .put(publish1, channel1);
         assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
@@ -200,7 +202,8 @@ fn confirmation() {
         let mut lattice = unsaved_block_lattice_builder;
         let key = PrivateKey::new();
         let send_amount = node1
-            .consensus_subsystem().test_handles()
+            .consensus_subsystem()
+            .test_handles()
             .online_reps
             .lock()
             .unwrap()

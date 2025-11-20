@@ -7,6 +7,7 @@ mod confirming_set;
 mod conflicts;
 mod election;
 mod election_scheduler;
+mod handles;
 mod ledger;
 mod ledger_confirm;
 #[cfg(feature = "ledger_snapshots")]

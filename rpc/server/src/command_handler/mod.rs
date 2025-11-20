@@ -7,6 +7,7 @@ use anyhow::anyhow;
 use rsnano_ledger::AnySet;
 use rsnano_node::{
     LedgerQueryServices, Node, WalletServices,
+    handles::LedgerInfoHandle,
     subsystems::{BootstrapSubsystem, ConsensusSubsystem, NetworkSubsystem, TelemetrySubsystem},
 };
 use rsnano_rpc_messages::{RpcCommand, RpcError, StatsType};
@@ -22,6 +23,7 @@ pub(crate) struct RpcCommandHandler {
     node: Arc<Node>,
     consensus: ConsensusSubsystem,
     ledger_services: LedgerQueryServices,
+    ledger_info: LedgerInfoHandle,
     bootstrap: BootstrapSubsystem,
     wallet_services: WalletServices,
     telemetry_services: TelemetrySubsystem,
@@ -34,6 +36,7 @@ impl RpcCommandHandler {
     pub fn new(node: Arc<Node>, enable_control: bool, tx_stop: oneshot::Sender<()>) -> Self {
         let consensus = node.consensus_subsystem();
         let ledger_services = node.ledger_query_services();
+        let ledger_info = node.production_handles().ledger_info();
         let bootstrap = node.bootstrap_subsystem();
         let wallet_services = node.wallet_services();
         let telemetry_services = node.telemetry_subsystem();
@@ -42,6 +45,7 @@ impl RpcCommandHandler {
             node,
             consensus,
             ledger_services,
+            ledger_info,
             bootstrap,
             wallet_services,
             telemetry_services,

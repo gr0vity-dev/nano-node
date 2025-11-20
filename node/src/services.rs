@@ -6,15 +6,6 @@ use std::{
 
 use bounded_vec_deque::BoundedVecDeque;
 
-use rsnano_ledger::Ledger;
-use rsnano_messages::NetworkFilter;
-use rsnano_network::{Network, PeerConnector, TcpListener};
-use rsnano_network_protocol::InboundMessageQueue;
-use rsnano_nullable_clock::SteadyClock;
-use rsnano_utils::{
-    stats::Stats,
-    ticker::{TickerPool, TimerThread},
-};
 use crate::{
     block_processing::{
         BacklogScan, BlockProcessor, BlockProcessorQueue, BoundedBacklog, LocalBlockBroadcaster,
@@ -38,6 +29,15 @@ use crate::{
     },
     wallets::WalletRepresentatives,
     work::WorkFactory,
+};
+use rsnano_ledger::Ledger;
+use rsnano_messages::NetworkFilter;
+use rsnano_network::{Network, PeerConnector, TcpListener};
+use rsnano_network_protocol::InboundMessageQueue;
+use rsnano_nullable_clock::SteadyClock;
+use rsnano_utils::{
+    stats::Stats,
+    ticker::{TickerPool, TimerThread},
 };
 
 #[cfg(feature = "ledger_snapshots")]

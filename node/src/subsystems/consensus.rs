@@ -2,15 +2,16 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use crate::{
     ConsensusServices,
+    block_processing::{
+        BlockProcessor, BlockProcessorQueue, BoundedBacklog, LocalBlockBroadcaster,
+    },
     bootstrap::Bootstrapper,
-    config::{NodeConfig, NodeFlags},
-    block_processing::{BlockProcessor, BlockProcessorQueue, BoundedBacklog, LocalBlockBroadcaster},
     cementation::ConfirmingSet,
+    config::{NodeConfig, NodeFlags},
     consensus::{
-        ActiveElectionsContainer, CurrentRepTiers, LocalVoteHistory, RequestAggregator,
-        VoteCache, VoteCacheProcessor, VoteGenerators, VoteProcessor, VoteProcessorQueue,
-        VoteRebroadcaster, WinnerBlockBroadcaster,
-        election_schedulers::ElectionSchedulers,
+        ActiveElectionsContainer, CurrentRepTiers, LocalVoteHistory, RequestAggregator, VoteCache,
+        VoteCacheProcessor, VoteGenerators, VoteProcessor, VoteProcessorQueue, VoteRebroadcaster,
+        WinnerBlockBroadcaster, election_schedulers::ElectionSchedulers,
     },
     representatives::{OnlineReps, RepCrawler},
 };

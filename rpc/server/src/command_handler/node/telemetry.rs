@@ -58,7 +58,12 @@ impl RpcCommandHandler {
 
     fn is_local_address(&self, addr: &SocketAddrV6) -> bool {
         addr.ip().is_loopback()
-            && addr.port() == self.telemetry_services.tcp_listener().local_address().port()
+            && addr.port()
+                == self
+                    .telemetry_services
+                    .tcp_listener()
+                    .local_address()
+                    .port()
     }
 }
 

@@ -417,12 +417,14 @@ pub fn start_election(node: &Node, hash: &BlockHash) {
     assert_timely2(|| node.block_exists(hash));
 
     let block = node.block(hash).unwrap();
-    node.consensus_subsystem().test_handles()
+    node.consensus_subsystem()
+        .test_handles()
         .election_schedulers
         .add_manual(block.clone());
     // wait for the election to appear
     assert_timely2(|| node.is_active_root(&block.qualified_root()));
-    node.consensus_subsystem().test_handles()
+    node.consensus_subsystem()
+        .test_handles()
         .active
         .write()
         .unwrap()
@@ -441,7 +443,8 @@ pub fn start_elections(node: &Node, hashes: &[BlockHash], forced: bool) {
 pub fn activate_hashes(node: &Node, hashes: &[BlockHash]) {
     for hash in hashes {
         let block = node.block(hash).unwrap();
-        node.consensus_subsystem().test_handles()
+        node.consensus_subsystem()
+            .test_handles()
             .election_schedulers
             .add_manual(block);
     }

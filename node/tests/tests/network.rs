@@ -114,7 +114,8 @@ fn send_discarded_publish() {
     .into();
 
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .local_block_broadcaster
         .flood_block_initial(block);
 
@@ -157,7 +158,10 @@ fn receivable_processor_confirm_insufficient_pos() {
             .vote_count()
     );
 
-    let inbound_queue = node1.network_subsystem().test_handles().inbound_message_queue;
+    let inbound_queue = node1
+        .network_subsystem()
+        .test_handles()
+        .inbound_message_queue;
     inbound_queue.put(con1, channel);
 
     assert_timely_eq2(
@@ -202,7 +206,10 @@ fn receivable_processor_confirm_sufficient_pos() {
             .vote_count()
     );
 
-    let inbound_queue = node1.network_subsystem().test_handles().inbound_message_queue;
+    let inbound_queue = node1
+        .network_subsystem()
+        .test_handles()
+        .inbound_message_queue;
     inbound_queue.put(con1, channel);
 
     assert_timely2(|| {

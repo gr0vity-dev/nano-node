@@ -79,13 +79,11 @@ impl RpcCommandHandler {
                             .write()
                             .unwrap()
                             .erase(&block.qualified_root());
-                        self.consensus
-                            .block_processor_queue
-                            .push(BlockContext::new(
-                                block,
-                                BlockSource::Forced,
-                                ChannelId::LOOPBACK,
-                            ));
+                        self.consensus.block_processor_queue.push(BlockContext::new(
+                            block,
+                            BlockSource::Forced,
+                            ChannelId::LOOPBACK,
+                        ));
                         Ok(serde_json::to_value(HashRpcMessage::new(hash))?)
                     } else {
                         Err(anyhow!("Fork"))
@@ -110,13 +108,11 @@ impl RpcCommandHandler {
                 Err(BlockError::Conflict) => Err(anyhow!("Conflict while processing block")),
             }
         } else if block.block_type() == BlockType::State {
-            self.consensus
-                .block_processor_queue
-                .push(BlockContext::new(
-                    block,
-                    BlockSource::Local,
-                    ChannelId::LOOPBACK,
-                ));
+            self.consensus.block_processor_queue.push(BlockContext::new(
+                block,
+                BlockSource::Local,
+                ChannelId::LOOPBACK,
+            ));
             Ok(serde_json::to_value(StartedResponse::new(true))?)
         } else {
             Err(anyhow!("Must be a state block"))

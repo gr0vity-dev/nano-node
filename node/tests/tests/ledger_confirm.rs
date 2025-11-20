@@ -79,7 +79,8 @@ fn multiple_accounts() {
     let key3 = PrivateKey::new();
 
     let quorum_delta = node
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .online_reps
         .lock()
         .unwrap()
@@ -271,7 +272,8 @@ fn send_receive_between_2_accounts() {
     let key1 = PrivateKey::new();
 
     let quorum_delta = node
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .online_reps
         .lock()
         .unwrap()
@@ -344,7 +346,8 @@ fn send_receive_self() {
     let key1 = PrivateKey::new();
     let send4 = lattice.genesis().send_all_except(
         &key1,
-        node.consensus_subsystem().test_handles()
+        node.consensus_subsystem()
+            .test_handles()
             .online_reps
             .lock()
             .unwrap()
@@ -452,7 +455,8 @@ fn conflict_rollback_confirmed() {
     let mut fork_lattice = UnsavedBlockLatticeBuilder::new();
     let fork1b = fork_lattice.genesis().send(&key2, 100);
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             fork1b.into(),

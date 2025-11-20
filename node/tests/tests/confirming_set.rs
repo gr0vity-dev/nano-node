@@ -23,11 +23,24 @@ fn confirmed_history() {
     start_election(&node, &send1.hash());
     {
         // Prevent the confirming set doing any writes
-        node.consensus_subsystem().test_handles().confirming_set.set_cooldown(true);
+        node.consensus_subsystem()
+            .test_handles()
+            .confirming_set
+            .set_cooldown(true);
 
         // Confirm send1
         node.force_confirm(&send1.hash());
-        assert_timely_eq2(|| node.consensus_subsystem().test_handles().active.read().unwrap().len(), 0);
+        assert_timely_eq2(
+            || {
+                node.consensus_subsystem()
+                    .test_handles()
+                    .active
+                    .read()
+                    .unwrap()
+                    .len()
+            },
+            0,
+        );
         assert_eq!(
             node.ledger_query_services()
                 .recently_cemented
@@ -36,7 +49,15 @@ fn confirmed_history() {
                 .len(),
             0
         );
-        assert_eq!(node.consensus_subsystem().test_handles().active.read().unwrap().len(), 0);
+        assert_eq!(
+            node.consensus_subsystem()
+                .test_handles()
+                .active
+                .read()
+                .unwrap()
+                .len(),
+            0
+        );
         assert_eq!(
             node.ledger_query_services()
                 .ledger
@@ -58,7 +79,10 @@ fn confirmed_history() {
             },
             0,
         );
-        node.consensus_subsystem().test_handles().confirming_set.set_cooldown(false);
+        node.consensus_subsystem()
+            .test_handles()
+            .confirming_set
+            .set_cooldown(false);
     }
 
     assert_timely2(|| {
@@ -68,7 +92,17 @@ fn confirmed_history() {
             .block_exists(&send.hash())
     });
 
-    assert_timely_eq2(|| node.consensus_subsystem().test_handles().active.read().unwrap().len(), 0);
+    assert_timely_eq2(
+        || {
+            node.consensus_subsystem()
+                .test_handles()
+                .active
+                .read()
+                .unwrap()
+                .len()
+        },
+        0,
+    );
     assert_timely_eq2(
         || node.stats().get("confirmation_observer", "active_quorum"),
         1,
@@ -85,7 +119,15 @@ fn confirmed_history() {
         },
         2,
     );
-    assert_eq!(node.consensus_subsystem().test_handles().active.read().unwrap().len(), 0);
+    assert_eq!(
+        node.consensus_subsystem()
+            .test_handles()
+            .active
+            .read()
+            .unwrap()
+            .len(),
+        0
+    );
 
     // Confirm the callback is not called under this circumstance
     assert_timely_eq2(
@@ -139,7 +181,8 @@ fn dependent_election() {
     // Once the item added to the confirming set no longer exists, callbacks have completed
     assert_timely2(|| {
         !node
-            .consensus_subsystem().test_handles()
+            .consensus_subsystem()
+            .test_handles()
             .confirming_set
             .contains(&send2.hash())
     });

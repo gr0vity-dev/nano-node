@@ -27,7 +27,8 @@ mod votes {
         let send1 = lattice.genesis().legacy_send(&key1, 100);
         let send1 = node1.process(send1);
         node1
-            .consensus_subsystem().test_handles()
+            .consensus_subsystem()
+            .test_handles()
             .election_schedulers
             .manual
             .push(send1.clone().into());
@@ -42,7 +43,8 @@ mod votes {
         ));
 
         node1
-            .consensus_subsystem().test_handles()
+            .consensus_subsystem()
+            .test_handles()
             .vote_processor
             .vote_blocking(&ReceivedVote::new(vote1.into(), VoteSource::Live, None).into())
             .unwrap();
@@ -61,7 +63,8 @@ mod votes {
         // Ignored due to vote cooldown
         assert_eq!(
             node1
-                .consensus_subsystem().test_handles()
+                .consensus_subsystem()
+                .test_handles()
                 .vote_processor
                 .vote_blocking(&vote2.into()),
             Err(VoteError::Ignored)
@@ -69,7 +72,8 @@ mod votes {
 
         assert_eq!(
             node1
-                .consensus_subsystem().test_handles()
+                .consensus_subsystem()
+                .test_handles()
                 .active
                 .read()
                 .unwrap()
@@ -80,7 +84,8 @@ mod votes {
         );
         assert_eq!(
             node1
-                .consensus_subsystem().test_handles()
+                .consensus_subsystem()
+                .test_handles()
                 .active
                 .read()
                 .unwrap()
@@ -112,7 +117,8 @@ fn epoch_open_pending() {
     node1.process(send1);
 
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             epoch_open.clone().into(),
@@ -172,7 +178,8 @@ fn block_hash_account_conflict() {
 
     let winner_for = |root: &QualifiedRoot| {
         node1
-            .consensus_subsystem().test_handles()
+            .consensus_subsystem()
+            .test_handles()
             .active
             .read()
             .unwrap()
@@ -204,7 +211,8 @@ fn unchecked_epoch() {
     let epoch1 = lattice.account(&destination).epoch1();
 
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             epoch1.clone().into(),
@@ -215,7 +223,8 @@ fn unchecked_epoch() {
     // Waits for the epoch1 block to pass through block_processor and unchecked.put queues
     assert_timely_eq2(|| node1.unchecked.lock().unwrap().len(), 1);
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             send1.into(),
@@ -223,7 +232,8 @@ fn unchecked_epoch() {
             ChannelId::LOOPBACK,
         ));
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             open1.into(),
@@ -294,7 +304,8 @@ fn unchecked_epoch_invalid() {
     .into();
 
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             epoch1.clone().into(),
@@ -302,7 +313,8 @@ fn unchecked_epoch_invalid() {
             ChannelId::LOOPBACK,
         ));
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             epoch2.clone().into(),
@@ -313,7 +325,8 @@ fn unchecked_epoch_invalid() {
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
     assert_timely_eq2(|| node1.unchecked.lock().unwrap().len(), 2);
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             send1.into(),
@@ -321,7 +334,8 @@ fn unchecked_epoch_invalid() {
             ChannelId::LOOPBACK,
         ));
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             open1.into(),
@@ -365,7 +379,8 @@ fn unchecked_open() {
 
     // Insert open2 in to the queue before open1
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             open2.into(),
@@ -373,7 +388,8 @@ fn unchecked_open() {
             ChannelId::LOOPBACK,
         ));
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             open1.clone().into(),
@@ -385,7 +401,8 @@ fn unchecked_open() {
     assert_timely_eq2(|| node1.unchecked.lock().unwrap().len(), 1);
     // When open1 existists in unchecked, we know open2 has been processed.
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             send1.into(),
@@ -409,7 +426,8 @@ fn unchecked_receive() {
     let open1 = lattice.account(&destination).receive(&send1);
     let receive1 = lattice.account(&destination).receive(&send2);
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             send1.into(),
@@ -417,7 +435,8 @@ fn unchecked_receive() {
             ChannelId::LOOPBACK,
         ));
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             receive1.clone().into(),
@@ -442,7 +461,8 @@ fn unchecked_receive() {
 
     // Waits for the open1 block to pass through block_processor and unchecked.put queues
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             open1.clone().into(),
@@ -461,7 +481,8 @@ fn unchecked_receive() {
         1
     );
     node1
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .block_processor_queue
         .push(BlockContext::new(
             send2.clone().into(),

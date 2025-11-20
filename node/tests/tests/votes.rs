@@ -39,7 +39,8 @@ fn check_signature() {
     );
     assert_eq!(
         Err(VoteError::Invalid),
-        node.consensus_subsystem().test_handles()
+        node.consensus_subsystem()
+            .test_handles()
             .vote_processor
             .vote_blocking(&received_vote1.into())
     );
@@ -49,14 +50,16 @@ fn check_signature() {
     let received_vote2 =
         ReceivedVote::new(Arc::new(vote1), VoteSource::Live, Some(channel.clone()));
     assert!(
-        node.consensus_subsystem().test_handles()
+        node.consensus_subsystem()
+            .test_handles()
             .vote_processor
             .vote_blocking(&received_vote2.clone().into())
             .is_ok()
     );
     assert_eq!(
         Err(VoteError::Replay),
-        node.consensus_subsystem().test_handles()
+        node.consensus_subsystem()
+            .test_handles()
             .vote_processor
             .vote_blocking(&received_vote2.into())
     );
@@ -82,7 +85,8 @@ fn add_cooldown() {
     ));
     let channel = make_fake_channel(&node.network_subsystem().test_handles());
     let _ = node
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .vote_processor
         .vote_blocking(&ReceivedVote::new(vote1, VoteSource::Live, Some(channel.clone())).into());
 
@@ -96,7 +100,8 @@ fn add_cooldown() {
     ));
 
     let _ = node
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .vote_processor
         .vote_blocking(&ReceivedVote::new(vote2, VoteSource::Live, Some(channel)).into());
 
@@ -125,23 +130,24 @@ fn vote_generator_cache() {
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
 
-    node.consensus_subsystem().test_handles().vote_generators.generate_vote(
-        &epoch1.root(),
-        &epoch1.hash(),
-        VoteType::NonFinal,
-    );
+    node.consensus_subsystem()
+        .test_handles()
+        .vote_generators
+        .generate_vote(&epoch1.root(), &epoch1.hash(), VoteType::NonFinal);
 
     // Wait until the votes are available
     assert_timely(Duration::from_secs(1), || {
         !node
-            .consensus_subsystem().test_handles()
+            .consensus_subsystem()
+            .test_handles()
             .vote_history
             .votes(&epoch1.root(), &epoch1.hash(), false)
             .is_empty()
     });
 
     let votes = node
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .vote_history
         .votes(&epoch1.root(), &epoch1.hash(), false);
     assert!(!votes.is_empty());
@@ -316,7 +322,8 @@ fn vote_generator_multiple_representatives() {
 
     // Wait until the votes are available
     assert_timely(Duration::from_secs(5), || {
-        node.consensus_subsystem().test_handles()
+        node.consensus_subsystem()
+            .test_handles()
             .vote_history
             .votes(&send.root(), &send.hash(), false)
             .len()
@@ -324,7 +331,8 @@ fn vote_generator_multiple_representatives() {
     });
 
     let votes = node
-        .consensus_subsystem().test_handles()
+        .consensus_subsystem()
+        .test_handles()
         .vote_history
         .votes(&send.root(), &send.hash(), false);
     for account in &[
@@ -376,11 +384,14 @@ fn vote_spacing_vote_generator() {
         ),
         0
     );
-    node.consensus_subsystem().test_handles().vote_generators.generate_vote(
-        &(*DEV_GENESIS_HASH).into(),
-        &send1.hash().into(),
-        VoteType::NonFinal,
-    );
+    node.consensus_subsystem()
+        .test_handles()
+        .vote_generators
+        .generate_vote(
+            &(*DEV_GENESIS_HASH).into(),
+            &send1.hash().into(),
+            VoteType::NonFinal,
+        );
 
     assert_timely_eq2(
         || {
@@ -401,11 +412,14 @@ fn vote_spacing_vote_generator() {
         .ledger
         .process_one(&send2)
         .unwrap();
-    node.consensus_subsystem().test_handles().vote_generators.generate_vote(
-        &(*DEV_GENESIS_HASH).into(),
-        &send2.hash().into(),
-        VoteType::NonFinal,
-    );
+    node.consensus_subsystem()
+        .test_handles()
+        .vote_generators
+        .generate_vote(
+            &(*DEV_GENESIS_HASH).into(),
+            &send2.hash().into(),
+            VoteType::NonFinal,
+        );
 
     assert_timely_eq2(
         || {
@@ -426,13 +440,21 @@ fn vote_spacing_vote_generator() {
             Direction::In
         )
     );
-    std::thread::sleep(node.consensus_subsystem().test_handles().vote_generators.voting_delay());
-
-    node.consensus_subsystem().test_handles().vote_generators.generate_vote(
-        &(*DEV_GENESIS_HASH).into(),
-        &send2.hash().into(),
-        VoteType::NonFinal,
+    std::thread::sleep(
+        node.consensus_subsystem()
+            .test_handles()
+            .vote_generators
+            .voting_delay(),
     );
+
+    node.consensus_subsystem()
+        .test_handles()
+        .vote_generators
+        .generate_vote(
+            &(*DEV_GENESIS_HASH).into(),
+            &send2.hash().into(),
+            VoteType::NonFinal,
+        );
 
     assert_timely_eq2(
         || {
@@ -474,11 +496,14 @@ fn vote_spacing_rapid() {
 
     node.process(send1.clone());
 
-    node.consensus_subsystem().test_handles().vote_generators.generate_vote(
-        &(*DEV_GENESIS_HASH).into(),
-        &send1.hash().into(),
-        VoteType::NonFinal,
-    );
+    node.consensus_subsystem()
+        .test_handles()
+        .vote_generators
+        .generate_vote(
+            &(*DEV_GENESIS_HASH).into(),
+            &send1.hash().into(),
+            VoteType::NonFinal,
+        );
 
     assert_timely_eq2(
         || {
@@ -499,11 +524,14 @@ fn vote_spacing_rapid() {
         .ledger
         .process_one(&send2)
         .unwrap();
-    node.consensus_subsystem().test_handles().vote_generators.generate_vote(
-        &(*DEV_GENESIS_HASH).into(),
-        &send2.hash().into(),
-        VoteType::NonFinal,
-    );
+    node.consensus_subsystem()
+        .test_handles()
+        .vote_generators
+        .generate_vote(
+            &(*DEV_GENESIS_HASH).into(),
+            &send2.hash().into(),
+            VoteType::NonFinal,
+        );
 
     assert_timely_eq2(
         || {
@@ -516,13 +544,21 @@ fn vote_spacing_rapid() {
         1,
     );
 
-    std::thread::sleep(node.consensus_subsystem().test_handles().vote_generators.voting_delay());
-
-    node.consensus_subsystem().test_handles().vote_generators.generate_vote(
-        &(*DEV_GENESIS_HASH).into(),
-        &send2.hash().into(),
-        VoteType::NonFinal,
+    std::thread::sleep(
+        node.consensus_subsystem()
+            .test_handles()
+            .vote_generators
+            .voting_delay(),
     );
+
+    node.consensus_subsystem()
+        .test_handles()
+        .vote_generators
+        .generate_vote(
+            &(*DEV_GENESIS_HASH).into(),
+            &send2.hash().into(),
+            VoteType::NonFinal,
+        );
 
     assert_timely_eq2(
         || {

@@ -12,6 +12,7 @@ pub mod cementation;
 mod composition;
 pub mod config;
 pub mod consensus;
+pub mod handles;
 mod ledger_event_processor;
 mod ledger_factory;
 #[cfg(feature = "ledger_snapshots")]
@@ -32,6 +33,7 @@ pub mod wallets;
 pub mod work;
 pub mod working_path;
 
+pub use handles::*;
 pub use node::*;
 pub use node_builder::*;
 pub use representatives::OnlineWeightSampler;

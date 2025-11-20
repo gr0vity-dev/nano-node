@@ -67,19 +67,7 @@ fn records_batch_metrics() {
     assert_eq!(stats.get("block_processor_batch", "blocks"), 3);
     assert_eq!(stats.get("block_processor_batch", "dequeue_wait_ns"), 12);
     assert_eq!(stats.get("block_processor_batch", "max_size"), 2);
-    assert!(stats.contains(
-        "block_processor_batch",
-        "validate_ns",
-        Direction::In
-    ));
-    assert!(stats.contains(
-        "block_processor_batch",
-        "apply_ns",
-        Direction::In
-    ));
-    assert!(stats.contains(
-        "block_processor_batch",
-        "process_ns",
-        Direction::In
-    ));
+    assert!(stats.contains("block_processor_batch", "validate_ns", Direction::In));
+    assert!(stats.contains("block_processor_batch", "apply_ns", Direction::In));
+    assert!(stats.contains("block_processor_batch", "process_ns", Direction::In));
 }

@@ -18,12 +18,14 @@ fn invalid_signature() {
     let message = Message::TelemetryAck(TelemetryAck(Some(telemetry)));
 
     let channel = make_fake_channel(&node.network_subsystem().test_handles());
-    node.network_subsystem().test_handles()
+    node.network_subsystem()
+        .test_handles()
         .network
         .read()
         .unwrap()
         .set_node_id(channel.channel_id(), node_id);
-    node.network_subsystem().test_handles()
+    node.network_subsystem()
+        .test_handles()
         .inbound_message_queue
         .put(message, channel);
 
@@ -48,7 +50,8 @@ fn basic() {
 
     // Request telemetry metrics
     let channel = node_client
-        .network_subsystem().test_handles()
+        .network_subsystem()
+        .test_handles()
         .network
         .read()
         .unwrap()
@@ -115,7 +118,8 @@ fn disconnected() {
 
     // Request telemetry metrics
     let channel = node_client
-        .network_subsystem().test_handles()
+        .network_subsystem()
+        .test_handles()
         .network
         .read()
         .unwrap()
@@ -158,7 +162,8 @@ fn mismatched_node_id() {
 
     let message = Message::TelemetryAck(TelemetryAck(Some(telemetry)));
     let channel = make_fake_channel(&node.network_subsystem().test_handles());
-    node.network_subsystem().test_handles()
+    node.network_subsystem()
+        .test_handles()
         .inbound_message_queue
         .put(message, channel);
 

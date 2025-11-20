@@ -9,8 +9,8 @@ use rsnano_network_protocol::InboundMessageQueue;
 use rsnano_nullable_clock::SteadyClock;
 use tracing::warn;
 
-use crate::transport::{MessageFlooder, MessageProcessor, MessageSender, NetworkThreads};
 use crate::transport::keepalive::KeepalivePublisher;
+use crate::transport::{MessageFlooder, MessageProcessor, MessageSender, NetworkThreads};
 
 use super::lifecycle::Lifecycle;
 
