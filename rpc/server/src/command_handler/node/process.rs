@@ -74,12 +74,12 @@ impl RpcCommandHandler {
                 Err(BlockError::NegativeSpend) => Err(anyhow!("Negative spend")),
                 Err(BlockError::Fork) => {
                     if args.force.unwrap_or_default().inner() {
-                        self.consensus_services
+                        self.consensus
                             .active
                             .write()
                             .unwrap()
                             .erase(&block.qualified_root());
-                        self.consensus_services
+                        self.consensus
                             .block_processor_queue
                             .push(BlockContext::new(
                                 block,
@@ -110,7 +110,7 @@ impl RpcCommandHandler {
                 Err(BlockError::Conflict) => Err(anyhow!("Conflict while processing block")),
             }
         } else if block.block_type() == BlockType::State {
-            self.consensus_services
+            self.consensus
                 .block_processor_queue
                 .push(BlockContext::new(
                     block,

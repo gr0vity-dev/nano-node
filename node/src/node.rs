@@ -34,7 +34,7 @@ use crate::{
     consensus::{AecTicker, AecVoter, election::ConfirmedElection},
     node_builder::ComposedNode,
     node_id_key_file::NodeIdKeyFile,
-    subsystems::NetworkSubsystem,
+    subsystems::{ConsensusSubsystem, Lifecycle, NetworkSubsystem},
     tokio_runner::TokioRunner,
 };
 
@@ -50,6 +50,7 @@ pub struct Node {
     pub flags: NodeFlags,
     services: NodeServices,
     network_subsystem: NetworkSubsystem,
+    consensus_subsystem: ConsensusSubsystem,
     pub unchecked: Arc<Mutex<UncheckedMap>>,
     pub backlog_scan: BacklogServices,
     stopped: AtomicBool,
@@ -127,7 +128,11 @@ impl Node {
     }
 
     pub fn consensus_services(&self) -> ConsensusServices {
-        self.services.consensus_services()
+        self.consensus_subsystem.services()
+    }
+
+    pub fn consensus_subsystem(&self) -> ConsensusSubsystem {
+        self.consensus_subsystem.clone()
     }
 
     pub fn ledger_query_services(&self) -> LedgerQueryServices {
@@ -183,6 +188,11 @@ impl Node {
             )
         };
 
+        let consensus_subsystem = {
+            let services = composed.services.consensus_services();
+            ConsensusSubsystem::new(services, composed.config.clone(), composed.flags.clone())
+        };
+
         Ok(Self {
             is_nulled: composed.is_nulled,
             runtime: composed.runtime,
@@ -194,6 +204,7 @@ impl Node {
             flags: composed.flags,
             services: composed.services,
             network_subsystem,
+            consensus_subsystem,
             unchecked: composed.unchecked,
             backlog_scan: composed.backlog_scan,
             stopped: AtomicBool::new(false),
@@ -218,8 +229,8 @@ impl Node {
     }
 
     pub fn process_local(&self, block: Block) -> Result<(), BlockError> {
-        self.consensus_services()
-            .block_processor_queue
+        self.consensus_subsystem
+            .block_processor_queue()
             .push_blocking(Arc::new(block), BlockSource::Local)
             .map_err(|_| BlockError::BadSignature)?
             .map(|_| {})
@@ -257,8 +268,8 @@ impl Node {
     }
 
     pub fn process_active(&self, block: Block) {
-        self.consensus_services()
-            .block_processor_queue
+        self.consensus_subsystem
+            .block_processor_queue()
             .push(BlockContext::new(
                 block,
                 BlockSource::Live,
@@ -348,16 +359,16 @@ impl Node {
     }
 
     pub fn is_active_root(&self, root: &QualifiedRoot) -> bool {
-        self.consensus_services()
-            .active
+        self.consensus_subsystem
+            .active()
             .read()
             .unwrap()
             .is_active_root(root)
     }
 
     pub fn is_active_hash(&self, hash: &BlockHash) -> bool {
-        self.consensus_services()
-            .active
+        self.consensus_subsystem
+            .active()
             .read()
             .unwrap()
             .is_active_hash(hash)
@@ -369,8 +380,8 @@ impl Node {
             Networks::NanoDevNetwork
         );
         let now = self.network_subsystem.steady_clock().now();
-        self.consensus_services()
-            .active
+        self.consensus_subsystem
+            .active()
             .write()
             .unwrap()
             .force_confirm(hash, now);
@@ -408,7 +419,6 @@ impl Node {
             panic!("Genesis block not found!");
         }
 
-        let consensus_services = self.consensus_services();
         let bootstrap_work_services = self.bootstrap_work_services();
         let telemetry_services = self.telemetry_services();
 
@@ -416,7 +426,7 @@ impl Node {
         self.consensus_timer_services()
             .start(&self.flags, &self.network_params);
 
-        consensus_services.start(&self.config, &self.flags);
+        Lifecycle::start(&mut self.consensus_subsystem);
         self.backlog_scan.start();
         bootstrap_work_services.start(self.config.enable_bootstrap_responder);
         telemetry_services.start();
@@ -436,7 +446,6 @@ impl Node {
         }
         info!("Node stopping...");
 
-        let consensus_services = self.consensus_services();
         let bootstrap_work_services = self.bootstrap_work_services();
         let telemetry_services = self.telemetry_services();
         let wallet_services = self.wallet_services();
@@ -446,7 +455,7 @@ impl Node {
         self.consensus_timer_services().stop();
         bootstrap_work_services.stop();
         self.backlog_scan.stop();
-        consensus_services.stop();
+        Lifecycle::stop(&mut self.consensus_subsystem);
         telemetry_services.stop();
         wallet_services.stop();
         self.network_subsystem.stop_threads(); // Stop network last to avoid killing in-use sockets

@@ -99,26 +99,26 @@ impl InsightApp {
             let channels = node.network_subsystem().sorted_channels();
             let telemetries = node.telemetry_services().telemetry.get_all_telemetries();
             let (peered_reps, min_rep_weight) = {
-                let consensus_services = node.consensus_services();
+                let consensus_services = node.consensus_subsystem();
                 let guard = consensus_services.online_reps.lock().unwrap();
                 (guard.peered_reps(), guard.minimum_principal_weight())
             };
             self.channels
                 .update(channels, telemetries, peered_reps, min_rep_weight);
-            self.aec_info = node.consensus_services().active.read().unwrap().info();
+            self.aec_info = node.consensus_subsystem().active.read().unwrap().info();
             self.max_optimistic = node
-                .consensus_services()
+                .consensus_subsystem()
                 .election_schedulers
                 .optimistic
                 .max_elections;
             self.max_hinted = node
-                .consensus_services()
+                .consensus_subsystem()
                 .election_schedulers
                 .hinted
                 .max_elections;
-            self.confirming_set = node.consensus_services().confirming_set.info();
-            self.block_processor_info = node.consensus_services().block_processor_queue.info();
-            self.vote_processor_info = node.consensus_services().vote_processor_queue.info();
+            self.confirming_set = node.consensus_subsystem().confirming_set.info();
+            self.block_processor_info = node.consensus_subsystem().block_processor_queue.info();
+            self.vote_processor_info = node.consensus_subsystem().vote_processor_queue.info();
             {
                 let bootstrap_services = node.bootstrap_work_services();
                 let state = bootstrap_services.bootstrapper.state();
