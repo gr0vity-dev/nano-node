@@ -20,12 +20,9 @@ ARG CI_TAG=DEV_BUILD
 ARG CI_VERSION_PRE_RELEASE=OFF
 ARG SANITIZER
 
-# Build node with cached cargo registries/target to avoid rebuilding unchanged deps
+# Build node
 ENV PATH="/root/.cargo/bin:${PATH}"
-RUN --mount=type=cache,target=/root/.cargo/registry \
-    --mount=type=cache,target=/root/.cargo/git \
-    --mount=type=cache,target=/tmp/src/target \
-    cd main && CARGO_TARGET_DIR=/tmp/src/target cargo build --release
+RUN cd main && cargo build --release
 RUN echo ${NANO_NETWORK} >/etc/nano-network
 
 FROM ubuntu:22.04
