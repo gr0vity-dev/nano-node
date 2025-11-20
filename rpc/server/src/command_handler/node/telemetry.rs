@@ -10,12 +10,12 @@ impl RpcCommandHandler {
 
             if self.is_local_address(&endpoint) {
                 // Requesting telemetry metrics locally
-                let data = self.telemetry_services.telemetry.local_telemetry();
+                let data = self.telemetry_services.telemetry().local_telemetry();
                 Ok(TelemetryResponse::Single(data.into()))
             } else {
                 let telemetry = self
                     .telemetry_services
-                    .telemetry
+                    .telemetry()
                     .get_telemetry(&endpoint)
                     .ok_or_else(|| anyhow!("Peer not found"))?;
 
@@ -26,7 +26,7 @@ impl RpcCommandHandler {
             // setting "raw" to true returns metrics from all nodes requested.
             let output_raw = args.raw.unwrap_or_default().inner();
             if output_raw {
-                let all_telemetries = self.telemetry_services.telemetry.get_all_telemetries();
+                let all_telemetries = self.telemetry_services.telemetry().get_all_telemetries();
                 let mut responses = Vec::new();
                 for (addr, data) in all_telemetries {
                     let mut metric = TelemetryDto::from(data);
@@ -39,7 +39,7 @@ impl RpcCommandHandler {
                 }))
             } else {
                 // Default case without any parameters, requesting telemetry metrics locally
-                let data = self.telemetry_services.telemetry.local_telemetry();
+                let data = self.telemetry_services.telemetry().local_telemetry();
                 Ok(TelemetryResponse::Single(data.into()))
             }
         }
@@ -58,7 +58,7 @@ impl RpcCommandHandler {
 
     fn is_local_address(&self, addr: &SocketAddrV6) -> bool {
         addr.ip().is_loopback()
-            && addr.port() == self.telemetry_services.tcp_listener.local_address().port()
+            && addr.port() == self.telemetry_services.tcp_listener().local_address().port()
     }
 }
 
@@ -103,7 +103,7 @@ mod tests {
         });
 
         let node = Arc::new(Node::new_null());
-        let expected = node.telemetry_services().telemetry.local_telemetry();
+        let expected = node.telemetry_subsystem().telemetry().local_telemetry();
         let result: TelemetryDto = test_rpc_command_with_node(cmd, node);
         assert_result(expected, result);
     }
@@ -115,15 +115,15 @@ mod tests {
             raw: None,
             address: Some(Ipv6Addr::LOCALHOST),
             port: Some(
-                node.telemetry_services()
-                    .tcp_listener
+                node.telemetry_subsystem()
+                    .tcp_listener()
                     .local_address()
                     .port()
                     .into(),
             ),
         });
 
-        let expected = node.telemetry_services().telemetry.local_telemetry();
+        let expected = node.telemetry_subsystem().telemetry().local_telemetry();
         let result: TelemetryDto = test_rpc_command_with_node(cmd, node);
         assert_result(expected, result);
     }

@@ -1,32 +1,62 @@
+use std::sync::Arc;
+
+use crate::telemetry::{TelementryExt, Telemetry};
+use crate::services::TelemetryServices;
+use rsnano_messages::TelemetryData;
+use rsnano_network::TcpListener;
+
 use super::lifecycle::Lifecycle;
 
-/// Facade over telemetry collection/cache.
+#[derive(Clone)]
 pub struct TelemetrySubsystem {
-    _private: (),
+    telemetry: Arc<Telemetry>,
+    tcp_listener: Arc<TcpListener>,
+}
+
+#[derive(Clone)]
+pub struct TelemetryTestHandles {
+    pub telemetry: Arc<Telemetry>,
+    pub tcp_listener: Arc<TcpListener>,
 }
 
 impl TelemetrySubsystem {
-    pub fn new() -> Self {
-        Self { _private: () }
+    pub fn new(telemetry: Arc<Telemetry>, tcp_listener: Arc<TcpListener>) -> Self {
+        Self {
+            telemetry,
+            tcp_listener,
+        }
     }
 
-    /// Return the local telemetry snapshot.
-    pub fn local_snapshot(&self) -> String {
-        todo!("return local telemetry")
+    pub fn local_snapshot(&self) -> TelemetryData {
+        self.telemetry.local_telemetry()
     }
 
-    /// Request telemetry from all peers.
-    pub fn request_all(&self) {
-        todo!("request telemetry from peers")
+    pub fn telemetry(&self) -> Arc<Telemetry> {
+        self.telemetry.clone()
+    }
+
+    pub fn tcp_listener(&self) -> Arc<TcpListener> {
+        self.tcp_listener.clone()
+    }
+
+    pub fn telemetry_services(&self) -> TelemetryServices {
+        TelemetryServices::new(self.telemetry.clone(), self.tcp_listener.clone())
+    }
+
+    pub fn test_handles(&self) -> TelemetryTestHandles {
+        TelemetryTestHandles {
+            telemetry: self.telemetry.clone(),
+            tcp_listener: self.tcp_listener.clone(),
+        }
     }
 }
 
 impl Lifecycle for TelemetrySubsystem {
     fn start(&mut self) {
-        todo!("start telemetry polling")
+        self.telemetry.start();
     }
 
     fn stop(&mut self) {
-        todo!("stop telemetry polling")
+        self.telemetry.stop();
     }
 }

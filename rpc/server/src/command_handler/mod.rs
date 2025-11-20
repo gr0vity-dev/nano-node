@@ -6,8 +6,8 @@ mod wallets;
 use anyhow::anyhow;
 use rsnano_ledger::AnySet;
 use rsnano_node::{
-    LedgerQueryServices, Node, TelemetryServices, WalletServices,
-    subsystems::{BootstrapSubsystem, ConsensusSubsystem, NetworkSubsystem},
+    LedgerQueryServices, Node, WalletServices,
+    subsystems::{BootstrapSubsystem, ConsensusSubsystem, NetworkSubsystem, TelemetrySubsystem},
 };
 use rsnano_rpc_messages::{RpcCommand, RpcError, StatsType};
 use rsnano_types::{Account, AccountInfo, BlockHash, SavedBlock};
@@ -24,7 +24,7 @@ pub(crate) struct RpcCommandHandler {
     ledger_services: LedgerQueryServices,
     bootstrap: BootstrapSubsystem,
     wallet_services: WalletServices,
-    telemetry_services: TelemetryServices,
+    telemetry_services: TelemetrySubsystem,
     network: NetworkSubsystem,
     enable_control: bool,
     stop: Arc<Mutex<Option<oneshot::Sender<()>>>>,
@@ -36,7 +36,7 @@ impl RpcCommandHandler {
         let ledger_services = node.ledger_query_services();
         let bootstrap = node.bootstrap_subsystem();
         let wallet_services = node.wallet_services();
-        let telemetry_services = node.telemetry_services();
+        let telemetry_services = node.telemetry_subsystem();
         let network = node.network_subsystem();
         Self {
             node,

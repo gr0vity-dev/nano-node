@@ -27,14 +27,14 @@ use rsnano_utils::{
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
     BacklogServices, BootstrapWorkServices, ConsensusServices, ConsensusTimerServices,
-    LedgerQueryServices, NodeCallbacks, NodeServices, TelemetryServices, TickerServices,
+    LedgerQueryServices, NodeCallbacks, NodeServices, TickerServices,
     WalletServices,
     block_processing::{BlockContext, BlockSource, ProcessedResult, UncheckedMap},
     config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{AecTicker, AecVoter, election::ConfirmedElection},
     node_builder::ComposedNode,
     node_id_key_file::NodeIdKeyFile,
-    subsystems::{BootstrapSubsystem, ConsensusSubsystem, Lifecycle, NetworkSubsystem},
+    subsystems::{BootstrapSubsystem, ConsensusSubsystem, Lifecycle, NetworkSubsystem, TelemetrySubsystem},
     tokio_runner::TokioRunner,
 };
 
@@ -62,6 +62,7 @@ pub struct Node {
     aec_voter: TimerThread<AecVoter>,
     ticker_services: TickerServices,
     bootstrap_subsystem: BootstrapSubsystem,
+    telemetry_subsystem: TelemetrySubsystem,
     #[cfg(feature = "ledger_snapshots")]
     pub ledger_snapshots: Arc<LedgerSnapshots>,
 }
@@ -120,6 +121,11 @@ impl Node {
         self.services.wallet_services()
     }
 
+    pub fn telemetry_subsystem(&self) -> TelemetrySubsystem {
+        self.telemetry_subsystem.clone()
+    }
+
+    #[cfg(test)]
     pub fn telemetry_services(&self) -> TelemetryServices {
         self.services.telemetry_services()
     }
@@ -221,6 +227,10 @@ impl Node {
             composed.services.work_factory.clone(),
             composed.config.enable_bootstrap_responder,
         );
+        let telemetry_subsystem = TelemetrySubsystem::new(
+            composed.services.telemetry.clone(),
+            composed.services.tcp_listener.clone(),
+        );
 
         Ok(Self {
             is_nulled: composed.is_nulled,
@@ -235,6 +245,7 @@ impl Node {
             network_subsystem,
             consensus_subsystem,
             bootstrap_subsystem,
+            telemetry_subsystem,
             unchecked: composed.unchecked,
             backlog_scan: composed.backlog_scan,
             stopped: AtomicBool::new(false),
@@ -449,7 +460,7 @@ impl Node {
             panic!("Genesis block not found!");
         }
 
-        let telemetry_services = self.telemetry_services();
+        let mut telemetry_services = self.telemetry_subsystem();
 
         self.network_subsystem.start();
         self.consensus_timer_services()
@@ -475,7 +486,7 @@ impl Node {
         }
         info!("Node stopping...");
 
-        let telemetry_services = self.telemetry_services();
+        let mut telemetry_services = self.telemetry_subsystem();
         let wallet_services = self.wallet_services();
 
         self.ticker_services_mut().stop();

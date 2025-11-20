@@ -83,7 +83,7 @@ impl DaemonBuilder {
 
             websocket_server = if websocket_enabled {
                 let wallet_services = node.wallet_services();
-                let telemetry_services = node.telemetry_services();
+                let telemetry_services = node.telemetry_subsystem().telemetry_services();
                 let ledger = node.ledger_query_services().ledger.clone();
                 Some(
                     create_websocket_server(
