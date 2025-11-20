@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 
-use rsnano_ledger::{AnySet, LedgerSet, OwningAnySet};
+use rsnano_ledger::LedgerSet;
 use rsnano_rpc_messages::{
     AccountHistoryArgs, AccountHistoryResponse, BlockSubTypeDto, BlockTypeDto, HistoryEntry,
     unwrap_bool_or_false, unwrap_u64_or_zero,
@@ -20,22 +20,21 @@ impl RpcCommandHandler {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct AccountHistoryHelper {
-    pub ledger_queries: LedgerQueryHandle,
-    pub accounts_to_filter: Vec<Account>,
-    pub reverse: bool,
-    pub offset: u64,
-    pub head: Option<BlockHash>,
-    pub requested_account: Option<Account>,
-    pub output_raw: bool,
-    pub count: u64,
-    pub current_block_hash: BlockHash,
-    pub account: Account,
-    pub include_linked_account: bool,
+    ledger_queries: LedgerQueryHandle,
+    accounts_to_filter: Vec<Account>,
+    reverse: bool,
+    offset: u64,
+    head: Option<BlockHash>,
+    requested_account: Option<Account>,
+    output_raw: bool,
+    count: u64,
+    include_linked_account: bool,
 }
 
 impl AccountHistoryHelper {
-    fn new(ledger_queries: LedgerQueryHandle, args: AccountHistoryArgs) -> Self {
+    pub fn new(ledger_queries: LedgerQueryHandle, args: AccountHistoryArgs) -> Self {
         Self {
             ledger_queries,
             accounts_to_filter: args.account_filter.unwrap_or_default(),
@@ -45,72 +44,65 @@ impl AccountHistoryHelper {
             requested_account: args.account,
             output_raw: unwrap_bool_or_false(args.raw),
             count: args.count.into(),
-            current_block_hash: BlockHash::ZERO,
-            account: Account::ZERO,
             include_linked_account: unwrap_bool_or_false(args.include_linked_account),
         }
     }
 
-    fn initialize(&mut self, any: &impl AnySet) -> anyhow::Result<()> {
-        self.current_block_hash = self.hash_of_first_block(any)?;
-        self.account = any
-            .block_account(&self.current_block_hash)
-            .ok_or_else(|| anyhow!(RpcCommandHandler::BLOCK_NOT_FOUND))?;
-        Ok(())
-    }
+    fn hash_of_first_block(&self) -> anyhow::Result<BlockHash> {
+        if let Some(head) = &self.head {
+            return Ok(*head);
+        }
 
-    fn hash_of_first_block(&self, any: &impl AnySet) -> anyhow::Result<BlockHash> {
-        let hash = if let Some(head) = &self.head {
-            *head
+        let account = self
+            .requested_account
+            .ok_or_else(|| anyhow!("account argument missing"))?;
+
+        if self.reverse {
+            let info = self
+                .ledger_queries
+                .account_info(&account)
+                .ok_or_else(|| anyhow!("Account not found"))?;
+            Ok(info.open_block)
         } else {
-            let account = self
-                .requested_account
-                .ok_or_else(|| anyhow!("account argument missing"))?;
-
-            if self.reverse {
-                any.get_account(&account)
-                    .ok_or_else(|| anyhow!("Account not found"))?
-                    .open_block
-            } else {
-                any.account_head(&account)
-                    .ok_or_else(|| anyhow!("Account not found"))?
-            }
-        };
-
-        Ok(hash)
+            self.ledger_queries
+                .account_head(&account)
+                .ok_or_else(|| anyhow!("Account not found"))
+        }
     }
 
     pub(crate) fn account_history(mut self) -> anyhow::Result<AccountHistoryResponse> {
-        let mut any = self.ledger_queries.any_owned();
-        self.initialize(&any)?;
         let mut history = Vec::new();
-        let mut next_block = any.get_block(&self.current_block_hash);
-        while let Some(block) = next_block {
-            if self.count == 0 {
-                break;
-            }
+        let mut current_hash = self.hash_of_first_block()?;
+        let mut current_block = self
+            .ledger_queries
+            .get_block(&current_hash)
+            .ok_or_else(|| anyhow!(RpcCommandHandler::BLOCK_NOT_FOUND))?;
+        let mut seen = 0u64;
 
+        while seen < self.count && !current_hash.is_zero() {
             if self.offset > 0 {
                 self.offset -= 1;
-            } else if let Some(entry) = self.entry_for(&block, &any) {
+            } else if let Some(entry) = self.entry_for(&current_block) {
                 history.push(entry);
-                self.count -= 1;
+                seen += 1;
             }
 
-            next_block = self.go_to_next_block(&any, &block);
+            current_hash = if self.reverse {
+                self.ledger_queries
+                    .block_successor(&current_hash)
+                    .unwrap_or_default()
+            } else {
+                current_block.previous()
+            };
+
+            if let Some(next) = self.ledger_queries.get_block(&current_hash) {
+                current_block = next;
+            } else {
+                break;
+            }
         }
 
         Ok(self.create_response(history))
-    }
-
-    fn go_to_next_block(&mut self, any: &impl AnySet, block: &Block) -> Option<SavedBlock> {
-        self.current_block_hash = if self.reverse {
-            any.block_successor(&self.current_block_hash)
-                .unwrap_or_default()
-        } else {
-            block.previous()
-        };
-        any.get_block(&self.current_block_hash)
     }
 
     fn should_ignore_account(&self, account: &Account) -> bool {
@@ -120,7 +112,7 @@ impl AccountHistoryHelper {
         !self.accounts_to_filter.contains(account)
     }
 
-    pub(crate) fn entry_for(&self, block: &SavedBlock, any: &impl AnySet) -> Option<HistoryEntry> {
+    pub(crate) fn entry_for(&self, block: &SavedBlock) -> Option<HistoryEntry> {
         let mut entry = match &**block {
             Block::LegacySend(b) => {
                 let mut entry = empty_entry();
