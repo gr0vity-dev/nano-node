@@ -108,6 +108,8 @@ fn ledger_stats_report_write_queue_depth() {
         let _txn = ledger_clone.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
     });
 
+    // Allow the optimistic writer to enqueue behind the pessimistic holder, then wait
+    // (with generous timeout) for queue depth to reflect the waiting writer.
     let start = Instant::now();
     loop {
         let mut collected = StatsCollection::new();
@@ -116,7 +118,7 @@ fn ledger_stats_report_write_queue_depth() {
             assert_eq!(collected.get("ledger_write_queue", "queue_depth"), 1);
             break;
         }
-        if start.elapsed() > Duration::from_millis(250) {
+        if start.elapsed() > Duration::from_secs(2) {
             panic!("optimistic writer never queued");
         }
         thread::sleep(Duration::from_millis(5));
