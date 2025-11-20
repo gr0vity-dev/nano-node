@@ -7,22 +7,17 @@ impl RpcCommandHandler {
         let peer_details = args.peer_details.unwrap_or_default().inner();
         let mut peers: HashMap<SocketAddrV6, PeerInfo> = HashMap::new();
 
-        self.network_services
-            .network
-            .read()
-            .unwrap()
-            .channels()
-            .for_each(|channel| {
-                peers.insert(
-                    channel.peer_addr(),
-                    PeerInfo {
-                        protocol_version: channel.protocol_version().into(),
-                        node_id: channel.node_id().map(|i| i.to_string()).unwrap_or_default(),
-                        connection_type: "tcp".to_string(),
-                        peering: channel.peering_addr_or_peer_addr(),
-                    },
-                );
-            });
+        for channel in self.network.sorted_channels() {
+            peers.insert(
+                channel.peer_addr(),
+                PeerInfo {
+                    protocol_version: channel.protocol_version().into(),
+                    node_id: channel.node_id().map(|i| i.to_string()).unwrap_or_default(),
+                    connection_type: "tcp".to_string(),
+                    peering: channel.peering_addr_or_peer_addr(),
+                },
+            );
+        }
 
         if peer_details {
             PeersDto::Detailed(DetailedPeers { peers })

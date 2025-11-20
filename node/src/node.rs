@@ -34,6 +34,7 @@ use crate::{
     consensus::{AecTicker, AecVoter, election::ConfirmedElection},
     node_builder::ComposedNode,
     node_id_key_file::NodeIdKeyFile,
+    subsystems::NetworkSubsystem,
     tokio_runner::TokioRunner,
 };
 
@@ -48,6 +49,7 @@ pub struct Node {
     workers: Arc<ThreadPool>,
     pub flags: NodeFlags,
     services: NodeServices,
+    network_subsystem: NetworkSubsystem,
     pub unchecked: Arc<Mutex<UncheckedMap>>,
     pub backlog_scan: BacklogServices,
     stopped: AtomicBool,
@@ -124,6 +126,10 @@ impl Node {
         self.services.network_services()
     }
 
+    pub fn network_subsystem(&self) -> NetworkSubsystem {
+        self.network_subsystem.clone()
+    }
+
     pub fn consensus_services(&self) -> ConsensusServices {
         self.services.consensus_services()
     }
@@ -162,6 +168,23 @@ impl Node {
     }
 
     pub(crate) fn new(composed: ComposedNode) -> anyhow::Result<Self> {
+        let max_inbound_connections = composed.config.tcp.max_inbound_connections;
+        let network_services = composed.services.network_services();
+        let network_subsystem = NetworkSubsystem::new(
+            network_services.network,
+            network_services.tcp_listener,
+            network_services.peer_connector,
+            network_services.network_threads,
+            network_services.message_processor,
+            network_services.message_sender,
+            network_services.message_flooder,
+            network_services.keepalive_publisher,
+            network_services.inbound_message_queue,
+            network_services.network_filter,
+            network_services.steady_clock,
+            max_inbound_connections,
+        );
+
         Ok(Self {
             is_nulled: composed.is_nulled,
             runtime: composed.runtime,
@@ -172,6 +195,7 @@ impl Node {
             workers: composed.workers,
             flags: composed.flags,
             services: composed.services,
+            network_subsystem,
             unchecked: composed.unchecked,
             backlog_scan: composed.backlog_scan,
             stopped: AtomicBool::new(false),

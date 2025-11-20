@@ -4,8 +4,7 @@ use rsnano_rpc_messages::{HostWithPortArgs, StartedResponse};
 impl RpcCommandHandler {
     pub(crate) fn keepalive(&self, args: HostWithPortArgs) -> anyhow::Result<StartedResponse> {
         self.node.runtime.block_on(async {
-            self.network_services
-                .keepalive_publisher
+            self.network
                 .keepalive_or_connect(args.address, args.port.into())
                 .await
         });

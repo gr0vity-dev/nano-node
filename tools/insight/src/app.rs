@@ -96,12 +96,7 @@ impl InsightApp {
 
         if let Some(node) = self.node_runner.node() {
             self.ledger_stats.update(&node);
-            let channels = node
-                .network_services()
-                .network
-                .read()
-                .unwrap()
-                .sorted_channels();
+            let channels = node.network_subsystem().sorted_channels();
             let telemetries = node.telemetry_services().telemetry.get_all_telemetries();
             let (peered_reps, min_rep_weight) = {
                 let consensus_services = node.consensus_services();

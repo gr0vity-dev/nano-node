@@ -8,3 +8,4 @@ pub mod telemetry;
 pub mod ticker;
 
 pub use lifecycle::Lifecycle;
+pub use network::NetworkSubsystem;
