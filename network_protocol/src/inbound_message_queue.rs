@@ -146,6 +146,11 @@ struct State {
 
 impl StatsSource for InboundMessageQueue {
     fn collect_stats(&self, result: &mut StatsCollection) {
+        // Current queue depth for observability
+        let guard = self.state.lock().unwrap();
+        result.insert("message_processor_queue", "size", guard.queue.len());
+        drop(guard);
+
         self.stats.collect_stats(result);
     }
 }

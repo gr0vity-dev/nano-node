@@ -267,6 +267,12 @@ impl StatsSource for BlockProcessorQueueImpl {
     fn collect_stats(&self, result: &mut StatsCollection) {
         result.insert("block_processor", "process", self.processed);
         result.insert("block_processor", "overfill", self.overfill_count);
+        // Current queue depth observed at collection time
+        result.insert(
+            "block_processor_queue",
+            "size",
+            self.process_queue.len() as u64,
+        );
         for i in BlockSource::iter() {
             result.insert(
                 "block_processor_overfill",
