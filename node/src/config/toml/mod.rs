@@ -4,6 +4,7 @@ mod block_processor_toml;
 mod bootstrap_server_toml;
 mod bootstrap_toml;
 mod bounded_backlog_toml;
+mod confirming_set_toml;
 mod daemon_toml;
 mod experimental_toml;
 mod fork_cache_toml;

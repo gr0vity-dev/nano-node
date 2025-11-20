@@ -129,6 +129,13 @@ mod tests {
         max_queued_notifications = 999
         scan_rate = 999
 
+        [node.confirming_set]
+        batch_size = 999
+        max_blocks = 999
+        max_queued_notifications = 999
+        max_deferred = 999
+        deferred_age_cutoff = 999
+
         [node.block_processor]
         max_peer_queue = 999
         max_system_queue = 999
@@ -785,6 +792,26 @@ mod tests {
         assert_ne!(
             deserialized.node.bounded_backlog.scan_rate,
             default_cfg.node.bounded_backlog.scan_rate
+        );
+        assert_ne!(
+            deserialized.node.confirming_set.batch_size,
+            default_cfg.node.confirming_set.batch_size
+        );
+        assert_ne!(
+            deserialized.node.confirming_set.max_blocks,
+            default_cfg.node.confirming_set.max_blocks
+        );
+        assert_ne!(
+            deserialized.node.confirming_set.max_queued_notifications,
+            default_cfg.node.confirming_set.max_queued_notifications
+        );
+        assert_ne!(
+            deserialized.node.confirming_set.max_deferred,
+            default_cfg.node.confirming_set.max_deferred
+        );
+        assert_ne!(
+            deserialized.node.confirming_set.deferred_age_cutoff,
+            default_cfg.node.confirming_set.deferred_age_cutoff
         );
 
         // TCP

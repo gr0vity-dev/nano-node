@@ -1,6 +1,7 @@
 use super::{fork_cache_toml::ForkCacheToml, *};
 use crate::config::NodeConfig;
 use bounded_backlog_toml::BoundedBacklogToml;
+use confirming_set_toml::ConfirmingSetToml;
 use rsnano_types::{Account, Amount, Peer};
 use serde::{Deserialize, Serialize};
 use std::{str::FromStr, time::Duration};
@@ -64,6 +65,7 @@ pub struct NodeToml {
     pub websocket: Option<WebsocketToml>,
     pub backlog_scan: Option<BacklogScanToml>,
     pub bounded_backlog: Option<BoundedBacklogToml>,
+    pub confirming_set: Option<ConfirmingSetToml>,
     pub tcp: Option<TcpToml>,
     pub network: Option<NetworkToml>,
     pub fork_cache: Option<ForkCacheToml>,
@@ -105,6 +107,7 @@ impl NodeConfig {
         if let Some(confirming_set_batch_time) = &toml.confirming_set_batch_time {
             self.confirming_set_batch_time = Duration::from_millis(*confirming_set_batch_time);
         }
+        self.confirming_set.merge_toml(toml);
         if let Some(enable_voting) = toml.enable_voting {
             self.enable_voting = enable_voting;
         }
@@ -529,6 +532,7 @@ impl From<&NodeConfig> for NodeToml {
             experimental: Some(config.into()),
             backlog_scan: Some((&config.backlog_scan).into()),
             bounded_backlog: Some(config.into()),
+            confirming_set: Some(config.into()),
             tcp: Some((&config.tcp).into()),
             network: Some(config.into()),
             fork_cache: Some(config.into()),
