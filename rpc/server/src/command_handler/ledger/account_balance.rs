@@ -1,5 +1,5 @@
+use anyhow::anyhow;
 use crate::command_handler::RpcCommandHandler;
-use rsnano_ledger::LedgerSet;
 use rsnano_rpc_messages::{
     AccountArg, AccountBalanceArgs, AccountBalanceResponse, AccountBlockCountResponse,
     unwrap_bool_or_true,
@@ -8,12 +8,18 @@ use rsnano_rpc_messages::{
 impl RpcCommandHandler {
     pub(crate) fn account_balance(&self, args: AccountBalanceArgs) -> AccountBalanceResponse {
         let only_confirmed = unwrap_bool_or_true(args.include_only_confirmed);
-        if only_confirmed {
-            let set = self.ledger_services.ledger.confirmed();
-            get_account_balance(set, &args)
+        let (balance, receivable) = if only_confirmed {
+            self.ledger_account_balances
+                .confirmed_balance_and_receivable(&args.account)
         } else {
-            let set = self.ledger_services.ledger.any();
-            get_account_balance(set, &args)
+            self.ledger_account_balances
+                .any_balance_and_receivable(&args.account)
+        };
+
+        AccountBalanceResponse {
+            balance,
+            pending: receivable,
+            receivable,
         }
     }
 
@@ -21,19 +27,10 @@ impl RpcCommandHandler {
         &self,
         args: AccountArg,
     ) -> anyhow::Result<AccountBlockCountResponse> {
-        let any = self.ledger_services.ledger.any();
-        let account = self.load_account(&any, &args.account)?;
-        Ok(AccountBlockCountResponse::new(account.block_count))
-    }
-}
-
-fn get_account_balance(set: impl LedgerSet, args: &AccountBalanceArgs) -> AccountBalanceResponse {
-    let balance = set.account_balance(&args.account);
-    let receivable = set.account_receivable(&args.account);
-
-    AccountBalanceResponse {
-        balance,
-        pending: receivable,
-        receivable,
+        let block_count = self
+            .ledger_account_balances
+            .account_block_count(&args.account)
+            .ok_or_else(|| anyhow!(Self::ACCOUNT_NOT_FOUND))?;
+        Ok(AccountBlockCountResponse::new(block_count))
     }
 }

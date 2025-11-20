@@ -7,7 +7,9 @@ use anyhow::anyhow;
 use rsnano_ledger::AnySet;
 use rsnano_node::{
     LedgerQueryServices, Node, WalletServices,
-    handles::{LedgerAccountCountHandle, LedgerCountsHandle, LedgerInfoHandle},
+    handles::{
+        LedgerAccountBalanceHandle, LedgerAccountCountHandle, LedgerCountsHandle, LedgerInfoHandle,
+    },
     subsystems::{BootstrapSubsystem, ConsensusSubsystem, NetworkSubsystem, TelemetrySubsystem},
 };
 use rsnano_rpc_messages::{RpcCommand, RpcError, StatsType};
@@ -26,6 +28,7 @@ pub(crate) struct RpcCommandHandler {
     ledger_info: LedgerInfoHandle,
     ledger_counts: LedgerCountsHandle,
     ledger_account_count: LedgerAccountCountHandle,
+    ledger_account_balances: LedgerAccountBalanceHandle,
     bootstrap: BootstrapSubsystem,
     wallet_services: WalletServices,
     telemetry_services: TelemetrySubsystem,
@@ -41,6 +44,7 @@ impl RpcCommandHandler {
         let ledger_info = node.production_handles().ledger_info();
         let ledger_counts = node.production_handles().ledger_counts();
         let ledger_account_count = node.production_handles().ledger_account_count();
+        let ledger_account_balances = node.production_handles().ledger_account_balances();
         let bootstrap = node.bootstrap_subsystem();
         let wallet_services = node.wallet_services();
         let telemetry_services = node.telemetry_subsystem();
@@ -52,6 +56,7 @@ impl RpcCommandHandler {
             ledger_info,
             ledger_counts,
             ledger_account_count,
+            ledger_account_balances,
             bootstrap,
             wallet_services,
             telemetry_services,
