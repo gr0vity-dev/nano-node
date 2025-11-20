@@ -10,9 +10,10 @@ use rsnano_ledger::{
 };
 use rsnano_network::{Channel, ChannelDirection, NULL_ENDPOINT, TEST_ENDPOINT_1};
 use rsnano_node::{
-    NetworkServices, Node, NodeBuilder, NodeEvent,
+    Node, NodeBuilder, NodeEvent,
     block_processing::BacklogScanConfig,
     config::{NetworkParams, NodeConfig, NodeFlags},
+    subsystems::NetworkTestHandles,
     unique_path,
 };
 use rsnano_rpc_client::{NanoRpcClient, Url};
@@ -125,9 +126,14 @@ impl System {
 
         if self.nodes.len() > 1 && !disconnected {
             let other = &self.nodes[0];
-            let node_addr = node.network_services().tcp_listener.local_address();
+            let node_addr = node
+                .network_subsystem()
+                .test_handles()
+                .tcp_listener
+                .local_address();
             if let Err(e) = other
-                .network_services()
+                .network_subsystem()
+                .test_handles()
                 .peer_connector
                 .connect_to(node_addr)
             {
@@ -135,16 +141,16 @@ impl System {
             }
 
             let start = Instant::now();
-            let node_network_services = node.network_services();
-            let other_network_services = other.network_services();
+            let node_network = node.network_subsystem().test_handles();
+            let other_network = other.network_subsystem().test_handles();
             loop {
-                if node_network_services
+                if node_network
                     .network
                     .read()
                     .unwrap()
                     .find_node_id(&other.node_id.public_key().into())
                     .is_some()
-                    && other_network_services
+                    && other_network
                         .network
                         .read()
                         .unwrap()
@@ -361,15 +367,18 @@ pub fn init_tracing() {
 }
 
 pub fn establish_tcp(node: &Node, peer: &Node) -> Arc<Channel> {
-    node.network_services()
+    let node_net = node.network_subsystem().test_handles();
+    let peer_net = peer.network_subsystem().test_handles();
+    node_net
         .peer_connector
-        .connect_to(peer.network_services().tcp_listener.local_address())
+        .connect_to(peer_net.tcp_listener.local_address())
         .unwrap();
 
     assert_timely_msg(
         Duration::from_secs(2),
         || {
-            node.network_services()
+            node.network_subsystem()
+                .test_handles()
                 .network
                 .read()
                 .unwrap()
@@ -379,7 +388,8 @@ pub fn establish_tcp(node: &Node, peer: &Node) -> Arc<Channel> {
         "node did not connect",
     );
 
-    node.network_services()
+    node.network_subsystem()
+        .test_handles()
         .network
         .read()
         .unwrap()
@@ -388,8 +398,8 @@ pub fn establish_tcp(node: &Node, peer: &Node) -> Arc<Channel> {
         .clone()
 }
 
-pub fn make_fake_channel(network_services: &NetworkServices) -> Arc<Channel> {
-    network_services
+pub fn make_fake_channel(network: &NetworkTestHandles) -> Arc<Channel> {
+    network
         .network
         .write()
         .unwrap()
@@ -397,7 +407,7 @@ pub fn make_fake_channel(network_services: &NetworkServices) -> Arc<Channel> {
             NULL_ENDPOINT,
             TEST_ENDPOINT_1,
             ChannelDirection::Inbound,
-            network_services.steady_clock.now(),
+            network.steady_clock.now(),
         )
         .unwrap()
         .0

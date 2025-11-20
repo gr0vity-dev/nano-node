@@ -204,7 +204,7 @@ mod election_scheduler {
         node.confirm(blocks[howmany_blocks - 1].hash());
 
         // Attempt to start priority election for second block
-        let network_services = node.network_services();
+        let network_services = node.network_subsystem().test_handles();
         let _ = consensus_services.active.write().unwrap().insert(
             AecInsertRequest::new_priority(block.clone(), BlockPriority::MIN),
             network_services.steady_clock.now(),

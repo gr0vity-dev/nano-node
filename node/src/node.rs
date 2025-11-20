@@ -27,8 +27,8 @@ use rsnano_utils::{
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
     BacklogServices, BootstrapWorkServices, ConsensusServices, ConsensusTimerServices,
-    LedgerQueryServices, NetworkServices, NodeCallbacks, NodeServices, TelemetryServices,
-    TickerServices, WalletServices,
+    LedgerQueryServices, NodeCallbacks, NodeServices, TelemetryServices, TickerServices,
+    WalletServices,
     block_processing::{BlockContext, BlockSource, ProcessedResult, UncheckedMap},
     config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{AecTicker, AecVoter, election::ConfirmedElection},
@@ -122,10 +122,6 @@ impl Node {
         self.services.telemetry_services()
     }
 
-    pub fn network_services(&self) -> NetworkServices {
-        self.services.network_services()
-    }
-
     pub fn network_subsystem(&self) -> NetworkSubsystem {
         self.network_subsystem.clone()
     }
@@ -169,21 +165,23 @@ impl Node {
 
     pub(crate) fn new(composed: ComposedNode) -> anyhow::Result<Self> {
         let max_inbound_connections = composed.config.tcp.max_inbound_connections;
-        let network_services = composed.services.network_services();
-        let network_subsystem = NetworkSubsystem::new(
-            network_services.network,
-            network_services.tcp_listener,
-            network_services.peer_connector,
-            network_services.network_threads,
-            network_services.message_processor,
-            network_services.message_sender,
-            network_services.message_flooder,
-            network_services.keepalive_publisher,
-            network_services.inbound_message_queue,
-            network_services.network_filter,
-            network_services.steady_clock,
-            max_inbound_connections,
-        );
+        let network_subsystem = {
+            let services = &composed.services;
+            NetworkSubsystem::new(
+                services.network.clone(),
+                services.tcp_listener.clone(),
+                services.peer_connector.clone(),
+                services.network_threads.clone(),
+                services.message_processor.clone(),
+                services.message_sender.clone(),
+                services.message_flooder.clone(),
+                services.keepalive_publisher.clone(),
+                services.inbound_message_queue.clone(),
+                services.network_filter.clone(),
+                services.steady_clock.clone(),
+                max_inbound_connections,
+            )
+        };
 
         Ok(Self {
             is_nulled: composed.is_nulled,
@@ -370,7 +368,7 @@ impl Node {
             self.network_params.network.current_network,
             Networks::NanoDevNetwork
         );
-        let now = self.network_services().steady_clock.now();
+        let now = self.network_subsystem.steady_clock().now();
         self.consensus_services()
             .active
             .write()
@@ -410,12 +408,11 @@ impl Node {
             panic!("Genesis block not found!");
         }
 
-        let network_services = self.network_services();
         let consensus_services = self.consensus_services();
         let bootstrap_work_services = self.bootstrap_work_services();
         let telemetry_services = self.telemetry_services();
 
-        network_services.start(self.config.tcp.max_inbound_connections);
+        self.network_subsystem.start();
         self.consensus_timer_services()
             .start(&self.flags, &self.network_params);
 
@@ -439,21 +436,20 @@ impl Node {
         }
         info!("Node stopping...");
 
-        let network_services = self.network_services();
         let consensus_services = self.consensus_services();
         let bootstrap_work_services = self.bootstrap_work_services();
         let telemetry_services = self.telemetry_services();
         let wallet_services = self.wallet_services();
 
         self.ticker_services_mut().stop();
-        network_services.stop_listeners();
+        self.network_subsystem.stop_listeners();
         self.consensus_timer_services().stop();
         bootstrap_work_services.stop();
         self.backlog_scan.stop();
         consensus_services.stop();
         telemetry_services.stop();
         wallet_services.stop();
-        network_services.stop_threads(); // Stop network last to avoid killing in-use sockets
+        self.network_subsystem.stop_threads(); // Stop network last to avoid killing in-use sockets
         self.workers.join();
         self.tokio_runner.stop();
         // work pool is not stopped on purpose due to testing setup

@@ -37,7 +37,7 @@ pub type WsMessage = rsnano_websocket_client::Message;
 fn started_election() {
     let mut system = System::new();
     let (node1, websocket) = create_node_with_websocket(&mut system);
-    let network_services = node1.network_services();
+    let network_services = node1.network_subsystem().test_handles();
     let channel1 = make_fake_channel(&network_services);
     node1.runtime.block_on(async {
         let mut ws_client = connect_websocket(&node1).await;
@@ -61,7 +61,7 @@ fn started_election() {
         let send1 = lattice.genesis().send_max(&key1);
         let publish1 = Message::Publish(Publish::new_forward(send1.clone()));
         node1
-            .network_services()
+            .network_subsystem().test_handles()
             .inbound_message_queue
             .put(publish1, channel1);
         assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
@@ -79,7 +79,7 @@ fn started_election() {
 fn stopped_election() {
     let mut system = System::new();
     let (node1, websocket) = create_node_with_websocket(&mut system);
-    let network_services = node1.network_services();
+    let network_services = node1.network_subsystem().test_handles();
     let channel1 = make_fake_channel(&network_services);
     node1.runtime.block_on(async {
         let mut ws_client = connect_websocket(&node1).await;
@@ -103,7 +103,7 @@ fn stopped_election() {
         let send1 = lattice.genesis().send_max(&key1);
         let publish1 = Message::Publish(Publish::new_forward(send1.clone()));
         node1
-            .network_services()
+            .network_subsystem().test_handles()
             .inbound_message_queue
             .put(publish1, channel1);
         assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
@@ -625,7 +625,7 @@ fn telemetry() {
 
         // Check the bootstrap notification message
         let message: TelemetryReceived = serde_json::from_value(response.message.unwrap()).unwrap();
-        let node2_tcp = node2.network_services().tcp_listener;
+        let node2_tcp = node2.network_subsystem().test_handles().tcp_listener;
         assert_eq!(message.address, node2_tcp.local_address().ip().to_string());
         assert_eq!(message.port, node2_tcp.local_address().port().to_string());
 

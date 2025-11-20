@@ -25,7 +25,8 @@ mod tests {
     fn keepalive() {
         let node = Arc::new(Node::new_null());
         let keepalive_tracker = node
-            .network_services()
+            .network_subsystem()
+            .test_handles()
             .keepalive_publisher
             .track_keepalives();
         let cmd = RpcCommand::keepalive("foobar.com", 123);

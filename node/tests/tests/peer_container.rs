@@ -7,7 +7,7 @@ use test_helpers::{System, assert_never};
 fn no_self_incoming() {
     let mut system = System::new();
     let node = system.make_node();
-    let network_services = node.network_services();
+    let network_services = node.network_subsystem().test_handles();
     let _ = network_services
         .peer_connector
         .connect_to(network_services.tcp_listener.local_address());

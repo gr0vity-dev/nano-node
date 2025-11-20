@@ -16,7 +16,7 @@ fn ignore_rebroadcast() {
     let node2 = system.make_node();
 
     let channel1to2 = node1
-        .network_services()
+        .network_subsystem().test_handles()
         .network
         .read()
         .unwrap()
@@ -25,7 +25,7 @@ fn ignore_rebroadcast() {
         .channel_id();
 
     let channel2to1 = node2
-        .network_services()
+        .network_subsystem().test_handles()
         .network
         .read()
         .unwrap()
@@ -63,7 +63,7 @@ fn ignore_rebroadcast() {
         .rep_crawler
         .force_query(*DEV_GENESIS_HASH, channel1to2);
 
-    let message_sender = node2.network_services().message_sender;
+    let message_sender = node2.network_subsystem().test_handles().message_sender;
     let tick = || {
         let msg = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(vote.clone()));
         message_sender
@@ -119,7 +119,7 @@ fn rep_weight() {
 
     assert_timely_eq2(
         || {
-            node.network_services()
+            node.network_subsystem().test_handles()
                 .network
                 .read()
                 .unwrap()
@@ -129,7 +129,7 @@ fn rep_weight() {
     );
 
     let (channel1, channel2, channel3) = {
-        let network_services = node.network_services();
+        let network_services = node.network_subsystem().test_handles();
         let network = network_services.network.read().unwrap();
         (
             network.find_node_id(&node1.get_node_id()).unwrap().clone(),

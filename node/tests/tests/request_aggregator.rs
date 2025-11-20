@@ -44,7 +44,7 @@ fn one() {
         .genesis()
         .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
 
-    let network_services = node.network_services();
+    let network_services = node.network_subsystem().test_handles();
     let channel = make_fake_channel(&network_services);
     let request = AggregatorRequest {
         channel: channel.clone(),
@@ -204,7 +204,7 @@ fn one_update() {
     node.process(receive1.clone());
     node.confirm(receive1.hash());
 
-    let dummy_channel = make_fake_channel(&node.network_services());
+    let dummy_channel = make_fake_channel(&node.network_subsystem().test_handles());
 
     let request1 = AggregatorRequest {
         channel: dummy_channel.clone(),
@@ -333,7 +333,7 @@ fn two() {
 
     node.process_and_confirm_multi(&[send1, send2.clone(), receive1.clone()]);
 
-    let dummy_channel = make_fake_channel(&node.network_services());
+    let dummy_channel = make_fake_channel(&node.network_subsystem().test_handles());
     let request = AggregatorRequest {
         channel: dummy_channel.clone(),
         roots_hashes: vec![
@@ -481,7 +481,7 @@ fn split() {
     );
     assert_eq!(MAX_VBH + 1, roots_hashes.len());
 
-    let dummy_channel = make_fake_channel(&node.network_services());
+    let dummy_channel = make_fake_channel(&node.network_subsystem().test_handles());
     let request = AggregatorRequest {
         channel: dummy_channel.clone(),
         roots_hashes,
@@ -571,7 +571,7 @@ fn channel_max_queue() {
         .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
     node.process(send1.clone());
 
-    let channel = make_fake_channel(&node.network_services());
+    let channel = make_fake_channel(&node.network_subsystem().test_handles());
     let request = AggregatorRequest {
         channel: channel.clone(),
         roots_hashes: vec![(send1.hash(), send1.root())],
@@ -623,7 +623,7 @@ fn cannot_vote() {
         false
     );
 
-    let dummy_channel = make_fake_channel(&node.network_services());
+    let dummy_channel = make_fake_channel(&node.network_subsystem().test_handles());
     // correct + incorrect
     let request = AggregatorRequest {
         channel: dummy_channel.clone(),
@@ -797,7 +797,7 @@ fn forked_open() {
 
     let vote_tracker = node.consensus_services().vote_generators.track();
 
-    let channel = make_fake_channel(&node.network_services());
+    let channel = make_fake_channel(&node.network_subsystem().test_handles());
 
     // Request vote for the wrong fork
     let request = AggregatorRequest {
@@ -852,7 +852,7 @@ fn epoch_conflict() {
     assert_timely2(|| node.block_confirmed(&change.hash()));
 
     let vote_tracker = node.consensus_services().vote_generators.track();
-    let channel = make_fake_channel(&node.network_services());
+    let channel = make_fake_channel(&node.network_subsystem().test_handles());
 
     // Request vote for conflicting epoch block
     let request = AggregatorRequest {
@@ -877,7 +877,7 @@ fn epoch_conflict() {
     // Workaround for vote spacing dropping requests with the same root
     // FIXME: Vote spacing should use full qualified root
     std::thread::sleep(Duration::from_secs(1));
-    let channel = make_fake_channel(&node.network_services());
+    let channel = make_fake_channel(&node.network_subsystem().test_handles());
     let request = AggregatorRequest { channel, ..request };
 
     // Request vote for the conflicting epoch block again
@@ -911,7 +911,7 @@ fn cemented_no_spacing() {
     node.confirm_multi(&[send1.clone(), send2.clone(), send3.clone()]);
 
     let vote_tracker = node.consensus_services().vote_generators.track();
-    let channel = make_fake_channel(&node.network_services());
+    let channel = make_fake_channel(&node.network_subsystem().test_handles());
 
     // Request votes for blocks at different positions in the chain
     let request = AggregatorRequest {

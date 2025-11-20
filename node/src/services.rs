@@ -8,15 +8,13 @@ use bounded_vec_deque::BoundedVecDeque;
 
 use rsnano_ledger::Ledger;
 use rsnano_messages::NetworkFilter;
-use rsnano_network::{Network, PeerConnector, TcpListener, TcpListenerExt};
+use rsnano_network::{Network, PeerConnector, TcpListener};
 use rsnano_network_protocol::InboundMessageQueue;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::{
     stats::Stats,
     ticker::{TickerPool, TimerThread},
 };
-use tracing::warn;
-
 use crate::{
     block_processing::{
         BacklogScan, BlockProcessor, BlockProcessorQueue, BoundedBacklog, LocalBlockBroadcaster,
@@ -192,76 +190,6 @@ impl TelemetryServices {
     }
 }
 
-#[derive(Clone)]
-pub struct NetworkServices {
-    pub network: Arc<RwLock<Network>>,
-    pub tcp_listener: Arc<TcpListener>,
-    pub peer_connector: Arc<PeerConnector>,
-    pub(crate) network_threads: Arc<Mutex<NetworkThreads>>,
-    pub message_processor: Arc<Mutex<MessageProcessor>>,
-    pub message_sender: Arc<Mutex<MessageSender>>,
-    pub message_flooder: Arc<Mutex<MessageFlooder>>,
-    pub keepalive_publisher: Arc<KeepalivePublisher>,
-    pub inbound_message_queue: Arc<InboundMessageQueue>,
-    pub network_filter: Arc<NetworkFilter>,
-    pub steady_clock: Arc<SteadyClock>,
-}
-
-impl NetworkServices {
-    pub(crate) fn new(
-        network: Arc<RwLock<Network>>,
-        tcp_listener: Arc<TcpListener>,
-        peer_connector: Arc<PeerConnector>,
-        network_threads: Arc<Mutex<NetworkThreads>>,
-        message_processor: Arc<Mutex<MessageProcessor>>,
-        message_sender: Arc<Mutex<MessageSender>>,
-        message_flooder: Arc<Mutex<MessageFlooder>>,
-        keepalive_publisher: Arc<KeepalivePublisher>,
-        inbound_message_queue: Arc<InboundMessageQueue>,
-        network_filter: Arc<NetworkFilter>,
-        steady_clock: Arc<SteadyClock>,
-    ) -> Self {
-        Self {
-            network,
-            tcp_listener,
-            peer_connector,
-            network_threads,
-            message_processor,
-            message_sender,
-            message_flooder,
-            keepalive_publisher,
-            inbound_message_queue,
-            network_filter,
-            steady_clock,
-        }
-    }
-
-    pub fn start(&self, max_inbound_connections: usize) {
-        self.network_threads.lock().unwrap().start();
-        if max_inbound_connections > 0 {
-            self.tcp_listener.start();
-        } else {
-            warn!("Peering is disabled");
-        }
-        self.message_processor.lock().unwrap().start();
-    }
-
-    pub fn stop(&self) {
-        self.stop_listeners();
-        self.stop_threads();
-    }
-
-    pub fn stop_listeners(&self) {
-        self.tcp_listener.stop();
-        self.peer_connector.stop();
-    }
-
-    pub fn stop_threads(&self) {
-        self.message_processor.lock().unwrap().stop();
-        self.network_threads.lock().unwrap().stop();
-    }
-}
-
 /// Bundles the core `Arc` collaborators that make up a running node so tests and
 /// higher layers can grab a focused subset without touching the gigantic
 /// `Node` struct directly.
@@ -412,22 +340,6 @@ impl NodeServices {
 
     pub fn telemetry_services(&self) -> TelemetryServices {
         TelemetryServices::new(self.telemetry.clone(), self.tcp_listener.clone())
-    }
-
-    pub fn network_services(&self) -> NetworkServices {
-        NetworkServices::new(
-            self.network.clone(),
-            self.tcp_listener.clone(),
-            self.peer_connector.clone(),
-            self.network_threads.clone(),
-            self.message_processor.clone(),
-            self.message_sender.clone(),
-            self.message_flooder.clone(),
-            self.keepalive_publisher.clone(),
-            self.inbound_message_queue.clone(),
-            self.network_filter.clone(),
-            self.steady_clock.clone(),
-        )
     }
 
     pub fn consensus_services(&self) -> ConsensusServices {

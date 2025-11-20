@@ -150,7 +150,7 @@ fn fork_replacement_tally() {
         .build_node()
         .config(System::default_config_without_backlog_scan())
         .finish();
-    node1.network_services().network_filter.clear_all();
+    node1.network_subsystem().test_handles().network_filter.clear_all();
     node2
         .consensus_services()
         .local_block_broadcaster
@@ -209,7 +209,7 @@ fn fork_replacement_tally() {
         },
         1,
     );
-    node1.network_services().network_filter.clear_all();
+    node1.network_subsystem().test_handles().network_filter.clear_all();
     node2
         .consensus_services()
         .local_block_broadcaster
@@ -793,7 +793,7 @@ fn confirm_election_by_request() {
 
     // Get random peer list from node2 -- so basically just node2
     let peers = node2
-        .network_services()
+        .network_subsystem().test_handles()
         .network
         .read()
         .unwrap()
@@ -809,7 +809,7 @@ fn confirm_election_by_request() {
         .vote_observed_directly(
             *DEV_GENESIS_PUB_KEY,
             peers[0].clone(),
-            node2.network_services().steady_clock.now(),
+            node2.network_subsystem().test_handles().steady_clock.now(),
         );
 
     // Expect a vote to come back
@@ -869,7 +869,7 @@ fn confirm_frontier() {
 
     // Add representative to disabled rep crawler
     let peers = node2
-        .network_services()
+        .network_subsystem().test_handles()
         .network
         .read()
         .unwrap()
@@ -883,7 +883,7 @@ fn confirm_frontier() {
         .vote_observed_directly(
             *DEV_GENESIS_PUB_KEY,
             peers[0].clone(),
-            node2.network_services().steady_clock.now(),
+            node2.network_subsystem().test_handles().steady_clock.now(),
         );
 
     node2.process(send.clone());
@@ -992,13 +992,13 @@ fn dropped_cleanup() {
     // Add to network filter to ensure proper cleanup after the election is dropped
     let mut block_bytes = Vec::new();
     chain[0].serialize(&mut block_bytes).unwrap();
-    assert!(!node.network_services().network_filter.apply(&block_bytes).1);
-    assert!(node.network_services().network_filter.apply(&block_bytes).1);
+    assert!(!node.network_subsystem().test_handles().network_filter.apply(&block_bytes).1);
+    assert!(node.network_subsystem().test_handles().network_filter.apply(&block_bytes).1);
 
     start_election(&node, &hash);
 
     // Not yet removed
-    assert!(node.network_services().network_filter.apply(&block_bytes).1);
+    assert!(node.network_subsystem().test_handles().network_filter.apply(&block_bytes).1);
     assert!(node.is_active_root(&qual_root));
 
     // Now simulate dropping the election
@@ -1014,10 +1014,10 @@ fn dropped_cleanup() {
     );
 
     // The filter must have been cleared
-    assert!(node.network_services().network_filter.apply(&block_bytes).1);
+    assert!(node.network_subsystem().test_handles().network_filter.apply(&block_bytes).1);
 
     // Repeat test for a confirmed election
-    assert!(node.network_services().network_filter.apply(&block_bytes).1);
+    assert!(node.network_subsystem().test_handles().network_filter.apply(&block_bytes).1);
 
     start_election(&node, &hash);
     node.force_confirm(&hash);
@@ -1034,7 +1034,7 @@ fn dropped_cleanup() {
         .erase(&qual_root);
 
     // The filter should not have been cleared
-    assert!(node.network_services().network_filter.apply(&block_bytes).1);
+    assert!(node.network_subsystem().test_handles().network_filter.apply(&block_bytes).1);
 
     // Not dropped
     assert_timely_eq2(
@@ -1141,7 +1141,7 @@ fn fork_filter_cleanup() {
     // Block is erased from the duplicate filter
     assert_timely2(|| {
         !node1
-            .network_services()
+            .network_subsystem().test_handles()
             .network_filter
             .apply(&send_block_bytes)
             .1

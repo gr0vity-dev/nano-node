@@ -533,7 +533,7 @@ fn fork_bootstrap_flip() {
     assert_timely2(|| node2.block_exists(&send2.hash()));
 
     // Additionally add new peer to confirm & replace bootstrap block
-    //node2.network_services().network.merge_peer(node1.network_services().network.endpoint());
+    //node2.network_subsystem().test_handles().network.merge_peer(node1.network_subsystem().test_handles().network.endpoint());
     establish_tcp(&node2, &node1);
 
     assert_timely_msg(
@@ -1355,13 +1355,13 @@ fn local_block_broadcast() {
 
     // Connect the nodes and check that the block is propagated
     let _ = node1
-        .network_services()
+        .network_subsystem().test_handles()
         .peer_connector
-        .connect_to(node2.network_services().tcp_listener.local_address());
+        .connect_to(node2.network_subsystem().test_handles().tcp_listener.local_address());
 
     assert_timely2(|| {
         node1
-            .network_services()
+            .network_subsystem().test_handles()
             .network
             .read()
             .unwrap()
@@ -1492,7 +1492,7 @@ fn fork_no_vote_quorum() {
     );
     let confirm = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote));
     let channel = node2
-        .network_services()
+        .network_subsystem().test_handles()
         .network
         .read()
         .unwrap()
@@ -1500,7 +1500,7 @@ fn fork_no_vote_quorum() {
         .unwrap()
         .clone();
     node2
-        .network_services()
+        .network_subsystem().test_handles()
         .message_sender
         .lock()
         .unwrap()
@@ -1530,10 +1530,10 @@ fn fork_open() {
     let send1 = lattice.genesis().send(&key1, Amount::MAX);
     let mut fork_lattice = lattice.clone();
 
-    let network_services = node.network_services();
+    let network_services = node.network_subsystem().test_handles();
     let channel = make_fake_channel(&network_services);
 
-    node.network_services().inbound_message_queue.put(
+    node.network_subsystem().test_handles().inbound_message_queue.put(
         Message::Publish(Publish::new_forward(send1.clone())),
         channel.clone(),
     );
@@ -1551,7 +1551,7 @@ fn fork_open() {
 
     // create the 1st open block to receive send1, which should be regarded as the winner just because it is first
     let open1 = lattice.account(&key1).receive_and_change(&send1, 1);
-    node.network_services().inbound_message_queue.put(
+    node.network_subsystem().test_handles().inbound_message_queue.put(
         Message::Publish(Publish::new_forward(open1.clone())),
         channel.clone(),
     );
@@ -1564,7 +1564,7 @@ fn fork_open() {
     // create 2nd open block, which is a fork of open1 block
     // create the 1st open block to receive send1, which should be regarded as the winner just because it is first
     let open2 = fork_lattice.account(&key1).receive_and_change(&send1, 2);
-    node.network_services().inbound_message_queue.put(
+    node.network_subsystem().test_handles().inbound_message_queue.put(
         Message::Publish(Publish::new_forward(open2.clone())),
         channel.clone(),
     );
@@ -1612,7 +1612,7 @@ fn online_reps_rep_crawler() {
     let node = system.build_node().flags(flags).finish();
 
     // Without rep crawler
-    let network_services = node.network_services();
+    let network_services = node.network_subsystem().test_handles();
     let channel = make_fake_channel(&network_services);
 
     let vote: FilteredVote = ReceivedVote::new(
@@ -1705,7 +1705,7 @@ fn online_reps_election() {
             .online_weight()
     );
 
-    let network_services = node.network_services();
+    let network_services = node.network_subsystem().test_handles();
     let channel = make_fake_channel(&network_services);
     let _ = node
         .consensus_services()
@@ -1795,7 +1795,7 @@ fn vote_by_hash_republish() {
     assert_timely2(|| node2.is_active_root(&send1.qualified_root()));
 
     // give block send2 to node1 and wait until the block is received and processed by node1
-    node1.network_services().network_filter.clear_all();
+    node1.network_subsystem().test_handles().network_filter.clear_all();
     node1.process_active(send2.clone());
     assert_timely2(|| node1.is_active_root(&send2.qualified_root()));
 
@@ -1830,19 +1830,19 @@ fn fork_election_invalid_block_signature() {
     let mut send3 = send2.clone();
     send3.set_signature(Signature::new()); // Invalid signature
 
-    let network_services = node1.network_services();
+    let network_services = node1.network_subsystem().test_handles();
     let channel = make_fake_channel(&network_services);
-    node1.network_services().inbound_message_queue.put(
+    node1.network_subsystem().test_handles().inbound_message_queue.put(
         Message::Publish(Publish::new_forward(send1.clone())),
         channel.clone(),
     );
     assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
 
-    node1.network_services().inbound_message_queue.put(
+    node1.network_subsystem().test_handles().inbound_message_queue.put(
         Message::Publish(Publish::new_forward(send3)),
         channel.clone(),
     );
-    node1.network_services().inbound_message_queue.put(
+    node1.network_subsystem().test_handles().inbound_message_queue.put(
         Message::Publish(Publish::new_forward(send2.clone())),
         channel.clone(),
     );
@@ -1932,7 +1932,7 @@ fn rep_crawler_rep_remove() {
     searching_node.process(receive_rep2);
 
     // Create channel for Rep1
-    let channel_rep1 = make_fake_channel(&searching_node.network_services());
+    let channel_rep1 = make_fake_channel(&searching_node.network_subsystem().test_handles());
 
     // Ensure Rep1 is found by the rep_crawler after receiving a vote from it
     let vote_rep1 = ReceivedVote::new(
@@ -2005,7 +2005,7 @@ fn rep_crawler_rep_remove() {
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
     let channel_genesis_rep = searching_node
-        .network_services()
+        .network_subsystem().test_handles()
         .network
         .read()
         .unwrap()
@@ -2046,15 +2046,15 @@ fn rep_crawler_rep_remove() {
     // Start a node for Rep2 and wait until it is connected
     let node_rep2 = system.make_node();
     let _ = searching_node
-        .network_services()
+        .network_subsystem().test_handles()
         .peer_connector
-        .connect_to(node_rep2.network_services().tcp_listener.local_address());
+        .connect_to(node_rep2.network_subsystem().test_handles().tcp_listener.local_address());
 
     assert_timely_msg(
         Duration::from_secs(10),
         || {
             searching_node
-                .network_services()
+                .network_subsystem().test_handles()
                 .network
                 .read()
                 .unwrap()
@@ -2064,7 +2064,7 @@ fn rep_crawler_rep_remove() {
         "channel to rep2 not found",
     );
     let channel_rep2 = searching_node
-        .network_services()
+        .network_subsystem().test_handles()
         .network
         .read()
         .unwrap()
@@ -2203,9 +2203,9 @@ fn node_receive_quorum() {
     assert!(node1.balance(&key.account()).is_zero());
 
     let _ = node2
-        .network_services()
+        .network_subsystem().test_handles()
         .peer_connector
-        .connect_to(node1.network_services().tcp_listener.local_address());
+        .connect_to(node1.network_subsystem().test_handles().tcp_listener.local_address());
 
     assert_timely_msg(
         Duration::from_secs(10),
@@ -2452,7 +2452,7 @@ fn block_processor_signatures() {
     node.unchecked.lock().unwrap().put(
         send5.previous(),
         send5.clone(),
-        node.network_services().steady_clock.now(),
+        node.network_subsystem().test_handles().steady_clock.now(),
     );
 
     // Create a valid receive block

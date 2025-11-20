@@ -24,7 +24,7 @@ fn unique_path(suffix: &str) -> std::path::PathBuf {
 fn compose_null_node_exposes_basic_services() {
     let node = Node::new_null();
 
-    let network_services = node.network_services();
+    let network_services = node.network_subsystem().test_handles();
     let network_read = network_services.network.read().unwrap();
     assert!(
         !network_read.is_stopped(),

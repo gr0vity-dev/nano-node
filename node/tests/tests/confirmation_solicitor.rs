@@ -23,7 +23,7 @@ fn batches() {
     flags.disable_rep_crawler = true;
     let node1 = system.build_node().flags(flags.clone()).finish();
     let node2 = system.build_node().flags(flags).finish();
-    let node2_network_services = node2.network_services();
+    let node2_network_services = node2.network_subsystem().test_handles();
     let channel1 = node2_network_services
         .network
         .read()
@@ -80,7 +80,7 @@ fn different_hashes() {
     flags.disable_rep_crawler = true;
     let node1 = system.build_node().flags(flags.clone()).finish();
     let node2 = system.build_node().flags(flags).finish();
-    let node2_network_services = node2.network_services();
+    let node2_network_services = node2.network_subsystem().test_handles();
     let channel1 = node2_network_services
         .network
         .read()
@@ -143,7 +143,7 @@ fn bypass_max_requests_cap() {
     let _node1 = system.build_node().flags(flags.clone()).finish();
     let node2 = system.build_node().flags(flags).finish();
 
-    let node2_network_services = node2.network_services();
+    let node2_network_services = node2.network_subsystem().test_handles();
     let mut solicitor = ConfirmationSolicitor::new(
         node2_network_services
             .message_flooder

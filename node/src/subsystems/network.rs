@@ -32,6 +32,21 @@ pub struct NetworkSubsystem {
     max_inbound_connections: usize,
 }
 
+/// Test-only access to network internals.
+#[derive(Clone)]
+pub struct NetworkTestHandles {
+    pub network: Arc<RwLock<Network>>,
+    pub tcp_listener: Arc<TcpListener>,
+    pub peer_connector: Arc<PeerConnector>,
+    pub message_processor: Arc<Mutex<MessageProcessor>>,
+    pub message_sender: Arc<Mutex<MessageSender>>,
+    pub message_flooder: Arc<Mutex<MessageFlooder>>,
+    pub keepalive_publisher: Arc<KeepalivePublisher>,
+    pub inbound_message_queue: Arc<InboundMessageQueue>,
+    pub network_filter: Arc<NetworkFilter>,
+    pub steady_clock: Arc<SteadyClock>,
+}
+
 impl NetworkSubsystem {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
@@ -116,6 +131,40 @@ impl NetworkSubsystem {
         self.peer_connector.stop();
         self.message_processor.lock().unwrap().stop();
         self.network_threads.lock().unwrap().stop();
+    }
+
+    pub fn start(&mut self) {
+        self.start_internal();
+    }
+
+    pub fn stop(&mut self) {
+        self.stop_internal();
+    }
+
+    pub fn stop_listeners(&self) {
+        self.tcp_listener.stop();
+        self.peer_connector.stop();
+    }
+
+    pub fn stop_threads(&self) {
+        self.message_processor.lock().unwrap().stop();
+        self.network_threads.lock().unwrap().stop();
+    }
+
+    /// Test-only handle exposing internals currently used by integration tests.
+    pub fn test_handles(&self) -> NetworkTestHandles {
+        NetworkTestHandles {
+            network: self.network.clone(),
+            tcp_listener: self.tcp_listener.clone(),
+            peer_connector: self.peer_connector.clone(),
+            message_processor: self.message_processor.clone(),
+            message_sender: self.message_sender.clone(),
+            message_flooder: self.message_flooder.clone(),
+            keepalive_publisher: self.keepalive_publisher.clone(),
+            inbound_message_queue: self.inbound_message_queue.clone(),
+            network_filter: self.network_filter.clone(),
+            steady_clock: self.steady_clock.clone(),
+        }
     }
 }
 

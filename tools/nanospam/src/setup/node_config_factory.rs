@@ -31,7 +31,7 @@ pub(crate) const NODE_CONFIG: &str = r#"
 [node.lmdb]
     sync = "nosync_unsafe"
 
-[node.network_services()]
+[node.network]
     max_peers_per_ip = 256
 
 [node.consensus_services().bounded_backlog]

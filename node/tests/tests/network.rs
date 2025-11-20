@@ -32,7 +32,7 @@ fn last_contacted() {
         .finish();
 
     let channel1 = establish_tcp(&node1, &node0);
-    let node0_network_services = node0.network_services();
+    let node0_network_services = node0.network_subsystem().test_handles();
     let node0_network = node0_network_services.network.clone();
     assert_timely_eq(
         Duration::from_secs(3),
@@ -142,7 +142,7 @@ fn receivable_processor_confirm_insufficient_pos() {
     start_election(&node1, &send1.hash());
     let key1 = PrivateKey::new();
     let vote = Arc::new(Vote::new_final(&key1, vec![send1.hash()]));
-    let network_services = node1.network_services();
+    let network_services = node1.network_subsystem().test_handles();
     let channel = make_fake_channel(&network_services);
     let con1 = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(
         vote.deref().clone(),
@@ -157,7 +157,7 @@ fn receivable_processor_confirm_insufficient_pos() {
             .vote_count()
     );
 
-    let inbound_queue = node1.network_services().inbound_message_queue;
+    let inbound_queue = node1.network_subsystem().test_handles().inbound_message_queue;
     inbound_queue.put(con1, channel);
 
     assert_timely_eq2(
@@ -187,7 +187,7 @@ fn receivable_processor_confirm_sufficient_pos() {
 
     start_election(&node1, &send1.hash());
     let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]));
-    let network_services = node1.network_services();
+    let network_services = node1.network_subsystem().test_handles();
     let channel = make_fake_channel(&network_services);
     let con1 = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(
         vote.deref().clone(),
@@ -202,7 +202,7 @@ fn receivable_processor_confirm_sufficient_pos() {
             .vote_count()
     );
 
-    let inbound_queue = node1.network_services().inbound_message_queue;
+    let inbound_queue = node1.network_subsystem().test_handles().inbound_message_queue;
     inbound_queue.put(con1, channel);
 
     assert_timely2(|| {
@@ -350,7 +350,7 @@ fn duplicate_vote_detection() {
     let message = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote));
 
     // Publish duplicate detection through TCP
-    let node0_network = node0.network_services();
+    let node0_network = node0.network_subsystem().test_handles();
     let channel = node0_network
         .network
         .read()
@@ -439,7 +439,7 @@ fn duplicate_revert_vote() {
     let message2 = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote2));
 
     // Publish duplicate detection through TCP
-    let node0_network = node0.network_services();
+    let node0_network = node0.network_subsystem().test_handles();
     let channel = node0_network
         .network
         .read()
@@ -490,7 +490,7 @@ fn duplicate_revert_vote() {
         MessageSerializer::new(ProtocolInfo::default_for(Networks::NanoDevNetwork));
     let msg2_bytes = serializer.serialize(&message2);
     let payload_bytes = &msg2_bytes[MessageHeader::SERIALIZED_SIZE..];
-    let network_filter = node1.network_services().network_filter;
+    let network_filter = node1.network_subsystem().test_handles().network_filter;
     assert_eq!(network_filter.check_message(payload_bytes), false);
 }
 
@@ -521,7 +521,7 @@ fn expire_duplicate_filter() {
     let message = Message::ConfirmAck(ConfirmAck::new_with_own_vote(vote));
 
     // Publish duplicate detection through TCP
-    let node0_network = node0.network_services();
+    let node0_network = node0.network_subsystem().test_handles();
     let channel = node0_network
         .network
         .read()
@@ -572,7 +572,7 @@ fn expire_duplicate_filter() {
         MessageSerializer::new(ProtocolInfo::default_for(Networks::NanoDevNetwork));
     let msg_bytes = serializer.serialize(&message);
     let payload_bytes = &msg_bytes[MessageHeader::SERIALIZED_SIZE..];
-    let node1_network = node1.network_services();
+    let node1_network = node1.network_subsystem().test_handles();
     let network_filter = node1_network.network_filter.clone();
     assert!(network_filter.check_message(&payload_bytes));
     assert_timely(Duration::from_secs(10), || {
