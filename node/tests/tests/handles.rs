@@ -1,6 +1,6 @@
 use rsnano_ledger::{AnySet, ConfirmedSet, LedgerSet};
 use rsnano_node::Node;
-use rsnano_types::{Epoch, SavedBlock};
+use rsnano_types::{BlockHash, Epoch, PendingKey, SavedBlock};
 
 #[test]
 fn ledger_info_handle_matches_ledger_metadata() {
@@ -149,4 +149,48 @@ fn ledger_query_handle_matches_ledger_reads() {
         handle.account_head(&genesis_account),
         ledger.any().account_head(&genesis_account)
     );
+}
+
+#[test]
+fn ledger_query_handle_receivable_upper_bound_matches_iterator() {
+    let node = Node::new_null();
+    let account = node.network_params.ledger.genesis_account;
+    let start = BlockHash::ZERO;
+    let handle_iter = node
+        .production_handles()
+        .ledger_queries()
+        .receivable_upper_bound(account, start)
+        .into_iter()
+        .collect::<Vec<_>>();
+    let ledger_iter = node
+        .ledger_query_services()
+        .ledger
+        .any()
+        .account_receivable_upper_bound(account, start)
+        .collect::<Vec<_>>();
+
+    assert_eq!(handle_iter, ledger_iter);
+}
+
+#[test]
+fn ledger_query_handle_pending_from_matches_iterator() {
+    let node = Node::new_null();
+    let start = PendingKey::new(
+        node.network_params.ledger.genesis_account,
+        node.network_params.ledger.genesis_block.hash(),
+    );
+    let handle_iter = node
+        .production_handles()
+        .ledger_queries()
+        .pending_from(start)
+        .into_iter()
+        .collect::<Vec<_>>();
+    let ledger_iter = node
+        .ledger_query_services()
+        .ledger
+        .any()
+        .iter_pending_range(start..)
+        .collect::<Vec<_>>();
+
+    assert_eq!(handle_iter, ledger_iter);
 }

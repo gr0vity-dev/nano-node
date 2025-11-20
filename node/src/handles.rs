@@ -1,7 +1,9 @@
 //! Narrow production handles for node-managed subsystems.
 use std::sync::Arc;
 
-use rsnano_ledger::{AnyReceivableIterator, AnySet, ConfirmedSet, Ledger, LedgerSet};
+use rsnano_ledger::{
+    AnyReceivableIterator, AnySet, ConfirmedSet, Ledger, LedgerSet, OwningAnySet, StoreIterator,
+};
 use rsnano_types::{
     Account, AccountInfo, Amount, BlockHash, ConfirmationHeightInfo, DetailedBlock, Link,
     PendingInfo, PendingKey, SavedBlock,
@@ -274,17 +276,69 @@ impl LedgerQueryHandle {
         &self,
         account: Account,
         start: BlockHash,
-    ) -> Vec<(PendingKey, PendingInfo)> {
-        self.ledger
-            .any()
-            .account_receivable_upper_bound(account, start)
-            .collect()
+    ) -> ReceivableUpperBoundIter<'_> {
+        ReceivableUpperBoundIter {
+            any: self.ledger.any(),
+            iter: None,
+            account,
+            start,
+        }
     }
 
-    pub fn pending_from(&self, start: PendingKey) -> Vec<(PendingKey, PendingInfo)> {
-        self.ledger
-            .any()
-            .iter_pending_range(start..)
-            .collect()
+    pub fn pending_from(&self, start: PendingKey) -> PendingRangeIter<'_> {
+        PendingRangeIter {
+            any: self.ledger.any(),
+            iter: None,
+            start,
+        }
+    }
+}
+
+pub struct ReceivableUpperBoundIter<'a> {
+    any: OwningAnySet<'a>,
+    iter: Option<AnyReceivableIterator<'a>>,
+    account: Account,
+    start: BlockHash,
+}
+
+impl<'a> Iterator for ReceivableUpperBoundIter<'a> {
+    type Item = (PendingKey, PendingInfo);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.iter.is_none() {
+            // SAFETY: self.any lives for 'a, so it is safe to extend the iterator lifetime.
+            let iter = unsafe {
+                std::mem::transmute::<
+                    AnyReceivableIterator<'_>,
+                    AnyReceivableIterator<'a>,
+                >(self.any.account_receivable_upper_bound(self.account, self.start))
+            };
+            self.iter = Some(iter);
+        }
+        self.iter.as_mut().and_then(Iterator::next)
+    }
+}
+
+pub struct PendingRangeIter<'a> {
+    any: OwningAnySet<'a>,
+    iter: Option<StoreIterator<'a, (PendingKey, PendingInfo)>>,
+    start: PendingKey,
+}
+
+impl<'a> Iterator for PendingRangeIter<'a> {
+    type Item = (PendingKey, PendingInfo);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.iter.is_none() {
+            // SAFETY: self.any lives for 'a, so it is safe to extend the iterator lifetime.
+            let iter = unsafe {
+                std::mem::transmute::<
+                    StoreIterator<'_, (PendingKey, PendingInfo)>,
+                    StoreIterator<'a, (PendingKey, PendingInfo)>,
+                >(self.any.iter_pending_range(self.start.clone()..))
+            };
+            self.iter = Some(iter);
+        }
+        self.iter.as_mut().and_then(Iterator::next)
     }
 }
