@@ -14,7 +14,7 @@ use rsnano_node::{
     subsystems::{BootstrapSubsystem, ConsensusSubsystem, NetworkSubsystem, TelemetrySubsystem},
 };
 use rsnano_rpc_messages::{RpcCommand, RpcError, StatsType};
-use rsnano_types::{Account, AccountInfo, BlockHash, SavedBlock};
+use rsnano_types::{Account, AccountInfo};
 use serde_json::{Value, to_value};
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
@@ -215,11 +215,6 @@ impl RpcCommandHandler {
         } else {
             Ok(())
         }
-    }
-
-    fn load_block_any(&self, any: &dyn AnySet, hash: &BlockHash) -> anyhow::Result<SavedBlock> {
-        any.get_block(hash)
-            .ok_or_else(|| anyhow!(Self::BLOCK_NOT_FOUND))
     }
 
     fn load_account(&self, any: &dyn AnySet, account: &Account) -> anyhow::Result<AccountInfo> {

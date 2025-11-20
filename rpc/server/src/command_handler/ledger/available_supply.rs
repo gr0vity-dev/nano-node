@@ -1,5 +1,4 @@
 use crate::command_handler::RpcCommandHandler;
-use rsnano_ledger::LedgerSet;
 use rsnano_rpc_messages::AvailableSupplyReponse;
 use rsnano_types::{Account, Amount};
 
@@ -27,7 +26,7 @@ impl RpcCommandHandler {
         );
 
         // Burning 0 account
-        let burned_balance = self.ledger_services.ledger.any().account_receivable(
+        let burned_balance = self.ledger_queries.account_receivable(
             &Account::parse("nano_1111111111111111111111111111111111111111111111111111hifc8npp")
                 .unwrap(),
         );

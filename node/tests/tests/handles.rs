@@ -143,4 +143,10 @@ fn ledger_query_handle_matches_ledger_reads() {
         handle.block_successor(&genesis_hash),
         ledger.any().block_successor(&genesis_hash)
     );
+
+    assert!(handle.confirmed_block_exists(&genesis_hash));
+    assert_eq!(
+        handle.account_head(&genesis_account),
+        ledger.any().account_head(&genesis_account)
+    );
 }

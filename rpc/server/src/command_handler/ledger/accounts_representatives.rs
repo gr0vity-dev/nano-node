@@ -1,5 +1,4 @@
 use crate::command_handler::RpcCommandHandler;
-use rsnano_ledger::LedgerSet;
 use rsnano_rpc_messages::{AccountsRepresentativesResponse, AccountsRpcMessage};
 use rsnano_types::Account;
 use std::collections::HashMap;
@@ -9,12 +8,11 @@ impl RpcCommandHandler {
         &self,
         args: AccountsRpcMessage,
     ) -> AccountsRepresentativesResponse {
-        let any = self.ledger_services.ledger.any();
         let mut representatives: HashMap<Account, Account> = HashMap::new();
         let mut errors: HashMap<Account, String> = HashMap::new();
 
         for account in args.accounts {
-            match any.get_account(&account) {
+            match self.ledger_queries.account_info(&account) {
                 Some(account_info) => {
                     representatives.insert(account, account_info.representative.as_account());
                 }

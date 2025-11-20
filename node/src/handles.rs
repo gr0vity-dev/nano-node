@@ -239,4 +239,12 @@ impl LedgerQueryHandle {
     pub fn confirmed_account_receivable(&self, account: &Account) -> Amount {
         self.ledger.confirmed().account_receivable(account)
     }
+
+    pub fn confirmed_block_exists(&self, hash: &BlockHash) -> bool {
+        self.ledger.confirmed().block_exists(hash)
+    }
+
+    pub fn account_head(&self, account: &Account) -> Option<BlockHash> {
+        self.ledger.any().account_head(account)
+    }
 }
