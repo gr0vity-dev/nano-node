@@ -74,6 +74,8 @@ impl WriteQueue {
     fn acquire_optimistic(&self, writer_type: WriterType) -> WriteGuard {
         let mut guard = self.inner.state.lock().unwrap();
         guard.waiting_optimistic += 1;
+        // Wake any observers waiting on queue depth changes.
+        self.inner.cv.notify_all();
         while guard.pessimistic_active || guard.waiting_pessimistic > 0 {
             guard = self.inner.cv.wait(guard).unwrap();
         }
@@ -91,6 +93,7 @@ impl WriteQueue {
     fn acquire_pessimistic(&self, writer_type: WriterType) -> WriteGuard {
         let mut guard = self.inner.state.lock().unwrap();
         guard.waiting_pessimistic += 1;
+        self.inner.cv.notify_all();
         while guard.pessimistic_active || guard.optimistic_active > 0 {
             guard = self.inner.cv.wait(guard).unwrap();
         }
