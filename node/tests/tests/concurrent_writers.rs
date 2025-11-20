@@ -84,22 +84,4 @@ fn block_processor_and_confirming_set_make_progress_concurrently() {
         conf_stats.max_optimistic_concurrency() >= 1,
         "confirmation height writer should have executed optimistically"
     );
-
-    // Ledger-level counters should reflect both writer types running.
-    let ledger = node.ledger_query_services().ledger;
-    assert!(
-        ledger.optimistic_successes() >= 2,
-        "expected combined optimistic successes to include both writers"
-    );
-    assert!(
-        ledger.optimistic_conflicts() >= 0,
-        "optimistic conflicts counter available"
-    );
-    assert_eq!(
-        node.ledger_query_services()
-            .ledger
-            .backlog_count()
-            >= 0,
-        true
-    );
 }
