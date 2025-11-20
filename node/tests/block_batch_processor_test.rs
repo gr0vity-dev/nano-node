@@ -8,7 +8,7 @@ fn block_batch_processor_uses_optimistic_transactions() {
     let mut processor = BlockBatchProcessor::new_null();
     let batch: VecDeque<_> = VecDeque::new();
 
-    processor.process_blocks(batch);
+    processor.process_blocks(batch, 0);
 
     assert_eq!(processor.ledger.optimistic_successes(), 1);
     assert_eq!(processor.ledger.optimistic_conflicts(), 0);
@@ -21,7 +21,7 @@ fn block_batch_processor_uses_optimistic_transactions() {
     // Sanity: processing a real block still routes through optimistic path
     let mut batch = VecDeque::new();
     batch.push_back(Arc::new(BlockContext::new_test_instance()));
-    processor.process_blocks(batch);
+    processor.process_blocks(batch, 0);
     assert!(processor.ledger.optimistic_successes() >= 2);
 }
 
@@ -36,7 +36,7 @@ fn writer_stats_ignore_external_ledger_activity() {
 
     assert_eq!(processor.stats.optimistic_successes(), 0);
 
-    processor.process_blocks(VecDeque::new());
+    processor.process_blocks(VecDeque::new(), 0);
 
     // Ledger tracks both writers; block processor stats should only count its own attempt
     assert_eq!(processor.ledger.optimistic_successes(), 2);

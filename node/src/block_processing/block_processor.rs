@@ -1,6 +1,7 @@
 use std::{
     sync::{Arc, Mutex},
     thread::JoinHandle,
+    time::{Duration, Instant},
 };
 
 use rsnano_ledger::Ledger;
@@ -115,6 +116,13 @@ impl Drop for BlockProcessor {
 impl StatsSource for BlockProcessor {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.process_stats.collect_stats(result);
+
+        // Expose queue depth for visibility
+        result.insert(
+            "block_processor_queue",
+            "size",
+            self.process_queue.total_queue_len() as u64,
+        );
     }
 }
 
@@ -126,14 +134,19 @@ struct BlockProcessorLoop {
 
 impl BlockProcessorLoop {
     fn run(&mut self) {
-        while let Some(blocks) = self.queue.pop_blocking() {
+        while let Some(blocks) = {
+            let wait_start = Instant::now();
+            let batch = self.queue.pop_blocking();
+            batch.map(|b| (b, wait_start.elapsed().as_nanos() as u64))
+        } {
+            let (blocks, dequeue_wait_ns) = blocks;
             self.backlog_waiter.wait_for_backlog();
 
             if self.queue.stopped() {
                 break;
             }
 
-            self.process.process_blocks(blocks);
+            self.process.process_blocks(blocks, dequeue_wait_ns);
         }
     }
 }

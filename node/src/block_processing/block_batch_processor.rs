@@ -4,6 +4,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering::Relaxed},
     },
+    time::Instant,
 };
 
 use strum::{EnumCount, IntoEnumIterator};
@@ -44,7 +45,7 @@ impl BlockBatchProcessor {
         }
     }
 
-    pub fn process_blocks(&mut self, mut batch: VecDeque<Arc<BlockContext>>) {
+    pub fn process_blocks(&mut self, mut batch: VecDeque<Arc<BlockContext>>, dequeue_wait_ns: u64) {
         let now = self.clock.now();
 
         self.roll_back_competitor_blocks(&batch);
@@ -55,6 +56,8 @@ impl BlockBatchProcessor {
         let prev_pessimistic_fallbacks = self.ledger.pessimistic_fallbacks();
 
         let validation_results = self.ledger.validate_batch(batch.iter().map(|c| &c.block));
+
+        let txn_start = Instant::now();
         let processed_entries = self
             .ledger
             .tx_optimistic_process(
@@ -68,6 +71,7 @@ impl BlockBatchProcessor {
                 },
             )
             .unwrap_or_else(|e| panic!("failed to process block batch: {e}"));
+        let txn_ns = txn_start.elapsed().as_nanos() as u64;
         let optimistic_successes = self.ledger.optimistic_successes();
         let optimistic_conflicts = self.ledger.optimistic_conflicts();
         let pessimistic_fallbacks = self.ledger.pessimistic_fallbacks();
@@ -84,6 +88,8 @@ impl BlockBatchProcessor {
             pessimistic_fallbacks.saturating_sub(prev_pessimistic_fallbacks),
             Relaxed,
         );
+        self.stats
+            .record_batch(batch.len() as u64, dequeue_wait_ns, txn_ns);
 
         let processed_result: Vec<_> = processed_entries
             .iter()
@@ -205,6 +211,11 @@ pub struct BlockBatchProcessorStats {
     pessimistic_fallbacks: AtomicU64,
     optimistic_active: AtomicU64,
     max_optimistic_concurrency: AtomicU64,
+    batch_count: AtomicU64,
+    batch_blocks: AtomicU64,
+    total_dequeue_wait_ns: AtomicU64,
+    total_txn_ns: AtomicU64,
+    max_batch_size: AtomicU64,
 }
 
 impl StatsSource for BlockBatchProcessorStats {
@@ -251,6 +262,32 @@ impl StatsSource for BlockBatchProcessorStats {
             "optimistic_max_concurrency",
             self.max_optimistic_concurrency.load(Relaxed),
         );
+
+        result.insert(
+            "block_processor_batch",
+            "count",
+            self.batch_count.load(Relaxed),
+        );
+        result.insert(
+            "block_processor_batch",
+            "blocks",
+            self.batch_blocks.load(Relaxed),
+        );
+        result.insert(
+            "block_processor_batch",
+            "dequeue_wait_ns",
+            self.total_dequeue_wait_ns.load(Relaxed),
+        );
+        result.insert(
+            "block_processor_batch",
+            "txn_ns",
+            self.total_txn_ns.load(Relaxed),
+        );
+        result.insert(
+            "block_processor_batch",
+            "max_size",
+            self.max_batch_size.load(Relaxed),
+        );
     }
 }
 
@@ -275,6 +312,25 @@ impl BlockBatchProcessorStats {
         let active = self.optimistic_active.fetch_add(1, Relaxed) + 1;
         self.update_max_concurrency(active);
         OptimisticWriterGuard { stats: self }
+    }
+
+    fn record_batch(&self, batch_size: u64, dequeue_wait_ns: u64, txn_ns: u64) {
+        self.batch_count.fetch_add(1, Relaxed);
+        self.batch_blocks.fetch_add(batch_size, Relaxed);
+        self.total_dequeue_wait_ns
+            .fetch_add(dequeue_wait_ns, Relaxed);
+        self.total_txn_ns.fetch_add(txn_ns, Relaxed);
+
+        let mut observed = self.max_batch_size.load(Relaxed);
+        while batch_size > observed {
+            match self
+                .max_batch_size
+                .compare_exchange(observed, batch_size, Relaxed, Relaxed)
+            {
+                Ok(_) => break,
+                Err(actual) => observed = actual,
+            }
+        }
     }
 
     fn update_max_concurrency(&self, current: u64) {
