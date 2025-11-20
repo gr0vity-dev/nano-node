@@ -1,5 +1,4 @@
 use crate::command_handler::RpcCommandHandler;
-use rsnano_ledger::LedgerSet;
 use rsnano_rpc_messages::{AccountBalanceResponse, AccountsBalancesResponse, WalletBalancesArgs};
 use rsnano_types::Amount;
 use std::collections::HashMap;
@@ -15,12 +14,11 @@ impl RpcCommandHandler {
             .wallets
             .get_accounts_of_wallet(&args.wallet)?;
         let mut balances = HashMap::new();
-        let any = self.ledger_services.ledger.any();
         for account in accounts {
-            let balance = any.account_balance(&account);
+            let balance = self.ledger_queries.account_balance(&account);
 
             if balance >= threshold {
-                let pending = any.account_receivable(&account);
+                let pending = self.ledger_queries.account_receivable(&account);
 
                 let account_balance = AccountBalanceResponse {
                     balance,

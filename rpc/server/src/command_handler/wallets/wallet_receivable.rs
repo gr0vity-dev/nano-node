@@ -1,6 +1,5 @@
 use crate::command_handler::RpcCommandHandler;
 use indexmap::IndexMap;
-use rsnano_ledger::{AnySet, LedgerSet};
 use rsnano_rpc_messages::{
     AccountsReceivableResponse, AccountsReceivableSimple, AccountsReceivableSource,
     AccountsReceivableThreshold, SourceInfo, WalletReceivableArgs,
@@ -22,7 +21,6 @@ impl RpcCommandHandler {
             .wallet_services
             .wallets
             .get_accounts_of_wallet(&args.wallet)?;
-        let any = self.ledger_services.ledger.any();
 
         let mut pending_source = IndexMap::new();
         let mut pending_threshold = IndexMap::new();
@@ -33,11 +31,16 @@ impl RpcCommandHandler {
             let mut block_threshold = IndexMap::new();
             let mut block_default = Vec::new();
 
-            for (key, info) in any
-                .account_receivable_upper_bound(account, BlockHash::ZERO)
+            for (key, info) in self
+                .ledger_queries
+                .receivable_upper_bound(account, BlockHash::ZERO)
                 .take(count as usize)
             {
-                if include_only_confirmed && !any.confirmed().block_exists(&key.send_block_hash) {
+                if include_only_confirmed
+                    && !self
+                        .ledger_queries
+                        .confirmed_block_exists(&key.send_block_hash)
+                {
                     continue;
                 }
 

@@ -243,6 +243,10 @@ impl LedgerQueryHandle {
         self.ledger.any().account_receivable(account)
     }
 
+    pub fn account_balance(&self, account: &Account) -> Amount {
+        self.ledger.any().account_balance(account)
+    }
+
     pub fn confirmed_account_receivable(&self, account: &Account) -> Amount {
         self.ledger.confirmed().account_receivable(account)
     }
