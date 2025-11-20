@@ -42,14 +42,9 @@ impl RpcCommandHandler {
         let mut balance = args.balance.unwrap_or(Amount::ZERO);
         let mut prv_key = PrivateKey::zero();
 
-        if work.is_zero()
-            && !self
-                .bootstrap_work_services
-                .work_factory
-                .work_generation_enabled()
-        {
-            bail!("Work generation is disabled");
-        }
+            if work.is_zero() && !self.bootstrap.work_factory().work_generation_enabled() {
+                bail!("Work generation is disabled");
+            }
 
         let any = self.ledger_services.ledger.any();
 
@@ -217,8 +212,8 @@ impl RpcCommandHandler {
             };
 
             let work = match self
-                .bootstrap_work_services
-                .work_factory
+                .bootstrap
+                .work_factory()
                 .generate_work(WorkRequest::new(root, difficulty))
             {
                 Some(work) => work,

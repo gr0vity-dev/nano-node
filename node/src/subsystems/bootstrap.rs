@@ -51,6 +51,10 @@ impl BootstrapSubsystem {
         }
     }
 
+    pub fn work_factory(&self) -> Arc<WorkFactory> {
+        self.work_factory.clone()
+    }
+
     pub fn test_handles(&self) -> BootstrapTestHandles {
         BootstrapTestHandles {
             bootstrapper: self.bootstrapper.clone(),

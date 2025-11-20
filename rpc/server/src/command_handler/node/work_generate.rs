@@ -50,12 +50,12 @@ impl RpcCommandHandler {
             }
         }
 
-        if !self.bootstrap.work_factory.work_generation_enabled() {
+        if !self.bootstrap.work_factory().work_generation_enabled() {
             bail!("Work generation is disabled");
         }
 
         let work_request = WorkRequest::new(args.hash.into(), difficulty);
-        let work = self.bootstrap.work_factory.generate_work(work_request.clone());
+        let work = self.bootstrap.work_factory().generate_work(work_request.clone());
 
         let Some(work) = work else {
             bail!("Work generation cancelled")

@@ -6,7 +6,7 @@ mod wallets;
 use anyhow::anyhow;
 use rsnano_ledger::AnySet;
 use rsnano_node::{
-    BootstrapWorkServices, LedgerQueryServices, Node, TelemetryServices, WalletServices,
+    LedgerQueryServices, Node, TelemetryServices, WalletServices,
     subsystems::{BootstrapSubsystem, ConsensusSubsystem, NetworkSubsystem},
 };
 use rsnano_rpc_messages::{RpcCommand, RpcError, StatsType};
