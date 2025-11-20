@@ -24,7 +24,7 @@ use rsnano_work_validation::WorkThresholds;
 use crate::{
     BlockRollbackPerformer, BorrowingAnySet, BorrowingConfirmedSet, GenerateCacheFlags,
     LedgerConstants, LedgerSet, LedgerStore, OwningAnySet, OwningConfirmedSet,
-    OwningUnconfirmedSet, RepWeightCache, RepWeightsUpdater, RollbackError,
+    OwningUnconfirmedSet, RepWeightCache, RepWeightWriterStats, RepWeightsUpdater, RollbackError,
     block_cementer::BlockCementer,
     block_insertion::{BlockInsertInstructions, BlockInserter, BlockValidatorFactory},
     deferred_operations::DeferredLedgerOperations,
@@ -514,6 +514,40 @@ impl Ledger {
 
     pub fn pessimistic_fallbacks(&self) -> u64 {
         self.pessimistic_fallbacks.load(Ordering::SeqCst)
+    }
+
+    pub fn rep_weight_writer_stats(&self) -> Arc<RepWeightWriterStats> {
+        self.rep_weights_updater.stats().clone()
+    }
+
+    pub fn apply_rep_weight_ops<F>(&self, mut f: F)
+    where
+        F: FnMut(&mut dyn LedgerWriteTxn),
+    {
+        let stats = self.rep_weights_updater.stats();
+        let _guard = stats.start_optimistic_writer();
+        let prev_successes = self.optimistic_successes();
+        let prev_conflicts = self.optimistic_conflicts();
+        let prev_fallbacks = self.pessimistic_fallbacks();
+
+        self.tx_optimistic_process(
+            WriterType::RepWeightUpdater,
+            DEFAULT_OPTIMISTIC_RETRIES,
+            |txn, _deferred| {
+                f(txn);
+                Ok(((), Vec::new()))
+            },
+        )
+        .unwrap_or_else(|e| panic!("failed to apply rep weight ops: {e}"));
+
+        stats.add_deltas(
+            self.optimistic_successes()
+                .saturating_sub(prev_successes),
+            self.optimistic_conflicts()
+                .saturating_sub(prev_conflicts),
+            self.pessimistic_fallbacks()
+                .saturating_sub(prev_fallbacks),
+        );
     }
 
     pub fn begin_write_with(

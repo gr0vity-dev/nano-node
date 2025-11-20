@@ -67,6 +67,7 @@ pub enum WriterType {
     BlockProcessor,
     ConfirmationHeight,
     RepWeights,
+    RepWeightUpdater,
     Bootstrap,
     Generic,
 }
