@@ -40,6 +40,7 @@ fn ledger_stats_collect_conflict_hotspots() {
     let mut thread_block = block.clone();
     let thread_instructions = instructions.clone();
     let writer = WriterType::Testing;
+    let started = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let worker = thread::spawn(move || {
         ready_tx.send(()).unwrap();
         start_rx.recv().unwrap();
@@ -72,7 +73,10 @@ fn ledger_stats_collect_conflict_hotspots() {
             let (saved, inserted, _) =
                 BlockInserter::new(&ledger, txn, &mut block_local, &instructions_local)
                     .insert(deferred);
-            committed_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            // Only wait for the worker once; retries may invoke this closure again.
+            if !started.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                committed_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+            }
             let hashes = saved
                 .iter()
                 .filter(|_| inserted)
