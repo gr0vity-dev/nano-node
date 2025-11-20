@@ -27,7 +27,7 @@ use rsnano_utils::{
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
     BacklogServices, BootstrapWorkServices, ConsensusServices, ConsensusTimerServices,
-    LedgerQueryServices, NodeCallbacks, NodeServices, TickerServices,
+    LedgerQueryServices, NodeCallbacks, NodeServices, TelemetryServices, TickerServices,
     WalletServices,
     block_processing::{BlockContext, BlockSource, ProcessedResult, UncheckedMap},
     config::{NetworkParams, NodeConfig, NodeFlags},
