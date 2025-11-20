@@ -101,6 +101,11 @@ impl StatsSource for BacklogWaiter {
             "cooldown_backlog",
             self.cooldown_count.load(Relaxed),
         );
+        result.insert(
+            "block_processor",
+            "backlog_checks",
+            self.call_count.load(Relaxed) as u64,
+        );
     }
 }
 

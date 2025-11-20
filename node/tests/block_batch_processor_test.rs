@@ -2,7 +2,7 @@ use std::{collections::VecDeque, sync::Arc};
 
 use rsnano_ledger::WriterType;
 use rsnano_node::block_processing::{BlockBatchProcessor, BlockContext};
-use rsnano_utils::stats::{StatsCollection, StatsSource};
+use rsnano_utils::stats::{Direction, StatsCollection, StatsSource};
 
 #[test]
 fn block_batch_processor_uses_optimistic_transactions() {
@@ -67,4 +67,19 @@ fn records_batch_metrics() {
     assert_eq!(stats.get("block_processor_batch", "blocks"), 3);
     assert_eq!(stats.get("block_processor_batch", "dequeue_wait_ns"), 12);
     assert_eq!(stats.get("block_processor_batch", "max_size"), 2);
+    assert!(stats.contains(
+        "block_processor_batch",
+        "validate_ns",
+        Direction::In
+    ));
+    assert!(stats.contains(
+        "block_processor_batch",
+        "apply_ns",
+        Direction::In
+    ));
+    assert!(stats.contains(
+        "block_processor_batch",
+        "process_ns",
+        Direction::In
+    ));
 }
