@@ -267,6 +267,14 @@ impl LedgerQueryHandle {
         self.ledger.any().block_account(hash)
     }
 
+    pub fn block_amount_for(&self, block: &SavedBlock) -> Option<Amount> {
+        self.ledger.any().block_amount_for(block)
+    }
+
+    pub fn block_account(&self, hash: &BlockHash) -> Option<Account> {
+        self.ledger.any().block_account(hash)
+    }
+
     pub fn find_receive_block_by_send_hash(
         &self,
         destination: &Account,
@@ -304,6 +312,14 @@ impl LedgerQueryHandle {
 
     pub fn constants(&self) -> &LedgerConstants {
         &self.ledger.constants
+    }
+
+    pub fn is_epoch_link(&self, link: &Link) -> bool {
+        self.ledger.constants.epochs.is_epoch_link(link)
+    }
+
+    pub fn epoch_signer(&self, link: &Link) -> Option<Account> {
+        self.ledger.constants.epochs.epoch_signer(link)
     }
 
     pub fn iter_account_range(&self, start: Account) -> AccountRangeIter<'_> {
