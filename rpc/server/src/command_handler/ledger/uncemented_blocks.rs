@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use rsnano_ledger::{BlockStore, DuplicateInsertRecordSnapshot, Ledger, LedgerReadTxn};
+use rsnano_ledger::{BlockStore, DuplicateInsertRecordSnapshot, LedgerReadTxn};
 use rsnano_node::block_processing::BlockSource;
 use rsnano_rpc_messages::{
     DuplicateInsertEntry, UncementedAccountStatus, UncementedBlocksArgs, UncementedBlocksResponse,
@@ -13,19 +13,19 @@ use crate::command_handler::RpcCommandHandler;
 
 impl RpcCommandHandler {
     pub(crate) fn uncemented_blocks(&self, args: UncementedBlocksArgs) -> UncementedBlocksResponse {
-        let ledger = &self.ledger_services.ledger;
-        build_uncemented_response(ledger, args)
+        build_uncemented_response(&self.ledger_queries, args)
     }
 }
 
 fn build_uncemented_response(
-    ledger: &Ledger,
+    ledger_queries: &rsnano_node::handles::LedgerQueryHandle,
     args: UncementedBlocksArgs,
 ) -> UncementedBlocksResponse {
     let max_accounts = args.max_accounts.unwrap_or(16);
     let max_blocks_per_account = args.max_blocks_per_account.unwrap_or(32);
 
-    let store = ledger.store.as_ref();
+    let ledger = ledger_queries;
+    let store = ledger.store();
     let tx = store.begin_read();
     let account_store = store.account();
     let block_store = store.block();
