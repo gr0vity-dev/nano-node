@@ -32,17 +32,36 @@ impl<'a> BlockCementer<'a> {
         target_hash: BlockHash,
         max_blocks: usize,
     ) -> (Box<dyn LedgerWriteTxn>, Vec<SavedBlock>) {
+        let mut result = self.confirm_with_txn(txn.as_mut(), target_hash, max_blocks);
+        if txn.is_refresh_needed() {
+            txn.commit()
+                .unwrap_or_else(|e| panic!("failed to refresh cementing txn: {e}"));
+            txn = self.store.begin_write();
+            if !self.store.block().exists(txn.as_ref(), &target_hash) {
+                return (txn, result);
+            }
+            result.extend(self.confirm_with_txn(txn.as_mut(), target_hash, max_blocks));
+        }
+        (txn, result)
+    }
+
+    pub(crate) fn confirm_with_txn(
+        &self,
+        txn: &mut dyn LedgerWriteTxn,
+        target_hash: BlockHash,
+        max_blocks: usize,
+    ) -> Vec<SavedBlock> {
         let mut result = Vec::new();
 
         let mut stack = VecDeque::new();
         stack.push_back(target_hash);
         while let Some(&hash) = stack.back() {
-            let block = self.store.block().get(txn.as_ref(), &hash).unwrap();
+            let block = self.store.block().get(txn, &hash).unwrap();
 
             let dependents =
                 block.dependent_blocks(&self.constants.epochs, &self.constants.genesis_account);
             for dependent in dependents.iter() {
-                if !dependent.is_zero() && !self.is_confirmed(txn.as_ref(), dependent) {
+                if !dependent.is_zero() && !self.is_confirmed(txn, dependent) {
                     self.stats.inc(
                         StatType::ConfirmationHeight,
                         DetailType::DependentUnconfirmed,
@@ -60,17 +79,12 @@ impl<'a> BlockCementer<'a> {
 
             if stack.back() == Some(&hash) {
                 stack.pop_back();
-                if !self.is_confirmed(txn.as_ref(), &hash) {
-                    // We must only confirm blocks that have their dependencies confirmed
-
+                if !self.is_confirmed(txn, &hash) {
                     let conf_height = ConfirmationHeightInfo::new(block.height(), block.hash());
 
-                    // Update store
-                    self.store.confirmation_height().put(
-                        txn.as_mut(),
-                        &block.account(),
-                        &conf_height,
-                    );
+                    self.store
+                        .confirmation_height()
+                        .put(txn, &block.account(), &conf_height);
                     self.store
                         .cache()
                         .confirmed_count
@@ -85,28 +99,13 @@ impl<'a> BlockCementer<'a> {
 
                     result.push(block);
                 }
-            } else {
-                // Unconfirmed dependencies were added
             }
 
-            // Refresh the transaction to avoid long-running transactions
-            // Ensure that the block wasn't rolled back during the refresh
-
-            if txn.is_refresh_needed() {
-                txn.commit()
-                    .unwrap_or_else(|e| panic!("failed to refresh cementing txn: {e}"));
-                txn = self.store.begin_write();
-                if !self.store.block().exists(txn.as_ref(), &target_hash) {
-                    break; // Block was rolled back during cementing
-                }
-            }
-
-            // Early return might leave parts of the dependency tree unconfirmed
-            if result.len() >= max_blocks {
+            if txn.is_refresh_needed() || result.len() >= max_blocks {
                 break;
             }
         }
-        (txn, result)
+        result
     }
 
     fn is_confirmed(&self, tx: &dyn LedgerWriteTxn, hash: &BlockHash) -> bool {

@@ -1113,110 +1113,105 @@ impl Ledger {
         O: CementingObserver,
     {
         let mut confirmed = Vec::new();
-        let mut blocks_confirmed = 0;
-        {
-            let mut txn = self.store_ref().begin_write();
-
-            for confirmation_root in batch.into_iter() {
-                let mut success = false;
-                loop {
-                    if txn.is_refresh_needed() {
-                        txn.commit()
-                            .unwrap_or_else(|e| panic!("failed to refresh confirm batch txn: {e}"));
-                        txn = self.store_ref().begin_write();
-                    }
-
-                    // Cementing deep dependency chains might take a long time, allow for graceful shutdown, ignore notifications
-                    if stopped.load(Ordering::Relaxed) {
-                        txn.commit()
-                            .unwrap_or_else(|e| panic!("failed to stop confirm batch txn: {e}"));
-                        return;
-                    }
-
-                    // Issue notifications here, so that `confirmed` set is not too large before we add more blocks
-                    if blocks_confirmed >= max_blocks {
-                        txn.commit()
-                            .unwrap_or_else(|e| panic!("failed to flush confirm batch txn: {e}"));
-                        blocks_confirmed = 0;
-                        self.stats
-                            .inc(StatType::ConfirmingSet, DetailType::NotifyIntermediate);
-                        cementing_observer.batch_confirmed(confirmed);
-                        confirmed = Vec::new();
-                        txn = self.store_ref().begin_write();
-                    }
-
-                    self.stats
-                        .inc(StatType::ConfirmingSet, DetailType::Cementing);
-
-                    // The block might be rolled back before it's fully confirmed
-                    if !self.store.block().exists(txn.as_ref(), confirmation_root) {
-                        self.stats
-                            .inc(StatType::ConfirmingSet, DetailType::MissingBlock);
-                        break;
-                    }
-
-                    let (t, added) = self.confirm_max(txn, *confirmation_root, max_blocks);
-                    txn = t;
-
-                    if !added.is_empty() {
-                        // Confirming this block may implicitly confirm more
-                        self.stats.add(
-                            StatType::ConfirmingSet,
-                            DetailType::Cemented,
-                            added.len() as u64,
-                        );
-                        blocks_confirmed += added.len();
-                        for block in added {
-                            confirmed.push((block, *confirmation_root));
-                        }
-                    } else if BorrowingConfirmedSet::new(self.store_ref(), txn.as_ref())
-                        .block_exists(&confirmation_root)
-                    {
-                        self.stats
-                            .inc(StatType::ConfirmingSet, DetailType::AlreadyCemented);
-                        cementing_observer.already_confirmed(confirmation_root);
-                    }
-
-                    success = {
-                        if let Some(block) = self.store.block().get(txn.as_ref(), confirmation_root)
-                        {
-                            if let Some(conf_info) = self
-                                .store
-                                .confirmation_height()
-                                .get(txn.as_ref(), &block.account())
-                            {
-                                block.height() <= conf_info.height
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    };
-
-                    if success {
-                        break;
-                    }
-                }
-
-                if success {
-                    self.stats
-                        .inc(StatType::ConfirmingSet, DetailType::CementedHash);
-                } else {
-                    self.stats
-                        .inc(StatType::ConfirmingSet, DetailType::CementingFailed);
-
-                    // Requeue failed blocks for processing later
-                    // Add them to the deferred set while still holding the exclusive database write transaction to avoid block processor races
-                    cementing_observer.cementing_failed(confirmation_root);
-                }
-            }
-            txn.commit()
-                .unwrap_or_else(|e| panic!("failed to finalize confirm batch txn: {e}"));
-        }
+        let batch: Vec<BlockHash> = batch.into_iter().cloned().collect();
+        self.tx_optimistic_process(
+            WriterType::ConfirmationHeight,
+            DEFAULT_OPTIMISTIC_RETRIES,
+            |txn, _deferred| {
+                self.confirm_batch_on_txn(txn, &batch, stopped, max_blocks, cementing_observer, &mut confirmed);
+                Ok(((), Vec::new()))
+            },
+        )
+        .unwrap_or_else(|e| panic!("failed to confirm batch: {e}"));
 
         if !confirmed.is_empty() {
             cementing_observer.batch_confirmed(confirmed);
+        }
+    }
+
+    fn confirm_batch_on_txn<O>(
+        &self,
+        txn: &mut dyn LedgerWriteTxn,
+        batch: &[BlockHash],
+        stopped: &AtomicBool,
+        max_blocks: usize,
+        cementing_observer: &mut O,
+        confirmed: &mut Vec<(SavedBlock, BlockHash)>,
+    ) where
+        O: CementingObserver,
+    {
+        let mut blocks_confirmed = 0usize;
+
+        for confirmation_root in batch {
+            let mut success = false;
+            loop {
+                if stopped.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                if blocks_confirmed >= max_blocks {
+                    self.stats
+                        .inc(StatType::ConfirmingSet, DetailType::NotifyIntermediate);
+                    blocks_confirmed = 0;
+                    cementing_observer.batch_confirmed(std::mem::take(confirmed));
+                }
+
+                self.stats
+                    .inc(StatType::ConfirmingSet, DetailType::Cementing);
+
+                if !self.store.block().exists(txn, confirmation_root) {
+                    self.stats
+                        .inc(StatType::ConfirmingSet, DetailType::MissingBlock);
+                    break;
+                }
+
+                let added =
+                    BlockCementer::new(self.store_ref(), &self.constants, &self.stats)
+                        .confirm_with_txn(txn, *confirmation_root, max_blocks);
+
+                if !added.is_empty() {
+                    self.stats.add(
+                        StatType::ConfirmingSet,
+                        DetailType::Cemented,
+                        added.len() as u64,
+                    );
+                    blocks_confirmed += added.len();
+                    for block in added {
+                        confirmed.push((block, *confirmation_root));
+                    }
+                } else if BorrowingConfirmedSet::new(self.store_ref(), txn).block_exists(confirmation_root) {
+                    self.stats
+                        .inc(StatType::ConfirmingSet, DetailType::AlreadyCemented);
+                    cementing_observer.already_confirmed(confirmation_root);
+                }
+
+                success = {
+                    if let Some(block) = self.store.block().get(txn, confirmation_root) {
+                        if let Some(conf_info) =
+                            self.store.confirmation_height().get(txn, &block.account())
+                        {
+                            block.height() <= conf_info.height
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                };
+
+                if success || txn.is_refresh_needed() {
+                    break;
+                }
+            }
+
+            if success {
+                self.stats
+                    .inc(StatType::ConfirmingSet, DetailType::CementedHash);
+            } else {
+                self.stats
+                    .inc(StatType::ConfirmingSet, DetailType::CementingFailed);
+                cementing_observer.cementing_failed(confirmation_root);
+            }
         }
     }
 
