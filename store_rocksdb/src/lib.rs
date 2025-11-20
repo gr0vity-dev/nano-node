@@ -33,10 +33,11 @@ pub use peer_store::RocksdbPeerStore;
 pub use pending_store::RocksdbPendingStore;
 pub use pruned_store::RocksdbPrunedStore;
 pub use rep_weight_store::RocksdbRepWeightStore;
+pub use store_traits::ledger::WriteQueueStats;
 pub use successor_store::RocksdbSuccessorStore;
 pub use transaction::{RocksdbLedgerReadTxn, RocksdbLedgerWriteTxn};
 pub use version_store::RocksdbVersionStore;
-pub use write_queue::{WriteQueue, WriteQueueStats};
+pub use write_queue::WriteQueue;
 
 pub(crate) use environment::{
     ACCOUNTS_CF_NAME, BLOCK_DATA_CF_NAME, BLOCK_INDEX_CF_NAME, CONF_HEIGHT_CF_NAME,

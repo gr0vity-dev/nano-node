@@ -11,7 +11,7 @@ use tracing::{trace, warn};
 
 use crate::ledger_factory::default_ledger_store_factory;
 use rsnano_ledger::{
-    BatchProcessEntry, BlockError, Ledger, WriterType, DEFAULT_OPTIMISTIC_RETRIES,
+    BatchProcessEntry, BlockError, DEFAULT_OPTIMISTIC_RETRIES, Ledger, WriterType,
 };
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::{

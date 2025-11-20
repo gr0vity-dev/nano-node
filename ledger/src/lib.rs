@@ -7,8 +7,9 @@ extern crate strum_macros;
 mod block_cementer;
 pub mod block_insertion;
 mod block_rollback;
-mod dependent_blocks_finder;
 mod deferred_operations;
+mod dependent_blocks_finder;
+mod final_vote_writer;
 mod generate_cache_flags;
 mod iterator_metrics;
 mod ledger;
@@ -20,7 +21,6 @@ mod rep_weight_cache;
 mod rep_weights_updater;
 mod representative_block_finder;
 mod store_traits;
-mod final_vote_writer;
 pub mod test_helpers;
 mod vote_verifier;
 
@@ -29,7 +29,9 @@ mod ledger_tests;
 
 pub(crate) use block_rollback::BlockRollbackPerformer;
 pub use block_rollback::RollbackError;
+pub use deferred_operations::*;
 pub use dependent_blocks_finder::*;
+pub use final_vote_writer::*;
 pub use generate_cache_flags::GenerateCacheFlags;
 pub use iterator_metrics::IteratorMetricsConfig;
 pub use ledger::*;
@@ -39,9 +41,7 @@ pub use ledger_constants::{
 };
 pub use ledger_inserter::*;
 pub use ledger_sets::*;
-pub use deferred_operations::*;
 pub use rep_weight_cache::*;
 pub use rep_weights_updater::*;
-pub use final_vote_writer::*;
 pub(crate) use representative_block_finder::RepresentativeBlockFinder;
 pub use store_traits::*;

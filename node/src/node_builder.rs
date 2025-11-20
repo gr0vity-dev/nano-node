@@ -1556,6 +1556,7 @@ pub(crate) fn compose_root(
 
     let mut stats_collector = StatsCollector::new();
     stats_collector.add_source(stats.clone());
+    stats_collector.add_source(ledger.clone());
     stats_collector.add_source(online_reps.clone());
     stats_collector.add_source(fork_cache.clone());
     stats_collector.add_source(active_elections.clone());

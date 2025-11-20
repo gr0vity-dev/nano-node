@@ -1,6 +1,6 @@
 use std::sync::{Arc, Condvar, Mutex};
 
-use store_traits::ledger::{WriteStrategy, WriterType};
+use store_traits::ledger::{WriteQueueStats, WriteStrategy, WriterType};
 
 #[derive(Clone)]
 pub struct WriteQueue {
@@ -18,13 +18,6 @@ struct State {
     optimistic_active: usize,
     waiting_pessimistic: usize,
     waiting_optimistic: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WriteQueueStats {
-    pub pessimistic_active: bool,
-    pub optimistic_holders: usize,
-    pub queue_depth: usize,
 }
 
 pub struct WriteGuard {
@@ -54,8 +47,9 @@ impl WriteQueue {
         let state = self.inner.state.lock().unwrap();
         WriteQueueStats {
             pessimistic_active: state.pessimistic_active,
-            optimistic_holders: state.optimistic_active,
-            queue_depth: state.waiting_optimistic + state.waiting_pessimistic,
+            optimistic_active: state.optimistic_active,
+            waiting_pessimistic: state.waiting_pessimistic,
+            waiting_optimistic: state.waiting_optimistic,
         }
     }
 

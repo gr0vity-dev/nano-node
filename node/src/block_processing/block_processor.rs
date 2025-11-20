@@ -178,10 +178,18 @@ mod tests {
         let ledger = Arc::new(Ledger::new_null(default_ledger_store_factory()));
         let unchecked = Arc::new(Mutex::new(UncheckedMap::default()));
         let clock = Arc::new(SteadyClock::new_null());
-        let reenqueuer =
-            UncheckedBlockReenqueuer::new(unchecked.clone(), ledger.clone(), queue.clone(), clock.clone());
-        let backlog_waiter =
-            Arc::new(BacklogWaiter::new(queue.clone(), ledger.clone(), clock.clone(), 10_000));
+        let reenqueuer = UncheckedBlockReenqueuer::new(
+            unchecked.clone(),
+            ledger.clone(),
+            queue.clone(),
+            clock.clone(),
+        );
+        let backlog_waiter = Arc::new(BacklogWaiter::new(
+            queue.clone(),
+            ledger.clone(),
+            clock.clone(),
+            10_000,
+        ));
         let (event_publisher, _event_receiver) = channel(0);
         let processor = BlockProcessor::new(
             queue.clone(),
@@ -230,10 +238,7 @@ mod tests {
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
-            if blocks
-                .iter()
-                .all(|b| ledger.any().block_exists(&b.hash()))
-            {
+            if blocks.iter().all(|b| ledger.any().block_exists(&b.hash())) {
                 break;
             }
             assert!(

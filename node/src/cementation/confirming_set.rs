@@ -526,13 +526,13 @@ impl<'a> CementingObserver for CementedNotifier<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ledger_factory::default_ledger_store_factory;
+    use rsnano_ledger::{LedgerSet, test_helpers::SavedBlockLatticeBuilder};
+    use rsnano_types::{Amount, Block, PrivateKey, WorkNonce};
     use std::{
         sync::{Arc, Barrier},
         time::{Duration, Instant},
     };
-    use rsnano_ledger::{LedgerSet, test_helpers::SavedBlockLatticeBuilder};
-    use rsnano_types::{Amount, Block, PrivateKey, WorkNonce};
-    use crate::ledger_factory::default_ledger_store_factory;
 
     #[test]
     fn add_exists() {
@@ -584,7 +584,10 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(5);
         while !ledger.confirmed().block_exists(&send1.hash()) {
-            assert!(Instant::now() < deadline, "confirmation height processing stalled");
+            assert!(
+                Instant::now() < deadline,
+                "confirmation height processing stalled"
+            );
             std::thread::sleep(Duration::from_millis(10));
         }
 

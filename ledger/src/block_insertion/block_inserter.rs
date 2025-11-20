@@ -46,11 +46,8 @@ impl<'a> BlockInserter<'a> {
         deferred: &mut DeferredLedgerOperations,
     ) -> (Option<SavedBlock>, bool, bool) {
         if self.account_changed_since_validation() {
-            if let Some(existing_block) = self
-                .ledger
-                .store
-                .block()
-                .get(self.txn, &self.block.hash())
+            if let Some(existing_block) =
+                self.ledger.store.block().get(self.txn, &self.block.hash())
             {
                 self.ledger.record_duplicate_insert_event();
                 return (Some(existing_block), false, true);
@@ -339,7 +336,8 @@ mod tests {
         assert!(!inserted_again);
         assert!(preexisting_again);
         assert!(saved_again.is_some());
-        let disposition = commit_block_txn(&ledger, second_txn, inserted_again, saved_again.as_ref());
+        let disposition =
+            commit_block_txn(&ledger, second_txn, inserted_again, saved_again.as_ref());
         if inserted_again && matches!(disposition, CommitDisposition::Success) {
             second_deferred.execute(&ledger);
         }

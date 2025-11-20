@@ -6,7 +6,7 @@ use store_traits::{
     ledger::{
         AccountStore, BlockStore, ConfirmationHeightStore, FinalVoteStore, LedgerCache,
         LedgerStore, MemoryStats, OnlineWeightStore, PeerStore, PendingStore, RepWeightStore,
-        StoreVendor, SuccessorStore, VersionStore, WriteStrategy, WriterType,
+        StoreVendor, SuccessorStore, VersionStore, WriteQueueStats, WriteStrategy, WriterType,
     },
     transaction::{LedgerReadTxn, LedgerWriteTxn},
 };
@@ -172,6 +172,10 @@ impl LedgerStore for RocksdbLedgerStore {
 
     fn vendor(&self) -> StoreVendor {
         rocksdb_vendor()
+    }
+
+    fn write_queue_stats(&self) -> Option<WriteQueueStats> {
+        Some(self.env.inner().write_queue().stats())
     }
 }
 

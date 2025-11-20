@@ -1,5 +1,5 @@
-use rsnano_types::{Amount, PublicKey};
 use crate::Ledger;
+use rsnano_types::{Amount, PublicKey};
 
 pub struct DeferredLedgerOperations {
     rep_weight_ops: Vec<RepWeightOp>,
@@ -74,21 +74,19 @@ impl DeferredLedgerOperations {
                     RepWeightOp::Add {
                         representative,
                         amount,
-                    } => ledger
-                        .rep_weights_updater
-                        .representation_add(txn, *representative, *amount),
+                    } => {
+                        ledger
+                            .rep_weights_updater
+                            .representation_add(txn, *representative, *amount)
+                    }
                     RepWeightOp::AddDual {
                         rep_1,
                         amount_1,
                         rep_2,
                         amount_2,
-                    } => ledger.rep_weights_updater.representation_add_dual(
-                        txn,
-                        *rep_1,
-                        *amount_1,
-                        *rep_2,
-                        *amount_2,
-                    ),
+                    } => ledger
+                        .rep_weights_updater
+                        .representation_add_dual(txn, *rep_1, *amount_1, *rep_2, *amount_2),
                 }
             }
         });

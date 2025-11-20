@@ -74,10 +74,70 @@ pub enum WriterType {
     Generic,
 }
 
+impl WriterType {
+    pub const COUNT: usize = 9;
+
+    pub const fn all() -> [Self; Self::COUNT] {
+        [
+            Self::Testing,
+            Self::BlockProcessor,
+            Self::ConfirmationHeight,
+            Self::RepWeights,
+            Self::RepWeightUpdater,
+            Self::VotingFinalizer,
+            Self::BoundedBacklog,
+            Self::Bootstrap,
+            Self::Generic,
+        ]
+    }
+
+    pub const fn as_index(self) -> usize {
+        match self {
+            WriterType::Testing => 0,
+            WriterType::BlockProcessor => 1,
+            WriterType::ConfirmationHeight => 2,
+            WriterType::RepWeights => 3,
+            WriterType::RepWeightUpdater => 4,
+            WriterType::VotingFinalizer => 5,
+            WriterType::BoundedBacklog => 6,
+            WriterType::Bootstrap => 7,
+            WriterType::Generic => 8,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            WriterType::Testing => "testing",
+            WriterType::BlockProcessor => "block_processor",
+            WriterType::ConfirmationHeight => "confirmation_height",
+            WriterType::RepWeights => "rep_weights",
+            WriterType::RepWeightUpdater => "rep_weight_updater",
+            WriterType::VotingFinalizer => "voting_finalizer",
+            WriterType::BoundedBacklog => "bounded_backlog",
+            WriterType::Bootstrap => "bootstrap",
+            WriterType::Generic => "generic",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WriteStrategy {
     Pessimistic,
     Optimistic,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WriteQueueStats {
+    pub pessimistic_active: bool,
+    pub optimistic_active: usize,
+    pub waiting_pessimistic: usize,
+    pub waiting_optimistic: usize,
+}
+
+impl WriteQueueStats {
+    pub const fn queue_depth(&self) -> usize {
+        self.waiting_pessimistic + self.waiting_optimistic
+    }
 }
 
 pub trait LedgerStore: Send + Sync {
@@ -153,6 +213,10 @@ pub trait LedgerStore: Send + Sync {
     fn sync(&self) -> Result<()>;
     fn cache(&self) -> &LedgerCache;
     fn memory_stats(&self) -> Result<MemoryStats>;
+
+    fn write_queue_stats(&self) -> Option<WriteQueueStats> {
+        None
+    }
 
     fn for_each_account_par(
         &self,

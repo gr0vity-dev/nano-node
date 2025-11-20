@@ -20,11 +20,7 @@ pub struct RepWeightsUpdater {
 }
 
 impl RepWeightsUpdater {
-    pub fn new(
-        store: Arc<dyn RepWeightStore>,
-        min_weight: Amount,
-        cache: &RepWeightCache,
-    ) -> Self {
+    pub fn new(store: Arc<dyn RepWeightStore>, min_weight: Amount, cache: &RepWeightCache) -> Self {
         RepWeightsUpdater {
             weight_cache: cache.inner(),
             store,

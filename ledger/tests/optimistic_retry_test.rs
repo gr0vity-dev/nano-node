@@ -18,9 +18,9 @@ use std::{
     thread,
     time::Duration,
 };
-use store_traits::types::{StoreError, StoreErrorKind};
 use store_rocksdb::default_ledger_store_factory;
 use store_traits::ledger::{LedgerStoreFactory, WriteStrategy, WriterType};
+use store_traits::types::{StoreError, StoreErrorKind};
 
 #[test]
 fn optimistic_retry_recovers_after_conflict() {

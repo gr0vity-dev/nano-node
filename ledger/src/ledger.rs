@@ -1,4 +1,5 @@
 use std::{
+    array,
     collections::{HashMap, VecDeque},
     net::SocketAddrV6,
     ops::{Deref, DerefMut},
@@ -17,7 +18,7 @@ use rsnano_types::{
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
-    stats::{DetailType, StatType, Stats},
+    stats::{DetailType, StatType, Stats, StatsCollection, StatsSource},
 };
 use rsnano_work_validation::WorkThresholds;
 
@@ -125,6 +126,9 @@ pub struct Ledger {
     optimistic_successes: AtomicU64,
     optimistic_conflicts: AtomicU64,
     pessimistic_fallbacks: AtomicU64,
+    optimistic_successes_by_writer: [AtomicU64; WriterType::COUNT],
+    optimistic_conflicts_by_writer: [AtomicU64; WriterType::COUNT],
+    pessimistic_fallbacks_by_writer: [AtomicU64; WriterType::COUNT],
     insert_tracker: Mutex<InsertTracker>,
     duplicate_log: Mutex<VecDeque<DuplicateInsertRecord>>,
     rollback_listener: OutputListenerMt<BlockHash>,
@@ -143,6 +147,10 @@ const MAX_INSERT_SOURCES: usize = 32;
 const MAX_TRACKED_INSERTS: usize = 600_000;
 const MAX_DUPLICATE_LOG: usize = 1024;
 pub const DEFAULT_OPTIMISTIC_RETRIES: usize = 1;
+
+fn writer_counters() -> [AtomicU64; WriterType::COUNT] {
+    array::from_fn(|_| AtomicU64::new(0))
+}
 
 struct InsertTracker {
     map: HashMap<BlockHash, u8>,
@@ -518,6 +526,18 @@ impl Ledger {
         self.pessimistic_fallbacks.load(Ordering::SeqCst)
     }
 
+    pub fn optimistic_successes_by_writer(&self, writer: WriterType) -> u64 {
+        self.optimistic_successes_by_writer[writer.as_index()].load(Ordering::SeqCst)
+    }
+
+    pub fn optimistic_conflicts_by_writer(&self, writer: WriterType) -> u64 {
+        self.optimistic_conflicts_by_writer[writer.as_index()].load(Ordering::SeqCst)
+    }
+
+    pub fn pessimistic_fallbacks_by_writer(&self, writer: WriterType) -> u64 {
+        self.pessimistic_fallbacks_by_writer[writer.as_index()].load(Ordering::SeqCst)
+    }
+
     pub fn rep_weight_writer_stats(&self) -> Arc<RepWeightWriterStats> {
         self.rep_weights_updater.stats().clone()
     }
@@ -556,12 +576,9 @@ impl Ledger {
         )?;
 
         stats.add_deltas(
-            self.optimistic_successes()
-                .saturating_sub(prev_successes),
-            self.optimistic_conflicts()
-                .saturating_sub(prev_conflicts),
-            self.pessimistic_fallbacks()
-                .saturating_sub(prev_fallbacks),
+            self.optimistic_successes().saturating_sub(prev_successes),
+            self.optimistic_conflicts().saturating_sub(prev_conflicts),
+            self.pessimistic_fallbacks().saturating_sub(prev_fallbacks),
         );
         Ok(())
     }
@@ -587,12 +604,9 @@ impl Ledger {
         .unwrap_or_else(|e| panic!("failed to apply rep weight ops: {e}"));
 
         stats.add_deltas(
-            self.optimistic_successes()
-                .saturating_sub(prev_successes),
-            self.optimistic_conflicts()
-                .saturating_sub(prev_conflicts),
-            self.pessimistic_fallbacks()
-                .saturating_sub(prev_fallbacks),
+            self.optimistic_successes().saturating_sub(prev_successes),
+            self.optimistic_conflicts().saturating_sub(prev_conflicts),
+            self.pessimistic_fallbacks().saturating_sub(prev_fallbacks),
         );
     }
 
@@ -622,7 +636,8 @@ impl Ledger {
                 tx: tx.as_ref(),
                 metrics: metrics.clone(),
             };
-            let validator = BlockValidatorFactory::new(&any, &self.constants, block).create_validator();
+            let validator =
+                BlockValidatorFactory::new(&any, &self.constants, block).create_validator();
             let result = validator.validate();
             validation_results.push((result, block.clone()));
         }
@@ -689,6 +704,7 @@ impl Ledger {
             &mut DeferredLedgerOperations,
         ) -> Result<(T, Vec<BlockHash>), StoreError>,
     {
+        let writer_index = writer.as_index();
         let mut retries = 0;
         let mut strategy = WriteStrategy::Optimistic;
         loop {
@@ -699,8 +715,12 @@ impl Ledger {
                 Ok(CommitDisposition::Success) => {
                     if matches!(strategy, WriteStrategy::Optimistic) {
                         self.optimistic_successes.fetch_add(1, Ordering::SeqCst);
+                        self.optimistic_successes_by_writer[writer_index]
+                            .fetch_add(1, Ordering::SeqCst);
                     } else {
                         self.pessimistic_fallbacks.fetch_add(1, Ordering::SeqCst);
+                        self.pessimistic_fallbacks_by_writer[writer_index]
+                            .fetch_add(1, Ordering::SeqCst);
                     }
                     deferred.execute(self);
                     return Ok(result);
@@ -708,6 +728,8 @@ impl Ledger {
                 Ok(CommitDisposition::Duplicate) => {
                     if matches!(strategy, WriteStrategy::Optimistic) {
                         self.optimistic_conflicts.fetch_add(1, Ordering::SeqCst);
+                        self.optimistic_conflicts_by_writer[writer_index]
+                            .fetch_add(1, Ordering::SeqCst);
                         if retries < max_retries {
                             retries += 1;
                             continue;
@@ -717,6 +739,8 @@ impl Ledger {
                         }
                     } else {
                         self.pessimistic_fallbacks.fetch_add(1, Ordering::SeqCst);
+                        self.pessimistic_fallbacks_by_writer[writer_index]
+                            .fetch_add(1, Ordering::SeqCst);
                         return Ok(result);
                     }
                 }
@@ -765,6 +789,9 @@ impl Ledger {
             optimistic_successes: AtomicU64::new(0),
             optimistic_conflicts: AtomicU64::new(0),
             pessimistic_fallbacks: AtomicU64::new(0),
+            optimistic_successes_by_writer: writer_counters(),
+            optimistic_conflicts_by_writer: writer_counters(),
+            pessimistic_fallbacks_by_writer: writer_counters(),
             insert_tracker: Mutex::new(InsertTracker::new()),
             duplicate_log: Mutex::new(VecDeque::with_capacity(MAX_DUPLICATE_LOG)),
             rollback_listener: Default::default(),
@@ -1217,7 +1244,14 @@ impl Ledger {
             WriterType::ConfirmationHeight,
             DEFAULT_OPTIMISTIC_RETRIES,
             |txn, _deferred| {
-                self.confirm_batch_on_txn(txn, &batch, stopped, max_blocks, cementing_observer, &mut confirmed);
+                self.confirm_batch_on_txn(
+                    txn,
+                    &batch,
+                    stopped,
+                    max_blocks,
+                    cementing_observer,
+                    &mut confirmed,
+                );
                 Ok(((), Vec::new()))
             },
         )
@@ -1264,9 +1298,8 @@ impl Ledger {
                     break;
                 }
 
-                let added =
-                    BlockCementer::new(self.store_ref(), &self.constants, &self.stats)
-                        .confirm_with_txn(txn, *confirmation_root, max_blocks);
+                let added = BlockCementer::new(self.store_ref(), &self.constants, &self.stats)
+                    .confirm_with_txn(txn, *confirmation_root, max_blocks);
 
                 if !added.is_empty() {
                     self.stats.add(
@@ -1278,7 +1311,9 @@ impl Ledger {
                     for block in added {
                         confirmed.push((block, *confirmation_root));
                     }
-                } else if BorrowingConfirmedSet::new(self.store_ref(), txn).block_exists(confirmation_root) {
+                } else if BorrowingConfirmedSet::new(self.store_ref(), txn)
+                    .block_exists(confirmation_root)
+                {
                     self.stats
                         .inc(StatType::ConfirmingSet, DetailType::AlreadyCemented);
                     cementing_observer.already_confirmed(confirmation_root);
@@ -1521,6 +1556,68 @@ impl ContainerInfoProvider for Ledger {
         ContainerInfo::builder()
             .node("rep_weights", self.rep_weights.container_info())
             .finish()
+    }
+}
+
+impl StatsSource for Ledger {
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        result.insert(
+            "ledger_writer",
+            "optimistic_successes",
+            self.optimistic_successes(),
+        );
+        result.insert(
+            "ledger_writer",
+            "optimistic_conflicts",
+            self.optimistic_conflicts(),
+        );
+        result.insert(
+            "ledger_writer",
+            "pessimistic_fallbacks",
+            self.pessimistic_fallbacks(),
+        );
+
+        for writer in WriterType::all() {
+            result.insert(
+                "ledger_writer_successes",
+                writer.as_str(),
+                self.optimistic_successes_by_writer(writer),
+            );
+            result.insert(
+                "ledger_writer_conflicts",
+                writer.as_str(),
+                self.optimistic_conflicts_by_writer(writer),
+            );
+            result.insert(
+                "ledger_writer_fallbacks",
+                writer.as_str(),
+                self.pessimistic_fallbacks_by_writer(writer),
+            );
+        }
+
+        if let Some(queue) = self.store.write_queue_stats() {
+            result.insert("ledger_write_queue", "queue_depth", queue.queue_depth());
+            result.insert(
+                "ledger_write_queue",
+                "optimistic_active",
+                queue.optimistic_active,
+            );
+            result.insert(
+                "ledger_write_queue",
+                "waiting_optimistic",
+                queue.waiting_optimistic,
+            );
+            result.insert(
+                "ledger_write_queue",
+                "waiting_pessimistic",
+                queue.waiting_pessimistic,
+            );
+            result.insert(
+                "ledger_write_queue",
+                "pessimistic_active",
+                queue.pessimistic_active as u64,
+            );
+        }
     }
 }
 
