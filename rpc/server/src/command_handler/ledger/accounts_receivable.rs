@@ -1,6 +1,6 @@
 use crate::command_handler::RpcCommandHandler;
 use indexmap::IndexMap;
-use rsnano_ledger::{AnySet, LedgerSet};
+use rsnano_ledger::AnySet;
 use rsnano_rpc_messages::{
     AccountsReceivableArgs, AccountsReceivableResponse, AccountsReceivableSimple,
     AccountsReceivableSource, AccountsReceivableThreshold, SourceInfo, unwrap_bool_or_false,
@@ -20,7 +20,6 @@ impl RpcCommandHandler {
         let include_only_confirmed = unwrap_bool_or_true(args.include_only_confirmed);
         let sorting = unwrap_bool_or_false(args.sorting);
         let simple = threshold.is_zero() && !source && !sorting; // if simple, response is a list of hashes for each account
-        let any = self.ledger_services.ledger.any();
 
         let mut response_builder = if simple {
             ResponseBuilderEnum::Simple(SimpleBuilder::new())
@@ -31,12 +30,17 @@ impl RpcCommandHandler {
         };
 
         for account in args.accounts {
+            let any = self.ledger_queries.any_set();
             for (key, info) in any.account_receivable_upper_bound(account, BlockHash::ZERO) {
                 if response_builder.len() as u64 >= count {
                     break;
                 }
 
-                if include_only_confirmed && !any.confirmed().block_exists(&key.send_block_hash) {
+                if include_only_confirmed
+                    && !self
+                        .ledger_queries
+                        .confirmed_block_exists(&key.send_block_hash)
+                {
                     continue;
                 }
 

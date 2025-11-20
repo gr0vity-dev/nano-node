@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use anyhow::bail;
 
-use rsnano_ledger::{AnySet, LedgerSet};
 use rsnano_rpc_messages::{
     BlockInfoResponse, BlocksInfoArgs, BlocksInfoResponse, unwrap_bool_or_false,
 };
@@ -18,19 +17,21 @@ impl RpcCommandHandler {
         let include_not_found = unwrap_bool_or_false(args.include_not_found);
         let include_linked_account = unwrap_bool_or_false(args.include_linked_account);
 
-        let any = self.ledger_services.ledger.any();
         let mut blocks: HashMap<BlockHash, BlockInfoResponse> = HashMap::new();
         let mut blocks_not_found = Vec::new();
 
         for hash in args.hashes {
-            if let Some(block) = any.get_block(&hash) {
+            if let Some(block) = self.ledger_queries.get_block(&hash) {
                 let block_account = block.account();
-                let amount = any.block_amount(&hash);
-                let balance = any.block_balance(&hash).unwrap();
+                let amount = self.ledger_queries.block_amount(&hash);
+                let balance = self.ledger_queries.block_balance(&hash).unwrap();
                 let height = block.height();
                 let local_timestamp = block.timestamp();
-                let successor = any.block_successor(&block.hash()).unwrap_or_default();
-                let confirmed = any.confirmed().block_exists(&hash);
+                let successor = self
+                    .ledger_queries
+                    .block_successor(&block.hash())
+                    .unwrap_or_default();
+                let confirmed = self.ledger_queries.confirmed_block_exists(&hash);
                 let contents = block.json_representation();
 
                 let subtype = if block.block_type() == BlockType::State {
@@ -40,7 +41,7 @@ impl RpcCommandHandler {
                 };
 
                 let linked_account = if include_linked_account {
-                    match any.linked_account(&block) {
+                    match self.ledger_queries.linked_account(&block) {
                         Some(a) => Some(a.encode_account()),
                         None => Some("0".to_owned()),
                     }
@@ -72,7 +73,8 @@ impl RpcCommandHandler {
                         if receive_hash {
                             block_info.receive_hash = Some(BlockHash::ZERO);
                         }
-                    } else if any
+                    } else if self
+                        .ledger_queries
                         .get_pending(&PendingKey::new(block.destination_or_link(), hash))
                         .is_some()
                     {
@@ -87,7 +89,7 @@ impl RpcCommandHandler {
                             block_info.receivable = Some(0.into());
                         }
                         if receive_hash {
-                            let receive_block = any.find_receive_block_by_send_hash(
+                            let receive_block = self.ledger_queries.find_receive_block_by_send_hash(
                                 &block.destination_or_link(),
                                 &hash,
                             );
@@ -101,10 +103,15 @@ impl RpcCommandHandler {
                 }
 
                 if source {
-                    if !block.is_receive() || !any.block_exists(&block.source_or_link()) {
+                    if !block.is_receive()
+                        || !self.ledger_queries.block_exists(&block.source_or_link())
+                    {
                         block_info.source_account = Some("0".to_string());
                     } else {
-                        let block_a = any.get_block(&block.source_or_link()).unwrap();
+                        let block_a = self
+                            .ledger_queries
+                            .get_block(&block.source_or_link())
+                            .unwrap();
                         block_info.source_account = Some(block_a.account().encode_account());
                     }
                 }

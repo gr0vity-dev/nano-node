@@ -1,10 +1,10 @@
 //! Narrow production handles for node-managed subsystems.
 use std::sync::Arc;
 
-use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, LedgerSet};
+use rsnano_ledger::{AnyReceivableIterator, AnySet, ConfirmedSet, Ledger, LedgerSet, OwningAnySet};
 use rsnano_types::{
     Account, AccountInfo, Amount, BlockHash, ConfirmationHeightInfo, DetailedBlock, Link,
-    SavedBlock,
+    PendingInfo, PendingKey, SavedBlock,
 };
 
 #[derive(Clone)]
@@ -196,6 +196,10 @@ impl LedgerQueryHandle {
         Self { ledger }
     }
 
+    pub fn any_set(&self) -> OwningAnySet<'_> {
+        self.ledger.any()
+    }
+
     pub fn account_info(&self, account: &Account) -> Option<AccountInfo> {
         self.ledger.any().get_account(account)
     }
@@ -228,6 +232,10 @@ impl LedgerQueryHandle {
         self.ledger.any().block_successor(hash)
     }
 
+    pub fn block_exists(&self, hash: &BlockHash) -> bool {
+        self.ledger.any().block_exists(hash)
+    }
+
     pub fn weight_exact(&self, account: Account) -> Amount {
         self.ledger.any().weight_exact(account.into())
     }
@@ -240,11 +248,29 @@ impl LedgerQueryHandle {
         self.ledger.confirmed().account_receivable(account)
     }
 
+    pub fn account_head(&self, account: &Account) -> Option<BlockHash> {
+        self.ledger.any().account_head(account)
+    }
+
     pub fn confirmed_block_exists(&self, hash: &BlockHash) -> bool {
         self.ledger.confirmed().block_exists(hash)
     }
 
-    pub fn account_head(&self, account: &Account) -> Option<BlockHash> {
-        self.ledger.any().account_head(account)
+    pub fn block_amount(&self, hash: &BlockHash) -> Option<Amount> {
+        self.ledger.any().block_amount(hash)
+    }
+
+    pub fn find_receive_block_by_send_hash(
+        &self,
+        destination: &Account,
+        send_block_hash: &BlockHash,
+    ) -> Option<SavedBlock> {
+        self.ledger
+            .any()
+            .find_receive_block_by_send_hash(destination, send_block_hash)
+    }
+
+    pub fn get_pending(&self, key: &PendingKey) -> Option<PendingInfo> {
+        self.ledger.any().get_pending(key)
     }
 }

@@ -1,5 +1,4 @@
 use crate::command_handler::RpcCommandHandler;
-use rsnano_ledger::LedgerSet;
 use rsnano_rpc_messages::{UnopenedArgs, UnopenedResponse, unwrap_u64_or_max};
 use rsnano_types::{Account, Amount, BlockHash, PendingKey};
 use std::collections::HashMap;
@@ -12,7 +11,6 @@ impl RpcCommandHandler {
         let mut accounts: HashMap<Account, Amount> = HashMap::new();
 
         let any = self.ledger_services.ledger.any();
-
         let mut iterator = any.iter_pending_range(PendingKey::new(start, BlockHash::ZERO)..);
 
         let mut current_account = start;
@@ -27,7 +25,7 @@ impl RpcCommandHandler {
             let (key, info) = cur;
             let account = key.receiving_account;
 
-            if any.get_account(&account).is_some() {
+            if self.ledger_queries.account_info(&account).is_some() {
                 if account == Account::MAX {
                     break;
                 }
