@@ -6,7 +6,7 @@ use std::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
 use crate::{LedgerReadTxn, LedgerWriteTxn};
@@ -216,6 +216,14 @@ pub trait LedgerStore: Send + Sync {
 
     fn write_queue_stats(&self) -> Option<WriteQueueStats> {
         None
+    }
+
+    fn wait_for_write_queue_waiting_optimistic(
+        &self,
+        _expected_at_least: usize,
+        _timeout: Duration,
+    ) -> bool {
+        false
     }
 
     fn for_each_account_par(

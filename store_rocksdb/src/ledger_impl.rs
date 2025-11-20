@@ -177,6 +177,17 @@ impl LedgerStore for RocksdbLedgerStore {
     fn write_queue_stats(&self) -> Option<WriteQueueStats> {
         Some(self.env.inner().write_queue().stats())
     }
+
+    fn wait_for_write_queue_waiting_optimistic(
+        &self,
+        expected_at_least: usize,
+        timeout: std::time::Duration,
+    ) -> bool {
+        self.env
+            .inner()
+            .write_queue()
+            .wait_for(timeout, |s| s.waiting_optimistic >= expected_at_least)
+    }
 }
 
 pub fn rocksdb_vendor() -> StoreVendor {

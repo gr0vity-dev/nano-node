@@ -1,5 +1,6 @@
 use std::sync::{Arc, Condvar, Mutex};
 
+use std::time::Duration;
 use store_traits::ledger::{WriteQueueStats, WriteStrategy, WriterType};
 
 #[derive(Clone)]
@@ -18,6 +19,15 @@ struct State {
     optimistic_active: usize,
     waiting_pessimistic: usize,
     waiting_optimistic: usize,
+}
+
+fn stats_from_state(state: &State) -> WriteQueueStats {
+    WriteQueueStats {
+        pessimistic_active: state.pessimistic_active,
+        optimistic_active: state.optimistic_active,
+        waiting_pessimistic: state.waiting_pessimistic,
+        waiting_optimistic: state.waiting_optimistic,
+    }
 }
 
 pub struct WriteGuard {
@@ -45,12 +55,20 @@ impl WriteQueue {
 
     pub fn stats(&self) -> WriteQueueStats {
         let state = self.inner.state.lock().unwrap();
-        WriteQueueStats {
-            pessimistic_active: state.pessimistic_active,
-            optimistic_active: state.optimistic_active,
-            waiting_pessimistic: state.waiting_pessimistic,
-            waiting_optimistic: state.waiting_optimistic,
-        }
+        stats_from_state(&state)
+    }
+
+    pub fn wait_for<F>(&self, timeout: Duration, predicate: F) -> bool
+    where
+        F: Fn(&WriteQueueStats) -> bool,
+    {
+        let guard = self.inner.state.lock().unwrap();
+        let (guard, wait_res) = self
+            .inner
+            .cv
+            .wait_timeout_while(guard, timeout, |state| !predicate(&stats_from_state(state)))
+            .unwrap();
+        predicate(&stats_from_state(&guard)) && !wait_res.timed_out()
     }
 
     fn acquire_optimistic(&self, writer_type: WriterType) -> WriteGuard {

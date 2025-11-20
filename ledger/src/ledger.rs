@@ -546,6 +546,15 @@ impl Ledger {
         Arc::clone(&self.final_vote_writer_stats)
     }
 
+    pub fn wait_for_write_queue_waiting_optimistic(
+        &self,
+        expected_at_least: usize,
+        timeout: std::time::Duration,
+    ) -> bool {
+        self.store
+            .wait_for_write_queue_waiting_optimistic(expected_at_least, timeout)
+    }
+
     pub fn record_final_vote(
         &self,
         root: &QualifiedRoot,

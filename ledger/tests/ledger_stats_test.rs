@@ -4,7 +4,7 @@ use std::{
         mpsc::{self},
     },
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use rsnano_ledger::{
@@ -108,21 +108,14 @@ fn ledger_stats_report_write_queue_depth() {
         let _txn = ledger_clone.begin_write_with(WriterType::Testing, WriteStrategy::Optimistic);
     });
 
-    // Allow the optimistic writer to enqueue behind the pessimistic holder, then wait
-    // (with generous timeout) for queue depth to reflect the waiting writer.
-    let start = Instant::now();
-    loop {
-        let mut collected = StatsCollection::new();
-        ledger.collect_stats(&mut collected);
-        if collected.get("ledger_write_queue", "waiting_optimistic") >= 1 {
-            assert_eq!(collected.get("ledger_write_queue", "queue_depth"), 1);
-            break;
-        }
-        if start.elapsed() > Duration::from_secs(2) {
-            panic!("optimistic writer never queued");
-        }
-        thread::sleep(Duration::from_millis(5));
-    }
+    assert!(
+        ledger.wait_for_write_queue_waiting_optimistic(1, Duration::from_secs(2)),
+        "optimistic writer should appear in queue"
+    );
+
+    let mut collected = StatsCollection::new();
+    ledger.collect_stats(&mut collected);
+    assert_eq!(collected.get("ledger_write_queue", "queue_depth"), 1);
 
     drop(pessimistic_txn);
     waiter.join().unwrap();
