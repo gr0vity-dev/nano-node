@@ -10,7 +10,7 @@ use std::{
 use rsnano_ledger::{
     CommitDisposition, DeferredLedgerOperations, Ledger, block_insertion::BlockInserter,
 };
-use rsnano_utils::stats::{StatsCollection, StatsSource};
+use rsnano_utils::stats::{Direction, StatsCollection, StatsSource};
 use store_rocksdb::default_ledger_store_factory;
 use store_traits::ledger::{WriteStrategy, WriterType};
 use store_traits::types::StoreErrorKind;
@@ -130,4 +130,21 @@ fn ledger_stats_report_write_queue_depth() {
 
     drop(pessimistic_txn);
     waiter.join().unwrap();
+}
+
+#[test]
+fn ledger_write_queue_stats_present() {
+    let ledger = Arc::new(new_ledger());
+
+    let mut collected = StatsCollection::new();
+    ledger.collect_stats(&mut collected);
+
+    assert!(
+        collected.contains("ledger_write_queue", "queue_depth", Direction::In),
+        "ledger_write_queue queue_depth stat should be reported"
+    );
+    assert!(
+        collected.contains("ledger_write_queue", "optimistic_active", Direction::In),
+        "ledger_write_queue optimistic_active stat should be reported"
+    );
 }
