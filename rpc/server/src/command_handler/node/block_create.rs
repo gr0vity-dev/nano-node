@@ -46,7 +46,7 @@ impl RpcCommandHandler {
             bail!("Work generation is disabled");
         }
 
-        let any = self.ledger_services.ledger.any();
+        let any = self.ledger_queries.any_owned();
 
         if !wallet_id.is_zero() && !account.is_zero() {
             self.wallet_services

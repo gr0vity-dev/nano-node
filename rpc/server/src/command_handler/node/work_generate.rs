@@ -40,7 +40,7 @@ impl RpcCommandHandler {
             }
             // Recalculate difficulty if not provided
             if args.difficulty.is_none() && args.multiplier.is_none() {
-                let any = self.ledger_services.ledger.any();
+                let any = self.ledger_queries.any_owned();
                 difficulty = difficulty_ledger(self.node.clone(), &any, &block);
             }
 
