@@ -967,72 +967,89 @@ impl Ledger {
         T: IntoIterator<Item = &'a BlockHash>,
         F: FnMut(&BlockHash) -> bool,
     {
+        let targets: Vec<BlockHash> = targets.into_iter().cloned().collect();
         self.stats
             .inc(StatType::BoundedBacklog, DetailType::PerformingRollbacks);
 
+        let mut results = RollbackResults::new();
+        self.tx_optimistic_process(
+            WriterType::BoundedBacklog,
+            DEFAULT_OPTIMISTIC_RETRIES,
+            |txn, _deferred| {
+                results =
+                    self.roll_back_batch_with_txn(txn, &targets, max_rollbacks, &mut can_roll_back);
+                Ok(((), Vec::new()))
+            },
+        )
+        .unwrap_or_else(|e| panic!("failed to commit rollback batch: {e}"));
+
+        results
+    }
+
+    fn roll_back_batch_with_txn<F>(
+        &self,
+        txn: &mut dyn LedgerWriteTxn,
+        targets: &[BlockHash],
+        max_rollbacks: usize,
+        can_roll_back: &mut F,
+    ) -> RollbackResults
+    where
+        F: FnMut(&BlockHash) -> bool,
+    {
         let mut rolled_back_count = 0;
         let mut results = RollbackResults::new();
-        {
-            let mut txn = self.store_ref().begin_write();
 
-            for hash in targets {
-                // Skip the rollback if the block is being used by the node, this should be race free as it's checked while holding the ledger write lock
-                if !can_roll_back(hash) {
+        for hash in targets {
+            if !can_roll_back(hash) {
+                self.stats
+                    .inc(StatType::BoundedBacklog, DetailType::RollbackSkipped);
+                results.push(RollbackResult {
+                    target_hash: *hash,
+                    target_root: QualifiedRoot::ZERO,
+                    rolled_back: Vec::new(),
+                    error: Some(RollbackError::Rejected),
+                });
+                continue;
+            }
+
+            if let Some(block) = self.store.block().get(txn, hash) {
+                debug!(
+                    "Rolling back: {}, account: {}",
+                    hash,
+                    block.account().encode_account()
+                );
+
+                let (rollback_list, error) = self.roll_back_with_tx(txn, &block.hash());
+                if error.is_none() {
                     self.stats
-                        .inc(StatType::BoundedBacklog, DetailType::RollbackSkipped);
-                    results.push(RollbackResult {
-                        target_hash: *hash,
-                        target_root: QualifiedRoot::ZERO,
-                        rolled_back: Vec::new(),
-                        error: Some(RollbackError::Rejected),
-                    });
-                    continue;
-                }
-
-                // Here we check that the block is still OK to rollback, there could be a delay between gathering the targets and performing the rollbacks
-                if let Some(block) = self.store.block().get(txn.as_ref(), hash) {
-                    debug!(
-                        "Rolling back: {}, account: {}",
-                        hash,
-                        block.account().encode_account()
-                    );
-
-                    let (rollback_list, error) =
-                        self.roll_back_with_tx(txn.as_mut(), &block.hash());
-                    if error.is_none() {
-                        self.stats
-                            .inc(StatType::BoundedBacklog, DetailType::Rollback);
-                    } else {
-                        self.stats
-                            .inc(StatType::BoundedBacklog, DetailType::RollbackFailed);
-                    }
-
-                    rolled_back_count += rollback_list.len();
-                    results.push(RollbackResult {
-                        target_hash: *hash,
-                        target_root: block.qualified_root(),
-                        rolled_back: rollback_list,
-                        error,
-                    });
-
-                    // Return early if we reached the maximum number of rollbacks
-                    if rolled_back_count >= max_rollbacks {
-                        break;
-                    }
+                        .inc(StatType::BoundedBacklog, DetailType::Rollback);
                 } else {
                     self.stats
-                        .inc(StatType::BoundedBacklog, DetailType::RollbackMissingBlock);
-                    rolled_back_count += 1;
-                    results.push(RollbackResult {
-                        target_hash: *hash,
-                        target_root: QualifiedRoot::ZERO,
-                        rolled_back: Vec::new(),
-                        error: Some(RollbackError::BlockNotFound),
-                    });
+                        .inc(StatType::BoundedBacklog, DetailType::RollbackFailed);
                 }
+
+                rolled_back_count += rollback_list.len();
+                results.push(RollbackResult {
+                    target_hash: *hash,
+                    target_root: block.qualified_root(),
+                    rolled_back: rollback_list,
+                    error,
+                });
+
+                if rolled_back_count >= max_rollbacks {
+                    break;
+                }
+            } else {
+                self.stats
+                    .inc(StatType::BoundedBacklog, DetailType::RollbackMissingBlock);
+                rolled_back_count += 1;
+                results.push(RollbackResult {
+                    target_hash: *hash,
+                    target_root: QualifiedRoot::ZERO,
+                    rolled_back: Vec::new(),
+                    error: Some(RollbackError::BlockNotFound),
+                });
             }
-            txn.commit()
-                .unwrap_or_else(|e| panic!("failed to commit rollback batch: {e}"));
         }
 
         results

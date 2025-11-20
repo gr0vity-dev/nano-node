@@ -1,6 +1,9 @@
 use std::{
     cmp::min,
-    sync::{Arc, Condvar, Mutex, RwLock},
+    sync::{
+        Arc, Condvar, Mutex, RwLock,
+        atomic::{AtomicU64, Ordering::Relaxed},
+    },
     thread::JoinHandle,
     time::Duration,
 };
@@ -74,6 +77,7 @@ impl BoundedBacklog {
             clock,
             can_roll_back: RwLock::new(Box::new(|_| true)),
             publish_event: Mutex::new(Some(publish_event)),
+            writer_stats: Arc::new(BoundedBacklogWriterStats::default()),
         });
 
         Self {
@@ -129,6 +133,10 @@ impl BoundedBacklog {
             handle.join().unwrap();
         }
         drop(self.backlog_impl.publish_event.lock().unwrap().take());
+    }
+
+    pub fn writer_stats(&self) -> Arc<BoundedBacklogWriterStats> {
+        Arc::clone(&self.backlog_impl.writer_stats)
     }
 
     // Give other components a chance to veto a rollback
@@ -267,6 +275,7 @@ struct BoundedBacklogImpl {
     can_roll_back: RwLock<Box<dyn Fn(&BlockHash) -> bool + Send + Sync>>,
     clock: Arc<SteadyClock>,
     publish_event: Mutex<Option<Sender<LedgerEvent>>>,
+    writer_stats: Arc<BoundedBacklogWriterStats>,
 }
 
 impl BoundedBacklogImpl {
@@ -336,9 +345,21 @@ impl BoundedBacklogImpl {
         max_rollbacks: usize,
         can_roll_back: impl Fn(&BlockHash) -> bool,
     ) -> Vec<BlockHash> {
+        let stats = self.writer_stats.clone();
+        let _guard = stats.start_optimistic_writer();
+        let prev_successes = self.ledger.optimistic_successes();
+        let prev_conflicts = self.ledger.optimistic_conflicts();
+        let prev_fallbacks = self.ledger.pessimistic_fallbacks();
+
         let results = self
             .ledger
             .roll_back_batch(targets, max_rollbacks, can_roll_back);
+
+        stats.add_deltas(
+            self.ledger.optimistic_successes() - prev_successes,
+            self.ledger.optimistic_conflicts() - prev_conflicts,
+            self.ledger.pessimistic_fallbacks() - prev_fallbacks,
+        );
 
         let mut processed_hashes = Vec::new();
         for result in results.iter() {
@@ -464,5 +485,116 @@ impl BacklogData {
 
     fn bucket_threshold(&self) -> usize {
         self.config.max_backlog as usize / self.bucket_count
+    }
+}
+
+#[derive(Default)]
+pub struct BoundedBacklogWriterStats {
+    optimistic_successes: AtomicU64,
+    optimistic_conflicts: AtomicU64,
+    pessimistic_fallbacks: AtomicU64,
+    optimistic_active: AtomicU64,
+    max_optimistic_concurrency: AtomicU64,
+}
+
+impl BoundedBacklogWriterStats {
+    pub fn optimistic_successes(&self) -> u64 {
+        self.optimistic_successes.load(Relaxed)
+    }
+
+    pub fn optimistic_conflicts(&self) -> u64 {
+        self.optimistic_conflicts.load(Relaxed)
+    }
+
+    pub fn pessimistic_fallbacks(&self) -> u64 {
+        self.pessimistic_fallbacks.load(Relaxed)
+    }
+
+    pub fn max_optimistic_concurrency(&self) -> u64 {
+        self.max_optimistic_concurrency.load(Relaxed)
+    }
+
+    fn start_optimistic_writer(&self) -> OptimisticWriterGuard<'_> {
+        let active = self.optimistic_active.fetch_add(1, Relaxed) + 1;
+        let mut observed = self.max_optimistic_concurrency.load(Relaxed);
+        while active > observed {
+            match self
+                .max_optimistic_concurrency
+                .compare_exchange(observed, active, Relaxed, Relaxed)
+            {
+                Ok(_) => break,
+                Err(actual) => observed = actual,
+            }
+        }
+        OptimisticWriterGuard { stats: self }
+    }
+
+    fn end_optimistic_writer(&self) {
+        self.optimistic_active.fetch_sub(1, Relaxed);
+    }
+
+    fn add_deltas(&self, successes: u64, conflicts: u64, fallbacks: u64) {
+        self.optimistic_successes.fetch_add(successes, Relaxed);
+        self.optimistic_conflicts.fetch_add(conflicts, Relaxed);
+        self.pessimistic_fallbacks.fetch_add(fallbacks, Relaxed);
+    }
+}
+
+struct OptimisticWriterGuard<'a> {
+    stats: &'a BoundedBacklogWriterStats,
+}
+
+impl Drop for OptimisticWriterGuard<'_> {
+    fn drop(&mut self) {
+        self.stats.end_optimistic_writer();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsnano_ledger::WriterType;
+
+    #[test]
+    fn writer_stats_track_optimistic_rollbacks() {
+        let backlog = BoundedBacklog::new_null();
+        let stats = backlog.writer_stats();
+
+        backlog
+            .backlog_impl
+            .roll_back(&[BlockHash::from(1)], 10, |_| true);
+
+        assert!(stats.optimistic_successes() >= 1);
+        assert_eq!(stats.optimistic_conflicts(), 0);
+        assert_eq!(stats.pessimistic_fallbacks(), 0);
+        assert!(stats.max_optimistic_concurrency() >= 1);
+    }
+
+    #[test]
+    fn bounded_backlog_can_run_alongside_other_writers() {
+        let backlog = BoundedBacklog::new_null();
+        let stats = backlog.writer_stats();
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let barrier_clone = barrier.clone();
+        let ledger_clone = backlog.backlog_impl.ledger.clone();
+
+        let handle = std::thread::spawn(move || {
+            ledger_clone
+                .tx_optimistic_process(WriterType::BlockProcessor, 0, |_txn, _| {
+                    barrier_clone.wait();
+                    Ok(((), Vec::new()))
+                })
+                .unwrap();
+        });
+
+        backlog
+            .backlog_impl
+            .roll_back(&[BlockHash::from(2)], 5, |_| true);
+        barrier.wait();
+        handle.join().unwrap();
+
+        assert!(stats.optimistic_successes() >= 1);
+        assert_eq!(stats.optimistic_conflicts(), 0);
+        assert_eq!(stats.pessimistic_fallbacks(), 0);
     }
 }

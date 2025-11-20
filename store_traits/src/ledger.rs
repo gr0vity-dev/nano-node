@@ -69,6 +69,7 @@ pub enum WriterType {
     RepWeights,
     RepWeightUpdater,
     VotingFinalizer,
+    BoundedBacklog,
     Bootstrap,
     Generic,
 }
