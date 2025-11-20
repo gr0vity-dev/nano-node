@@ -49,6 +49,7 @@ impl BlockBatchProcessor {
 
         self.roll_back_competitor_blocks(&batch);
 
+        let _concurrency_guard = self.stats.start_optimistic_writer();
         let prev_optimistic_successes = self.ledger.optimistic_successes();
         let prev_optimistic_conflicts = self.ledger.optimistic_conflicts();
         let prev_pessimistic_fallbacks = self.ledger.pessimistic_fallbacks();
@@ -202,6 +203,8 @@ pub struct BlockBatchProcessorStats {
     optimistic_successes: AtomicU64,
     optimistic_conflicts: AtomicU64,
     pessimistic_fallbacks: AtomicU64,
+    optimistic_active: AtomicU64,
+    max_optimistic_concurrency: AtomicU64,
 }
 
 impl StatsSource for BlockBatchProcessorStats {
@@ -243,6 +246,11 @@ impl StatsSource for BlockBatchProcessorStats {
             "pessimistic_fallbacks",
             self.pessimistic_fallbacks.load(Relaxed),
         );
+        result.insert(
+            "block_processor_writer",
+            "optimistic_max_concurrency",
+            self.max_optimistic_concurrency.load(Relaxed),
+        );
     }
 }
 
@@ -257,5 +265,42 @@ impl BlockBatchProcessorStats {
 
     pub fn pessimistic_fallbacks(&self) -> u64 {
         self.pessimistic_fallbacks.load(Relaxed)
+    }
+
+    pub fn max_optimistic_concurrency(&self) -> u64 {
+        self.max_optimistic_concurrency.load(Relaxed)
+    }
+
+    fn start_optimistic_writer(&self) -> OptimisticWriterGuard<'_> {
+        let active = self.optimistic_active.fetch_add(1, Relaxed) + 1;
+        self.update_max_concurrency(active);
+        OptimisticWriterGuard { stats: self }
+    }
+
+    fn update_max_concurrency(&self, current: u64) {
+        let mut observed = self.max_optimistic_concurrency.load(Relaxed);
+        while current > observed {
+            match self
+                .max_optimistic_concurrency
+                .compare_exchange(observed, current, Relaxed, Relaxed)
+            {
+                Ok(_) => break,
+                Err(actual) => observed = actual,
+            }
+        }
+    }
+
+    fn end_optimistic_writer(&self) {
+        self.optimistic_active.fetch_sub(1, Relaxed);
+    }
+}
+
+struct OptimisticWriterGuard<'a> {
+    stats: &'a BlockBatchProcessorStats,
+}
+
+impl Drop for OptimisticWriterGuard<'_> {
+    fn drop(&mut self) {
+        self.stats.end_optimistic_writer();
     }
 }

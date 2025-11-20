@@ -16,6 +16,7 @@ fn block_batch_processor_uses_optimistic_transactions() {
     assert_eq!(processor.stats.optimistic_successes(), 1);
     assert_eq!(processor.stats.optimistic_conflicts(), 0);
     assert_eq!(processor.stats.pessimistic_fallbacks(), 0);
+    assert_eq!(processor.stats.max_optimistic_concurrency(), 1);
 
     // Sanity: processing a real block still routes through optimistic path
     let mut batch = VecDeque::new();
@@ -42,4 +43,5 @@ fn writer_stats_ignore_external_ledger_activity() {
     assert_eq!(processor.stats.optimistic_successes(), 1);
     assert_eq!(processor.stats.optimistic_conflicts(), 0);
     assert_eq!(processor.stats.pessimistic_fallbacks(), 0);
+    assert!(processor.stats.max_optimistic_concurrency() >= 1);
 }
