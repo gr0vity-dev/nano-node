@@ -9,7 +9,7 @@ use std::{
 
 use tracing::{error, info};
 
-use rsnano_ledger::{AnySet, BlockError, LedgerSet};
+use rsnano_ledger::{AnySet, BlockError};
 use rsnano_network::ChannelId;
 use rsnano_output_tracker::OutputListenerMt;
 use rsnano_types::{
@@ -237,7 +237,7 @@ impl Node {
             composed.services.tcp_listener.clone(),
         );
         let ticker_subsystem = TickerSubsystem::new(composed.ticker_services);
-        let handles = ProductionHandles::new(composed.services.ledger.clone());
+        let handles = ProductionHandles::new(composed.services.ledger());
 
         Ok(Self {
             is_nulled: composed.is_nulled,
@@ -360,7 +360,7 @@ impl Node {
     }
 
     pub fn block_exists(&self, hash: &BlockHash) -> bool {
-        self.ledger_query_services().ledger.any().block_exists(hash)
+        self.production_handles().ledger_queries().block_exists(hash)
     }
 
     pub fn blocks_exist(&self, hashes: &[Block]) -> bool {
@@ -368,14 +368,14 @@ impl Node {
     }
 
     pub fn block_hashes_exist(&self, hashes: impl IntoIterator<Item = BlockHash>) -> bool {
-        let ledger_services = self.ledger_query_services();
-        let any = ledger_services.ledger.any();
-        hashes.into_iter().all(|h| any.block_exists(&h))
+        let queries = self.production_handles().ledger_queries();
+        hashes.into_iter().all(|h| queries.block_exists(&h))
     }
 
     pub fn balance(&self, account: &Account) -> Amount {
-        let ledger_services = self.ledger_query_services();
-        ledger_services.ledger.any().account_balance(account)
+        self.production_handles()
+            .ledger_queries()
+            .account_balance(account)
     }
 
     pub fn confirm_multi(&self, blocks: &[Block]) {
@@ -389,22 +389,23 @@ impl Node {
     }
 
     pub fn block_confirmed(&self, hash: &BlockHash) -> bool {
-        self.ledger_query_services()
-            .ledger
-            .confirmed()
-            .block_exists(hash)
+        self.production_handles()
+            .ledger_queries()
+            .confirmed_block_exists(hash)
     }
 
     pub fn block_hashes_confirmed(&self, blocks: &[BlockHash]) -> bool {
-        let ledger_services = self.ledger_query_services();
-        let confirmed = ledger_services.ledger.confirmed();
-        blocks.iter().all(|b| confirmed.block_exists(b))
+        let queries = self.production_handles().ledger_queries();
+        blocks
+            .iter()
+            .all(|b| queries.confirmed_block_exists(b))
     }
 
     pub fn blocks_confirmed(&self, blocks: &[Block]) -> bool {
-        let ledger_services = self.ledger_query_services();
-        let confirmed = ledger_services.ledger.confirmed();
-        blocks.iter().all(|b| confirmed.block_exists(&b.hash()))
+        let queries = self.production_handles().ledger_queries();
+        blocks
+            .iter()
+            .all(|b| queries.confirmed_block_exists(&b.hash()))
     }
 
     pub fn is_active_root(&self, root: &QualifiedRoot) -> bool {
@@ -452,9 +453,8 @@ impl Node {
         }
 
         if !self
-            .services
-            .ledger
-            .any()
+            .production_handles()
+            .ledger_queries()
             .block_exists(&self.network_params.ledger.genesis_block.hash())
         {
             error!(

@@ -10,10 +10,8 @@ impl RpcCommandHandler {
         let start_account = args.start.unwrap_or(Account::ZERO).inc_or_max();
 
         let delegators = self
-            .ledger_services
-            .ledger
-            .any()
-            .iter_account_range(start_account..)
+            .ledger_queries
+            .iter_account_range(start_account)
             .filter_map(|(account, info)| {
                 if info.representative == representative && info.balance >= threshold {
                     Some((account, info.balance))

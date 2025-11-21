@@ -244,6 +244,15 @@ impl LedgerQueryHandle {
         self.ledger.any().weight_exact(account.into())
     }
 
+    pub fn representative_weights(&self) -> Vec<(Account, Amount)> {
+        self.ledger
+            .rep_weights
+            .read()
+            .iter()
+            .map(|(pk, amount)| (Account::from(pk), *amount))
+            .collect()
+    }
+
     pub fn account_receivable(&self, account: &Account) -> Amount {
         self.ledger.any().account_receivable(account)
     }
@@ -329,6 +338,10 @@ impl LedgerQueryHandle {
             start,
             iter: None,
         }
+    }
+
+    pub fn iter_accounts(&self) -> AccountRangeIter<'_> {
+        self.iter_account_range(Account::ZERO)
     }
 }
 

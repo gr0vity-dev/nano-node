@@ -7,9 +7,7 @@ impl RpcCommandHandler {
         let representative: PublicKey = args.account.into();
 
         let count = self
-            .ledger_services
-            .ledger
-            .any()
+            .ledger_queries
             .iter_accounts()
             .filter(|(_, info)| info.representative == representative)
             .count();

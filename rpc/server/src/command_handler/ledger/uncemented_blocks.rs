@@ -13,7 +13,7 @@ use crate::command_handler::RpcCommandHandler;
 
 impl RpcCommandHandler {
     pub(crate) fn uncemented_blocks(&self, args: UncementedBlocksArgs) -> UncementedBlocksResponse {
-        let ledger = &self.ledger_services.ledger;
+        let ledger = &self.ledger_services.ledger_arc();
         build_uncemented_response(ledger, args)
     }
 }

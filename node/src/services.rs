@@ -198,7 +198,7 @@ pub struct NodeServices {
     pub steady_clock: Arc<SteadyClock>,
     pub stats: Arc<Stats>,
     pub work_factory: Arc<WorkFactory>,
-    pub(crate) ledger: Arc<Ledger>,
+    ledger: Arc<Ledger>,
     pub network: Arc<RwLock<Network>>,
     pub telemetry: Arc<Telemetry>,
     pub bootstrap_server: Arc<BootstrapServer>,
@@ -240,6 +240,10 @@ pub struct NodeServices {
 }
 
 impl NodeServices {
+    pub(crate) fn ledger(&self) -> Arc<Ledger> {
+        self.ledger.clone()
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         steady_clock: Arc<SteadyClock>,
@@ -479,6 +483,11 @@ pub struct LedgerQueryServices {
 }
 
 impl LedgerQueryServices {
+    /// Temporary escape hatch for components that still require deep ledger access.
+    pub fn ledger_arc(&self) -> Arc<Ledger> {
+        self.ledger.clone()
+    }
+
     pub(crate) fn new(
         ledger: Arc<Ledger>,
         block_rates: Arc<CurrentBlockRates>,

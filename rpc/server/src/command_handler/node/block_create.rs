@@ -20,12 +20,7 @@ impl RpcCommandHandler {
         let difficulty = args
             .difficulty
             .unwrap_or_else(|| {
-                self.ledger_services
-                    .ledger
-                    .constants
-                    .work
-                    .threshold_base()
-                    .into()
+                self.ledger_work_thresholds.threshold_base().into()
             })
             .inner();
 

@@ -11,24 +11,18 @@ impl RpcCommandHandler {
         let sorting = unwrap_bool_or_false(args.sorting);
         let representatives = if sorting {
             let mut representatives: IndexMap<Account, Amount> = self
-                .ledger_services
-                .ledger
-                .rep_weights
-                .read()
-                .iter()
-                .map(|(pk, amount)| (Account::from(pk), *amount))
+                .ledger_queries
+                .representative_weights()
+                .into_iter()
                 .collect();
 
             representatives.sort_by(|_, v1, _, v2| v2.cmp(v1));
             representatives.truncate(count);
             representatives
         } else {
-            self.ledger_services
-                .ledger
-                .rep_weights
-                .read()
-                .iter()
-                .map(|(k, w)| (Account::from(k), *w))
+            self.ledger_queries
+                .representative_weights()
+                .into_iter()
                 .take(count)
                 .collect()
         };
