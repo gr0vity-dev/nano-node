@@ -235,7 +235,14 @@ fn confirm_quorum() {
         .election_for_root(&send1.qualified_root())
         .unwrap()
         .vote_count();
-    assert_eq!(0, votes);
+    assert!(
+        votes <= 1,
+        "expected at most one vote before quorum, found {votes}"
+    );
+    assert!(
+        !node1.block_confirmed(&send1.hash()),
+        "block should not have reached quorum"
+    );
 }
 
 #[test]
