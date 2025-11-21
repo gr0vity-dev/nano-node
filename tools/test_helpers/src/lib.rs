@@ -598,7 +598,7 @@ impl Drop for RpcServerGuard {
 
 pub fn setup_rpc_client_and_server(node: Arc<Node>, enable_control: bool) -> RpcServerGuard {
     // Bind to port 0 so the OS picks a free port, avoiding test races on shared ports.
-    let listener = node.runtime.block_on(async {
+    let listener = node.runtime().block_on(async {
         TokioTcpListener::bind(SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0))
             .await
             .expect("Failed to bind to address")
@@ -615,7 +615,7 @@ pub fn setup_rpc_client_and_server(node: Arc<Node>, enable_control: bool) -> Rpc
     let (tx_closed, rx_closed) = tokio::sync::oneshot::channel();
 
     let node_l = node.clone();
-    node.runtime.spawn(async move {
+    node.runtime().spawn(async move {
         let result = run_rpc_server(node_l, listener, enable_control, tx_stop, async move {
             tokio::select! {
                 _ = rx_stop => {},
@@ -630,7 +630,7 @@ pub fn setup_rpc_client_and_server(node: Arc<Node>, enable_control: bool) -> Rpc
     });
 
     RpcServerGuard {
-        handle: node.runtime.clone(),
+        handle: node.runtime().clone(),
         client: rpc_client,
         tx_stop: Some(tx_stop2),
         rx_closed: Some(rx_closed),

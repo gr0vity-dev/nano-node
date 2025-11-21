@@ -91,7 +91,7 @@ impl DaemonBuilder {
                         wallet_services,
                         ledger,
                         telemetry_services,
-                        node.runtime.clone(),
+                        node.runtime().clone(),
                         &mut event_processor,
                     )
                     .unwrap(),
@@ -107,7 +107,7 @@ impl DaemonBuilder {
             if let Some(callback_url) = daemon_config.node.rpc_callback_url() {
                 info!("HTTP callbacks enabled on {:?}", callback_url);
                 let http_callbacks = HttpCallbacks {
-                    runtime: node.runtime.clone(),
+                    runtime: node.runtime().clone(),
                     stats: node.ledger_query_services().stats.clone(),
                     ledger: node.ledger_query_services().ledger_arc(),
                     callback_url,
@@ -139,7 +139,7 @@ impl DaemonBuilder {
             }
         };
 
-        node.runtime.block_on(run_rpc(
+        node.runtime().block_on(run_rpc(
             daemon_config,
             rpc_config,
             node.clone(),
