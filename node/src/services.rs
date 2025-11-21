@@ -193,6 +193,8 @@ impl TelemetryServices {
 /// Bundles the core `Arc` collaborators that make up a running node so tests and
 /// higher layers can grab a focused subset without touching the gigantic
 /// `Node` struct directly.
+#[doc(hidden)]
+#[deprecated(note = "NodeServices is legacy; use subsystem facades and production handles instead")]
 #[derive(Clone)]
 pub struct NodeServices {
     pub steady_clock: Arc<SteadyClock>,
