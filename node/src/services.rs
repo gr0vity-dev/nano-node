@@ -105,6 +105,10 @@ impl TickerServices {
 
 #[derive(Clone)]
 pub struct WalletServices {
+    #[doc(hidden)]
+    #[deprecated(
+        note = "For tests/internal wiring only. Production code must use narrow wallet handles."
+    )]
     pub wallets: Arc<Wallets>,
     pub work_factory: Arc<WorkFactory>,
     pub wallet_reps: Arc<Mutex<WalletRepresentatives>>,
