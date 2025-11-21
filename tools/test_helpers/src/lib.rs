@@ -597,16 +597,18 @@ impl Drop for RpcServerGuard {
 }
 
 pub fn setup_rpc_client_and_server(node: Arc<Node>, enable_control: bool) -> RpcServerGuard {
-    let port = get_available_port();
-    let socket_addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), port);
-    let rpc_url = format!("http://[::1]:{}/", port);
-    let rpc_client = Arc::new(NanoRpcClient::new(Url::parse(&rpc_url).unwrap()));
-
+    // Bind to port 0 so the OS picks a free port, avoiding test races on shared ports.
     let listener = node.runtime.block_on(async {
-        TokioTcpListener::bind(socket_addr)
+        TokioTcpListener::bind(SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0))
             .await
             .expect("Failed to bind to address")
     });
+    let port = listener
+        .local_addr()
+        .expect("listener must have local addr")
+        .port();
+    let rpc_url = format!("http://[::1]:{}/", port);
+    let rpc_client = Arc::new(NanoRpcClient::new(Url::parse(&rpc_url).unwrap()));
 
     let (tx_stop, rx_stop) = tokio::sync::oneshot::channel();
     let (tx_stop2, rx_stop2) = tokio::sync::oneshot::channel();
