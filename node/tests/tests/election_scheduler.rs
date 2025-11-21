@@ -32,7 +32,10 @@ mod election_scheduler {
         consensus_services
             .election_schedulers
             .priority
-            .activate(&ledger_services.ledger_arc().any(), &*DEV_GENESIS_ACCOUNT);
+            .activate(&{
+                let ledger = ledger_services.ledger_arc();
+                ledger.any()
+            }, &*DEV_GENESIS_ACCOUNT);
 
         assert_timely2(|| node.is_active_root(&send1.qualified_root()));
     }
@@ -57,7 +60,10 @@ mod election_scheduler {
         consensus_services
             .election_schedulers
             .priority
-            .activate(&ledger_services.ledger_arc().any(), &*DEV_GENESIS_ACCOUNT);
+            .activate(&{
+                let ledger = ledger_services.ledger_arc();
+                ledger.any()
+            }, &*DEV_GENESIS_ACCOUNT);
 
         // Assert that the election is created within 5 seconds
         assert_timely2(|| node.is_active_root(&send1.qualified_root()));
@@ -120,7 +126,10 @@ mod election_scheduler {
         consensus_services
             .election_schedulers
             .priority
-            .activate(&ledger_services.ledger_arc().any(), &DEV_GENESIS_ACCOUNT);
+            .activate(&{
+                let ledger = ledger_services.ledger_arc();
+                ledger.any()
+            }, &DEV_GENESIS_ACCOUNT);
         assert_timely2(|| node.is_active_root(&block1.qualified_root()));
 
         let block2 = lattice.account(&key).send(&key, Amount::nano(1000));
@@ -130,7 +139,10 @@ mod election_scheduler {
         consensus_services
             .election_schedulers
             .priority
-            .activate(&ledger_services.ledger_arc().any(), &key.account());
+            .activate(&{
+                let ledger = ledger_services.ledger_arc();
+                ledger.any()
+            }, &key.account());
         let election_schedulers = consensus_services.election_schedulers.clone();
         let election_schedulers_for_len = election_schedulers.clone();
         assert_timely_eq2(|| election_schedulers_for_len.priority.len(), 1);
