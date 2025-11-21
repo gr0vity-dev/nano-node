@@ -1,9 +1,8 @@
 use crate::command_handler::RpcCommandHandler;
 use anyhow::bail;
-use rsnano_ledger::{AnySet, LedgerSet, OwningAnySet};
-use rsnano_node::Node;
+use rsnano_node::{Node, handles::LedgerQueryHandle};
 use rsnano_rpc_messages::{ExistsResponse, ReceivableExistsArgs};
-use rsnano_types::{BlockHash, PendingKey};
+use rsnano_types::{PendingKey, SavedBlock};
 use std::sync::Arc;
 
 impl RpcCommandHandler {
@@ -13,15 +12,15 @@ impl RpcCommandHandler {
     ) -> anyhow::Result<ExistsResponse> {
         let include_active = args.include_active.unwrap_or_default().inner();
         let include_only_confirmed = args.include_only_confirmed.unwrap_or(true.into()).inner();
-        let any = self.ledger_queries.any_owned();
+        let ledger = self.ledger_queries.clone();
 
-        let Some(block) = any.get_block(&args.hash) else {
+        let Some(block) = ledger.get_block(&args.hash) else {
             bail!(Self::BLOCK_NOT_FOUND);
         };
 
         let mut exists = if block.is_send() {
             let pending_key = PendingKey::new(block.destination().unwrap(), args.hash);
-            any.get_pending(&pending_key).is_some()
+            ledger.get_pending(&pending_key).is_some()
         } else {
             false
         };
@@ -29,8 +28,8 @@ impl RpcCommandHandler {
         if exists {
             exists = block_confirmed(
                 self.node.clone(),
-                &any,
-                &args.hash,
+                &ledger,
+                &block,
                 include_active,
                 include_only_confirmed,
             );
@@ -42,8 +41,8 @@ impl RpcCommandHandler {
 /** Due to the asynchronous nature of updating confirmation heights, it can also be necessary to check active roots */
 fn block_confirmed(
     node: Arc<Node>,
-    any: &OwningAnySet<'_>,
-    hash: &BlockHash,
+    ledger: &LedgerQueryHandle,
+    block: &SavedBlock,
     include_active: bool,
     include_only_confirmed: bool,
 ) -> bool {
@@ -52,12 +51,12 @@ fn block_confirmed(
     }
 
     // Check whether the confirmation height is set
-    if any.confirmed().block_exists(hash) {
+    if ledger.confirmed_block_exists(&block.hash()) {
         return true;
     }
 
     // This just checks it's not currently undergoing an active transaction
-    if !include_only_confirmed && let Some(block) = any.get_block(hash) {
+    if !include_only_confirmed {
         return !node.is_active_root(&block.qualified_root());
     }
 

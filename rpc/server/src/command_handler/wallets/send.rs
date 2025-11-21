@@ -1,5 +1,5 @@
 use crate::command_handler::RpcCommandHandler;
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use rsnano_rpc_messages::{BlockDto, SendArgs};
 use rsnano_types::{BlockDetails, WorkNonce};
 
@@ -18,8 +18,10 @@ impl RpcCommandHandler {
             bail!("Work generation is disabled");
         }
 
-        let any = self.ledger_services.ledger.any();
-        let info = self.load_account(&any, &source)?;
+        let info = self
+            .ledger_queries
+            .account_info(&source)
+            .ok_or_else(|| anyhow!(Self::ACCOUNT_NOT_FOUND))?;
         let balance = info.balance;
 
         if !work.is_zero() {

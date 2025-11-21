@@ -4,7 +4,6 @@ mod utils;
 mod wallets;
 
 use anyhow::anyhow;
-use rsnano_ledger::AnySet;
 use rsnano_node::{
     LedgerQueryServices, Node, WalletServices,
     handles::{
@@ -14,7 +13,6 @@ use rsnano_node::{
     subsystems::{BootstrapSubsystem, ConsensusSubsystem, NetworkSubsystem, TelemetrySubsystem},
 };
 use rsnano_rpc_messages::{RpcCommand, RpcError, StatsType};
-use rsnano_types::{Account, AccountInfo};
 use serde_json::{Value, to_value};
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
@@ -215,11 +213,6 @@ impl RpcCommandHandler {
         } else {
             Ok(())
         }
-    }
-
-    fn load_account(&self, any: &dyn AnySet, account: &Account) -> anyhow::Result<AccountInfo> {
-        any.get_account(account)
-            .ok_or_else(|| anyhow!(Self::ACCOUNT_NOT_FOUND))
     }
 
     const BLOCK_NOT_FOUND: &str = "Block not found";

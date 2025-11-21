@@ -1,6 +1,5 @@
 use crate::command_handler::RpcCommandHandler;
 use indexmap::IndexMap;
-use rsnano_ledger::{AnySet, LedgerSet};
 use rsnano_rpc_messages::{
     ReceivableArgs, ReceivableResponse, ReceivableSimple, ReceivableSource, ReceivableThreshold,
     SourceInfo, unwrap_bool_or_false, unwrap_bool_or_true, unwrap_u64_or_max, unwrap_u64_or_zero,
@@ -26,16 +25,21 @@ impl RpcCommandHandler {
         let mut peers_simple = Vec::new();
         let mut peers_source: IndexMap<BlockHash, SourceInfo> = IndexMap::new();
         let mut peers_amount: IndexMap<BlockHash, Amount> = IndexMap::new();
-        let any = self.ledger_queries.any_owned();
 
-        let receivables = any.account_receivable_upper_bound(args.account, BlockHash::ZERO);
+        let receivables =
+            self.ledger_queries
+                .receivable_upper_bound(args.account, BlockHash::ZERO);
 
         for (key, info) in receivables {
             if !should_sort && (peers_simple.len() >= count || peers_source.len() >= count) {
                 break;
             }
 
-            if include_only_confirmed && !any.confirmed().block_exists(&key.send_block_hash) {
+            if include_only_confirmed
+                && !self
+                    .ledger_queries
+                    .confirmed_block_exists(&key.send_block_hash)
+            {
                 continue;
             }
 

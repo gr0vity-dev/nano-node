@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use anyhow::bail;
 
-use rsnano_ledger::{AnySet, LedgerSet};
-use rsnano_node::Node;
+use rsnano_node::{Node, handles::LedgerQueryHandle};
 use rsnano_rpc_messages::{BlockCreateArgs, BlockCreateResponse, BlockTypeDto};
 use rsnano_types::{
     Account, Amount, Block, BlockDetails, BlockHash, ChangeBlockArgs, Epoch, OpenBlockArgs,
@@ -46,14 +45,14 @@ impl RpcCommandHandler {
             bail!("Work generation is disabled");
         }
 
-        let any = self.ledger_queries.any_owned();
+        let ledger = self.ledger_queries.clone();
 
         if !wallet_id.is_zero() && !account.is_zero() {
             self.wallet_services
                 .wallets
                 .fetch(&wallet_id, &account.into())?;
-            previous = any.account_head(&account).unwrap_or_default();
-            balance = any.account_balance(&account);
+            previous = ledger.account_head(&account).unwrap_or_default();
+            balance = ledger.account_balance(&account);
         }
 
         if let Some(key) = args.key {
@@ -79,15 +78,15 @@ impl RpcCommandHandler {
         let account = Account::from(pub_key);
         // Fetching account balance & previous for send blocks (if aren't given directly)
         if args.previous.is_none() && args.balance.is_none() {
-            previous = any.account_head(&account).unwrap_or_default();
-            balance = any.account_balance(&account);
+            previous = ledger.account_head(&account).unwrap_or_default();
+            balance = ledger.account_balance(&account);
         }
         // Double check current balance if previous block is specified
         else if args.previous.is_some()
             && args.balance.is_some()
             && args.block_type == BlockTypeDto::Send
-            && any.block_exists(&previous)
-            && any.block_balance(&previous) != Some(balance)
+            && ledger.block_exists(&previous)
+            && ledger.block_balance(&previous) != Some(balance)
         {
             bail!("Balance mismatch for previous block");
         }
@@ -206,7 +205,7 @@ impl RpcCommandHandler {
         if work.is_zero() {
             // Difficulty calculation
             let difficulty = if args.difficulty.is_none() {
-                difficulty_ledger(self.node.clone(), &any, &block)
+                difficulty_ledger(self.node.clone(), &ledger, &block)
             } else {
                 difficulty
             };
@@ -235,7 +234,7 @@ impl RpcCommandHandler {
     }
 }
 
-pub fn difficulty_ledger(node: Arc<Node>, any: &impl AnySet, block: &Block) -> u64 {
+pub fn difficulty_ledger(node: Arc<Node>, ledger: &LedgerQueryHandle, block: &Block) -> u64 {
     let mut details = BlockDetails::new(Epoch::Epoch0, false, false, false);
     let mut details_found = false;
 
@@ -243,13 +242,13 @@ pub fn difficulty_ledger(node: Arc<Node>, any: &impl AnySet, block: &Block) -> u
     let mut block_previous: Option<SavedBlock> = None;
     let previous = block.previous();
     if !previous.is_zero() {
-        block_previous = any.get_block(&previous);
+        block_previous = ledger.get_block(&previous);
     }
 
     // Send check
     if block_previous.is_some() {
-        let is_send =
-            any.block_balance(&previous).unwrap_or_default() > block.balance_field().unwrap();
+        let is_send = ledger.block_balance(&previous).unwrap_or_default()
+            > block.balance_field().unwrap();
         details = BlockDetails::new(Epoch::Epoch0, is_send, false, false);
         details_found = true;
     }
@@ -263,10 +262,10 @@ pub fn difficulty_ledger(node: Arc<Node>, any: &impl AnySet, block: &Block) -> u
     // Link check
     if let Some(link) = block.link_field()
         && !details.is_send
-        && let Some(block_link) = any.get_block(&link.into())
+        && let Some(block_link) = ledger.get_block(&link.into())
     {
         let account = block.account_field().unwrap(); // Link is non-zero therefore it's a state block and has an account field;
-        if any
+        if ledger
             .get_pending(&PendingKey::new(account, link.into()))
             .is_some()
         {

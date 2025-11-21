@@ -18,6 +18,36 @@ fn ledger_info_handle_matches_ledger_metadata() {
 }
 
 #[test]
+fn ledger_info_handle_memory_stats_matches_ledger() {
+    let node = Node::new_null();
+    let ledger_info = node.production_handles().ledger_info();
+
+    let handle_stats = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ledger_info.memory_stats()
+    }));
+    let ledger_stats =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            node.ledger_query_services().ledger.memory_stats()
+        }));
+
+    match (handle_stats, ledger_stats) {
+        (Ok(Ok(handle_stats)), Ok(Ok(ledger_stats))) => {
+            assert_eq!(handle_stats.branch_pages, ledger_stats.branch_pages);
+            assert_eq!(handle_stats.depth, ledger_stats.depth);
+            assert_eq!(handle_stats.entries, ledger_stats.entries);
+            assert_eq!(handle_stats.leaf_pages, ledger_stats.leaf_pages);
+            assert_eq!(handle_stats.overflow_pages, ledger_stats.overflow_pages);
+            assert_eq!(handle_stats.page_size, ledger_stats.page_size);
+        }
+        (Ok(Err(handle_err)), Ok(Err(ledger_err))) => {
+            assert_eq!(handle_err.to_string(), ledger_err.to_string());
+        }
+        (Err(_), Err(_)) => {}
+        _ => panic!("memory_stats behavior diverged between handle and ledger"),
+    }
+}
+
+#[test]
 fn ledger_counts_handle_matches_ledger_counters() {
     let node = Node::new_null();
     let ledger_counts = node.production_handles().ledger_counts();

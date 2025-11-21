@@ -9,6 +9,7 @@ use rsnano_types::{
     Account, AccountInfo, Amount, BlockHash, ConfirmationHeightInfo, DetailedBlock, Link,
     PendingInfo, PendingKey, SavedBlock,
 };
+use store_traits::ledger::MemoryStats;
 
 #[derive(Clone)]
 pub struct ProductionHandles {
@@ -80,6 +81,10 @@ impl LedgerInfoHandle {
 
     pub fn store_vendor(&self) -> String {
         self.ledger.store_vendor()
+    }
+
+    pub fn memory_stats(&self) -> anyhow::Result<MemoryStats> {
+        self.ledger.memory_stats()
     }
 }
 

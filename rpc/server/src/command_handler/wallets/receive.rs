@@ -1,8 +1,6 @@
 use std::cmp::max;
 
 use anyhow::{anyhow, bail};
-
-use rsnano_ledger::{AnySet, LedgerSet};
 use rsnano_rpc_messages::{BlockDto, ReceiveArgs};
 use rsnano_types::{Amount, BlockDetails, PendingKey, Root, WorkNonce};
 use rsnano_wallet::WalletsError;
@@ -11,18 +9,18 @@ use crate::command_handler::RpcCommandHandler;
 
 impl RpcCommandHandler {
     pub fn receive(&self, args: ReceiveArgs) -> anyhow::Result<BlockDto> {
-        let any = self.ledger_services.ledger.any();
-
-        if !any.block_exists(&args.block) {
+        if !self.ledger_queries.block_exists(&args.block) {
             bail!(Self::BLOCK_NOT_FOUND);
         }
 
-        let Some(pending_info) = any.get_pending(&PendingKey::new(args.account, args.block)) else {
+        let Some(pending_info) =
+            self.ledger_queries.get_pending(&PendingKey::new(args.account, args.block))
+        else {
             bail!("Block is not receivable");
         };
 
         let work: WorkNonce = if let Some(work) = args.work {
-            let (head, epoch) = if let Some(info) = any.get_account(&args.account) {
+            let (head, epoch) = if let Some(info) = self.ledger_queries.account_info(&args.account) {
                 // When receiving, epoch version is the higher between the previous and the source blocks
                 let epoch = max(info.epoch, pending_info.epoch);
                 (Root::from(info.head), epoch)

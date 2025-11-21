@@ -1,7 +1,6 @@
-use std::{collections::HashMap, sync::Arc};
-
-use rsnano_ledger::{AnySet, Ledger, LedgerSet};
+use std::collections::HashMap;
 use rsnano_rpc_messages::{AccountInfo, WalletLedgerArgs, WalletLedgerResponse};
+use rsnano_node::handles::LedgerQueryHandle;
 use rsnano_types::{Account, UnixTimestamp};
 
 use crate::command_handler::RpcCommandHandler;
@@ -21,7 +20,7 @@ impl RpcCommandHandler {
             .wallets
             .get_accounts_of_wallet(&args.wallet)?;
         let account_dtos = get_accounts_info(
-            self.ledger_services.ledger.clone(),
+            self.ledger_queries.clone(),
             accounts,
             representative,
             weight,
@@ -35,31 +34,30 @@ impl RpcCommandHandler {
 }
 
 fn get_accounts_info(
-    ledger: Arc<Ledger>,
+    ledger_queries: LedgerQueryHandle,
     accounts: Vec<Account>,
     representative: bool,
     weight: bool,
     receivable: bool,
     modified_since: UnixTimestamp,
 ) -> HashMap<Account, AccountInfo> {
-    let any = ledger.any();
     let mut account_dtos = HashMap::new();
 
     for account in accounts {
-        if let Some(info) = any.get_account(&account)
+        if let Some(info) = ledger_queries.account_info(&account)
             && info.modified >= modified_since
         {
             let entry = AccountInfo {
                 frontier: info.head,
                 open_block: info.open_block,
-                representative_block: any.representative_block_hash(&info.head),
+                representative_block: ledger_queries.representative_block_hash(&info.head),
                 balance: info.balance,
                 modified_timestamp: info.modified.as_u64().into(),
                 block_count: info.block_count.into(),
                 representative: representative.then(|| info.representative.as_account()),
-                weight: weight.then(|| any.weight_exact(account.into())),
-                receivable: receivable.then(|| any.account_receivable(&account)),
-                pending: receivable.then(|| any.account_receivable(&account)),
+                weight: weight.then(|| ledger_queries.weight_exact(account.into())),
+                receivable: receivable.then(|| ledger_queries.account_receivable(&account)),
+                pending: receivable.then(|| ledger_queries.account_receivable(&account)),
             };
 
             account_dtos.insert(account, entry);
