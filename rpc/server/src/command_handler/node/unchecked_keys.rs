@@ -9,7 +9,7 @@ impl RpcCommandHandler {
 
         let response: Vec<_> = self
             .node
-            .unchecked
+            .unchecked()
             .lock()
             .unwrap()
             .iter_start(args.key.into())

@@ -10,7 +10,7 @@ impl RpcCommandHandler {
         args: HashRpcMessage,
     ) -> anyhow::Result<UncheckedGetResponse> {
         self.node
-            .unchecked
+            .unchecked()
             .lock()
             .unwrap()
             .iter()

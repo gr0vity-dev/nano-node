@@ -11,7 +11,7 @@ impl RpcCommandHandler {
 
         let blocks: HashMap<BlockHash, JsonBlock> = self
             .node
-            .unchecked
+            .unchecked()
             .lock()
             .unwrap()
             .iter()
