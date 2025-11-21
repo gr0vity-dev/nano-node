@@ -122,10 +122,11 @@ mod election_scheduler {
         // There is vacancy so it should be inserted
         let ledger_services = node.ledger_query_services();
         let ledger = ledger_services.ledger_arc();
+        let any = ledger.any();
         consensus_services
             .election_schedulers
             .priority
-            .activate(&ledger.any(), &DEV_GENESIS_ACCOUNT);
+            .activate(&any, &DEV_GENESIS_ACCOUNT);
         assert_timely2(|| node.is_active_root(&block1.qualified_root()));
 
         let block2 = lattice.account(&key).send(&key, Amount::nano(1000));
@@ -133,10 +134,11 @@ mod election_scheduler {
 
         // There is no vacancy so it should stay queued
         let ledger = ledger_services.ledger_arc();
+        let any = ledger.any();
         consensus_services
             .election_schedulers
             .priority
-            .activate(&ledger.any(), &key.account());
+            .activate(&any, &key.account());
         let election_schedulers = consensus_services.election_schedulers.clone();
         let election_schedulers_for_len = election_schedulers.clone();
         assert_timely_eq2(|| election_schedulers_for_len.priority.len(), 1);
