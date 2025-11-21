@@ -26,7 +26,7 @@ fn single() {
             .block_exists(&send1.hash()),
         false
     );
-    node.ledger_query_services().ledger.confirm(send1.hash());
+    node.ledger_query_services().ledger_arc().confirm(send1.hash());
 
     assert_eq!(
         node.ledger_query_services()
@@ -65,7 +65,7 @@ fn single() {
         ),
         1
     );
-    assert_eq!(node.ledger_query_services().ledger.confirmed_count(), 2);
+    assert_eq!(node.ledger_query_services().ledger_arc().confirmed_count(), 2);
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn multiple_accounts() {
         .process_one(&receive3)
         .unwrap();
 
-    let confirmed = node.ledger_query_services().ledger.confirm(receive3.hash());
+    let confirmed = node.ledger_query_services().ledger_arc().confirm(receive3.hash());
 
     assert_eq!(confirmed.len(), 10);
     assert_eq!(
@@ -170,9 +170,9 @@ fn multiple_accounts() {
         ),
         10
     );
-    assert_eq!(node.ledger_query_services().ledger.confirmed_count(), 11);
+    assert_eq!(node.ledger_query_services().ledger_arc().confirmed_count(), 11);
     let ledger_services = node.ledger_query_services();
-    let any = ledger_services.ledger.any();
+    let any = ledger_services.ledger_arc().any();
     assert!(any.confirmed().block_exists(&receive3.hash()));
     assert_eq!(
         any.get_account(&DEV_GENESIS_ACCOUNT).unwrap().block_count,
@@ -315,7 +315,7 @@ fn send_receive_between_2_accounts() {
         receive4.clone(),
     ]);
 
-    let confirmed = node.ledger_query_services().ledger.confirm(receive4.hash());
+    let confirmed = node.ledger_query_services().ledger_arc().confirm(receive4.hash());
     assert_eq!(confirmed.len(), 10);
     assert_eq!(
         node.stats_service().count(
@@ -325,7 +325,7 @@ fn send_receive_between_2_accounts() {
         ),
         10
     );
-    assert_eq!(node.ledger_query_services().ledger.confirmed_count(), 11);
+    assert_eq!(node.ledger_query_services().ledger_arc().confirmed_count(), 11);
 }
 
 #[test]
@@ -364,17 +364,17 @@ fn send_receive_self() {
         send4.clone(),
     ]);
 
-    let confirmed = node.ledger_query_services().ledger.confirm(receive3.hash());
+    let confirmed = node.ledger_query_services().ledger_arc().confirm(receive3.hash());
 
     assert_eq!(confirmed.len(), 6);
     let ledger_services = node.ledger_query_services();
-    let any = ledger_services.ledger.any();
+    let any = ledger_services.ledger_arc().any();
     assert!(any.confirmed().block_exists(&receive3.hash()));
     assert_eq!(
         any.get_account(&DEV_GENESIS_ACCOUNT).unwrap().block_count,
         8
     );
-    assert_eq!(node.ledger_query_services().ledger.confirmed_count(), 7);
+    assert_eq!(node.ledger_query_services().ledger_arc().confirmed_count(), 7);
 }
 
 #[test]
@@ -433,7 +433,7 @@ fn all_block_types() {
         .ledger
         .confirm(state_send2.hash());
     assert_eq!(confirmed.len(), 15);
-    assert_eq!(node.ledger_query_services().ledger.confirmed_count(), 16);
+    assert_eq!(node.ledger_query_services().ledger_arc().confirmed_count(), 16);
 }
 
 #[test]

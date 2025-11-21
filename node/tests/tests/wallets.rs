@@ -176,7 +176,7 @@ fn search_receivable() {
             .unwrap();
 
         // Pending search should create the receive block
-        assert_eq!(node.ledger_query_services().ledger.block_count(), 2);
+        assert_eq!(node.ledger_query_services().ledger_arc().block_count(), 2);
         if search_all {
             node.wallet_services()
                 .wallets

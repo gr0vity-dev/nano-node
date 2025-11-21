@@ -1495,15 +1495,15 @@ fn fork_no_vote_quorum() {
     );
     assert_eq!(
         node1.config.receive_minimum,
-        node1.ledger_query_services().ledger.weight(&key1)
+        node1.ledger_query_services().ledger_arc().weight(&key1)
     );
     assert_eq!(
         node1.config.receive_minimum,
-        node2.ledger_query_services().ledger.weight(&key1)
+        node2.ledger_query_services().ledger_arc().weight(&key1)
     );
     assert_eq!(
         node1.config.receive_minimum,
-        node3.ledger_query_services().ledger.weight(&key1)
+        node3.ledger_query_services().ledger_arc().weight(&key1)
     );
 
     let send1: Block = StateBlockArgs {
@@ -2593,7 +2593,7 @@ fn unconfirmed_send() {
     assert_timely2(|| node1.block_confirmed(&send2.hash()));
     assert_timely2(|| node2.block_confirmed(&send3.hash()));
     assert_timely2(|| node1.block_confirmed(&send3.hash()));
-    assert_timely_eq2(|| node2.ledger_query_services().ledger.confirmed_count(), 7);
+    assert_timely_eq2(|| node2.ledger_query_services().ledger_arc().confirmed_count(), 7);
     assert_timely_eq2(|| node1.balance(&DEV_GENESIS_ACCOUNT), Amount::MAX);
 }
 
@@ -2825,13 +2825,13 @@ fn dependency_graph_frontier() {
     start_election(&node1, &gen_send1.hash());
     assert_timely_eq(
         Duration::from_secs(15),
-        || node1.ledger_query_services().ledger.confirmed_count(),
-        node1.ledger_query_services().ledger.block_count(),
+        || node1.ledger_query_services().ledger_arc().confirmed_count(),
+        node1.ledger_query_services().ledger_arc().block_count(),
     );
     assert_timely_eq(
         Duration::from_secs(15),
-        || node2.ledger_query_services().ledger.confirmed_count(),
-        node2.ledger_query_services().ledger.block_count(),
+        || node2.ledger_query_services().ledger_arc().confirmed_count(),
+        node2.ledger_query_services().ledger_arc().block_count(),
     );
 }
 
@@ -2918,7 +2918,7 @@ fn dependency_graph() {
     ]
     .into();
     assert_eq!(
-        node.ledger_query_services().ledger.block_count() - 2,
+        node.ledger_query_services().ledger_arc().block_count() - 2,
         dependency_graph.len() as u64
     );
 
@@ -2950,12 +2950,12 @@ fn dependency_graph() {
         });
         assert!(!error);
         error
-            || node.ledger_query_services().ledger.confirmed_count()
-                == node.ledger_query_services().ledger.block_count()
+            || node.ledger_query_services().ledger_arc().confirmed_count()
+                == node.ledger_query_services().ledger_arc().block_count()
     });
     assert_eq!(
-        node.ledger_query_services().ledger.confirmed_count(),
-        node.ledger_query_services().ledger.block_count()
+        node.ledger_query_services().ledger_arc().confirmed_count(),
+        node.ledger_query_services().ledger_arc().block_count()
     );
     assert_timely(Duration::from_secs(5), || {
         node.consensus_subsystem()
@@ -3051,7 +3051,7 @@ fn bounded_backlog() {
 
     assert_timely_eq(
         Duration::from_secs(20),
-        || node.ledger_query_services().ledger.block_count(),
+        || node.ledger_query_services().ledger_arc().block_count(),
         11,
     );
     // 10 + genesis

@@ -214,7 +214,7 @@ fn rep_weight() {
         .clone();
     assert_eq!(
         node.balance(&DEV_GENESIS_ACCOUNT),
-        node.ledger_query_services().ledger.weight(&rep.rep_key)
+        node.ledger_query_services().ledger_arc().weight(&rep.rep_key)
     );
     assert_eq!(channel1, rep.channel);
     assert_eq!(

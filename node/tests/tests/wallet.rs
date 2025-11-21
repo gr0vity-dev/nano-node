@@ -268,7 +268,7 @@ fn spend_all_one() {
         .wait()
         .unwrap();
 
-    let ledger = node.ledger_query_services().ledger;
+    let ledger = node.ledger_query_services().ledger_arc();
     let any = ledger.any();
     let info2 = any.get_account(&DEV_GENESIS_ACCOUNT).unwrap();
     assert_ne!(info2.head, *DEV_GENESIS_HASH);
@@ -716,7 +716,7 @@ fn work_generate() {
         .wait()
         .unwrap();
 
-    let ledger = node1.ledger_query_services().ledger;
+    let ledger = node1.ledger_query_services().ledger_arc();
     assert_timely2(|| ledger.any().account_balance(&DEV_GENESIS_ACCOUNT) != Amount::MAX);
 
     let start = Instant::now();
@@ -1477,7 +1477,7 @@ fn search_receivable() {
         .search_receivable(&wallet_id)
         .wait()
         .unwrap();
-    let ledger = node.ledger_query_services().ledger;
+    let ledger = node.ledger_query_services().ledger_arc();
     assert_always_eq(Duration::from_millis(300), || ledger.block_count(), 2);
 
     node.confirm(send.hash());
@@ -1494,7 +1494,7 @@ fn search_receivable() {
 }
 
 fn upgrade_genesis_epoch(node: &Node, epoch: Epoch) {
-    let ledger = node.ledger_query_services().ledger;
+    let ledger = node.ledger_query_services().ledger_arc();
     let any = ledger.any();
     let latest = any.account_head(&DEV_GENESIS_ACCOUNT).unwrap();
     let balance = any.account_balance(&DEV_GENESIS_ACCOUNT);

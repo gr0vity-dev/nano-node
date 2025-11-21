@@ -10,7 +10,7 @@ use std::sync::Arc;
 use test_helpers::{System, assert_timely2, setup_rpc_client_and_server};
 
 fn send_block(node: Arc<Node>, account: Account, amount: Amount) -> Block {
-    let ledger = node.ledger_query_services().ledger;
+    let ledger = node.ledger_query_services().ledger_arc();
     let any = ledger.any();
 
     let previous = any
@@ -102,7 +102,7 @@ fn receivable_options_none() {
         .unwrap();
 
     let send = send_block(node.clone(), public_key.into(), Amount::raw(1));
-    node.ledger_query_services().ledger.confirm(send.hash());
+    node.ledger_query_services().ledger_arc().confirm(send.hash());
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 
@@ -136,9 +136,9 @@ fn receivable_threshold_some() {
         .unwrap();
 
     let send = send_block(node.clone(), public_key.into(), Amount::raw(1));
-    node.ledger_query_services().ledger.confirm(send.hash());
+    node.ledger_query_services().ledger_arc().confirm(send.hash());
     let send2 = send_block(node.clone(), public_key.into(), Amount::raw(2));
-    node.ledger_query_services().ledger.confirm(send2.hash());
+    node.ledger_query_services().ledger_arc().confirm(send2.hash());
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 

@@ -7,7 +7,7 @@ fn ledger_info_handle_matches_ledger_metadata() {
     let node = Node::new_null();
     let ledger_info = node.production_handles().ledger_info();
 
-    let expected_version = node.ledger_query_services().ledger.version();
+    let expected_version = node.ledger_query_services().ledger_arc().version();
     assert_eq!(ledger_info.store_version(), expected_version);
 
     let vendor = ledger_info.store_vendor();
@@ -27,7 +27,7 @@ fn ledger_info_handle_memory_stats_matches_ledger() {
     }));
     let ledger_stats =
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            node.ledger_query_services().ledger.memory_stats()
+            node.ledger_query_services().ledger_arc().memory_stats()
         }));
 
     match (handle_stats, ledger_stats) {
@@ -54,11 +54,11 @@ fn ledger_counts_handle_matches_ledger_counters() {
 
     assert_eq!(
         ledger_counts.block_count(),
-        node.ledger_query_services().ledger.block_count()
+        node.ledger_query_services().ledger_arc().block_count()
     );
     assert_eq!(
         ledger_counts.confirmed_count(),
-        node.ledger_query_services().ledger.confirmed_count()
+        node.ledger_query_services().ledger_arc().confirmed_count()
     );
 }
 
@@ -69,7 +69,7 @@ fn ledger_account_count_handle_matches_ledger_account_count() {
 
     assert_eq!(
         account_count.account_count(),
-        node.ledger_query_services().ledger.account_count()
+        node.ledger_query_services().ledger_arc().account_count()
     );
 }
 
@@ -78,7 +78,7 @@ fn ledger_account_balance_handle_matches_ledger_sets() {
     let node = Node::new_null();
     let account = node.network_params.ledger.genesis_account;
     let handle = node.production_handles().ledger_account_balances();
-    let ledger = node.ledger_query_services().ledger;
+    let ledger = node.ledger_query_services().ledger_arc();
     let ledger_for_confirmed = ledger.clone();
 
     let (confirmed_balance, confirmed_receivable) =
@@ -111,7 +111,7 @@ fn ledger_work_threshold_handle_matches_ledger_constants() {
 
     assert_eq!(
         handle.threshold_base(),
-        node.ledger_query_services().ledger.work_thresholds().threshold_base()
+        node.ledger_query_services().ledger_arc().work_thresholds().threshold_base()
     );
 }
 
@@ -119,7 +119,7 @@ fn ledger_work_threshold_handle_matches_ledger_constants() {
 fn ledger_state_check_handle_matches_ledger_queries() {
     let node = Node::new_null();
     let handle = node.production_handles().ledger_state_checks();
-    let ledger = node.ledger_query_services().ledger;
+    let ledger = node.ledger_query_services().ledger_arc();
     let genesis_hash = node.network_params.ledger.genesis_block.hash();
     let genesis_account = node.network_params.ledger.genesis_account;
 
@@ -138,7 +138,7 @@ fn ledger_state_check_handle_matches_ledger_queries() {
 fn ledger_query_handle_matches_ledger_reads() {
     let node = Node::new_null();
     let handle = node.production_handles().ledger_queries();
-    let ledger = node.ledger_query_services().ledger;
+    let ledger = node.ledger_query_services().ledger_arc();
     let genesis_account = node.network_params.ledger.genesis_account;
     let genesis_hash = node.network_params.ledger.genesis_block.hash();
 

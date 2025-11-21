@@ -352,7 +352,7 @@ fn unchecked_epoch_invalid() {
             .block_exists(&epoch2.hash())
     });
 
-    let ledger = node1.ledger_query_services().ledger;
+    let ledger = node1.ledger_query_services().ledger_arc();
     let any = ledger.any();
     assert_eq!(any.block_exists(&epoch1.hash()), false);
     assert_eq!(node1.unchecked.lock().unwrap().len(), 0);

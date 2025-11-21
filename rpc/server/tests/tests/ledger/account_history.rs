@@ -149,7 +149,7 @@ fn account_history() {
     assert_eq!(history[4].account, Some(*DEV_GENESIS_ACCOUNT));
     assert_eq!(
         history[4].amount,
-        Some(node.ledger_query_services().ledger.constants.genesis_amount)
+        Some(node.ledger_query_services().ledger_arc().constants.genesis_amount)
     );
     assert_eq!(history[4].height, 1.into());
     assert_eq!(history[4].confirmed, true.into());

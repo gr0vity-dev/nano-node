@@ -334,8 +334,8 @@ fn receive_weight_change() {
         )
         .wait()
         .unwrap();
-    let node1_ledger = node1.ledger_query_services().ledger.clone();
-    let node2_ledger = node2.ledger_query_services().ledger.clone();
+    let node1_ledger = node1.ledger_query_services().ledger_arc().clone();
+    let node2_ledger = node2.ledger_query_services().ledger_arc().clone();
     assert_timely(Duration::from_secs(10), || {
         node1_ledger.any().weight_exact(key2.public_key()) == node1.config.receive_minimum
             && node2_ledger.any().weight_exact(key2.public_key()) == node1.config.receive_minimum

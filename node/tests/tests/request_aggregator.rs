@@ -517,7 +517,7 @@ fn split() {
     // Confirm all blocks
     node.confirm(blocks.last().unwrap().hash());
     assert_eq!(
-        node.ledger_query_services().ledger.confirmed_count(),
+        node.ledger_query_services().ledger_arc().confirmed_count(),
         MAX_VBH as u64 + 2
     );
     assert_eq!(MAX_VBH + 1, roots_hashes.len());
