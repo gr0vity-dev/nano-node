@@ -198,7 +198,7 @@ pub struct NodeServices {
     pub steady_clock: Arc<SteadyClock>,
     pub stats: Arc<Stats>,
     pub work_factory: Arc<WorkFactory>,
-    pub ledger: Arc<Ledger>,
+    pub(crate) ledger: Arc<Ledger>,
     pub network: Arc<RwLock<Network>>,
     pub telemetry: Arc<Telemetry>,
     pub bootstrap_server: Arc<BootstrapServer>,
@@ -471,7 +471,7 @@ impl ConsensusServices {
 
 #[derive(Clone)]
 pub struct LedgerQueryServices {
-    pub ledger: Arc<Ledger>,
+    pub(crate) ledger: Arc<Ledger>,
     pub block_rates: Arc<CurrentBlockRates>,
     pub confirming_set: Arc<ConfirmingSet>,
     pub recently_cemented: Arc<Mutex<BoundedVecDeque<ConfirmedElection>>>,
