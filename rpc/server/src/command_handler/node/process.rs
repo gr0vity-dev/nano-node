@@ -75,11 +75,11 @@ impl RpcCommandHandler {
                 Err(BlockError::Fork) => {
                     if args.force.unwrap_or_default().inner() {
                         self.consensus
-                            .active
+                            .active()
                             .write()
                             .unwrap()
                             .erase(&block.qualified_root());
-                        self.consensus.block_processor_queue.push(BlockContext::new(
+                        self.consensus.block_processor_queue().push(BlockContext::new(
                             block,
                             BlockSource::Forced,
                             ChannelId::LOOPBACK,
@@ -108,7 +108,7 @@ impl RpcCommandHandler {
                 Err(BlockError::Conflict) => Err(anyhow!("Conflict while processing block")),
             }
         } else if block.block_type() == BlockType::State {
-            self.consensus.block_processor_queue.push(BlockContext::new(
+            self.consensus.block_processor_queue().push(BlockContext::new(
                 block,
                 BlockSource::Local,
                 ChannelId::LOOPBACK,

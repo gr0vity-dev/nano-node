@@ -17,7 +17,6 @@ use crate::{
 };
 
 use super::lifecycle::Lifecycle;
-use std::ops::Deref;
 
 /// Facade over consensus internals (active elections, vote processor, schedulers).
 #[derive(Clone)]
@@ -93,6 +92,18 @@ impl ConsensusSubsystem {
         self.services.block_processor.clone()
     }
 
+    pub fn election_schedulers(&self) -> Arc<ElectionSchedulers> {
+        self.services.election_schedulers.clone()
+    }
+
+    pub fn online_reps(&self) -> Arc<Mutex<OnlineReps>> {
+        self.services.online_reps.clone()
+    }
+
+    pub fn rep_tiers(&self) -> Arc<CurrentRepTiers> {
+        self.services.rep_tiers.clone()
+    }
+
     pub fn services(&self) -> ConsensusServices {
         self.services.clone()
     }
@@ -130,13 +141,5 @@ impl Lifecycle for ConsensusSubsystem {
 
     fn stop(&mut self) {
         self.services.stop();
-    }
-}
-
-impl Deref for ConsensusSubsystem {
-    type Target = ConsensusServices;
-
-    fn deref(&self) -> &Self::Target {
-        &self.services
     }
 }

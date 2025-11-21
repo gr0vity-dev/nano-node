@@ -9,7 +9,7 @@ use std::{
 
 use tracing::{error, info};
 
-use rsnano_ledger::{AnySet, BlockError};
+use rsnano_ledger::BlockError;
 use rsnano_network::ChannelId;
 use rsnano_output_tracker::OutputListenerMt;
 use rsnano_types::{

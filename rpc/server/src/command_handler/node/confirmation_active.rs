@@ -10,7 +10,8 @@ impl RpcCommandHandler {
         let mut confirmed = 0;
         let mut elections = Vec::new();
 
-        let active = self.consensus.active.read().unwrap();
+        let active_guard = self.consensus.active();
+        let active = active_guard.read().unwrap();
         for election in active.iter_round_robin() {
             let req_count = 0; // not supported in RsNano
             if req_count as u64 >= announcements {

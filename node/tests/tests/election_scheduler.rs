@@ -29,13 +29,12 @@ mod election_scheduler {
         let consensus_services = node.consensus_subsystem().test_handles();
         ledger_services.ledger_arc().process_one(&send1).unwrap();
 
+        let ledger = ledger_services.ledger_arc();
+        let any = ledger.any();
         consensus_services
             .election_schedulers
             .priority
-            .activate(&{
-                let ledger = ledger_services.ledger_arc();
-                ledger.any()
-            }, &*DEV_GENESIS_ACCOUNT);
+            .activate(&any, &*DEV_GENESIS_ACCOUNT);
 
         assert_timely2(|| node.is_active_root(&send1.qualified_root()));
     }
@@ -57,13 +56,12 @@ mod election_scheduler {
         ledger_services.ledger_arc().process_one(&send1).unwrap();
 
         // Activate the account
+        let ledger = ledger_services.ledger_arc();
+        let any = ledger.any();
         consensus_services
             .election_schedulers
             .priority
-            .activate(&{
-                let ledger = ledger_services.ledger_arc();
-                ledger.any()
-            }, &*DEV_GENESIS_ACCOUNT);
+            .activate(&any, &*DEV_GENESIS_ACCOUNT);
 
         // Assert that the election is created within 5 seconds
         assert_timely2(|| node.is_active_root(&send1.qualified_root()));
