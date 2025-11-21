@@ -2,11 +2,11 @@
 use std::sync::Arc;
 
 use rsnano_ledger::{
-    AnyReceivableIterator, AnySet, ConfirmedSet, Ledger, LedgerConstants, LedgerSet, OwningAnySet,
-    StoreIterator,
+    AnyReceivableIterator, AnySet, BlockError, ConfirmedSet, Ledger, LedgerConstants, LedgerSet,
+    OwningAnySet, RollbackError, StoreIterator,
 };
 use rsnano_types::{
-    Account, AccountInfo, Amount, BlockHash, ConfirmationHeightInfo, DetailedBlock, Link,
+    Account, AccountInfo, Amount, Block, BlockHash, ConfirmationHeightInfo, DetailedBlock, Link,
     PendingInfo, PendingKey, SavedBlock,
 };
 use store_traits::ledger::MemoryStats;
@@ -202,6 +202,18 @@ pub struct LedgerQueryHandle {
 impl LedgerQueryHandle {
     pub(crate) fn new(ledger: Arc<Ledger>) -> Self {
         Self { ledger }
+    }
+
+    pub fn process_one(&self, block: &Block) -> Result<SavedBlock, BlockError> {
+        self.ledger.process_one(block)
+    }
+
+    pub fn confirm_block(&self, hash: BlockHash) -> Vec<SavedBlock> {
+        self.ledger.confirm(hash)
+    }
+
+    pub fn roll_back(&self, hash: &BlockHash) -> Result<usize, RollbackError> {
+        self.ledger.roll_back(hash)
     }
 
     pub fn account_info(&self, account: &Account) -> Option<AccountInfo> {

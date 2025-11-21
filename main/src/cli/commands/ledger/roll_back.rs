@@ -9,8 +9,8 @@ pub(crate) fn roll_back(global_args: GlobalArgs, args: HashArgs) -> anyhow::Resu
         BlockHash::decode_hex(&args.hash).ok_or_else(|| anyhow!("Invalid block hash"))?;
     println!("Rolling back {block_hash:?}");
     let rolled_back = node
-        .ledger_query_services()
-        .ledger_arc()
+        .production_handles()
+        .ledger_queries()
         .roll_back(&block_hash)?;
     println!("Block rollback complete");
     println!("Rolled back {rolled_back} dependent blocks");
