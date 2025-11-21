@@ -38,7 +38,8 @@ fn send() {
     });
 
     let ledger_query_services = node.ledger_query_services();
-    let any = ledger_query_services.ledger.any();
+    let ledger = ledger_query_services.ledger_arc();
+    let any = ledger.any();
 
     assert_timely_msg(
         Duration::from_secs(5),

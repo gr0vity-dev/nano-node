@@ -21,7 +21,7 @@ fn single() {
     node.process(send1.clone());
     assert_eq!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .confirmed()
             .block_exists(&send1.hash()),
         false
@@ -30,14 +30,14 @@ fn single() {
 
     assert_eq!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .confirmed()
             .block_exists(&send1.hash()),
         true
     );
     let conf_info = node
         .ledger_query_services()
-        .ledger
+        .ledger_arc()
         .confirmed()
         .get_conf_info(&DEV_GENESIS_ACCOUNT)
         .unwrap();
@@ -47,13 +47,13 @@ fn single() {
     // Rollbacks should fail as these blocks have been confirmed
     assert!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .roll_back(&latest1)
             .is_err()
     );
     assert!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .roll_back(&send1.hash())
             .is_err()
     );
@@ -123,7 +123,7 @@ fn multiple_accounts() {
     // as we have any just added them to the ledger and not processed any live transactions yet.
     assert_eq!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .confirmed()
             .get_conf_info(&DEV_GENESIS_ACCOUNT)
             .unwrap()
@@ -132,21 +132,21 @@ fn multiple_accounts() {
     );
     assert!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .confirmed()
             .get_conf_info(&key1.public_key().as_account())
             .is_none()
     );
     assert!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .confirmed()
             .get_conf_info(&key2.public_key().as_account())
             .is_none()
     );
     assert!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .confirmed()
             .get_conf_info(&key3.public_key().as_account())
             .is_none()
@@ -155,7 +155,7 @@ fn multiple_accounts() {
     // The nodes process a live receive which propagates across to all accounts
     let receive3 = lattice.account(&key3).receive(&send6);
     node.ledger_query_services()
-        .ledger
+        .ledger_arc()
         .process_one(&receive3)
         .unwrap();
 
@@ -172,7 +172,8 @@ fn multiple_accounts() {
     );
     assert_eq!(node.ledger_query_services().ledger_arc().confirmed_count(), 11);
     let ledger_services = node.ledger_query_services();
-    let any = ledger_services.ledger_arc().any();
+    let ledger = ledger_services.ledger_arc();
+    let any = ledger.any();
     assert!(any.confirmed().block_exists(&receive3.hash()));
     assert_eq!(
         any.get_account(&DEV_GENESIS_ACCOUNT).unwrap().block_count,
@@ -210,25 +211,25 @@ fn multiple_accounts() {
     // So this can be rolled back, but the one before that cannot. Check that this is the case
     assert!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .roll_back(&receive2.hash())
             .is_ok()
     );
     assert!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .roll_back(&send5.hash())
             .is_ok()
     );
     assert!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .roll_back(&send4.hash())
             .is_err()
     );
     assert!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .roll_back(&send6.hash())
             .is_err()
     );
@@ -236,13 +237,13 @@ fn multiple_accounts() {
     // Confirm the other latest can't be rolled back either
     assert!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .roll_back(&receive3.hash())
             .is_err()
     );
     assert!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .roll_back(&send3.hash())
             .is_err()
     );
@@ -250,13 +251,13 @@ fn multiple_accounts() {
     // Attempt some others which have been confirmed
     assert!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .roll_back(&open1.hash())
             .is_err()
     );
     assert!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .roll_back(&send2.hash())
             .is_err()
     );
@@ -368,7 +369,8 @@ fn send_receive_self() {
 
     assert_eq!(confirmed.len(), 6);
     let ledger_services = node.ledger_query_services();
-    let any = ledger_services.ledger_arc().any();
+    let ledger = ledger_services.ledger_arc();
+    let any = ledger.any();
     assert!(any.confirmed().block_exists(&receive3.hash()));
     assert_eq!(
         any.get_account(&DEV_GENESIS_ACCOUNT).unwrap().block_count,
@@ -430,7 +432,7 @@ fn all_block_types() {
     ]);
     let confirmed = node
         .ledger_query_services()
-        .ledger
+        .ledger_arc()
         .confirm(state_send2.hash());
     assert_eq!(confirmed.len(), 15);
     assert_eq!(node.ledger_query_services().ledger_arc().confirmed_count(), 16);

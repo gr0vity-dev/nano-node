@@ -1328,7 +1328,7 @@ fn epoch_2_receive_propagation() {
             );
             assert_eq!(
                 node.ledger_query_services()
-                    .ledger
+                    .ledger_arc()
                     .any()
                     .get_block(&receive2.hash())
                     .unwrap()
@@ -1432,7 +1432,7 @@ fn epoch_2_receive_unopened() {
             );
             assert_eq!(
                 node.ledger_query_services()
-                    .ledger
+                    .ledger_arc()
                     .any()
                     .get_block(&receive1.hash())
                     .unwrap()

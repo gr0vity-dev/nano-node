@@ -50,11 +50,8 @@ fn block_create_state() {
 
     node.process(block.clone());
 
-    assert_eq!(
-        node.ledger_query_services()
-            .ledger
-            .any()
-            .block_account(&block.hash()),
-        Some(*DEV_GENESIS_ACCOUNT)
-    );
+    let ledger = node.ledger_query_services().ledger_arc();
+
+    let any = ledger.any();
+    assert_eq!(any.block_account(&block.hash()), Some(*DEV_GENESIS_ACCOUNT));
 }

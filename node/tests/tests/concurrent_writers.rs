@@ -23,12 +23,12 @@ fn block_processor_and_confirming_set_make_progress_concurrently() {
 
     let send1 = node
         .ledger_query_services()
-        .ledger
+        .ledger_arc()
         .any()
         .genesis_send(&key1, Amount::nano(1));
     let send2 = node
         .ledger_query_services()
-        .ledger
+        .ledger_arc()
         .any()
         .genesis_send(&key2, Amount::nano(1));
 
@@ -43,12 +43,12 @@ fn block_processor_and_confirming_set_make_progress_concurrently() {
 
     assert_timely(std::time::Duration::from_secs(5), || {
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .any()
             .block_exists(&send1.hash())
             && node
                 .ledger_query_services()
-                .ledger
+                .ledger_arc()
                 .any()
                 .block_exists(&send2.hash())
     });
@@ -63,12 +63,12 @@ fn block_processor_and_confirming_set_make_progress_concurrently() {
 
     assert_timely(std::time::Duration::from_secs(5), || {
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .confirmed()
             .block_exists(&send1.hash())
             && node
                 .ledger_query_services()
-                .ledger
+                .ledger_arc()
                 .confirmed()
                 .block_exists(&send2.hash())
     });

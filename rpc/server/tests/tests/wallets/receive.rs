@@ -40,7 +40,7 @@ fn receive() {
 
     assert_timely2(|| {
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .any()
             .account_balance(&*DEV_GENESIS_ACCOUNT)
             != Amount::MAX
@@ -49,7 +49,7 @@ fn receive() {
     assert_timely2(|| {
         !node
             .ledger_query_services()
-            .ledger
+            .ledger_arc()
             .any()
             .get_account(&key1.public_key().into())
             .is_some()
@@ -78,7 +78,8 @@ fn receive() {
         .block;
 
     let ledger_query_services = node.ledger_query_services();
-    let any = ledger_query_services.ledger.any();
+    let ledger = ledger_query_services.ledger_arc();
+    let any = ledger.any();
     assert_timely2(|| any.get_block(&block_hash).is_some());
 
     assert_eq!(

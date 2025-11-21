@@ -122,7 +122,7 @@ fn vote_by_hash_bundle() {
 
     // Confirm the last block to confirm the entire chain
     node.ledger_query_services()
-        .ledger
+        .ledger_arc()
         .confirm(blocks.last().unwrap().hash());
 
     // Insert the genesis key and a new key into the wallet
@@ -490,7 +490,7 @@ fn rep_self_vote() {
     assert_timely2(|| {
         node0
             .ledger_query_services()
-            .ledger
+            .ledger_arc()
             .confirmed()
             .block_exists(&block0.hash())
     });
@@ -610,21 +610,21 @@ fn fork_multi_flip() {
     assert_timely2(|| {
         node2
             .ledger_query_services()
-            .ledger
+            .ledger_arc()
             .any()
             .block_exists(&send1.hash())
     });
     assert!(
         !node2
             .ledger_query_services()
-            .ledger
+            .ledger_arc()
             .any()
             .block_exists(&send2.hash())
     );
     assert!(
         !node2
             .ledger_query_services()
-            .ledger
+            .ledger_arc()
             .any()
             .block_exists(&send3.hash())
     );
@@ -2115,7 +2115,7 @@ fn rep_crawler_rep_remove() {
         rep_weight,
         searching_node
             .ledger_query_services()
-            .ledger
+            .ledger_arc()
             .weight(&reps[0].rep_key)
     );
     assert_eq!(key_rep1.public_key(), reps[0].rep_key);
@@ -2544,7 +2544,7 @@ fn unconfirmed_send() {
         || {
             node2
                 .ledger_query_services()
-                .ledger
+                .ledger_arc()
                 .confirmed()
                 .get_conf_info(&key2.account())
                 .unwrap_or_default()
@@ -2557,7 +2557,7 @@ fn unconfirmed_send() {
 
     let recv1 = node2
         .ledger_query_services()
-        .ledger
+        .ledger_arc()
         .any()
         .find_receive_block_by_send_hash(&key2.account(), &send1.hash())
         .unwrap();
@@ -2704,12 +2704,12 @@ fn block_confirm() {
     assert_timely2(|| {
         node1
             .ledger_query_services()
-            .ledger
+            .ledger_arc()
             .any()
             .block_exists(&hash1)
             && node2
                 .ledger_query_services()
-                .ledger
+                .ledger_arc()
                 .any()
                 .block_exists(&hash1)
     });
@@ -2717,14 +2717,14 @@ fn block_confirm() {
     assert!(
         node1
             .ledger_query_services()
-            .ledger
+            .ledger_arc()
             .any()
             .block_exists(&hash1)
     );
     assert!(
         node2
             .ledger_query_services()
-            .ledger
+            .ledger_arc()
             .any()
             .block_exists(&hash1)
     );

@@ -24,7 +24,7 @@ fn work_generate() {
     let expected_multiplier = DifficultyV1::to_multiplier(
         result_difficulty,
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .constants
             .work
             .threshold_base(),

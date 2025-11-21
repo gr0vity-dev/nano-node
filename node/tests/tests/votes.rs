@@ -274,19 +274,19 @@ fn vote_generator_multiple_representatives() {
 
     assert_eq!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .weight(&key1.public_key()),
         amount
     );
     assert_eq!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .weight(&key2.public_key()),
         amount
     );
     assert_eq!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .weight(&key3.public_key()),
         amount
     );
@@ -373,7 +373,7 @@ fn vote_spacing_vote_generator() {
         .send(&*DEV_GENESIS_KEY, Amount::nano(1001));
 
     node.ledger_query_services()
-        .ledger
+        .ledger_arc()
         .process_one(&send1)
         .unwrap();
     assert_eq!(
@@ -405,11 +405,11 @@ fn vote_spacing_vote_generator() {
     );
 
     node.ledger_query_services()
-        .ledger
+        .ledger_arc()
         .roll_back(&send1.hash())
         .unwrap();
     node.ledger_query_services()
-        .ledger
+        .ledger_arc()
         .process_one(&send2)
         .unwrap();
     node.consensus_subsystem()
@@ -517,11 +517,11 @@ fn vote_spacing_rapid() {
     );
 
     node.ledger_query_services()
-        .ledger
+        .ledger_arc()
         .roll_back(&send1.hash())
         .unwrap();
     node.ledger_query_services()
-        .ledger
+        .ledger_arc()
         .process_one(&send2)
         .unwrap();
     node.consensus_subsystem()

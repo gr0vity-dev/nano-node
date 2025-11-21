@@ -444,7 +444,7 @@ fn inactive_votes_cache_existing_vote() {
     start_election(&node, &send.hash());
     assert!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .weight(&key.public_key())
             > node
                 .consensus_subsystem()
@@ -753,7 +753,7 @@ fn inactive_votes_cache_election_start() {
     // An election is started for send6 but does not
     assert_eq!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .confirmed()
             .block_exists(&send3.hash()),
         false
@@ -1236,7 +1236,7 @@ fn dropped_cleanup() {
     node.force_confirm(&hash);
     assert_timely2(|| {
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .confirmed()
             .block_exists(&hash)
     });
@@ -1425,7 +1425,7 @@ fn conflicting_block_vote_existing_election() {
     // Election must be confirmed
     assert_timely2(|| {
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .confirmed()
             .block_exists(&fork.hash())
     });
@@ -1632,7 +1632,7 @@ fn vote_replays() {
     );
     assert_eq!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .weight(&key.public_key()),
         Amount::nano(1000)
     );

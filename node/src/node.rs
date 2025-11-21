@@ -286,7 +286,7 @@ impl Node {
     }
 
     pub fn try_process(&self, block: Block) -> Result<SavedBlock, BlockError> {
-        self.ledger_query_services().ledger.process_one(&block)
+        self.ledger_query_services().ledger_arc().process_one(&block)
     }
 
     pub fn process(&self, block: Block) -> SavedBlock {
@@ -302,7 +302,7 @@ impl Node {
 
     pub fn process_multi(&self, blocks: &[Block]) {
         for (i, block) in blocks.iter().enumerate() {
-            match self.ledger_query_services().ledger.process_one(block) {
+            match self.ledger_query_services().ledger_arc().process_one(block) {
                 Ok(_) | Err(BlockError::Old) | Err(BlockError::Conflict) => {}
                 Err(e) => {
                     panic!("Could not multi-process block index {}: {:?}", i, e);
@@ -336,13 +336,12 @@ impl Node {
     }
 
     pub fn block(&self, hash: &BlockHash) -> Option<SavedBlock> {
-        self.ledger_query_services().ledger.any().get_block(hash)
+        self.production_handles().ledger_queries().get_block(hash)
     }
 
     pub fn latest(&self, account: &Account) -> BlockHash {
-        self.ledger_query_services()
-            .ledger
-            .any()
+        self.production_handles()
+            .ledger_queries()
             .account_head(account)
             .unwrap_or_default()
     }
@@ -385,7 +384,7 @@ impl Node {
     }
 
     pub fn confirm(&self, hash: BlockHash) {
-        self.ledger_query_services().ledger.confirm(hash);
+        self.ledger_query_services().ledger_arc().confirm(hash);
     }
 
     pub fn block_confirmed(&self, hash: &BlockHash) -> bool {

@@ -214,7 +214,7 @@ fn receivable_processor_confirm_sufficient_pos() {
 
     assert_timely2(|| {
         ledger_services
-            .ledger
+            .ledger_arc()
             .confirmed()
             .block_exists(&send1.hash())
     });

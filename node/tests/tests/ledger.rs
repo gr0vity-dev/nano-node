@@ -243,7 +243,7 @@ fn unchecked_epoch() {
     assert_timely2(|| {
         node1
             .ledger_query_services()
-            .ledger
+            .ledger_arc()
             .any()
             .block_exists(&epoch1.hash())
     });
@@ -252,7 +252,7 @@ fn unchecked_epoch() {
     assert_timely_eq2(|| node1.unchecked.lock().unwrap().len(), 0);
     let info = node1
         .ledger_query_services()
-        .ledger
+        .ledger_arc()
         .any()
         .get_account(&destination.account())
         .unwrap();
@@ -281,7 +281,7 @@ fn unchecked_epoch_invalid() {
         balance: Amount::nano(1000),
         link: node1
             .ledger_query_services()
-            .ledger
+            .ledger_arc()
             .epoch_link(Epoch::Epoch1)
             .unwrap(),
         work: node1.work_generate_dev(open1.hash()),
@@ -296,7 +296,7 @@ fn unchecked_epoch_invalid() {
         balance: Amount::nano(999),
         link: node1
             .ledger_query_services()
-            .ledger
+            .ledger_arc()
             .epoch_link(Epoch::Epoch1)
             .unwrap(),
         work: node1.work_generate_dev(open1.hash()),
@@ -347,7 +347,7 @@ fn unchecked_epoch_invalid() {
     assert_timely2(|| {
         node1
             .ledger_query_services()
-            .ledger
+            .ledger_arc()
             .any()
             .block_exists(&epoch2.hash())
     });

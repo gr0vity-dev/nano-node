@@ -252,7 +252,7 @@ fn weights() {
         .unwrap();
 
     // Wait for representatives
-    let ledger = node0_ledger.ledger.clone();
+    let ledger = node0_ledger.ledger_arc();
     assert_timely2(|| ledger.rep_weights.len() == 4);
     let online_reps = node0_consensus.online_reps.clone();
     online_reps.lock().unwrap().set_trended(Amount::MAX);

@@ -194,7 +194,7 @@ fn ledger_query_handle_receivable_upper_bound_matches_iterator() {
         .collect::<Vec<_>>();
     let ledger_iter = node
         .ledger_query_services()
-        .ledger
+        .ledger_arc()
         .any()
         .account_receivable_upper_bound(account, start)
         .collect::<Vec<_>>();
@@ -217,7 +217,7 @@ fn ledger_query_handle_pending_from_matches_iterator() {
         .collect::<Vec<_>>();
     let ledger_iter = node
         .ledger_query_services()
-        .ledger
+        .ledger_arc()
         .any()
         .iter_pending_range(start..)
         .collect::<Vec<_>>();

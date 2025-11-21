@@ -109,7 +109,7 @@ fn frontier_scan() {
     let node1_ledger = node1.ledger_query_services();
     assert_always_eq(
         Duration::from_millis(100),
-        || node1_ledger.ledger.block_count() as usize,
+        || node1_ledger.ledger_arc().block_count() as usize,
         blocks.len() + 1,
     );
 
@@ -170,7 +170,7 @@ fn frontier_scan_pending() {
     let node1_ledger = node1.ledger_query_services();
     assert_always_eq(
         Duration::from_millis(100),
-        || node1_ledger.ledger.block_count() as usize,
+        || node1_ledger.ledger_arc().block_count() as usize,
         blocks.len() + 1,
     );
 
@@ -241,7 +241,7 @@ fn frontier_scan_cannot_prioritize() {
     let node1_ledger = node1.ledger_query_services();
     assert_always_eq(
         Duration::from_millis(100),
-        || node1_ledger.ledger.block_count() as usize,
+        || node1_ledger.ledger_arc().block_count() as usize,
         blocks.len() + 1,
     );
     // Frontier scan should not detect the accounts

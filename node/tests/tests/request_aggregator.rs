@@ -79,7 +79,7 @@ fn one() {
 
     // Process and confirm
     node.ledger_query_services()
-        .ledger
+        .ledger_arc()
         .process_one(&send1)
         .unwrap();
     node.confirm(send1.hash());
@@ -666,7 +666,7 @@ fn cannot_vote() {
 
     assert_eq!(
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .any()
             .dependents_confirmed(&send2),
         false

@@ -60,7 +60,7 @@ fn confirmed_history() {
         );
         assert_eq!(
             node.ledger_query_services()
-                .ledger
+                .ledger_arc()
                 .confirmed()
                 .block_exists(&send.hash()),
             false
@@ -87,7 +87,7 @@ fn confirmed_history() {
 
     assert_timely2(|| {
         node.ledger_query_services()
-            .ledger
+            .ledger_arc()
             .confirmed()
             .block_exists(&send.hash())
     });
