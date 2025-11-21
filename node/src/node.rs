@@ -118,12 +118,6 @@ impl Node {
         self.node_id.public_key().into()
     }
 
-    #[doc(hidden)]
-    #[deprecated(note = "NodeServices is legacy; prefer explicit subsystem accessors and production handles")]
-    pub fn services(&self) -> &NodeServices {
-        &self.services
-    }
-
     pub fn wallet_services(&self) -> WalletServices {
         self.services.wallet_services()
     }
