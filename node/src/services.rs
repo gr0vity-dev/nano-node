@@ -484,6 +484,10 @@ pub struct LedgerQueryServices {
 
 impl LedgerQueryServices {
     /// Temporary escape hatch for components that still require deep ledger access.
+    #[doc(hidden)]
+    #[deprecated(
+        note = "For tests/internal wiring only. Production code must use ProductionHandles / narrow APIs."
+    )]
     pub fn ledger_arc(&self) -> Arc<Ledger> {
         self.ledger.clone()
     }
