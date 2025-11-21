@@ -55,6 +55,12 @@ impl BootstrapSubsystem {
         self.work_factory.clone()
     }
 
+    /// **Legacy test access - technical debt.**
+    ///
+    /// This method exposes internal subsystem components for testing.
+    /// It is marked hidden and should be avoided in new tests.
+    /// Phase 5 will introduce behavioral test helpers to replace this pattern.
+    #[doc(hidden)]
     pub fn test_handles(&self) -> BootstrapTestHandles {
         BootstrapTestHandles {
             bootstrapper: self.bootstrapper.clone(),
