@@ -45,6 +45,7 @@ use crate::{
 #[allow(dead_code)]
 pub struct Node {
     is_nulled: bool,
+    // private: callers must use runtime() accessor
     runtime: tokio::runtime::Handle,
     pub data_path: PathBuf,
     pub node_id: PrivateKey,
@@ -56,12 +57,14 @@ pub struct Node {
     handles: ProductionHandles,
     network_subsystem: NetworkSubsystem,
     consensus_subsystem: ConsensusSubsystem,
+    // private: callers must use unchecked() accessor
     unchecked: Arc<Mutex<UncheckedMap>>,
     pub backlog_scan: BacklogServices,
     stopped: AtomicBool,
     start_stop_listener: OutputListenerMt<&'static str>,
     tokio_runner: TokioRunner,
     pub aec_ticker: TimerThread<AecTicker>,
+    // private: callers must use stats_collector() accessor
     stats_collector: StatsCollector,
     container_info_factory: ContainerInfoFactory,
     aec_voter: TimerThread<AecVoter>,
