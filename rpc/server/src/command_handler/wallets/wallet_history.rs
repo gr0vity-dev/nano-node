@@ -1,4 +1,6 @@
-use rsnano_rpc_messages::{AccountHistoryArgs, HistoryEntry, WalletHistoryArgs, WalletHistoryResponse};
+use rsnano_rpc_messages::{
+    AccountHistoryArgs, HistoryEntry, WalletHistoryArgs, WalletHistoryResponse,
+};
 use rsnano_types::{BlockHash, UnixTimestamp};
 
 use crate::command_handler::{RpcCommandHandler, ledger::AccountHistoryHelper};

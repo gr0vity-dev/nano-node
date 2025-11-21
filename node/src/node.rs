@@ -286,7 +286,9 @@ impl Node {
     }
 
     pub fn try_process(&self, block: Block) -> Result<SavedBlock, BlockError> {
-        self.ledger_query_services().ledger_arc().process_one(&block)
+        self.ledger_query_services()
+            .ledger_arc()
+            .process_one(&block)
     }
 
     pub fn process(&self, block: Block) -> SavedBlock {
@@ -359,7 +361,9 @@ impl Node {
     }
 
     pub fn block_exists(&self, hash: &BlockHash) -> bool {
-        self.production_handles().ledger_queries().block_exists(hash)
+        self.production_handles()
+            .ledger_queries()
+            .block_exists(hash)
     }
 
     pub fn blocks_exist(&self, hashes: &[Block]) -> bool {
@@ -395,9 +399,7 @@ impl Node {
 
     pub fn block_hashes_confirmed(&self, blocks: &[BlockHash]) -> bool {
         let queries = self.production_handles().ledger_queries();
-        blocks
-            .iter()
-            .all(|b| queries.confirmed_block_exists(b))
+        blocks.iter().all(|b| queries.confirmed_block_exists(b))
     }
 
     pub fn blocks_confirmed(&self, blocks: &[Block]) -> bool {

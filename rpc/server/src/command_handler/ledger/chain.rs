@@ -21,8 +21,7 @@ impl RpcCommandHandler {
                 }
 
                 hash = if successors {
-                    self
-                        .ledger_queries
+                    self.ledger_queries
                         .block_successor(&hash)
                         .unwrap_or(BlockHash::ZERO)
                 } else {

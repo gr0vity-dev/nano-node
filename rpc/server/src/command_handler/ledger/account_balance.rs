@@ -1,5 +1,5 @@
-use anyhow::anyhow;
 use crate::command_handler::RpcCommandHandler;
+use anyhow::anyhow;
 use rsnano_rpc_messages::{
     AccountArg, AccountBalanceArgs, AccountBalanceResponse, AccountBlockCountResponse,
     unwrap_bool_or_true,

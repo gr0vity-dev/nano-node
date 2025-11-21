@@ -13,14 +13,16 @@ impl RpcCommandHandler {
             bail!(Self::BLOCK_NOT_FOUND);
         }
 
-        let Some(pending_info) =
-            self.ledger_queries.get_pending(&PendingKey::new(args.account, args.block))
+        let Some(pending_info) = self
+            .ledger_queries
+            .get_pending(&PendingKey::new(args.account, args.block))
         else {
             bail!("Block is not receivable");
         };
 
         let work: WorkNonce = if let Some(work) = args.work {
-            let (head, epoch) = if let Some(info) = self.ledger_queries.account_info(&args.account) {
+            let (head, epoch) = if let Some(info) = self.ledger_queries.account_info(&args.account)
+            {
                 // When receiving, epoch version is the higher between the previous and the source blocks
                 let epoch = max(info.epoch, pending_info.epoch);
                 (Root::from(info.head), epoch)

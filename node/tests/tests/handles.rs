@@ -22,13 +22,11 @@ fn ledger_info_handle_memory_stats_matches_ledger() {
     let node = Node::new_null();
     let ledger_info = node.production_handles().ledger_info();
 
-    let handle_stats = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ledger_info.memory_stats()
+    let handle_stats =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ledger_info.memory_stats()));
+    let ledger_stats = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        node.ledger_query_services().ledger_arc().memory_stats()
     }));
-    let ledger_stats =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            node.ledger_query_services().ledger_arc().memory_stats()
-        }));
 
     match (handle_stats, ledger_stats) {
         (Ok(Ok(handle_stats)), Ok(Ok(ledger_stats))) => {
@@ -84,10 +82,7 @@ fn ledger_account_balance_handle_matches_ledger_sets() {
     let (confirmed_balance, confirmed_receivable) =
         handle.confirmed_balance_and_receivable(&account);
     let confirmed_set = ledger_for_confirmed.confirmed();
-    assert_eq!(
-        confirmed_balance,
-        confirmed_set.account_balance(&account)
-    );
+    assert_eq!(confirmed_balance, confirmed_set.account_balance(&account));
     assert_eq!(
         confirmed_receivable,
         confirmed_set.account_receivable(&account)
@@ -111,7 +106,10 @@ fn ledger_work_threshold_handle_matches_ledger_constants() {
 
     assert_eq!(
         handle.threshold_base(),
-        node.ledger_query_services().ledger_arc().work_thresholds().threshold_base()
+        node.ledger_query_services()
+            .ledger_arc()
+            .work_thresholds()
+            .threshold_base()
     );
 }
 
@@ -147,15 +145,14 @@ fn ledger_query_handle_matches_ledger_reads() {
     assert_eq!(account_info.head, ledger_account_info.head);
 
     let conf_info = handle.confirmation_height_info(&genesis_account).unwrap();
-    let ledger_conf_info = ledger
-        .confirmed()
-        .get_conf_info(&genesis_account)
-        .unwrap();
+    let ledger_conf_info = ledger.confirmed().get_conf_info(&genesis_account).unwrap();
     assert_eq!(conf_info.height, ledger_conf_info.height);
 
     assert_eq!(
         handle.representative_block_hash(&ledger_account_info.head),
-        ledger.any().representative_block_hash(&ledger_account_info.head)
+        ledger
+            .any()
+            .representative_block_hash(&ledger_account_info.head)
     );
 
     assert_eq!(

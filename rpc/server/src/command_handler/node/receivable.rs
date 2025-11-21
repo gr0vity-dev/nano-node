@@ -26,9 +26,9 @@ impl RpcCommandHandler {
         let mut peers_source: IndexMap<BlockHash, SourceInfo> = IndexMap::new();
         let mut peers_amount: IndexMap<BlockHash, Amount> = IndexMap::new();
 
-        let receivables =
-            self.ledger_queries
-                .receivable_upper_bound(args.account, BlockHash::ZERO);
+        let receivables = self
+            .ledger_queries
+            .receivable_upper_bound(args.account, BlockHash::ZERO);
 
         for (key, info) in receivables {
             if !should_sort && (peers_simple.len() >= count || peers_source.len() >= count) {

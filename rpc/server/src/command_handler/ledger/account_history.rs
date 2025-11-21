@@ -142,9 +142,7 @@ impl AccountHistoryHelper {
                 let mut entry = empty_entry();
                 entry.block_type = Some(BlockTypeDto::Receive);
                 if let Some(amount) = self.ledger_queries.block_amount_for(block) {
-                    if let Some(source_account) =
-                        self.ledger_queries.block_account(&b.source())
-                    {
+                    if let Some(source_account) = self.ledger_queries.block_account(&b.source()) {
                         entry.account = Some(source_account);
                     }
                     entry.amount = Some(amount);
@@ -241,8 +239,7 @@ impl AccountHistoryHelper {
                         None
                     }
                 } else {
-                    let source_account_opt =
-                        self.ledger_queries.block_account(&b.link().into());
+                    let source_account_opt = self.ledger_queries.block_account(&b.link().into());
                     let source_account = source_account_opt.unwrap_or_default();
 
                     if source_account_opt.is_some() && self.should_ignore_account(&source_account) {

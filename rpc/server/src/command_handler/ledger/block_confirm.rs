@@ -13,10 +13,7 @@ impl RpcCommandHandler {
         if !self.ledger_queries.confirmed_block_exists(&args.hash) {
             // Start new confirmation for unconfirmed (or not being confirmed) block
             if !self.ledger_services.confirming_set.contains(&args.hash) {
-                self.consensus
-                    .election_schedulers()
-                    .manual
-                    .push(block);
+                self.consensus.election_schedulers().manual.push(block);
             }
         }
         Ok(StartedResponse::new(true))

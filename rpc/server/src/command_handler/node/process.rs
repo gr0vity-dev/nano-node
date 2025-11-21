@@ -14,14 +14,14 @@ impl RpcCommandHandler {
         let block: Block = args.block.into();
 
         // State blocks subtype check
-        if let Block::State(state) = &block && let Some(subtype) = args.subtype {
+        if let Block::State(state) = &block
+            && let Some(subtype) = args.subtype
+        {
             let previous = state.previous();
             if !previous.is_zero() && !self.ledger_state_checks.block_exists(&previous) {
                 bail!("Gap previous block")
             } else {
-                let balance = self
-                    .ledger_state_checks
-                    .account_balance(&state.account());
+                let balance = self.ledger_state_checks.account_balance(&state.account());
                 match subtype {
                     BlockSubTypeDto::Send => {
                         if balance <= state.balance() {
@@ -79,11 +79,13 @@ impl RpcCommandHandler {
                             .write()
                             .unwrap()
                             .erase(&block.qualified_root());
-                        self.consensus.block_processor_queue().push(BlockContext::new(
-                            block,
-                            BlockSource::Forced,
-                            ChannelId::LOOPBACK,
-                        ));
+                        self.consensus
+                            .block_processor_queue()
+                            .push(BlockContext::new(
+                                block,
+                                BlockSource::Forced,
+                                ChannelId::LOOPBACK,
+                            ));
                         Ok(serde_json::to_value(HashRpcMessage::new(hash))?)
                     } else {
                         Err(anyhow!("Fork"))
@@ -108,11 +110,13 @@ impl RpcCommandHandler {
                 Err(BlockError::Conflict) => Err(anyhow!("Conflict while processing block")),
             }
         } else if block.block_type() == BlockType::State {
-            self.consensus.block_processor_queue().push(BlockContext::new(
-                block,
-                BlockSource::Local,
-                ChannelId::LOOPBACK,
-            ));
+            self.consensus
+                .block_processor_queue()
+                .push(BlockContext::new(
+                    block,
+                    BlockSource::Local,
+                    ChannelId::LOOPBACK,
+                ));
             Ok(serde_json::to_value(StartedResponse::new(true))?)
         } else {
             Err(anyhow!("Must be a state block"))

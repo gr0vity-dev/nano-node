@@ -21,9 +21,7 @@ impl RpcCommandHandler {
                 balance += account_info.balance;
             }
 
-            if let Some(confirmation_info) = self
-                .ledger_queries
-                .confirmation_height_info(&account)
+            if let Some(confirmation_info) = self.ledger_queries.confirmation_height_info(&account)
             {
                 cemented_count += confirmation_info.height;
             }

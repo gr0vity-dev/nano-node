@@ -89,10 +89,11 @@ impl RpcCommandHandler {
                             block_info.receivable = Some(0.into());
                         }
                         if receive_hash {
-                            let receive_block = self.ledger_queries.find_receive_block_by_send_hash(
-                                &block.destination_or_link(),
-                                &hash,
-                            );
+                            let receive_block =
+                                self.ledger_queries.find_receive_block_by_send_hash(
+                                    &block.destination_or_link(),
+                                    &hash,
+                                );
 
                             block_info.receive_hash = Some(match receive_block {
                                 Some(b) => b.hash(),

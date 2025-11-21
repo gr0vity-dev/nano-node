@@ -24,6 +24,10 @@ use rsnano_types::{
 };
 use store_traits::config::{LedgerBackend, LmdbConfig, RocksDbConfig, StoreSyncStrategy};
 
+mod node_test_behaviors;
+
+pub use node_test_behaviors::NodeTestBehavior;
+
 const TEST_LEDGER_BACKEND_ENV: &str = "RSNANO_TEST_LEDGER_BACKEND";
 
 pub struct System {
@@ -416,40 +420,15 @@ pub fn make_fake_channel(network: &NetworkTestHandles) -> Arc<Channel> {
 }
 
 pub fn start_election(node: &Node, hash: &BlockHash) {
-    assert_timely2(|| node.block_exists(hash));
-
-    let block = node.block(hash).unwrap();
-    node.consensus_subsystem()
-        .test_handles()
-        .election_schedulers
-        .add_manual(block.clone());
-    // wait for the election to appear
-    assert_timely2(|| node.is_active_root(&block.qualified_root()));
-    node.consensus_subsystem()
-        .test_handles()
-        .active
-        .write()
-        .unwrap()
-        .transition_active(&block.hash());
+    node.start_election_for_test(hash);
 }
 
 pub fn start_elections(node: &Node, hashes: &[BlockHash], forced: bool) {
-    for hash in hashes {
-        start_election(node, hash);
-        if forced {
-            node.force_confirm(hash);
-        }
-    }
+    node.start_elections_for_test(hashes, forced);
 }
 
 pub fn activate_hashes(node: &Node, hashes: &[BlockHash]) {
-    for hash in hashes {
-        let block = node.block(hash).unwrap();
-        node.consensus_subsystem()
-            .test_handles()
-            .election_schedulers
-            .add_manual(block);
-    }
+    node.activate_hashes_for_test(hashes);
 }
 
 pub fn setup_chain(

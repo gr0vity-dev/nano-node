@@ -41,9 +41,7 @@ impl RpcCommandHandler {
                 let entry = LedgerAccountInfo {
                     frontier: info.head,
                     open_block: info.open_block,
-                    representative_block: self
-                        .ledger_queries
-                        .representative_block_hash(&info.head),
+                    representative_block: self.ledger_queries.representative_block_hash(&info.head),
                     balance: info.balance,
                     modified_timestamp: info.modified.as_u64().into(),
                     block_count: info.block_count.into(),

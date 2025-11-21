@@ -2593,7 +2593,10 @@ fn unconfirmed_send() {
     assert_timely2(|| node1.block_confirmed(&send2.hash()));
     assert_timely2(|| node2.block_confirmed(&send3.hash()));
     assert_timely2(|| node1.block_confirmed(&send3.hash()));
-    assert_timely_eq2(|| node2.ledger_query_services().ledger_arc().confirmed_count(), 7);
+    assert_timely_eq2(
+        || node2.ledger_query_services().ledger_arc().confirmed_count(),
+        7,
+    );
     assert_timely_eq2(|| node1.balance(&DEV_GENESIS_ACCOUNT), Amount::MAX);
 }
 

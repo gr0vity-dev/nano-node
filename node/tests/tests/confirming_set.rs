@@ -145,7 +145,10 @@ fn confirmed_history() {
         },
         2,
     );
-    assert_eq!(node.ledger_query_services().ledger_arc().confirmed_count(), 3);
+    assert_eq!(
+        node.ledger_query_services().ledger_arc().confirmed_count(),
+        3
+    );
 }
 
 #[test]
@@ -199,5 +202,8 @@ fn dependent_election() {
         1,
     );
     assert_timely_eq2(|| node.stats().get("confirmation_observer", "inactive"), 1);
-    assert_eq!(node.ledger_query_services().ledger_arc().confirmed_count(), 4);
+    assert_eq!(
+        node.ledger_query_services().ledger_arc().confirmed_count(),
+        4
+    );
 }

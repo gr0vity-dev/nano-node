@@ -359,10 +359,10 @@ impl<'a> Iterator for ReceivableUpperBoundIter<'a> {
         if self.iter.is_none() {
             // SAFETY: self.any lives for 'a, so it is safe to extend the iterator lifetime.
             let iter = unsafe {
-                std::mem::transmute::<
-                    AnyReceivableIterator<'_>,
-                    AnyReceivableIterator<'a>,
-                >(self.any.account_receivable_upper_bound(self.account, self.start))
+                std::mem::transmute::<AnyReceivableIterator<'_>, AnyReceivableIterator<'a>>(
+                    self.any
+                        .account_receivable_upper_bound(self.account, self.start),
+                )
             };
             self.iter = Some(iter);
         }

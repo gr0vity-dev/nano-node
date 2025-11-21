@@ -23,9 +23,7 @@ impl RpcCommandHandler {
         let mut account_info = AccountInfoResponse {
             frontier: info.head,
             open_block: info.open_block,
-            representative_block: self
-                .ledger_queries
-                .representative_block_hash(&info.head),
+            representative_block: self.ledger_queries.representative_block_hash(&info.head),
             balance: info.balance,
             modified_timestamp: info.modified.as_u64().into(),
             block_count: info.block_count.into(),
@@ -94,9 +92,7 @@ impl RpcCommandHandler {
         }
 
         if unwrap_bool_or_false(args.weight) {
-            account_info.weight = Some(
-                self.ledger_queries.weight_exact(args.account.into()),
-            );
+            account_info.weight = Some(self.ledger_queries.weight_exact(args.account.into()));
         }
 
         let receivable = unwrap_bool_or_false(args.receivable);
@@ -106,8 +102,9 @@ impl RpcCommandHandler {
             account_info.receivable = Some(account_receivable);
 
             if include_confirmed {
-                let confirmed_receivable =
-                    self.ledger_queries.confirmed_account_receivable(&args.account);
+                let confirmed_receivable = self
+                    .ledger_queries
+                    .confirmed_account_receivable(&args.account);
                 account_info.confirmed_pending = Some(confirmed_receivable);
                 account_info.confirmed_receivable = Some(confirmed_receivable);
             }

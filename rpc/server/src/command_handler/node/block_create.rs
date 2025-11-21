@@ -19,9 +19,7 @@ impl RpcCommandHandler {
     ) -> anyhow::Result<BlockCreateResponse> {
         let difficulty = args
             .difficulty
-            .unwrap_or_else(|| {
-                self.ledger_work_thresholds.threshold_base().into()
-            })
+            .unwrap_or_else(|| self.ledger_work_thresholds.threshold_base().into())
             .inner();
 
         let wallet_id = args.wallet.unwrap_or_default();
@@ -242,8 +240,8 @@ pub fn difficulty_ledger(node: Arc<Node>, ledger: &LedgerQueryHandle, block: &Bl
 
     // Send check
     if block_previous.is_some() {
-        let is_send = ledger.block_balance(&previous).unwrap_or_default()
-            > block.balance_field().unwrap();
+        let is_send =
+            ledger.block_balance(&previous).unwrap_or_default() > block.balance_field().unwrap();
         details = BlockDetails::new(Epoch::Epoch0, is_send, false, false);
         details_found = true;
     }
