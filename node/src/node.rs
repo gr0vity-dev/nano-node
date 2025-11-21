@@ -62,7 +62,7 @@ pub struct Node {
     start_stop_listener: OutputListenerMt<&'static str>,
     tokio_runner: TokioRunner,
     pub aec_ticker: TimerThread<AecTicker>,
-    pub stats_collector: StatsCollector,
+    stats_collector: StatsCollector,
     container_info_factory: ContainerInfoFactory,
     aec_voter: TimerThread<AecVoter>,
     ticker_subsystem: TickerSubsystem,
@@ -179,8 +179,8 @@ impl Node {
         self.unchecked.clone()
     }
 
-    pub fn stats_collector(&self) -> StatsCollector {
-        self.stats_collector.clone()
+    pub fn stats_collector(&self) -> &StatsCollector {
+        &self.stats_collector
     }
 
     fn build_from_args(
