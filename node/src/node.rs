@@ -45,7 +45,7 @@ use crate::{
 #[allow(dead_code)]
 pub struct Node {
     is_nulled: bool,
-    pub runtime: tokio::runtime::Handle,
+    runtime: tokio::runtime::Handle,
     pub data_path: PathBuf,
     pub node_id: PrivateKey,
     pub config: NodeConfig,
@@ -56,7 +56,7 @@ pub struct Node {
     handles: ProductionHandles,
     network_subsystem: NetworkSubsystem,
     consensus_subsystem: ConsensusSubsystem,
-    pub unchecked: Arc<Mutex<UncheckedMap>>,
+    unchecked: Arc<Mutex<UncheckedMap>>,
     pub backlog_scan: BacklogServices,
     stopped: AtomicBool,
     start_stop_listener: OutputListenerMt<&'static str>,
@@ -126,6 +126,10 @@ impl Node {
         self.telemetry_subsystem.clone()
     }
 
+    pub fn runtime(&self) -> tokio::runtime::Handle {
+        self.runtime.clone()
+    }
+
     #[cfg(test)]
     pub fn telemetry_services(&self) -> TelemetryServices {
         self.services.telemetry_services()
@@ -169,6 +173,14 @@ impl Node {
 
     fn consensus_timer_services(&self) -> ConsensusTimerServices<'_> {
         ConsensusTimerServices::new(&self.aec_ticker, &self.aec_voter)
+    }
+
+    pub fn unchecked(&self) -> Arc<Mutex<UncheckedMap>> {
+        self.unchecked.clone()
+    }
+
+    pub fn stats_collector(&self) -> StatsCollector {
+        self.stats_collector.clone()
     }
 
     fn build_from_args(
