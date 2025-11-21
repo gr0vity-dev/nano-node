@@ -9,7 +9,7 @@ fn accounts_frontiers_found() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .accounts_frontiers(vec![*DEV_GENESIS_ACCOUNT])
@@ -34,7 +34,7 @@ fn accounts_frontiers_account_not_found() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .accounts_frontiers(vec![Account::ZERO])
@@ -55,7 +55,7 @@ fn accounts_frontiers_found_and_not_found() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .accounts_frontiers(vec![*DEV_GENESIS_ACCOUNT, Account::ZERO])

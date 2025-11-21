@@ -8,7 +8,7 @@ fn validate_account_number() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .validate_account_number(Account::ZERO.encode_account())

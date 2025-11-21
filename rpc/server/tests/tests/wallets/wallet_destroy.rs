@@ -14,7 +14,7 @@ fn wallet_destroy() {
 
     assert!(node.wallet_services().wallets.wallet_exists(&wallet_id));
 
-    node.runtime
+    node.runtime()
         .block_on(async { server.client.wallet_destroy(wallet_id).await.unwrap() });
 
     assert_eq!(
@@ -35,7 +35,7 @@ fn wallet_destroy_fails_without_enable_control() {
     node.wallet_services().wallets.create(wallet_id);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_destroy(wallet_id).await });
 
     assert!(result.is_err());

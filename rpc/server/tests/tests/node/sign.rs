@@ -31,7 +31,7 @@ fn sign() {
     };
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.sign(args).await.unwrap() });
 
     let signed_block: Block = result.block.unwrap().into();
@@ -59,7 +59,7 @@ fn sign_without_key() {
         .send(Account::ZERO, Amount::raw(1_000_000));
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.sign(send.json_representation()).await });
 
     assert_eq!(

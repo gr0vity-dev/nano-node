@@ -13,7 +13,7 @@ fn wallet_add_watch() {
 
     node.wallet_services().wallets.create(wallet_id);
 
-    node.runtime.block_on(async {
+    node.runtime().block_on(async {
         server
             .client
             .wallet_add_watch(wallet_id, vec![*DEV_GENESIS_ACCOUNT])
@@ -39,7 +39,7 @@ fn wallet_add_watch_without_enable_control() {
 
     node.wallet_services().wallets.create(wallet_id);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .wallet_add_watch(wallet_id, vec![Account::ZERO])

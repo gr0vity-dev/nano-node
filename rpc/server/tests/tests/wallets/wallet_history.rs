@@ -34,7 +34,7 @@ fn wallet_history() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let wallet_history = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_history(wallet_id).await.unwrap() });
 
     assert_eq!(wallet_history.history.len(), 1);
@@ -65,7 +65,7 @@ fn wallet_history_fails_with_wallet_not_found() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_history(WalletId::random()).await });
 
     assert_eq!(

@@ -17,7 +17,7 @@ fn wallet_representative() {
         .unwrap();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_representative(wallet).await.unwrap() });
 
     assert_eq!(result.representative, PublicKey::ZERO.into());
@@ -30,7 +30,7 @@ fn wallet_representative_fails_with_wallet_not_found() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .wallet_representative(WalletId::random())

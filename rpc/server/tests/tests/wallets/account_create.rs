@@ -15,7 +15,7 @@ fn account_create_default() {
     node.wallet_services().wallets.create(wallet_id);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_create(wallet_id).await.unwrap() });
 
     assert!(
@@ -41,7 +41,7 @@ fn account_create_index_max() {
         .build();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_create(args).await.unwrap() });
 
     assert!(
@@ -67,7 +67,7 @@ fn account_create_work_without_precomputed_work() {
         .build();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_create(args).await.unwrap() });
 
     assert!(
@@ -97,7 +97,7 @@ fn account_create_fails_without_enable_control() {
     node.wallet_services().wallets.create(wallet_id);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_create(wallet_id).await });
 
     assert_eq!(
@@ -120,7 +120,7 @@ fn account_create_fails_wallet_locked() {
     node.wallet_services().wallets.lock(&wallet_id).unwrap();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_create(wallet_id).await });
 
     assert_eq!(
@@ -139,7 +139,7 @@ fn account_create_fails_wallet_not_found() {
     let wallet_id = WalletId::random();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_create(wallet_id).await });
 
     assert_eq!(

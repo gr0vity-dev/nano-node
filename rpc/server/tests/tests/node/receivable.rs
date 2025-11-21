@@ -53,7 +53,7 @@ fn receivable_include_only_confirmed() {
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 
-    let result1 = node.runtime.block_on(async {
+    let result1 = node.runtime().block_on(async {
         server
             .client
             .receivable(ReceivableArgs {
@@ -77,7 +77,7 @@ fn receivable_include_only_confirmed() {
         .finish();
 
     let result2 = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.receivable(args).await.unwrap() });
 
     if let ReceivableResponse::Simple(simple) = result2 {
@@ -108,7 +108,7 @@ fn receivable_options_none() {
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .receivable(Account::from(public_key))
@@ -154,7 +154,7 @@ fn receivable_threshold_some() {
         .finish();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.receivable(args).await.unwrap() });
 
     if let ReceivableResponse::Threshold(threshold) = result {

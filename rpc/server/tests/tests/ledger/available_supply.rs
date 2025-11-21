@@ -9,7 +9,7 @@ fn available_supply() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.available_supply().await.unwrap() });
 
     assert_eq!(result.available, Amount::ZERO);

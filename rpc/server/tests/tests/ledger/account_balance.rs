@@ -11,7 +11,7 @@ fn account_balance_default_include_only_confirmed_blocks() {
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .account_balance(DEV_GENESIS_KEY.public_key().as_account())
@@ -42,7 +42,7 @@ fn account_balance_include_unconfirmed_blocks() {
         .finish();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_balance(args).await.unwrap() });
 
     assert_eq!(

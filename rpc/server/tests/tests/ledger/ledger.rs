@@ -36,7 +36,7 @@ fn test_ledger() {
     let args = LedgerArgs::builder().count(1).sorted().build();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.ledger(args).await.unwrap() });
 
     let accounts = result.accounts;
@@ -71,7 +71,7 @@ fn test_ledger_threshold() {
         .build();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.ledger(args).await.unwrap() });
 
     let accounts = result.accounts;
@@ -110,7 +110,7 @@ fn test_ledger_pending() {
         .build();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.ledger(args).await.unwrap() });
 
     let accounts = result.accounts;

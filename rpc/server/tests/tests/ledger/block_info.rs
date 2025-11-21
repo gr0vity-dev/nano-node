@@ -11,7 +11,7 @@ fn block_info() {
     let server = setup_rpc_client_and_server(node.clone(), false);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.block_info(*DEV_GENESIS_HASH).await.unwrap() });
 
     assert_eq!(result.amount, Some(Amount::MAX));

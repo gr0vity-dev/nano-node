@@ -20,7 +20,7 @@ fn account_remove() {
 
     assert!(node.wallet_services().wallets.exists(&account));
 
-    node.runtime.block_on(async {
+    node.runtime().block_on(async {
         server
             .client
             .account_remove(wallet, account.into())
@@ -51,7 +51,7 @@ fn account_remove_fails_without_enable_control() {
     assert!(node.wallet_services().wallets.exists(&account));
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_remove(wallet, account.into()).await });
 
     assert_eq!(
@@ -74,7 +74,7 @@ fn account_remove_fails_wallet_locked() {
     node.wallet_services().wallets.lock(&wallet_id).unwrap();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_remove(wallet_id, Account::ZERO).await });
 
     assert_eq!(
@@ -90,7 +90,7 @@ fn account_remove_fails_wallet_not_found() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .account_remove(WalletId::random(), Account::ZERO)

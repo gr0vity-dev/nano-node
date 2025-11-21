@@ -21,7 +21,7 @@ fn wallet_contains_true() {
 
     assert!(node.wallet_services().wallets.exists(&account));
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .wallet_contains(wallet, account.into())
@@ -43,7 +43,7 @@ fn wallet_contains_false() {
 
     node.wallet_services().wallets.create(1.into());
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .wallet_contains(wallet, Account::ZERO)
@@ -61,7 +61,7 @@ fn wallet_contains_fails_with_wallet_not_found() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .wallet_contains(WalletId::random(), Account::ZERO)

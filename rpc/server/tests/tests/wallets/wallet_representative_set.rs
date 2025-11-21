@@ -12,7 +12,7 @@ fn wallet_representative_set() {
     let wallet = WalletId::random();
     node.wallet_services().wallets.create(wallet);
 
-    node.runtime.block_on(async {
+    node.runtime().block_on(async {
         server
             .client
             .wallet_representative_set(WalletRepresentativeSetArgs::new(wallet, Account::ZERO))
@@ -36,7 +36,7 @@ fn wallet_representative_set_fails_without_enable_control() {
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .wallet_representative_set(WalletRepresentativeSetArgs::new(

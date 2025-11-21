@@ -9,7 +9,7 @@ fn account_representative() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .account_representative(*DEV_GENESIS_ACCOUNT)
@@ -28,7 +28,7 @@ fn account_representative_fails_with_account_not_found() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_representative(Account::ZERO).await });
 
     assert_eq!(

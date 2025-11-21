@@ -10,7 +10,7 @@ fn confirmation_active() {
     send_block(node.clone());
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.confirmation_active(None).await.unwrap() });
 
     assert!(!result.confirmations.is_empty());

@@ -34,12 +34,12 @@ fn search_receivable() {
     );
 
     // Call search_receivable with the default wallet ID
-    node.runtime.block_on(async {
+    node.runtime().block_on(async {
         server.client.search_receivable(wallet_id).await.unwrap();
     });
 
     // Check that the balance has been updated
-    let final_balance = node.runtime.block_on(async {
+    let final_balance = node.runtime().block_on(async {
         let timeout = std::time::Duration::from_secs(10);
         let start = std::time::Instant::now();
         loop {
@@ -62,7 +62,7 @@ fn search_receivable_fails_without_enable_control() {
     let server = setup_rpc_client_and_server(node.clone(), false);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.search_receivable(WalletId::random()).await });
 
     assert_eq!(
@@ -79,7 +79,7 @@ fn search_receivable_fails_with_wallet_not_found() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.search_receivable(WalletId::random()).await });
 
     assert_eq!(

@@ -20,7 +20,7 @@ fn block_create_state() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .block_create(BlockCreateArgs::new(

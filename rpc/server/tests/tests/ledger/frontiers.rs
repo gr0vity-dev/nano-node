@@ -8,7 +8,7 @@ fn frontiers() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .frontiers(*DEV_GENESIS_ACCOUNT, 1)

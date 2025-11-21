@@ -10,7 +10,7 @@ fn work_validate() {
     let server = setup_rpc_client_and_server(node.clone(), true);
     let work = node.work_generate_dev(*DEV_GENESIS_HASH);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .work_validate(WorkValidateArgs {
@@ -26,7 +26,7 @@ fn work_validate() {
     assert_eq!(result.valid_all, "0");
     assert_eq!(result.valid_receive, "0");
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .work_validate(WorkValidateArgs {

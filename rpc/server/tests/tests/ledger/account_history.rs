@@ -108,7 +108,7 @@ fn account_history() {
     let args = AccountHistoryArgs::new(*DEV_GENESIS_ACCOUNT, 100);
 
     let account_history = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_history(args).await.unwrap() });
 
     assert_eq!(account_history.account, *DEV_GENESIS_ACCOUNT);
@@ -165,7 +165,7 @@ fn account_history() {
 
     // Test count and reverse
     let account_history_reverse = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_history(args).await.unwrap() });
 
     assert_eq!(account_history_reverse.history.len(), 1);
@@ -214,7 +214,7 @@ fn account_history() {
 
     // Test filter for send state blocks
     let account_history_filtered_send = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_history(args).await.unwrap() });
 
     assert_eq!(account_history_filtered_send.history.len(), 2);
@@ -233,7 +233,7 @@ fn account_history() {
 
     // Test filter for receive state blocks
     let account_history_filtered_receive = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_history(args).await.unwrap() });
 
     assert_eq!(account_history_filtered_receive.history.len(), 1);

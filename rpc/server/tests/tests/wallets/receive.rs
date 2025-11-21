@@ -73,7 +73,7 @@ fn receive() {
     let args = ReceiveArgs::builder(wallet, key1.public_key().into(), send2.hash()).build();
 
     let block_hash = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.receive(args).await.unwrap() })
         .block;
 
@@ -90,7 +90,7 @@ fn receive() {
     let args = ReceiveArgs::builder(wallet, key1.public_key().into(), send2.hash()).build();
 
     let error_result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.receive(args).await });
 
     assert_eq!(
@@ -101,7 +101,7 @@ fn receive() {
     let args = ReceiveArgs::builder(wallet, key1.public_key().into(), BlockHash::ZERO).build();
 
     let error_result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.receive(args).await });
 
     assert_eq!(

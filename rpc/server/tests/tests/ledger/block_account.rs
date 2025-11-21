@@ -9,7 +9,7 @@ fn block_account() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .block_account(DEV_GENESIS_HASH.to_owned())
@@ -28,7 +28,7 @@ fn block_account_fails_with_block_not_found() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.block_account(BlockHash::ZERO).await });
 
     assert_eq!(

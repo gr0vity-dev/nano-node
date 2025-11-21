@@ -13,7 +13,7 @@ fn account_get() {
     node.wallet_services().wallets.create(wallet_id);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_get(PublicKey::ZERO).await.unwrap() });
 
     assert_eq!(result.account, PublicKey::ZERO.into());

@@ -11,7 +11,7 @@ fn uptime() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.uptime().await.unwrap() });
 
     assert!(result.seconds.inner() > 0);

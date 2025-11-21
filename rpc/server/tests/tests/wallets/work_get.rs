@@ -19,7 +19,7 @@ fn work_get() {
         .unwrap();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.work_get(wallet, account).await.unwrap() });
 
     assert_eq!(result.work, WorkNonce::from(1));
@@ -32,7 +32,7 @@ fn work_get_fails_without_enable_control() {
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .work_get(WalletId::random(), Account::ZERO)
@@ -52,7 +52,7 @@ fn work_get_fails_with_wallet_not_found() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .work_get(WalletId::random(), Account::ZERO)

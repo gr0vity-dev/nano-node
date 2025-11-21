@@ -10,7 +10,7 @@ fn account_info() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .account_info(
@@ -30,7 +30,7 @@ fn account_info() {
         Some("node returned error: \"Account not found\"".to_string())
     );
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .account_info(

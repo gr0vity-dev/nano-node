@@ -20,7 +20,7 @@ fn wallet_frontiers() {
     let hash = send_block(node.clone());
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_frontiers(wallet).await.unwrap() });
 
     assert_eq!(

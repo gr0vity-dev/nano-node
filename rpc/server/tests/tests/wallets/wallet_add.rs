@@ -16,7 +16,7 @@ fn account_create_index_none() {
     let private_key = RawKey::random();
     let public_key: PublicKey = private_key.into();
 
-    node.runtime.block_on(async {
+    node.runtime().block_on(async {
         server
             .client
             .wallet_add(WalletAddArgs::new(wallet_id, private_key))
@@ -46,7 +46,7 @@ fn account_create_fails_without_enable_control() {
 
     let private_key = RawKey::random();
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .wallet_add(WalletAddArgs::new(wallet_id, private_key))
@@ -66,7 +66,7 @@ fn wallet_add_fails_with_wallet_not_found() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .wallet_add(WalletAddArgs::new(WalletId::random(), RawKey::ZERO))
@@ -92,7 +92,7 @@ fn wallet_add_work_true() {
 
     let private_key = RawKey::random();
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .wallet_add(WalletAddArgs::new(wallet_id, private_key))
@@ -128,7 +128,7 @@ fn wallet_add_work_false() {
         .build();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_add(args).await.unwrap() });
 
     assert_timely2(|| {

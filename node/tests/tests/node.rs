@@ -2647,7 +2647,7 @@ fn block_processor_signatures() {
     send5.set_signature(Signature::new());
 
     // Invalid signature to unchecked
-    node.unchecked.lock().unwrap().put(
+    node.unchecked().lock().unwrap().put(
         send5.previous(),
         send5.clone(),
         node.network_subsystem().test_handles().steady_clock.now(),
@@ -2673,7 +2673,7 @@ fn block_processor_signatures() {
         node.block_exists(&receive2.hash())
     });
 
-    assert_timely_eq2(|| node.unchecked.lock().unwrap().len(), 0);
+    assert_timely_eq2(|| node.unchecked().lock().unwrap().len(), 0);
 
     assert!(node.block(&receive3.hash()).is_none()); // Invalid signer
     assert!(node.block(&send4.hash()).is_none()); // Invalid signature via process_active

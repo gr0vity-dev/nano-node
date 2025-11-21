@@ -10,7 +10,7 @@ fn stats_clear() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    node.runtime
+    node.runtime()
         .block_on(async { server.client.stats_clear().await.unwrap() });
 
     let stats = node.stats_service();

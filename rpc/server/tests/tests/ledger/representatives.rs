@@ -11,7 +11,7 @@ fn representatives_rpc_response() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.representatives().await.unwrap() });
 
     let mut representatives = IndexMap::new();

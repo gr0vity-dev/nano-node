@@ -22,7 +22,7 @@ fn unopened() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .unopened(UnopenedArgs {
@@ -55,7 +55,7 @@ fn unopened_with_threshold() {
     };
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.unopened(args).await.unwrap() });
 
     assert!(result.accounts.is_empty());
@@ -74,7 +74,7 @@ fn unopened_fails_without_enable_control() {
     };
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.unopened(args).await });
 
     assert_eq!(

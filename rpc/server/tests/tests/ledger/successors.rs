@@ -38,7 +38,7 @@ fn successors() {
 
     assert_timely2(|| node.is_active_root(&block.qualified_root()));
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .successors(ChainArgs::builder(genesis, u64::MAX).build())
@@ -55,7 +55,7 @@ fn successors() {
     let args = ChainArgs::builder(genesis, u64::MAX).reverse().build();
 
     let reverse_result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.chain(args).await.unwrap() });
 
     assert_eq!(result, reverse_result);

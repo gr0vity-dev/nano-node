@@ -20,7 +20,7 @@ fn account_list() {
         .into();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_list(wallet).await.unwrap() });
 
     assert_eq!(vec![account], result.accounts);
@@ -34,7 +34,7 @@ fn account_list_fails_wallet_not_found() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_list(WalletId::random()).await });
 
     assert_eq!(

@@ -40,7 +40,7 @@ fn wallet_ledger() {
         .build();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_ledger(args).await.unwrap() });
 
     let accounts = result.accounts;
@@ -60,7 +60,7 @@ fn wallet_ledger() {
     assert_eq!(info.representative, Some(keys.account()));
 
     let result_without_optional = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_ledger(wallet_id).await.unwrap() });
 
     let accounts_without_optional = result_without_optional.accounts;
@@ -79,7 +79,7 @@ fn account_create_fails_without_enable_control() {
     let server = setup_rpc_client_and_server(node.clone(), false);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_ledger(WalletId::random()).await });
 
     assert_eq!(
@@ -96,7 +96,7 @@ fn account_create_fails_with_wallet_not_found() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_ledger(WalletId::random()).await });
 
     assert_eq!(

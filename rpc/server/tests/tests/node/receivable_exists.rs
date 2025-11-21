@@ -24,7 +24,7 @@ fn receivable_exists_confirmed() {
     let server = setup_rpc_client_and_server(node.clone(), false);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.receivable_exists(send.hash()).await.unwrap() });
 
     assert_eq!(result.exists, true.into());
@@ -45,7 +45,7 @@ fn test_receivable_exists_unconfirmed() {
         .finish();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.receivable_exists(args).await.unwrap() });
 
     assert_eq!(result.exists, true.into());
@@ -60,7 +60,7 @@ fn test_receivable_exists_non_existent() {
 
     let non_existent_hash = BlockHash::ZERO;
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.receivable_exists(non_existent_hash).await })
         .unwrap_err();
 

@@ -8,7 +8,7 @@ fn frontier_count() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.frontier_count().await.unwrap() });
 
     assert_eq!(result.count, 1.into());

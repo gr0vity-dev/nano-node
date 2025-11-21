@@ -12,7 +12,7 @@ fn wallet_export() {
     node.wallet_services().wallets.create(wallet);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_export(wallet).await.unwrap() });
 
     assert_ne!(result.json, "");

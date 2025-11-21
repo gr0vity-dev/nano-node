@@ -7,7 +7,7 @@ fn node_id() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    node.runtime
+    node.runtime()
         .block_on(async { server.client.node_id().await.unwrap() });
 }
 
@@ -19,7 +19,7 @@ fn node_id_without_enable_control() {
     let server = setup_rpc_client_and_server(node.clone(), false);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.node_id().await });
 
     assert_eq!(

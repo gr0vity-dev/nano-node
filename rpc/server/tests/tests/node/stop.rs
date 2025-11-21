@@ -7,7 +7,7 @@ fn stop_fails_with_enable_control_disabled() {
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 
-    let result = node.runtime.block_on(async { server.client.stop().await });
+    let result = node.runtime().block_on(async { server.client.stop().await });
 
     assert!(result.is_err());
 }

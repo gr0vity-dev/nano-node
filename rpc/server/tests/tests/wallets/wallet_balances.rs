@@ -24,7 +24,7 @@ fn wallet_balances_threshold_none() {
     node.wallet_services().wallets.create(wallet);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_balances(wallet).await.unwrap() });
 
     let expected_balances: HashMap<Account, AccountBalanceResponse> = HashMap::new();
@@ -55,7 +55,7 @@ fn wallet_balances_threshold_some() {
 
     send_block(node.clone(), public_key.into());
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         let args = WalletBalancesArgs::build(wallet)
             .with_minimum_balance(Amount::ZERO)
             .finish();
@@ -96,7 +96,7 @@ fn wallet_balances_threshold_some_fails() {
 
     send_block(node.clone(), public_key.into());
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         let args = WalletBalancesArgs::build(wallet)
             .with_minimum_balance(Amount::nano(1))
             .finish();

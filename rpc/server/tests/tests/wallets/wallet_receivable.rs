@@ -28,7 +28,7 @@ fn wallet_receivable_include_only_confirmed_false() {
     };
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_receivable(args).await.unwrap() });
 
     if let AccountsReceivableResponse::Simple(simple) = result {
@@ -62,7 +62,7 @@ fn wallet_receivable_options_none() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .wallet_receivable(WalletReceivableArgs {
@@ -117,7 +117,7 @@ fn wallet_receivable_threshold_some() {
     };
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_receivable(args).await.unwrap() });
 
     if let AccountsReceivableResponse::Threshold(simple) = result {
@@ -137,7 +137,7 @@ fn wallet_receivable_fails_without_enable_control() {
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .wallet_receivable(WalletReceivableArgs {

@@ -7,6 +7,6 @@ fn key_create() {
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 
-    node.runtime
+    node.runtime()
         .block_on(async { server.client.key_create().await.unwrap() });
 }

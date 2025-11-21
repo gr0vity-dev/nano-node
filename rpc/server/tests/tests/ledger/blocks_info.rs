@@ -8,7 +8,7 @@ fn blocks_info() {
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 
-    node.runtime.block_on(async {
+    node.runtime().block_on(async {
         server
             .client
             .blocks_info(vec![*DEV_GENESIS_HASH])

@@ -23,7 +23,7 @@ fn send() {
             .unwrap();
     let amount = Amount::raw(1000000);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .send(SendArgs {
@@ -72,7 +72,7 @@ fn send_fails_without_enable_control() {
             .unwrap();
     let amount = Amount::raw(1000000);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .send(SendArgs {

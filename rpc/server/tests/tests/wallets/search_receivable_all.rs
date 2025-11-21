@@ -20,7 +20,7 @@ fn search_receivable_all() {
 
     node.process(send);
 
-    node.runtime.block_on(async {
+    node.runtime().block_on(async {
         server.client.search_receivable_all().await.unwrap();
     });
 
@@ -35,7 +35,7 @@ fn search_receivable_all_fails_without_enable_control() {
     let server = setup_rpc_client_and_server(node.clone(), false);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.search_receivable_all().await });
 
     assert_eq!(

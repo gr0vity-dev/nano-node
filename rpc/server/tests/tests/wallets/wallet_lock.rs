@@ -20,7 +20,7 @@ fn wallet_lock() {
         true
     );
 
-    node.runtime
+    node.runtime()
         .block_on(async { server.client.wallet_lock(wallet_id).await.unwrap() });
 
     assert_eq!(
@@ -52,7 +52,7 @@ fn wallet_lock_fails_without_enable_control() {
     );
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_lock(wallet_id).await });
 
     assert_eq!(
@@ -77,7 +77,7 @@ fn wallet_lock_fails_with_wallet_not_found() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_lock(WalletId::random()).await });
 
     assert_eq!(

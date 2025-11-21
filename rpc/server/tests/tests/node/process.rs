@@ -18,7 +18,7 @@ fn process() {
         .finish();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.process(args).await.unwrap() });
 
     assert_eq!(result.hash, send1.hash());
@@ -41,7 +41,7 @@ fn process_fails_with_low_work() {
         .finish();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.process(args).await });
 
     assert_eq!(

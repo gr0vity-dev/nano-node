@@ -12,7 +12,7 @@ fn password_change() {
 
     node.wallet_services().wallets.create(wallet_id);
 
-    node.runtime.block_on(async {
+    node.runtime().block_on(async {
         server
             .client
             .password_change(wallet_id, "password".to_string())
@@ -45,7 +45,7 @@ fn password_change_fails_without_enable_control() {
 
     node.wallet_services().wallets.create(wallet_id);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .password_change(wallet_id, "password".to_string())
@@ -65,7 +65,7 @@ fn password_change_fails_with_wallet_not_found() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .password_change(WalletId::random(), "password".to_string())

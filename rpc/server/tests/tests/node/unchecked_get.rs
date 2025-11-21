@@ -21,10 +21,10 @@ fn unchecked_get() {
 
     node.process_active(open.clone());
 
-    assert_timely2(|| node.unchecked.lock().unwrap().len() == 1);
+    assert_timely2(|| node.unchecked().lock().unwrap().len() == 1);
 
     let unchecked_dto = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.unchecked_get(open.hash()).await.unwrap() });
 
     let current_timestamp = std::time::SystemTime::now()

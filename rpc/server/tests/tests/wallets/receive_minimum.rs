@@ -8,7 +8,7 @@ fn receive_minimum() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.receive_minimum().await.unwrap() });
 
     assert_eq!(result.amount, node.config.receive_minimum);
@@ -22,7 +22,7 @@ fn receive_minimum_fails_without_enable_control() {
     let server = setup_rpc_client_and_server(node.clone(), false);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.receive_minimum().await });
 
     assert_eq!(

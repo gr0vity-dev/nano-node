@@ -11,7 +11,7 @@ fn work_generate() {
     let hash = BlockHash::from_bytes([1; 32]);
 
     let work_generate_dto = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.work_generate(hash).await.unwrap() });
 
     assert_eq!(hash, work_generate_dto.hash);

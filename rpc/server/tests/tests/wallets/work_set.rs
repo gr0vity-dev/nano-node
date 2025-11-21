@@ -14,7 +14,7 @@ mod tests {
         let wallet_id = WalletId::random();
         node.wallet_services().wallets.create(wallet_id);
 
-        node.runtime.block_on(async {
+        node.runtime().block_on(async {
             server
                 .client
                 .work_set(wallet_id, Account::ZERO, 1.into())
@@ -39,7 +39,7 @@ mod tests {
 
         let server = setup_rpc_client_and_server(node.clone(), false);
 
-        let result = node.runtime.block_on(async {
+        let result = node.runtime().block_on(async {
             server
                 .client
                 .work_set(WalletId::random(), Account::ZERO, 1.into())
@@ -59,7 +59,7 @@ mod tests {
 
         let server = setup_rpc_client_and_server(node.clone(), true);
 
-        let result = node.runtime.block_on(async {
+        let result = node.runtime().block_on(async {
             server
                 .client
                 .work_set(WalletId::random(), Account::ZERO, 1.into())

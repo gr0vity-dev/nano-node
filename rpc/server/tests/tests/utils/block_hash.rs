@@ -12,7 +12,7 @@ fn block_hash() {
     let json_block = block.json_representation();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.block_hash(json_block).await.unwrap() });
 
     assert_eq!(result.hash, block.hash());

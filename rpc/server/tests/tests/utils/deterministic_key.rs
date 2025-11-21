@@ -8,7 +8,7 @@ fn deterministic_key() {
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .deterministic_key(RawKey::ZERO, 0)

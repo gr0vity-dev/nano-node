@@ -23,7 +23,7 @@ fn confirmation_info() {
         .finish();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.confirmation_info(args).await })
         .unwrap();
 

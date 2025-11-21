@@ -10,7 +10,7 @@ fn delegators_rpc_response() {
 
     let server = setup_rpc_client_and_server(node.clone(), true);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .delegators(*DEV_GENESIS_ACCOUNT)

@@ -35,7 +35,7 @@ fn account_move() {
     assert!(!wallet_accounts.contains(&account));
     assert!(source_accounts.contains(&account));
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .account_move(wallet, source, vec![account])
@@ -94,7 +94,7 @@ fn account_remove_fails_without_enable_control() {
     assert!(!wallet_accounts.contains(&account));
     assert!(source_accounts.contains(&account));
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .account_move(wallet, source, vec![account])
@@ -116,7 +116,7 @@ fn account_move_fails_source_not_found() {
 
     node.wallet_services().wallets.create(wallet);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .account_move(wallet, source, vec![Account::ZERO])
@@ -141,7 +141,7 @@ fn account_move_fails_target_not_found() {
 
     node.wallet_services().wallets.create(source);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .account_move(wallet, source, vec![Account::ZERO])
@@ -169,7 +169,7 @@ fn account_move_fails_source_locked() {
 
     node.wallet_services().wallets.lock(&source).unwrap();
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .account_move(wallet, source, vec![Account::ZERO])
@@ -197,7 +197,7 @@ fn account_move_fails_target_locked() {
 
     node.wallet_services().wallets.lock(&wallet).unwrap();
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .account_move(wallet, source, vec![Account::ZERO])
@@ -223,7 +223,7 @@ fn account_move_fails_account_not_found() {
     node.wallet_services().wallets.create(wallet);
     node.wallet_services().wallets.create(source);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .account_move(wallet, source, vec![Account::ZERO])

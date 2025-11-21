@@ -13,7 +13,7 @@ fn account_key() {
     node.wallet_services().wallets.create(wallet_id);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.account_key(Account::ZERO).await.unwrap() });
 
     assert_eq!(result.key, Account::ZERO.into());

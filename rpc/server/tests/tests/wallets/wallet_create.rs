@@ -9,7 +9,7 @@ fn wallet_create_seed_none() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_create(None).await.unwrap() });
 
     let wallets = node.wallet_services().wallets.wallet_ids();
@@ -27,7 +27,7 @@ fn wallet_create_seed_some() {
     let seed = RawKey::from_slice(&[1u8; 32]).unwrap();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_create(Some(seed)).await.unwrap() });
 
     let wallets = node.wallet_services().wallets.wallet_ids();
@@ -43,7 +43,7 @@ fn wallet_create_fails_without_enable_control() {
     let server = setup_rpc_client_and_server(node.clone(), false);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_create(None).await });
 
     assert_eq!(

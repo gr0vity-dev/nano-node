@@ -26,7 +26,7 @@ fn uncemented_blocks_reports_missing_entries() {
     let expected_inserts = ledger.block_cache_inserts().to_string();
     let expected_rollbacks = ledger.block_cache_rollbacks().to_string();
 
-    let response = node.runtime.block_on(async {
+    let response = node.runtime().block_on(async {
         server
             .client
             .uncemented_blocks(Default::default())

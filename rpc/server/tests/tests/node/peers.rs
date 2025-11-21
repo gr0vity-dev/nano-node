@@ -10,7 +10,7 @@ fn peers_without_details() {
     let server = setup_rpc_client_and_server(node1.clone(), false);
 
     let result = node1
-        .runtime
+        .runtime()
         .block_on(async { server.client.peers(None).await })
         .unwrap();
 
@@ -31,7 +31,7 @@ fn peers_with_details() {
     let server = setup_rpc_client_and_server(node1.clone(), false);
 
     let result = node1
-        .runtime
+        .runtime()
         .block_on(async { server.client.peers(Some(true)).await.unwrap() });
 
     println!("{:?}", result);

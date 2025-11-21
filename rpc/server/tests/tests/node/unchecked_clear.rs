@@ -23,10 +23,10 @@ fn unchecked_clear() {
 
     let _ = node.process_local(send1.clone());
 
-    assert_timely2(|| !node.unchecked.lock().unwrap().is_empty());
+    assert_timely2(|| !node.unchecked().lock().unwrap().is_empty());
 
-    node.runtime
+    node.runtime()
         .block_on(async { server.client.unchecked_clear().await.unwrap() });
 
-    assert!(node.unchecked.lock().unwrap().is_empty());
+    assert!(node.unchecked().lock().unwrap().is_empty());
 }

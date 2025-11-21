@@ -25,7 +25,7 @@ fn wallet_work_get() {
         .unwrap();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_work_get(wallet).await.unwrap() });
 
     assert_eq!(
@@ -42,7 +42,7 @@ fn wallet_work_get_fails_without_enable_control() {
     let server = setup_rpc_client_and_server(node.clone(), false);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_work_get(WalletId::random()).await });
 
     assert_eq!(
@@ -59,7 +59,7 @@ fn wallet_work_get_fails_with_wallet_not_found() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_work_get(WalletId::random()).await });
 
     assert_eq!(

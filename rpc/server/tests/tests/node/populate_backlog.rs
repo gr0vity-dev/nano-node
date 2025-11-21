@@ -9,7 +9,7 @@ fn populate_backlog() {
     let server = setup_rpc_client_and_server(node.clone(), true);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.populate_backlog().await.unwrap() });
 
     assert_eq!(to_string(&result).unwrap(), r#"{"success":""}"#.to_string());

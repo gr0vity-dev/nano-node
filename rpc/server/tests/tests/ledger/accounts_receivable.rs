@@ -59,7 +59,7 @@ fn accounts_receivable_include_only_confirmed() {
         .finish();
 
     let result1 = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.accounts_receivable(args).await.unwrap() });
 
     if let AccountsReceivableResponse::Simple(simple) = result1 {
@@ -73,7 +73,7 @@ fn accounts_receivable_include_only_confirmed() {
         .finish();
 
     let result2 = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.accounts_receivable(args).await })
         .unwrap();
 
@@ -111,7 +111,7 @@ fn accounts_receivable_options_none() {
         .finish();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.accounts_receivable(args).await.unwrap() });
 
     if let AccountsReceivableResponse::Simple(simple) = result {
@@ -155,7 +155,7 @@ fn accounts_receivable_threshold_some() {
         .finish();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.accounts_receivable(args).await.unwrap() });
 
     if let AccountsReceivableResponse::Threshold(threshold) = result {
@@ -199,7 +199,7 @@ fn accounts_receivable_sorted() {
         .finish();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.accounts_receivable(args).await.unwrap() });
 
     if let AccountsReceivableResponse::Threshold(threshold) = result {

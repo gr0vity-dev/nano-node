@@ -19,7 +19,7 @@ fn password_enter() {
             .is_err()
     );
 
-    node.runtime.block_on(async {
+    node.runtime().block_on(async {
         server
             .client
             .password_enter(wallet_id, "".to_string())
@@ -47,7 +47,7 @@ fn password_enter_fails_with_invalid_password() {
     node.wallet_services().wallets.create(wallet_id);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async {
             server
                 .client
@@ -66,7 +66,7 @@ fn password_enter_fails_with_wallet_not_found() {
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .password_enter(WalletId::random(), "password".to_string())

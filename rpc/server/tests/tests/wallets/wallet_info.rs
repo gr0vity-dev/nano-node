@@ -23,7 +23,7 @@ fn wallet_info() {
     send_block(node.clone());
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_info(wallet).await.unwrap() });
 
     assert_eq!(result.balance, Amount::MAX - Amount::raw(1));
@@ -45,7 +45,7 @@ fn wallet_info_fails_with_wallet_not_found() {
     let server = setup_rpc_client_and_server(node.clone(), false);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_info(WalletId::random()).await });
 
     assert_eq!(

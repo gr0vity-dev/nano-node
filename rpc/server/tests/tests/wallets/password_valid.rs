@@ -18,7 +18,7 @@ fn password_valid() {
         .enter_password(wallet_id, "password");
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.password_valid(wallet_id).await.unwrap() });
 
     assert_eq!(result.valid, false.into());
@@ -26,7 +26,7 @@ fn password_valid() {
     let _ = node.wallet_services().wallets.enter_password(wallet_id, "");
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.password_valid(wallet_id).await.unwrap() });
 
     assert_eq!(result.valid, true.into());
@@ -40,7 +40,7 @@ fn password_valid_fails_with_wallet_not_found() {
     let server = setup_rpc_client_and_server(node.clone(), false);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.password_valid(WalletId::random()).await });
 
     assert_eq!(

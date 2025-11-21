@@ -21,7 +21,7 @@ fn wallet_locked_false() {
     );
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_locked(wallet_id).await.unwrap() });
 
     assert_eq!(result.locked, false.into());
@@ -41,7 +41,7 @@ fn wallet_locked_true() {
     node.wallet_services().wallets.lock(&wallet_id).unwrap();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_locked(wallet_id).await.unwrap() });
 
     assert_eq!(result.locked, true.into());
@@ -55,7 +55,7 @@ fn wallet_locked_fails_with_wallet_not_found() {
     let server = setup_rpc_client_and_server(node.clone(), false);
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.wallet_locked(WalletId::random()).await });
 
     assert_eq!(

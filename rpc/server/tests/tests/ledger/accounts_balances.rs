@@ -22,7 +22,7 @@ fn accounts_balances_only_confirmed_none() {
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .accounts_balances(vec![DEV_GENESIS_KEY.public_key().as_account()])
@@ -49,7 +49,7 @@ fn account_balance_only_confirmed_true() {
 
     let server = setup_rpc_client_and_server(node.clone(), false);
 
-    let result = node.runtime.block_on(async {
+    let result = node.runtime().block_on(async {
         server
             .client
             .accounts_balances(vec![DEV_GENESIS_KEY.public_key().as_account()])
@@ -82,7 +82,7 @@ fn account_balance_only_confirmed_false() {
         .finish();
 
     let result = node
-        .runtime
+        .runtime()
         .block_on(async { server.client.accounts_balances(args).await.unwrap() });
 
     let account = result.balances.get(&DEV_GENESIS_ACCOUNT).unwrap();
