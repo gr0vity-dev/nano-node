@@ -10,7 +10,7 @@ use rsnano_types::{
 };
 
 use rsnano_node::block_processing::{BlockContext, BlockSource};
-use test_helpers::{System, assert_timely_eq2, assert_timely2, start_elections};
+use test_helpers::{NodeTestBehavior, System, assert_timely_eq2, assert_timely2, start_elections};
 
 mod votes {
     use super::*;
@@ -26,12 +26,7 @@ mod votes {
         let key1 = PrivateKey::new();
         let send1 = lattice.genesis().legacy_send(&key1, 100);
         let send1 = node1.process(send1);
-        node1
-            .consensus_subsystem()
-            .test_handles()
-            .election_schedulers
-            .manual
-            .push(send1.clone().into());
+        node1.start_election_for_test(&send1.hash());
 
         assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
 

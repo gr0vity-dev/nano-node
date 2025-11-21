@@ -15,9 +15,9 @@ use rsnano_types::{
 };
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{
-    System, assert_always_eq, assert_never, assert_timely_eq, assert_timely_eq2, assert_timely2,
-    process_open_block, process_send_block, setup_independent_blocks, start_election,
-    start_elections,
+    NodeTestBehavior, System, assert_always_eq, assert_never, assert_timely_eq, assert_timely_eq2,
+    assert_timely2, process_open_block, process_send_block, setup_independent_blocks,
+    start_election, start_elections,
 };
 
 /// What this test is doing:
@@ -1160,11 +1160,7 @@ fn broadcast_block_on_activation() {
     });
 
     // Activating the election should broadcast the block
-    node1
-        .consensus_subsystem()
-        .test_handles()
-        .election_schedulers
-        .add_manual(send1.clone());
+    node1.start_election_for_test(&send1.hash());
     assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
     assert_timely2(|| node2.block_exists(&send1.hash()));
 }

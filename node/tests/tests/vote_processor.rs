@@ -9,7 +9,8 @@ use std::{
     time::{Duration, Instant},
 };
 use test_helpers::{
-    System, assert_always_eq, assert_timely_eq2, assert_timely2, setup_chain, start_election,
+    NodeTestBehavior, System, assert_always_eq, assert_timely_eq2, assert_timely2, setup_chain,
+    start_election,
 };
 
 #[test]
@@ -84,7 +85,6 @@ fn invalid_signature() {
     let node = system.make_node();
     let chain = setup_chain(&node, 1, &DEV_GENESIS_KEY, false);
     let consensus_services = node.consensus_subsystem().test_handles();
-    let vote_processor_queue = consensus_services.vote_processor_queue.clone();
     let active = consensus_services.active.clone();
     let key = PrivateKey::new();
     let vote = Vote::new(&key, Vote::TIMESTAMP_MIN, 0, vec![chain[0].hash()]);
@@ -94,7 +94,7 @@ fn invalid_signature() {
     let vote_invalid = Arc::new(vote_invalid);
     start_election(&node, &chain[0].hash());
 
-    vote_processor_queue.enqueue(vote_invalid, None, VoteSource::Live, None);
+    node.enqueue_vote_for_test(vote_invalid.into(), VoteSource::Live);
 
     assert_always_eq(
         Duration::from_millis(500),
@@ -115,8 +115,6 @@ fn overflow() {
     let mut system = System::new();
     let node = system.make_node();
     let key = PrivateKey::new();
-    let consensus_services = node.consensus_subsystem().test_handles();
-    let vote_processor_queue = consensus_services.vote_processor_queue.clone();
     let stats = node.ledger_query_services().stats.clone();
     let vote = Arc::new(Vote::new(
         &key,
@@ -129,7 +127,7 @@ fn overflow() {
     let mut not_processed = 0;
     const TOTAL: usize = 1000;
     for _ in 0..TOTAL {
-        if !vote_processor_queue.enqueue(vote.clone(), None, VoteSource::Live, None) {
+        if !node.enqueue_vote_for_test(vote.clone(), VoteSource::Live) {
             not_processed += 1;
         }
     }

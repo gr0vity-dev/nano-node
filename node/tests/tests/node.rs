@@ -682,6 +682,12 @@ fn fork_publish() {
         .unwrap()
         .votes()
         .clone();
+    assert_timely2(|| {
+        votes1
+            .get(&DEV_GENESIS_PUB_KEY)
+            .map(|entry| entry.hash == send1.hash())
+            .unwrap_or(false)
+    });
     let existing1 = votes1.get(&DEV_GENESIS_PUB_KEY).unwrap();
     assert_eq!(send1.hash(), existing1.hash);
 }
