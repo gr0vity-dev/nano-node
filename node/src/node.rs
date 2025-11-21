@@ -139,6 +139,10 @@ impl Node {
         self.consensus_subsystem.clone()
     }
 
+    pub(crate) fn services(&self) -> &NodeServices {
+        &self.services
+    }
+
     pub fn production_handles(&self) -> ProductionHandles {
         self.handles.clone()
     }
