@@ -18,8 +18,9 @@ use rsnano_types::{
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoFactory, ContainerInfoProvider},
-    stats::{Direction, Stats, StatsCollection, StatsCollector},
+    stats::{DetailType, Direction, StatType, Stats, StatsCollection, StatsCollector},
 };
+use rsnano_nullable_clock::Timestamp;
 
 #[cfg(test)]
 use crate::{TelemetryServices, consensus::AecTicker};
@@ -30,7 +31,7 @@ use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
     BacklogServices, BootstrapWorkServices, LedgerQueryServices, NodeCallbacks, ProductionHandles,
     WalletServices,
-    block_processing::{BlockContext, BlockSource, ProcessedResult, UncheckedMap},
+    block_processing::{BlockContext, BlockSource, ProcessedResult, UncheckedHandle, UncheckedMap},
     config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{election::ConfirmedElection},
     node_builder::ComposedNode,
@@ -72,6 +73,28 @@ pub struct Node {
     telemetry_subsystem: TelemetrySubsystem,
     #[cfg(feature = "ledger_snapshots")]
     ledger_snapshots: Arc<LedgerSnapshots>,
+}
+
+#[cfg(any(test, feature = "test_support"))]
+#[derive(Clone)]
+pub struct StatsHandle {
+    stats: Arc<Stats>,
+}
+
+#[cfg(any(test, feature = "test_support"))]
+impl StatsHandle {
+    pub fn count(&self, stat: StatType, detail: DetailType, dir: Direction) -> u64 {
+        self.stats.count(stat, detail, dir)
+    }
+}
+
+#[cfg(any(test, feature = "test_support"))]
+impl std::ops::Deref for StatsHandle {
+    type Target = Stats;
+
+    fn deref(&self) -> &Self::Target {
+        &self.stats
+    }
 }
 
 pub(crate) struct NodeArgs {
@@ -177,16 +200,38 @@ impl Node {
         self.bootstrap_subsystem.clone()
     }
 
-    pub fn stats_service(&self) -> Arc<Stats> {
-        self.stats.clone()
+    pub fn stats_snapshot(&self) -> MutexGuard<'_, StatsCollection> {
+        self.stats_collector.collect()
+    }
+
+    pub fn stats_count(&self, stat: &'static str, detail: &'static str, dir: Direction) -> u64 {
+        self.stats_snapshot().get_dir(stat, detail, dir)
+    }
+
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
+    pub fn stats_service(&self) -> StatsHandle {
+        StatsHandle { stats: self.stats.clone() }
     }
 
     pub fn ticker_subsystem(&self) -> &TickerSubsystem {
         &self.ticker_subsystem
     }
 
-    pub fn unchecked(&self) -> Arc<Mutex<UncheckedMap>> {
-        self.unchecked.clone()
+    pub fn unchecked(&self) -> UncheckedHandle {
+        UncheckedHandle::new(self.unchecked.clone())
+    }
+
+    /// Submit a block to the unchecked map using the current timestamp.
+    pub fn submit_unchecked(&self, dependency: BlockHash, block: Block) {
+        let now = self.network_subsystem.now();
+        self.unchecked.lock().unwrap().put(dependency, block, now);
+    }
+
+    /// Test-only helper to submit with an explicit timestamp.
+    #[cfg(any(test, feature = "test_support"))]
+    pub fn submit_unchecked_at(&self, dependency: BlockHash, block: Block, now: Timestamp) {
+        self.unchecked.lock().unwrap().put(dependency, block, now);
     }
 
     pub fn stats_collector(&self) -> &StatsCollector {
@@ -198,13 +243,22 @@ impl Node {
     }
 
     #[cfg(test)]
-    pub fn aec_ticker(&self) -> Arc<TimerThread<AecTicker>> {
+    pub(crate) fn aec_ticker(&self) -> Arc<TimerThread<AecTicker>> {
         self.consensus_subsystem.aec_ticker()
     }
 
-    #[cfg(feature = "ledger_snapshots")]
-    pub fn ledger_snapshots(&self) -> Arc<LedgerSnapshots> {
-        self.ledger_snapshots.clone()
+    #[cfg(all(test, feature = "ledger_snapshots"))]
+    #[doc(hidden)]
+    pub(crate) fn ledger_snapshots(&self) -> &LedgerSnapshots {
+        &self.ledger_snapshots
+    }
+
+    pub fn spawn_blocking<F, R>(&self, f: F) -> tokio::task::JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        self.runtime.spawn_blocking(f)
     }
 
     fn build_from_args(

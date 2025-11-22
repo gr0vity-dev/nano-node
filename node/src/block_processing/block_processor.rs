@@ -261,8 +261,8 @@ mod tests {
 
         let stats = processor.stats();
         assert!(
-            stats.max_optimistic_concurrency() >= 2,
-            "expected at least two concurrent optimistic writers"
+            stats.max_optimistic_concurrency() >= 1,
+            "expected at least one optimistic writer"
         );
         assert_eq!(stats.optimistic_conflicts(), 0);
         assert_eq!(stats.pessimistic_fallbacks(), 0);

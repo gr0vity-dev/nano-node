@@ -11,20 +11,11 @@ impl RpcCommandHandler {
     ) -> anyhow::Result<UncheckedGetResponse> {
         self.node
             .unchecked()
-            .lock()
-            .unwrap()
-            .iter()
-            .filter_map(|(_, block)| {
-                if block.hash() == args.hash {
-                    Some(UncheckedGetResponse {
-                        modified_timestamp: 0.into(), // not supported in RsNano
-                        contents: block.json_representation(),
-                    })
-                } else {
-                    None
-                }
+            .find(&args.hash)
+            .map(|block| UncheckedGetResponse {
+                modified_timestamp: 0.into(), // not supported in RsNano
+                contents: block.json_representation(),
             })
-            .next()
             .ok_or_else(|| anyhow!(Self::BLOCK_NOT_FOUND))
     }
 }

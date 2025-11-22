@@ -12,11 +12,10 @@ impl RpcCommandHandler {
         let blocks: HashMap<BlockHash, JsonBlock> = self
             .node
             .unchecked()
-            .lock()
-            .unwrap()
-            .iter()
-            .map(|(_, block)| (block.hash(), block.json_representation()))
+            .all_blocks()
+            .into_iter()
             .take(count)
+            .map(|(_, block)| (block.hash(), block.json_representation()))
             .collect();
 
         UncheckedResponse::new(blocks)

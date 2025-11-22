@@ -216,7 +216,7 @@ fn unchecked_epoch() {
         ));
 
     // Waits for the epoch1 block to pass through block_processor and unchecked.put queues
-    assert_timely_eq2(|| node1.unchecked().lock().unwrap().len(), 1);
+    assert_timely_eq2(|| node1.unchecked().len(), 1);
     node1
         .consensus_subsystem()
         .test_handles()
@@ -244,7 +244,7 @@ fn unchecked_epoch() {
     });
 
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
-    assert_timely_eq2(|| node1.unchecked().lock().unwrap().len(), 0);
+    assert_timely_eq2(|| node1.unchecked().len(), 0);
     let info = node1
         .ledger_query_services()
         .ledger_arc()
@@ -318,7 +318,7 @@ fn unchecked_epoch_invalid() {
         ));
 
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
-    assert_timely_eq2(|| node1.unchecked().lock().unwrap().len(), 2);
+    assert_timely_eq2(|| node1.unchecked().len(), 2);
     node1
         .consensus_subsystem()
         .test_handles()
@@ -350,7 +350,7 @@ fn unchecked_epoch_invalid() {
     let ledger = node1.ledger_query_services().ledger_arc();
     let any = ledger.any();
     assert_eq!(any.block_exists(&epoch1.hash()), false);
-    assert_eq!(node1.unchecked().lock().unwrap().len(), 0);
+    assert_eq!(node1.unchecked().len(), 0);
     let info = any.get_account(&destination.account()).unwrap();
     assert_eq!(info.epoch, Epoch::Epoch0);
     let epoch2_store = node1.block(&epoch2.hash()).unwrap();
@@ -393,7 +393,7 @@ fn unchecked_open() {
         ));
 
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
-    assert_timely_eq2(|| node1.unchecked().lock().unwrap().len(), 1);
+    assert_timely_eq2(|| node1.unchecked().len(), 1);
     // When open1 existists in unchecked, we know open2 has been processed.
     node1
         .consensus_subsystem()
@@ -406,7 +406,7 @@ fn unchecked_open() {
         ));
     // Waits for the send1 block to pass through block_processor and unchecked.put queues
     assert_timely2(|| node1.block_exists(&open1.hash()));
-    assert_eq!(node1.unchecked().lock().unwrap().len(), 0);
+    assert_eq!(node1.unchecked().len(), 0);
 }
 
 #[test]
@@ -439,20 +439,12 @@ fn unchecked_receive() {
             ChannelId::LOOPBACK,
         ));
     let check_block_is_listed =
-        |hash: &BlockHash| node1.unchecked().lock().unwrap().contains_dependency(*hash);
+        |hash: &BlockHash| node1.unchecked().contains_dependency(*hash);
     // Previous block for receive1 is unknown, signature cannot be validated
 
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
     assert_timely2(|| check_block_is_listed(&receive1.previous()));
-    assert_eq!(
-        node1
-            .unchecked()
-            .lock()
-            .unwrap()
-            .blocks_dependend_on(receive1.previous())
-            .count(),
-        1
-    );
+    assert_eq!(node1.unchecked().dependent_block_count(receive1.previous()), 1);
 
     // Waits for the open1 block to pass through block_processor and unchecked.put queues
     node1
@@ -469,10 +461,7 @@ fn unchecked_receive() {
     assert_eq!(
         node1
             .unchecked()
-            .lock()
-            .unwrap()
-            .blocks_dependend_on(receive1.source_or_link())
-            .count(),
+            .dependent_block_count(receive1.source_or_link()),
         1
     );
     node1
@@ -485,5 +474,5 @@ fn unchecked_receive() {
             ChannelId::LOOPBACK,
         ));
     assert_timely2(|| node1.block_exists(&receive1.hash()));
-    assert_eq!(node1.unchecked().lock().unwrap().len(), 0);
+    assert_eq!(node1.unchecked().len(), 0);
 }

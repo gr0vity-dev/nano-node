@@ -28,11 +28,11 @@ fn test_unchecked_keys() {
 
     node.process_active(open.clone());
 
-    assert_timely2(|| node.unchecked().lock().unwrap().len() == 1);
+    assert_timely2(|| node.unchecked().len() == 1);
 
     node.process_active(open2.clone());
 
-    assert_timely2(|| node.unchecked().lock().unwrap().len() == 2);
+    assert_timely2(|| node.unchecked().len() == 2);
 
     let unchecked_dto = node.runtime().block_on(async {
         server

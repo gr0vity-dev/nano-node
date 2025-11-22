@@ -10,18 +10,16 @@ impl RpcCommandHandler {
         let response: Vec<_> = self
             .node
             .unchecked()
-            .lock()
-            .unwrap()
-            .iter_start(args.key.into())
+            .blocks_starting_at(args.key.into(), count)
+            .into_iter()
             .map(|(dependency, block)| {
                 UncheckedKeyDto {
-                    key: *dependency,
+                    key: dependency,
                     hash: block.hash(),
                     modified_timestamp: 0.into(), // not supported in RsNano
                     contents: block.json_representation(),
                 }
             })
-            .take(count)
             .collect();
 
         UncheckedKeysResponse::new(response)

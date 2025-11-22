@@ -132,11 +132,17 @@ impl System {
 
         if self.nodes.len() > 1 && !disconnected {
             let other = &self.nodes[0];
-            let node_addr = node
+            let mut node_addr = node
                 .network_subsystem()
                 .test_handles()
                 .tcp_listener
                 .local_address();
+            if node_addr.port() == 0 {
+                node_addr.set_port(node.config().default_peering_port as u16);
+            }
+            if node_addr.ip().is_unspecified() {
+                node_addr.set_ip(Ipv6Addr::LOCALHOST);
+            }
             if let Err(e) = other
                 .network_subsystem()
                 .test_handles()
