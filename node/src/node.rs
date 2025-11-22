@@ -228,95 +228,58 @@ impl Node {
         let max_inbound_connections = composed.config.tcp.max_inbound_connections;
         let network_subsystem = {
             let services = &composed.services;
-            let (
-                network,
-                tcp_listener,
-                peer_connector,
-                network_threads,
-                message_processor,
-                message_sender,
-                message_flooder,
-                keepalive_publisher,
-                inbound_message_queue,
-                network_filter,
-                steady_clock,
-            ) = services.network_components();
             let wiring = NetworkWiring {
-                network,
-                tcp_listener,
-                peer_connector,
-                network_threads,
-                message_processor,
-                message_sender,
-                message_flooder,
-                keepalive_publisher,
-                inbound_message_queue,
-                network_filter,
-                steady_clock,
+                network: services.network.clone(),
+                tcp_listener: services.tcp_listener.clone(),
+                peer_connector: services.peer_connector.clone(),
+                network_threads: services.network_threads.clone(),
+                message_processor: services.message_processor.clone(),
+                message_sender: services.message_sender.clone(),
+                message_flooder: services.message_flooder.clone(),
+                keepalive_publisher: services.keepalive_publisher.clone(),
+                inbound_message_queue: services.inbound_message_queue.clone(),
+                network_filter: services.network_filter.clone(),
+                steady_clock: services.steady_clock.clone(),
             };
             NetworkSubsystem::new(wiring, max_inbound_connections)
         };
 
         let consensus_subsystem = {
             let s = &composed.services;
-            let (
-                active,
-                election_schedulers,
-                vote_processor,
-                vote_generators,
-                vote_history,
-                request_aggregator,
-                bounded_backlog,
-                bootstrapper,
-                rep_crawler,
-                online_reps,
-                rep_tiers,
-                local_block_broadcaster,
-                winner_block_broadcaster,
-                vote_processor_queue,
-                vote_cache,
-                vote_cache_processor,
-                confirming_set,
-                block_processor,
-                block_processor_queue,
-                vote_rebroadcaster,
-            ) = s.consensus_components();
             let wiring = ConsensusWiring {
-                active,
-                election_schedulers,
-                vote_processor,
-                vote_generators,
-                vote_history,
-                request_aggregator,
-                bounded_backlog,
-                bootstrapper,
-                rep_crawler,
-                online_reps,
-                rep_tiers,
-                local_block_broadcaster,
-                winner_block_broadcaster,
-                vote_processor_queue,
-                vote_cache,
-                vote_cache_processor,
-                confirming_set,
-                block_processor,
-                block_processor_queue,
-                vote_rebroadcaster,
+                active: s.active.clone(),
+                election_schedulers: s.election_schedulers.clone(),
+                vote_processor: s.vote_processor.clone(),
+                vote_generators: s.vote_generators.clone(),
+                vote_history: s.vote_history.clone(),
+                request_aggregator: s.request_aggregator.clone(),
+                bounded_backlog: s.bounded_backlog.clone(),
+                bootstrapper: s.bootstrapper.clone(),
+                rep_crawler: s.rep_crawler.clone(),
+                online_reps: s.online_reps.clone(),
+                rep_tiers: s.rep_tiers.clone(),
+                local_block_broadcaster: s.local_block_broadcaster.clone(),
+                winner_block_broadcaster: s.winner_block_broadcaster.clone(),
+                vote_processor_queue: s.vote_processor_queue.clone(),
+                vote_cache: s.vote_cache.clone(),
+                vote_cache_processor: s.vote_cache_processor.clone(),
+                confirming_set: s.confirming_set.clone(),
+                block_processor: s.block_processor.clone(),
+                block_processor_queue: s.block_processor_queue.clone(),
+                vote_rebroadcaster: s.vote_rebroadcaster.clone(),
             };
             ConsensusSubsystem::new(wiring, composed.config.clone(), composed.flags.clone())
         };
-        let (bootstrapper, bootstrap_server, work_factory) = composed.services.bootstrap_components();
         let bootstrap_wiring = BootstrapWiring {
-            bootstrapper,
-            bootstrap_server,
-            work_factory,
+            bootstrapper: composed.services.bootstrapper.clone(),
+            bootstrap_server: composed.services.bootstrap_server.clone(),
+            work_factory: composed.services.work_factory.clone(),
         };
         let bootstrap_subsystem =
             BootstrapSubsystem::new(bootstrap_wiring, composed.config.enable_bootstrap_responder);
-        let (telemetry, tcp_listener) = composed.services.telemetry_components();
         let telemetry_wiring = TelemetryWiring {
-            telemetry,
-            tcp_listener,
+            telemetry: composed.services.telemetry.clone(),
+            tcp_listener: composed.services.tcp_listener.clone(),
         };
         let telemetry_subsystem = TelemetrySubsystem::new(telemetry_wiring);
         let ticker_subsystem = TickerSubsystem::new(composed.ticker_services);
