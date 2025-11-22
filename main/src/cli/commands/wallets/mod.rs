@@ -110,13 +110,12 @@ pub(crate) fn run_wallets_command(global_args: GlobalArgs, cmd: WalletsCommand) 
 impl WalletsCommand {}
 
 fn list_wallets(wallet_services: &WalletServices) -> Result<()> {
-    let wallet_ids = wallet_services.wallets.get_wallet_ids();
+    let wallet_ids = wallet_services.wallet_ids();
 
     for wallet_id in wallet_ids {
         println!("{:?}", wallet_id);
         let accounts = wallet_services
-            .wallets
-            .get_accounts_of_wallet(&wallet_id)
+            .accounts_of_wallet(&wallet_id)
             .map_err(|e| anyhow!("Failed to get accounts of wallets: {:?}", e))?;
         if !accounts.is_empty() {
             for account in accounts {
@@ -129,7 +128,7 @@ fn list_wallets(wallet_services: &WalletServices) -> Result<()> {
 }
 
 fn clear_send_ids(wallet_services: &WalletServices) -> anyhow::Result<()> {
-    wallet_services.wallets.clear_send_ids();
+    wallet_services.clear_send_ids();
     println!("Send IDs deleted");
     Ok(())
 }

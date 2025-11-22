@@ -3,7 +3,7 @@ use rsnano_rpc_messages::SuccessResponse;
 
 impl RpcCommandHandler {
     pub(crate) fn search_receivable_all(&self) -> SuccessResponse {
-        self.wallet_services.wallets.search_receivable_all();
+        self.wallet_services.search_receivable_all();
         SuccessResponse::new()
     }
 }

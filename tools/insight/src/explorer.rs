@@ -1,4 +1,4 @@
-use rsnano_ledger::{AnySet, Ledger};
+use rsnano_node::handles::LedgerQueryHandle;
 use rsnano_types::{Account, BlockHash, DetailedBlock};
 
 pub(crate) struct Explorer {
@@ -12,10 +12,9 @@ impl Explorer {
         }
     }
 
-    pub(crate) fn search(&mut self, ledger: &Ledger, input: &str) -> bool {
+    pub(crate) fn search(&mut self, ledger: &LedgerQueryHandle, input: &str) -> bool {
         if let Some(hash) = BlockHash::decode_hex(input.trim()) {
-            let any = ledger.any();
-            self.state = match any.detailed_block(&hash) {
+            self.state = match ledger.detailed_block(&hash) {
                 Some(block) => ExplorerState::Block(block),
                 None => ExplorerState::NotFound,
             };
@@ -23,9 +22,8 @@ impl Explorer {
         };
 
         if let Some(account) = Account::parse(input) {
-            let any = ledger.any();
-            self.state = if let Some(head) = any.account_head(&account) {
-                match any.detailed_block(&head) {
+            self.state = if let Some(head) = ledger.account_head(&account) {
+                match ledger.detailed_block(&head) {
                     Some(block) => ExplorerState::Block(block),
                     None => ExplorerState::NotFound,
                 }

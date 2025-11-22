@@ -25,12 +25,9 @@ impl RemoveAccountArgs {
             .ok_or_else(|| anyhow!("Invalid account"))?
             .into();
 
-        wallet_services
-            .wallets
-            .ensure_wallet_is_unlocked(wallet_id, &password);
+        wallet_services.ensure_wallet_is_unlocked(wallet_id, &password);
 
         wallet_services
-            .wallets
             .remove_key(&wallet_id, &account)
             .map_err(|e| anyhow!("Failed to remove account: {:?}", e))?;
 

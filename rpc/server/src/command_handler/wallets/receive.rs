@@ -47,15 +47,13 @@ impl RpcCommandHandler {
         // Set a wallet default representative for new accounts
         let representative = self
             .wallet_services
-            .wallets
-            .get_representative(args.wallet)?;
+            .wallet_representative(args.wallet)?;
 
         // Disable work generation if "work" option is provided
         let generate_work = work.is_zero();
 
         let block = self
             .wallet_services
-            .wallets
             .receive(
                 args.wallet,
                 args.block,

@@ -11,32 +11,32 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{info, trace, warn};
 
-use rsnano_wallet::Wallets;
 use rsnano_websocket_messages::{
     ConfirmationJsonOptions, MessageEnvelope, Request, Topic, to_topic,
 };
 
 use super::{ConfirmationOptions, Options, VoteJsonOptions, VoteOptions};
+use rsnano_node::WalletServices;
 
 pub struct WebsocketSessionEntry {
     /// Map of subscriptions -> options registered by this session.
     pub subscriptions: Mutex<HashMap<Topic, Options>>,
     send_queue_tx: mpsc::Sender<MessageEnvelope>,
     tx_close: Mutex<Option<oneshot::Sender<()>>>,
-    wallets: Arc<Wallets>,
+    wallet_services: WalletServices,
 }
 
 impl WebsocketSessionEntry {
     pub fn new(
         send_queue_tx: mpsc::Sender<MessageEnvelope>,
         tx_close: oneshot::Sender<()>,
-        wallets: Arc<Wallets>,
+        wallet_services: WalletServices,
     ) -> Self {
         Self {
             subscriptions: Mutex::new(HashMap::new()),
             send_queue_tx,
             tx_close: Mutex::new(Some(tx_close)),
-            wallets,
+            wallet_services,
         }
     }
 
@@ -87,7 +87,7 @@ impl WebsocketSessionEntry {
     ///  return false - the message should always be broadcasted
     pub fn should_filter_options(&self, options: &Options, message: &serde_json::Value) -> bool {
         match options {
-            Options::Confirmation(i) => i.should_filter(message, &self.wallets),
+            Options::Confirmation(i) => i.should_filter(message, &self.wallet_services),
             Options::Vote(i) => i.should_filter(message),
             Options::Other => false,
         }

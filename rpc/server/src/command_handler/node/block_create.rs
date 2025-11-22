@@ -42,7 +42,6 @@ impl RpcCommandHandler {
 
         if !wallet_id.is_zero() && !account.is_zero() {
             self.wallet_services
-                .wallets
                 .fetch(&wallet_id, &account.into())?;
             previous = ledger.account_head(&account).unwrap_or_default();
             balance = ledger.account_balance(&account);

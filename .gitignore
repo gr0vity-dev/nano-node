@@ -12,3 +12,5 @@ config-rpc.toml.sample
 .gemini
 .cursor
 .debug
+.braid
+goals.md

@@ -9,8 +9,7 @@ impl RpcCommandHandler {
     ) -> anyhow::Result<FrontiersResponse> {
         let accounts = self
             .wallet_services
-            .wallets
-            .get_accounts_of_wallet(&args.wallet)?;
+            .accounts_of_wallet(&args.wallet)?;
         let mut frontiers = HashMap::new();
 
         for account in accounts {

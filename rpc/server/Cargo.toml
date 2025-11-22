@@ -32,3 +32,4 @@ strum = "0.27"
 [dev-dependencies]
 test_helpers = { path = "../../tools/test_helpers" }
 rsnano_utils = { path = "../../utils" }
+rsnano_node = { path = "../../node", features = ["test_support"] }

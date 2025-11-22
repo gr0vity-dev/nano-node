@@ -1,9 +1,9 @@
 use super::WebsocketListener;
-use rsnano_ledger::{AnySet, Ledger};
 use rsnano_messages::TelemetryData;
 use rsnano_node::{
     CompositeNodeEventHandler, NodeEvent, NodeEventHandler, TelemetryServices, WalletServices,
     config::WebsocketConfig,
+    handles::LedgerQueryHandle,
 };
 use rsnano_types::{Account, BlockHash, Vote, VoteError};
 use rsnano_websocket_messages::{MessageEnvelope, Topic, new_block_arrived_message};
@@ -19,7 +19,7 @@ use tracing::error;
 pub fn create_websocket_server(
     config: WebsocketConfig,
     wallet_services: WalletServices,
-    ledger: Arc<Ledger>,
+    ledger: LedgerQueryHandle,
     telemetry_services: TelemetryServices,
     runtime: Handle,
     event_handlers: &mut CompositeNodeEventHandler,
@@ -36,7 +36,7 @@ pub fn create_websocket_server(
     let endpoint = SocketAddr::new(address, config.port);
     let server = Arc::new(WebsocketListener::new(
         endpoint,
-        wallet_services.wallets.clone(),
+        wallet_services.clone(),
         ledger.clone(),
         runtime,
     ));
@@ -178,7 +178,7 @@ pub struct VoteReceived {
 
 pub struct NodeEventProcessor {
     server: Arc<WebsocketListener>,
-    ledger: Arc<Ledger>,
+    ledger: LedgerQueryHandle,
 }
 
 impl NodeEventHandler for NodeEventProcessor {
@@ -197,7 +197,6 @@ impl NodeEventHandler for NodeEventProcessor {
             NodeEvent::BlockConfirmed(block, election) => {
                 let amount = self
                     .ledger
-                    .any()
                     .block_amount_for(block)
                     .unwrap_or_default();
 

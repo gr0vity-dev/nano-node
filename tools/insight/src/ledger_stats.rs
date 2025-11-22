@@ -18,8 +18,9 @@ impl LedgerStats {
     }
 
     pub(crate) fn update(&mut self, node: &Node) {
-        self.total_blocks = node.ledger_query_services().ledger_arc().block_count();
-        self.confirmed_blocks = node.ledger_query_services().ledger_arc().confirmed_count();
+        let queries = node.production_handles().ledger_queries();
+        self.total_blocks = queries.block_count();
+        self.confirmed_blocks = queries.confirmed_count();
         self.bps = node.ledger_query_services().block_rates.bps();
         self.cps = node.ledger_query_services().block_rates.cps();
     }

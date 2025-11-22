@@ -19,13 +19,10 @@ impl DecryptWalletArgs {
             WalletId::decode_hex(&self.wallet).ok_or_else(|| anyhow!("Invalid wallet id"))?;
         let password = self.password.clone().unwrap_or_default();
 
-        wallet_services
-            .wallets
-            .ensure_wallet_is_unlocked(wallet_id, &password);
+        wallet_services.ensure_wallet_is_unlocked(wallet_id, &password);
 
         let seed = wallet_services
-            .wallets
-            .get_seed(wallet_id)
+            .wallet_seed(wallet_id)
             .map_err(|e| anyhow!("Failed to get wallet seed: {:?}", e))?;
 
         println!("Seed: {:?}", seed);

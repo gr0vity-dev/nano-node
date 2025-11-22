@@ -3,7 +3,7 @@ use rsnano_rpc_messages::{LockedResponse, WalletRpcMessage};
 
 impl RpcCommandHandler {
     pub(crate) fn wallet_lock(&self, args: WalletRpcMessage) -> anyhow::Result<LockedResponse> {
-        self.wallet_services.wallets.lock(&args.wallet)?;
+        self.wallet_services.lock_wallet(&args.wallet)?;
         Ok(LockedResponse::new(true))
     }
 }

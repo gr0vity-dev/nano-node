@@ -79,7 +79,7 @@ impl InsightApp {
         if let Some(node) = self.node_runner.node() {
             let has_result = self
                 .explorer
-                .search(&node.ledger_query_services().ledger_arc(), input);
+                .search(&node.production_handles().ledger_queries(), input);
             if has_result {
                 self.navigator.current = NavItem::Explorer;
             }
@@ -150,7 +150,10 @@ impl InsightApp {
         if let Some(hash) = BlockHash::decode_hex(&self.rollback_hash)
             && let Some(node) = self.node_runner.node()
         {
-            let _ = node.ledger_query_services().ledger_arc().roll_back(&hash);
+            let _ = node
+                .production_handles()
+                .ledger_queries()
+                .roll_back(&hash);
         }
     }
 }

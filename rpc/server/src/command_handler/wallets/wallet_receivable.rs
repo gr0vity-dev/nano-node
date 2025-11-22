@@ -19,8 +19,7 @@ impl RpcCommandHandler {
 
         let accounts = self
             .wallet_services
-            .wallets
-            .get_accounts_of_wallet(&args.wallet)?;
+            .accounts_of_wallet(&args.wallet)?;
 
         let mut pending_source = IndexMap::new();
         let mut pending_threshold = IndexMap::new();

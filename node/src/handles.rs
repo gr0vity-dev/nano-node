@@ -2,8 +2,9 @@
 use std::sync::Arc;
 
 use rsnano_ledger::{
-    AnyReceivableIterator, AnySet, BlockError, ConfirmedSet, Ledger, LedgerConstants, LedgerSet,
-    OwningAnySet, RollbackError, StoreIterator,
+    AnyReceivableIterator, AnySet, BlockError, BlockStore, ConfirmedSet,
+    DuplicateInsertRecordSnapshot, Ledger, LedgerConstants, LedgerReadTxn, LedgerSet, OwningAnySet,
+    RollbackError, StoreIterator,
 };
 use rsnano_types::{
     Account, AccountInfo, Amount, Block, BlockHash, ConfirmationHeightInfo, DetailedBlock, Link,
@@ -200,7 +201,7 @@ pub struct LedgerQueryHandle {
 }
 
 impl LedgerQueryHandle {
-    pub(crate) fn new(ledger: Arc<Ledger>) -> Self {
+    pub fn new(ledger: Arc<Ledger>) -> Self {
         Self { ledger }
     }
 
@@ -291,6 +292,84 @@ impl LedgerQueryHandle {
 
     pub fn block_amount_for(&self, block: &SavedBlock) -> Option<Amount> {
         self.ledger.any().block_amount_for(block)
+    }
+
+    pub fn block_count(&self) -> u64 {
+        self.ledger.block_count()
+    }
+
+    pub fn confirmed_count(&self) -> u64 {
+        self.ledger.confirmed_count()
+    }
+
+    pub fn uncemented_blocks_snapshot(
+        &self,
+        max_accounts: usize,
+        max_blocks_per_account: usize,
+    ) -> UncementedBlocksSnapshot {
+        let ledger = &self.ledger;
+        let store = ledger.store.as_ref();
+        let tx = store.begin_read();
+        let account_store = store.account();
+        let block_store = store.block();
+        let conf_store = store.confirmation_height();
+
+        let store_count = block_store.iter(tx.as_ref()).count() as u64;
+        let cache_count = ledger.block_count();
+        let confirmed_count = ledger.confirmed_count();
+        let cache_inserts = ledger.block_cache_inserts();
+        let cache_rollbacks = ledger.block_cache_rollbacks();
+        let insert_sources = ledger.block_cache_insert_sources();
+        let duplicate_inserts = ledger.block_cache_duplicate_inserts();
+        let duplicate_sources = ledger.block_cache_duplicate_sources();
+        let duplicate_events = ledger.duplicate_insert_log();
+
+        let mut accounts = Vec::new();
+        let mut total_uncemented = 0u64;
+
+        for (account, info) in account_store.iter(tx.as_ref()) {
+            let conf_info = conf_store
+                .get(tx.as_ref(), &account)
+                .unwrap_or_else(|| ConfirmationHeightInfo::new(0, Default::default()));
+            if info.block_count > conf_info.height {
+                let missing = info.block_count - conf_info.height;
+                total_uncemented += missing;
+
+                let sample_hashes = collect_recent_hashes(
+                    block_store,
+                    tx.as_ref(),
+                    &info,
+                    conf_info.height,
+                    max_blocks_per_account,
+                );
+
+                accounts.push(UncementedAccountSnapshot {
+                    account,
+                    head: info.head,
+                    confirmed_frontier: conf_info.frontier,
+                    missing_count: missing,
+                    sample_hashes,
+                });
+
+                if accounts.len() >= max_accounts {
+                    break;
+                }
+            }
+        }
+
+        UncementedBlocksSnapshot {
+            cache_count,
+            store_count,
+            confirmed_count,
+            cache_inserts,
+            cache_rollbacks,
+            duplicate_inserts,
+            total_uncemented,
+            accounts,
+            insert_sources,
+            duplicate_sources,
+            duplicate_events,
+        }
     }
 
     pub fn block_account(&self, hash: &BlockHash) -> Option<Account> {
@@ -428,4 +507,57 @@ impl<'a> Iterator for AccountRangeIter<'a> {
         }
         self.iter.as_mut().and_then(Iterator::next)
     }
+}
+
+pub struct UncementedBlocksSnapshot {
+    pub cache_count: u64,
+    pub store_count: u64,
+    pub confirmed_count: u64,
+    pub cache_inserts: u64,
+    pub cache_rollbacks: u64,
+    pub duplicate_inserts: u64,
+    pub total_uncemented: u64,
+    pub accounts: Vec<UncementedAccountSnapshot>,
+    pub insert_sources: Vec<u64>,
+    pub duplicate_sources: Vec<u64>,
+    pub duplicate_events: Vec<DuplicateInsertRecordSnapshot>,
+}
+
+pub struct UncementedAccountSnapshot {
+    pub account: Account,
+    pub head: BlockHash,
+    pub confirmed_frontier: BlockHash,
+    pub missing_count: u64,
+    pub sample_hashes: Vec<BlockHash>,
+}
+
+fn collect_recent_hashes(
+    block_store: &dyn BlockStore,
+    tx: &dyn LedgerReadTxn,
+    info: &AccountInfo,
+    confirmed_height: u64,
+    max_hashes: usize,
+) -> Vec<BlockHash> {
+    let mut hashes = Vec::new();
+    let mut current_hash = info.head;
+    let mut current_height = info.block_count;
+
+    while current_height > confirmed_height && hashes.len() < max_hashes {
+        hashes.push(current_hash);
+        if current_hash.is_zero() {
+            break;
+        }
+        match block_store.get(tx, &current_hash) {
+            Some(block) => {
+                current_hash = block.previous();
+                if current_height == 0 {
+                    break;
+                }
+                current_height -= 1;
+            }
+            None => break,
+        }
+    }
+
+    hashes
 }

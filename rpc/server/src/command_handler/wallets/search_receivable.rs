@@ -8,12 +8,7 @@ impl RpcCommandHandler {
         &self,
         args: WalletRpcMessage,
     ) -> anyhow::Result<StartedResponse> {
-        match self
-            .wallet_services
-            .wallets
-            .search_receivable(&args.wallet)
-            .wait()
-        {
+        match self.wallet_services.search_receivable(&args.wallet).wait() {
             Ok(_) => Ok(StartedResponse::new(true)),
             Err(WalletsError::WalletLocked) => Ok(StartedResponse::new(false)),
             Err(e) => Err(e.into()),

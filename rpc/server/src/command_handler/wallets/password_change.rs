@@ -7,8 +7,7 @@ impl RpcCommandHandler {
         args: WalletWithPasswordArgs,
     ) -> anyhow::Result<ChangedResponse> {
         self.wallet_services
-            .wallets
-            .rekey(&args.wallet, args.password)?;
+            .rekey_wallet(&args.wallet, &args.password)?;
         Ok(ChangedResponse::new(true))
     }
 }

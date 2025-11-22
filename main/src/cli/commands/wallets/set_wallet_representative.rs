@@ -28,13 +28,10 @@ impl SetWalletRepresentativeArgs {
             .into();
         let password = self.password.clone().unwrap_or_default();
 
-        wallet_services
-            .wallets
-            .ensure_wallet_is_unlocked(wallet_id, &password);
+        wallet_services.ensure_wallet_is_unlocked(wallet_id, &password);
 
         wallet_services
-            .wallets
-            .set_representative(wallet_id, representative, false)
+            .set_wallet_representative(wallet_id, representative, false)
             .wait()
             .map_err(|e| anyhow!("Failed to set wallet representative: {:?}", e))?;
 

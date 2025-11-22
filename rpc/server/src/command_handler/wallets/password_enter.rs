@@ -10,8 +10,7 @@ impl RpcCommandHandler {
     ) -> anyhow::Result<ValidResponse> {
         match self
             .wallet_services
-            .wallets
-            .enter_password(args.wallet, &args.password)
+            .enter_wallet_password(args.wallet, &args.password)
         {
             Ok(_) => Ok(ValidResponse::new(true)),
             Err(WalletsError::InvalidPassword) => Ok(ValidResponse::new(false)),

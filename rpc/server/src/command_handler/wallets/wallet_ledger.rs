@@ -17,8 +17,7 @@ impl RpcCommandHandler {
 
         let accounts = self
             .wallet_services
-            .wallets
-            .get_accounts_of_wallet(&args.wallet)?;
+            .accounts_of_wallet(&args.wallet)?;
         let account_dtos = get_accounts_info(
             self.ledger_queries.clone(),
             accounts,

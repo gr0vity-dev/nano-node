@@ -8,8 +8,7 @@ impl RpcCommandHandler {
     ) -> anyhow::Result<ExistsResponse> {
         let wallet_accounts = self
             .wallet_services
-            .wallets
-            .get_accounts_of_wallet(&args.wallet)?;
+            .accounts_of_wallet(&args.wallet)?;
         let exists = wallet_accounts.contains(&args.account);
         Ok(ExistsResponse::new(exists))
     }

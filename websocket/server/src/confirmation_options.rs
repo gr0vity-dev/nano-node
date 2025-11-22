@@ -4,8 +4,18 @@ use serde_json::Value;
 use tracing::warn;
 
 use rsnano_types::Account;
-use rsnano_wallet::Wallets;
 use rsnano_websocket_messages::ConfirmationJsonOptions;
+use rsnano_node::WalletServices;
+
+pub trait WalletAccountLookup {
+    fn account_exists(&self, account: &Account) -> bool;
+}
+
+impl WalletAccountLookup for WalletServices {
+    fn account_exists(&self, account: &Account) -> bool {
+        self.account_exists(&account.into())
+    }
+}
 
 #[derive(Clone)]
 pub struct ConfirmationOptions {
@@ -110,7 +120,11 @@ impl ConfirmationOptions {
      * @param message_a the message to be checked
      * @return false if the message should be broadcasted, true if it should be filtered
      */
-    pub fn should_filter(&self, message_content: &Value, wallets: &Wallets) -> bool {
+    pub fn should_filter<L: WalletAccountLookup>(
+        &self,
+        message_content: &Value,
+        wallets: &L,
+    ) -> bool {
         let mut should_filter_conf_type = true;
 
         if let Some(serde_json::Value::String(type_text)) = message_content.get("confirmation_type")
@@ -136,7 +150,7 @@ impl ConfirmationOptions {
             if self.all_local_accounts {
                 let source = Account::parse(source_text).unwrap_or_default();
                 let destination = Account::parse(destination_text).unwrap_or_default();
-                if wallets.exists(&source.into()) || wallets.exists(&destination.into()) {
+                if wallets.account_exists(&source) || wallets.account_exists(&destination) {
                     should_filter_account = false;
                 }
             }

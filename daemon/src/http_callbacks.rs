@@ -3,10 +3,10 @@ use std::sync::Arc;
 use serde::Serialize;
 use tracing::error;
 
-use rsnano_ledger::{AnySet, Ledger};
 use rsnano_node::{
     NodeEvent, NodeEventHandler,
     consensus::election::{ConfirmationType, ConfirmedElection},
+    handles::LedgerQueryHandle,
 };
 use rsnano_nullable_http_client::{HttpClient, Url};
 use rsnano_types::{Amount, BlockType, SavedBlock};
@@ -17,7 +17,7 @@ use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
 pub(crate) struct HttpCallbacks {
     pub runtime: tokio::runtime::Handle,
     pub stats: Arc<Stats>,
-    pub ledger: Arc<Ledger>,
+    pub ledger: LedgerQueryHandle,
     pub callback_url: Url,
 }
 
@@ -88,7 +88,6 @@ impl NodeEventHandler for HttpCallbacks {
         if let NodeEvent::BlockConfirmed(block, status) = event {
             let amount = self
                 .ledger
-                .any()
                 .block_amount_for(block)
                 .unwrap_or_default();
             self.execute(status, block, amount)

@@ -16,10 +16,9 @@ fn quorum_minimum_confirm_fail() {
     let node1 = system.build_node().config(config).finish();
     let wallet_services = node1.wallet_services();
     let consensus_services = node1.consensus_subsystem().test_handles();
-    let wallet_id = wallet_services.wallets.wallet_ids()[0];
+    let wallet_id = wallet_services.wallet_ids()[0];
     wallet_services
-        .wallets
-        .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
+        .insert_adhoc(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
@@ -63,10 +62,9 @@ fn quorum_minimum_confirm_success() {
     let node1 = system.build_node().config(config).finish();
     let wallet_services = node1.wallet_services();
     let consensus_services = node1.consensus_subsystem().test_handles();
-    let wallet_id = wallet_services.wallets.wallet_ids()[0];
+    let wallet_id = wallet_services.wallet_ids()[0];
     wallet_services
-        .wallets
-        .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
+        .insert_adhoc(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();

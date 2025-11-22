@@ -5,6 +5,7 @@ authors = ["Gustav Schauwecker <service@simpago.com>"]
 edition = "2024"
 
 [features]
+test_support = []
 output_tracking = []
 ledger_snapshots = [
 	"rsnano_messages/ledger_snapshots", 

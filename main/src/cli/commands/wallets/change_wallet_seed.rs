@@ -26,13 +26,10 @@ impl ChangeWalletSeedArgs {
         let seed = RawKey::decode_hex(&self.seed).ok_or_else(|| anyhow!("Invalid seed"))?;
         let password = self.password.clone().unwrap_or_default();
 
-        wallet_services
-            .wallets
-            .ensure_wallet_is_unlocked(wallet_id, &password);
+        wallet_services.ensure_wallet_is_unlocked(wallet_id, &password);
 
         wallet_services
-            .wallets
-            .change_seed(wallet_id, &seed, 0)
+            .change_wallet_seed(wallet_id, &seed, 0)
             .map_err(|e| anyhow!("Failed to change wallet seed: {:?}", e))?;
 
         Ok(())

@@ -19,13 +19,10 @@ impl CreateAccountArgs {
             WalletId::decode_hex(&self.wallet).ok_or_else(|| anyhow!("Invalid wallet id"))?;
         let password = self.password.clone().unwrap_or_default();
 
-        wallet_services
-            .wallets
-            .ensure_wallet_is_unlocked(wallet, &password);
+        wallet_services.ensure_wallet_is_unlocked(wallet, &password);
 
         let public_key = wallet_services
-            .wallets
-            .deterministic_insert2(&wallet, false)
+            .deterministic_insert(&wallet, false)
             .map_err(|e| anyhow!("Failed to insert wallet: {:?}", e))?;
 
         println!("Account: {:?}", Account::from(public_key).encode_account());

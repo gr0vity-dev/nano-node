@@ -10,7 +10,7 @@ rsnano_types = { path = "../../types" }
 rsnano_ledger = { path = "../../ledger" }
 rsnano_store_lmdb = { path = "../../store_lmdb" }
 rsnano_network = { path = "../../network" }
-rsnano_node = { path = "../../node", features = ["output_tracking"] }
+rsnano_node = { path = "../../node", features = ["output_tracking", "test_support"] }
 rsnano_rpc_client = { path = "../../rpc/client" }
 rsnano_rpc_server = { path = "../../rpc/server" }
 rsnano_websocket_server = { path = "../../websocket/server" }

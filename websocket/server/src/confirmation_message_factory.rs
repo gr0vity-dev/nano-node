@@ -1,5 +1,4 @@
-use rsnano_ledger::{AnySet, Ledger};
-use rsnano_node::consensus::election::ConfirmedElection;
+use rsnano_node::{consensus::election::ConfirmedElection, handles::LedgerQueryHandle};
 use rsnano_types::{Amount, BlockType, SavedBlock};
 use rsnano_websocket_messages::{
     BlockConfirmed, ElectionInfo, JsonSideband, MessageEnvelope, Topic,
@@ -8,7 +7,7 @@ use rsnano_websocket_messages::{
 use crate::{ConfirmationOptions, into_election_info, into_json_sideband, into_json_vote_summary};
 
 pub(super) struct ConfirmationMessageFactory<'a> {
-    pub ledger: &'a Ledger,
+    pub ledger: &'a LedgerQueryHandle,
     pub options: &'a ConfirmationOptions,
     pub block: &'a SavedBlock,
     pub amount: &'a Amount,
@@ -80,8 +79,7 @@ impl ConfirmationMessageFactory<'_> {
             return None;
         }
 
-        let any = self.ledger.any();
-        match any.linked_account(self.block) {
+        match self.ledger.linked_account(self.block) {
             Some(linked) => Some(linked.encode_account()),
             None => Some("0".to_owned()),
         }
@@ -98,7 +96,11 @@ impl ConfirmationMessageFactory<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use rsnano_ledger::Ledger;
     use rsnano_node::consensus::election::ConfirmationType;
+    use rsnano_node::handles::LedgerQueryHandle;
     use rsnano_websocket_messages::ConfirmationJsonOptions;
     use store_rocksdb::default_ledger_store_factory;
 
@@ -118,7 +120,7 @@ mod tests {
             ConfirmedElection::new(block.clone(), ConfirmationType::InactiveConfirmationHeight);
         election.confirmation_type = ConfirmationType::InactiveConfirmationHeight;
         let factory = ConfirmationMessageFactory {
-            ledger: &ledger,
+            ledger: &LedgerQueryHandle::new(Arc::new(ledger)),
             options: &options,
             block: &block,
             amount: &amount,
@@ -149,7 +151,7 @@ mod tests {
         let block = SavedBlock::new_test_send_block();
         let amount = Amount::nano(123);
         let factory = ConfirmationMessageFactory {
-            ledger: &ledger,
+            ledger: &LedgerQueryHandle::new(Arc::new(ledger)),
             options: &options,
             block: &block,
             amount: &amount,

@@ -14,10 +14,12 @@ use tokio::{
 use tokio_tungstenite::tungstenite::protocol::{CloseFrame, frame::coding::CloseCode};
 use tracing::{info, warn};
 
-use rsnano_ledger::Ledger;
-use rsnano_node::consensus::election::{ConfirmedElection, VoteSummary};
+use rsnano_node::{
+    consensus::election::{ConfirmedElection, VoteSummary},
+    handles::LedgerQueryHandle,
+    WalletServices,
+};
 use rsnano_types::{Account, Amount, BlockSideband, SavedBlock};
-use rsnano_wallet::Wallets;
 use rsnano_websocket_messages::{
     ConfirmationJsonOptions, ElectionInfo, JsonSideband, JsonVoteSummary, MessageEnvelope, Topic,
 };
@@ -28,8 +30,8 @@ use crate::{WebsocketSession, confirmation_message_factory::ConfirmationMessageF
 pub struct WebsocketListener {
     endpoint: Mutex<SocketAddr>,
     tx_stop: Mutex<Option<oneshot::Sender<()>>>,
-    wallets: Arc<Wallets>,
-    ledger: Arc<Ledger>,
+    wallet_services: WalletServices,
+    ledger: LedgerQueryHandle,
     topic_subscriber_count: Arc<[AtomicUsize; 11]>,
     sessions: Arc<Mutex<Vec<Weak<WebsocketSessionEntry>>>>,
     tokio: tokio::runtime::Handle,
@@ -40,14 +42,14 @@ pub struct WebsocketListener {
 impl WebsocketListener {
     pub fn new(
         endpoint: SocketAddr,
-        wallets: Arc<Wallets>,
-        ledger: Arc<Ledger>,
+        wallet_services: WalletServices,
+        ledger: LedgerQueryHandle,
         tokio: tokio::runtime::Handle,
     ) -> Self {
         Self {
             endpoint: Mutex::new(endpoint),
             tx_stop: Mutex::new(None),
-            wallets,
+            wallet_services,
             ledger,
             topic_subscriber_count: Arc::new(std::array::from_fn(|_| AtomicUsize::new(0))),
             sessions: Arc::new(Mutex::new(Vec::new())),
@@ -166,13 +168,19 @@ impl WebsocketListener {
         loop {
             match listener.accept().await {
                 Ok((stream, peer_addr)) => {
-                    let wallets = Arc::clone(&self.wallets);
+                    let wallet_services = self.wallet_services.clone();
                     let sub_count = Arc::clone(&self.topic_subscriber_count);
                     let (tx_send, rx_send) = mpsc::channel::<MessageEnvelope>(1024);
                     let sessions = Arc::clone(&self.sessions);
                     tokio::spawn(async move {
                         if let Err(e) = accept_connection(
-                            stream, wallets, sub_count, peer_addr, tx_send, rx_send, sessions,
+                            stream,
+                            wallet_services,
+                            sub_count,
+                            peer_addr,
+                            tx_send,
+                            rx_send,
+                            sessions,
                         )
                         .await
                         {
@@ -212,7 +220,7 @@ impl WebsocketListenerExt for Arc<WebsocketListener> {
 
 async fn accept_connection(
     stream: TcpStream,
-    wallets: Arc<Wallets>,
+    wallet_services: WalletServices,
     topic_subscriber_count: Arc<[AtomicUsize; 11]>,
     peer_addr: SocketAddr,
     tx_send: mpsc::Sender<MessageEnvelope>,
@@ -223,7 +231,11 @@ async fn accept_connection(
     let mut ws_stream = tokio_tungstenite::accept_async(stream).await?;
 
     let (tx_close, rx_close) = oneshot::channel::<()>();
-    let entry = Arc::new(WebsocketSessionEntry::new(tx_send, tx_close, wallets));
+    let entry = Arc::new(WebsocketSessionEntry::new(
+        tx_send,
+        tx_close,
+        wallet_services,
+    ));
 
     {
         let mut sessions = sessions.lock().unwrap();

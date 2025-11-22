@@ -8,7 +8,6 @@ impl RpcCommandHandler {
             args.accounts.iter().map(|account| account.into()).collect();
 
         self.wallet_services
-            .wallets
             .move_accounts(&args.source, &args.wallet, &public_keys)?;
 
         Ok(MovedResponse::new(true))

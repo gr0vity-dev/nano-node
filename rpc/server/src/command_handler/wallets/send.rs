@@ -42,7 +42,6 @@ impl RpcCommandHandler {
 
         let block = self
             .wallet_services
-            .wallets
             .send(
                 wallet_id,
                 source,

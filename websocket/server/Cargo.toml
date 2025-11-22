@@ -32,3 +32,4 @@ test_helpers = { path = "../../tools/test_helpers" }
 rsnano_nullable_tcp = { path = "../../nullables/tcp" }
 rsnano_websocket_client = { path = "../client" }
 store_rocksdb = { path = "../../store_rocksdb" }
+rsnano_node = { path = "../../node", features = ["test_support"] }

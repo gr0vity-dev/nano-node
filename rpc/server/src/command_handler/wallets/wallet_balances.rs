@@ -11,8 +11,7 @@ impl RpcCommandHandler {
         let threshold = args.threshold.unwrap_or(Amount::ZERO);
         let accounts = self
             .wallet_services
-            .wallets
-            .get_accounts_of_wallet(&args.wallet)?;
+            .accounts_of_wallet(&args.wallet)?;
         let mut balances = HashMap::new();
         for account in accounts {
             let balance = self.ledger_queries.account_balance(&account);

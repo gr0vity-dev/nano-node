@@ -35,18 +35,12 @@ impl ImportKeysArgs {
             WalletId::decode_hex(&self.wallet).ok_or_else(|| anyhow!("Invalid wallet id"))?;
         let password = self.password.clone().unwrap_or_default();
 
-        wallet_services
-            .wallets
-            .ensure_wallet_is_unlocked(wallet_id, &password);
+        wallet_services.ensure_wallet_is_unlocked(wallet_id, &password);
 
-        if wallet_services.wallets.wallet_exists(&wallet_id) {
-            let valid = wallet_services
-                .wallets
-                .ensure_wallet_is_unlocked(wallet_id, &password);
+        if wallet_services.wallet_exists(&wallet_id) {
+            let valid = wallet_services.ensure_wallet_is_unlocked(wallet_id, &password);
             if valid {
-                wallet_services
-                    .wallets
-                    .import_replace(wallet_id, &contents, &password)?
+                wallet_services.import_replace(wallet_id, &contents, &password)?
             } else {
                 eprintln!(
                     "Invalid password for wallet {}. New wallet should have empty (default) password or passwords for new wallet & json file should match",
@@ -58,7 +52,7 @@ impl ImportKeysArgs {
             eprintln!("Wallet doesn't exist");
             return Err(anyhow!("Invalid arguments"));
         } else {
-            wallet_services.wallets.import(wallet_id, &contents)?
+            wallet_services.import_wallet(wallet_id, &contents)?
         }
 
         Ok(())
