@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, net::SocketAddrV6, sync::Arc, time::Duration};
 
 use crate::services::TelemetryServices;
 use crate::telemetry::{TelementryExt, Telemetry};
@@ -41,12 +41,31 @@ impl TelemetrySubsystem {
         self.telemetry.local_telemetry()
     }
 
-    pub fn telemetry(&self) -> Arc<Telemetry> {
-        self.telemetry.clone()
+    pub fn local_telemetry(&self) -> TelemetryData {
+        self.telemetry.local_telemetry()
     }
 
-    pub fn tcp_listener(&self) -> Arc<TcpListener> {
-        self.tcp_listener.clone()
+    pub fn telemetry_for(&self, endpoint: &SocketAddrV6) -> Option<TelemetryData> {
+        self.telemetry.get_telemetry(endpoint)
+    }
+
+    pub fn all_telemetries(&self) -> HashMap<SocketAddrV6, TelemetryData> {
+        self.telemetry.get_all_telemetries()
+    }
+
+    pub fn listener_address(&self) -> SocketAddrV6 {
+        self.tcp_listener.local_address()
+    }
+
+    pub fn uptime(&self) -> Duration {
+        self.telemetry.startup_time.elapsed()
+    }
+
+    pub fn on_telemetry_processed(
+        &self,
+        callback: Box<dyn Fn(&TelemetryData, &SocketAddrV6) + Send + Sync>,
+    ) {
+        self.telemetry.on_telemetry_processed(callback);
     }
 
     pub fn telemetry_services(&self) -> TelemetryServices {

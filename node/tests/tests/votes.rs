@@ -292,13 +292,13 @@ fn vote_generator_multiple_representatives() {
     );
 
     node.wallet_services()
-        .wallet_reps
+        .wallet_reps_handle()
         .lock()
         .unwrap()
         .compute_reps();
     assert_eq!(
         node.wallet_services()
-            .wallet_reps
+            .wallet_reps_handle()
             .lock()
             .unwrap()
             .voting_reps(),

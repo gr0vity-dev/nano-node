@@ -102,6 +102,7 @@ impl FrontierScan {
 }
 
 #[derive(PartialEq, Eq, Debug)]
+#[derive(Clone)]
 pub struct FrontierHeadInfo {
     pub start: Account,
     pub end: Account,

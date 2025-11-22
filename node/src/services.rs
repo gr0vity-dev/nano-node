@@ -1,8 +1,4 @@
-use std::{
-    ops::{Deref, DerefMut},
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{sync::{Arc, Mutex}, time::Duration};
 
 use bounded_vec_deque::BoundedVecDeque;
 
@@ -20,8 +16,11 @@ use crate::{
     wallets::WalletRepresentatives,
     work::WorkFactory,
 };
+use crate::bootstrap::state::BootstrapLogicSnapshot;
 use rsnano_ledger::Ledger;
 use rsnano_network::TcpListener;
+use rsnano_messages::TelemetryData;
+use std::net::SocketAddrV6;
 use rsnano_store_lmdb::KeyType;
 use rsnano_utils::{
     stats::Stats,
@@ -31,7 +30,9 @@ use rsnano_utils::{
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 
-use rsnano_types::{Account, Amount, BlockHash, PrivateKey, PublicKey, RawKey, WalletId, WorkNonce};
+use rsnano_types::{
+    Account, Amount, BlockHash, PrivateKey, PublicKey, RawKey, WalletId, WorkNonce, WorkRequest,
+};
 use rsnano_wallet::{BlockPromise, MultiBlockPromise, Wallets, WalletsError};
 
 pub struct ConsensusTimerServices<'a> {
@@ -101,8 +102,8 @@ pub struct WalletServices {
     pub wallets: Arc<Wallets>,
     #[cfg(not(any(test, feature = "test_support")))]
     wallets: Arc<Wallets>,
-    pub work_factory: Arc<WorkFactory>,
-    pub wallet_reps: Arc<Mutex<WalletRepresentatives>>,
+    work_factory: Arc<WorkFactory>,
+    wallet_reps: Arc<Mutex<WalletRepresentatives>>,
 }
 
 #[allow(deprecated)]
@@ -366,6 +367,24 @@ impl WalletServices {
 
     #[cfg(any(test, feature = "test_support"))]
     #[doc(hidden)]
+    pub fn wallet_reps_handle(&self) -> Arc<Mutex<WalletRepresentatives>> {
+        self.wallet_reps.clone()
+    }
+
+    pub fn generate_work(&self, request: WorkRequest) -> Option<WorkNonce> {
+        self.work_factory.generate_work(request)
+    }
+
+    pub fn work_generation_enabled(&self) -> bool {
+        self.work_factory.work_generation_enabled()
+    }
+
+    pub fn work_threads(&self) -> usize {
+        self.work_factory.work_threads()
+    }
+
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
     pub fn wallets_arc(&self) -> Arc<Wallets> {
         self.wallets.clone()
     }
@@ -399,8 +418,8 @@ impl BacklogServices {
 
 #[derive(Clone)]
 pub struct TelemetryServices {
-    pub telemetry: Arc<Telemetry>,
-    pub tcp_listener: Arc<TcpListener>,
+    telemetry: Arc<Telemetry>,
+    tcp_listener: Arc<TcpListener>,
 }
 
 impl TelemetryServices {
@@ -417,6 +436,25 @@ impl TelemetryServices {
 
     pub fn stop(&self) {
         self.telemetry.stop();
+    }
+
+    pub fn on_telemetry_processed(
+        &self,
+        callback: Box<dyn Fn(&TelemetryData, &SocketAddrV6) + Send + Sync>,
+    ) {
+        self.telemetry.on_telemetry_processed(callback);
+    }
+
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
+    pub fn telemetry(&self) -> Arc<Telemetry> {
+        self.telemetry.clone()
+    }
+
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
+    pub fn tcp_listener(&self) -> Arc<TcpListener> {
+        self.tcp_listener.clone()
     }
 }
 
@@ -466,9 +504,9 @@ impl LedgerQueryServices {
 
 #[derive(Clone)]
 pub struct BootstrapWorkServices {
-    pub bootstrapper: Arc<Bootstrapper>,
-    pub bootstrap_server: Arc<BootstrapServer>,
-    pub work_factory: Arc<WorkFactory>,
+    bootstrapper: Arc<Bootstrapper>,
+    bootstrap_server: Arc<BootstrapServer>,
+    work_factory: Arc<WorkFactory>,
 }
 
 impl BootstrapWorkServices {
@@ -495,5 +533,31 @@ impl BootstrapWorkServices {
         self.bootstrapper.stop();
         self.bootstrap_server.stop();
         self.work_factory.stop();
+    }
+
+    pub fn bootstrap_state_snapshot(&self) -> BootstrapLogicSnapshot {
+        let state = self.bootstrapper.state();
+        BootstrapLogicSnapshot::from(&*state)
+    }
+
+    pub fn priority_up_account(&self, account: &Account) {
+        let mut state = self.bootstrapper.state();
+        state.candidate_accounts.priority_up(account);
+    }
+
+    pub fn generate_work(&self, request: WorkRequest) -> Option<WorkNonce> {
+        self.work_factory.generate_work(request)
+    }
+
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
+    pub fn bootstrapper_handle(&self) -> Arc<Bootstrapper> {
+        self.bootstrapper.clone()
+    }
+
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
+    pub fn bootstrap_server_handle(&self) -> Arc<BootstrapServer> {
+        self.bootstrap_server.clone()
     }
 }

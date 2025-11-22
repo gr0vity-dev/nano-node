@@ -47,9 +47,7 @@ pub fn create_websocket_server(
     });
 
     let server_w = Arc::downgrade(&server);
-    telemetry_services
-        .telemetry
-        .on_telemetry_processed(Box::new(move |data, peer_addr| {
+    telemetry_services.on_telemetry_processed(Box::new(move |data, peer_addr| {
             if let Some(server) = server_w.upgrade()
                 && server.any_subscriber(Topic::Telemetry)
             {

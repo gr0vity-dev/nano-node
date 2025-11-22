@@ -1,12 +1,6 @@
 use std::collections::VecDeque;
 
-use rsnano_node::{
-    bootstrap::{
-        FrontierHeadInfo,
-        state::{BootstrapLogic, frontiers_processor::FrontiersStats},
-    },
-    utils::RateCalculator,
-};
+use rsnano_node::{bootstrap::{FrontierHeadInfo, state::{BootstrapLogicSnapshot, frontiers_processor::FrontiersStats}}, utils::RateCalculator};
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::Account;
 
@@ -21,10 +15,10 @@ pub(crate) struct FrontierScanInfo {
 }
 
 impl FrontierScanInfo {
-    pub(crate) fn update(&mut self, state: &BootstrapLogic, now: Timestamp) {
-        self.update_counters(&state.frontiers_processor.stats, now);
-        self.frontier_heads = state.frontiers_processor.heads();
-        self.outdated_accounts = state.frontiers_processor.last_outdated_accounts.clone();
+    pub(crate) fn update(&mut self, state: &BootstrapLogicSnapshot, now: Timestamp) {
+        self.update_counters(&state.frontiers_stats, now);
+        self.frontier_heads = state.frontier_heads.clone();
+        self.outdated_accounts = state.last_outdated_accounts.clone();
     }
 
     fn update_counters(&mut self, stats: &FrontiersStats, now: Timestamp) {

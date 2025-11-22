@@ -47,6 +47,16 @@ pub enum PriorityDownResult {
     InvalidAccount,
 }
 
+#[derive(Clone, Debug)]
+pub struct CandidateAccountsSnapshot {
+    pub priority_len: usize,
+    pub blocked_len: usize,
+    pub unique_blocking_accounts: usize,
+    pub known_dependencies: usize,
+    pub priorities: Vec<(Priority, Account)>,
+    pub blocked: Vec<BlockingEntry>,
+}
+
 /// This struct tracks accounts which are candidates for the next bootstrap request or which are
 /// blocked
 pub struct CandidateAccounts {
@@ -356,6 +366,20 @@ impl CandidateAccounts {
 
     pub fn iter_blocked(&self) -> impl Iterator<Item = &BlockingEntry> {
         self.blocking.iter_by_insertion_order()
+    }
+
+    pub fn snapshot(&self) -> CandidateAccountsSnapshot {
+        CandidateAccountsSnapshot {
+            priority_len: self.priority_len(),
+            blocked_len: self.blocked_len(),
+            unique_blocking_accounts: self.unique_blocking_accounts(),
+            known_dependencies: self.known_dependencies(),
+            priorities: self
+                .iter_priorities()
+                .map(|(priority, account)| (priority, *account))
+                .collect(),
+            blocked: self.iter_blocked().cloned().collect(),
+        }
     }
 
     pub fn priority_full(&self) -> bool {

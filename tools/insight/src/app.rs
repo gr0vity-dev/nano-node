@@ -97,32 +97,22 @@ impl InsightApp {
         if let Some(node) = self.node_runner.node() {
             self.ledger_stats.update(&node);
             let channels = node.network_subsystem().sorted_channels();
-            let telemetries = node.telemetry_subsystem().telemetry().get_all_telemetries();
-            let (peered_reps, min_rep_weight) = {
-                let consensus_services = node.consensus_subsystem();
-                let online_reps = consensus_services.online_reps();
-                let guard = online_reps.lock().unwrap();
-                (guard.peered_reps(), guard.minimum_principal_weight())
-            };
+            let telemetries = node.telemetry_subsystem().all_telemetries();
+            let reps_snapshot = node.consensus_subsystem().online_reps_snapshot();
+            let peered_reps = reps_snapshot.peered_reps.clone();
+            let min_rep_weight = reps_snapshot.minimum_principal_weight;
             self.channels
                 .update(channels, telemetries, peered_reps, min_rep_weight);
-            self.aec_info = node.consensus_subsystem().active().read().unwrap().info();
-            self.max_optimistic = node
-                .consensus_subsystem()
-                .election_schedulers()
-                .optimistic
-                .max_elections;
-            self.max_hinted = node
-                .consensus_subsystem()
-                .election_schedulers()
-                .hinted
-                .max_elections;
-            self.confirming_set = node.consensus_subsystem().confirming_set().info();
-            self.block_processor_info = node.consensus_subsystem().block_processor_queue().info();
-            self.vote_processor_info = node.consensus_subsystem().vote_processor_queue().info();
+            self.aec_info = node.consensus_subsystem().active_info();
+            let (max_optimistic, max_hinted) = node.consensus_subsystem().scheduler_limits();
+            self.max_optimistic = max_optimistic;
+            self.max_hinted = max_hinted;
+            self.confirming_set = node.consensus_subsystem().confirming_set_info();
+            self.block_processor_info = node.consensus_subsystem().block_processor_queue_info();
+            self.vote_processor_info = node.consensus_subsystem().vote_processor_queue_info();
             {
                 let bootstrap_services = node.bootstrap_work_services();
-                let state = bootstrap_services.bootstrapper.state();
+                let state = bootstrap_services.bootstrap_state_snapshot();
                 self.frontier_scan.update(&state, now);
                 self.bootstrap.update(&state);
             }
@@ -137,11 +127,7 @@ impl InsightApp {
             self.bootstrap.add_account.clear();
             if let Some(node) = self.node_runner.node() {
                 let bootstrap_services = node.bootstrap_work_services();
-                bootstrap_services
-                    .bootstrapper
-                    .state()
-                    .candidate_accounts
-                    .priority_up(&account);
+                bootstrap_services.priority_up_account(&account);
             }
         }
     }

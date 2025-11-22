@@ -6,7 +6,7 @@ use std::{
 use rsnano_messages::NetworkFilter;
 use rsnano_network::{Channel, Network, PeerConnector, TcpListener, TcpListenerExt};
 use rsnano_network_protocol::InboundMessageQueue;
-use rsnano_nullable_clock::SteadyClock;
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use tracing::warn;
 
 use crate::transport::keepalive::KeepalivePublisher;
@@ -125,17 +125,19 @@ impl NetworkSubsystem {
         self.network.read().unwrap().sorted_channels()
     }
 
-    /// Expose steady clock for timing sensitive callers.
-    pub fn steady_clock(&self) -> Arc<SteadyClock> {
-        self.steady_clock.clone()
+    /// Current steady clock timestamp.
+    pub fn now(&self) -> Timestamp {
+        self.steady_clock.now()
     }
 
     /// Access to inbound queue for transport-level dispatchers.
+    #[cfg(any(test, feature = "test_support"))]
     pub fn inbound_message_queue(&self) -> Arc<InboundMessageQueue> {
         self.inbound_message_queue.clone()
     }
 
     /// Lightweight reference to the network filter used by transport paths.
+    #[cfg(any(test, feature = "test_support"))]
     pub fn network_filter(&self) -> Arc<NetworkFilter> {
         self.network_filter.clone()
     }

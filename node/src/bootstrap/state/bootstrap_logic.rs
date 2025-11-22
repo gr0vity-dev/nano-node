@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use rsnano_messages::{AscPullAck, AscPullAckType, AscPullReqType};
 use rsnano_network::{Channel, ChannelId};
@@ -10,7 +10,7 @@ use rsnano_utils::{
 };
 
 use super::{
-    CandidateAccounts, PeerScoring, PriorityResult, RunningQueryContainer,
+    CandidateAccounts, CandidateAccountsSnapshot, PeerScoring, PriorityResult, RunningQueryContainer,
     running_query::QuerySource,
 };
 use crate::bootstrap::{
@@ -22,6 +22,8 @@ use crate::bootstrap::{
         frontiers_processor::{FrontiersProcessor, OutdatedAccounts},
     },
 };
+use crate::bootstrap::state::frontier_scan::FrontierHeadInfo;
+use super::frontiers_processor::FrontiersStats;
 
 pub struct BootstrapLogic {
     pub candidate_accounts: CandidateAccounts,
@@ -35,6 +37,35 @@ pub struct BootstrapLogic {
     response_blocks: u64,
     response_account: u64,
     response_frontiers: u64,
+}
+
+pub struct BootstrapLogicSnapshot {
+    pub candidate_accounts: CandidateAccountsSnapshot,
+    pub frontiers_stats: FrontiersStats,
+    pub frontier_heads: Vec<FrontierHeadInfo>,
+    pub last_outdated_accounts: VecDeque<Account>,
+}
+
+impl From<&BootstrapLogic> for BootstrapLogicSnapshot {
+    fn from(logic: &BootstrapLogic) -> Self {
+        let stats = &logic.frontiers_processor.stats;
+        Self {
+            candidate_accounts: logic.candidate_accounts.snapshot(),
+            frontiers_stats: FrontiersStats {
+                processed_responses: stats.processed_responses,
+                processed_frontiers: stats.processed_frontiers,
+                verified: stats.verified,
+                nothing_new: stats.nothing_new,
+                invalid: stats.invalid,
+                outdated_accounts_found: stats.outdated_accounts_found,
+            },
+            frontier_heads: logic.frontiers_processor.heads(),
+            last_outdated_accounts: logic
+                .frontiers_processor
+                .last_outdated_accounts
+                .clone(),
+        }
+    }
 }
 
 impl BootstrapLogic {

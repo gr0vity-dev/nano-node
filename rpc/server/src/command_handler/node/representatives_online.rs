@@ -12,9 +12,8 @@ impl RpcCommandHandler {
         &self,
         args: RepresentativesOnlineArgs,
     ) -> RepresentativesOnlineResponse {
-        let online_reps_guard = self.consensus.online_reps();
-        let online_reps = online_reps_guard.lock().unwrap();
-        ResponseBuilder::new(args).create_response(online_reps.online_reps())
+        let snapshot = self.consensus.online_reps_snapshot();
+        ResponseBuilder::new(args).create_response(snapshot.online_reps)
     }
 }
 

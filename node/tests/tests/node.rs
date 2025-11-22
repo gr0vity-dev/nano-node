@@ -134,7 +134,7 @@ fn vote_by_hash_bundle() {
     assert_timely_eq2(
         || {
             node.wallet_services()
-                .wallet_reps
+                .wallet_reps_handle()
                 .lock()
                 .unwrap()
                 .voting_reps()
@@ -476,7 +476,7 @@ fn rep_self_vote() {
         || {
             node0
                 .wallet_services()
-                .wallet_reps
+                .wallet_reps_handle()
                 .lock()
                 .unwrap()
                 .voting_reps()
@@ -1326,7 +1326,6 @@ fn work_generate() {
 
         let work = node
             .wallet_services()
-            .work_factory
             .generate_work(WorkRequest::new(root, difficulty));
 
         assert!(work.is_some());
@@ -1342,7 +1341,6 @@ fn work_generate() {
         loop {
             work = node
                 .wallet_services()
-                .work_factory
                 .generate_work(WorkRequest::new(root, difficulty));
             if let Some(work_value) = work {
                 if node.network_params().work.difficulty(&root, work_value)

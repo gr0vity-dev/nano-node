@@ -9,8 +9,11 @@ mod peer_scoring;
 mod running_query;
 mod running_query_container;
 
-pub use bootstrap_logic::BootstrapLogic;
-pub use candidate_accounts::*;
+pub use bootstrap_logic::{BootstrapLogic, BootstrapLogicSnapshot};
+pub use candidate_accounts::{BlockingEntry, CandidateAccountsSnapshot, Priority, PriorityResult};
+pub(crate) use candidate_accounts::{
+    CandidateAccounts, CandidateAccountsConfig, PriorityDownResult, PriorityUpResult,
+};
 pub(crate) use frontier_scan::FrontierScan;
 pub use frontier_scan::{FrontierHeadInfo, FrontierScanConfig};
 pub(crate) use peer_scoring::PeerScoring;

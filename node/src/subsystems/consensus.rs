@@ -2,21 +2,25 @@ use std::{sync::{Arc, Mutex, RwLock}, time::Duration};
 
 use crate::{
     block_processing::{
-        BlockProcessor, BlockProcessorQueue, BoundedBacklog, LocalBlockBroadcaster,
-        LocalBlockBroadcasterExt,
+        BlockContext, BlockProcessor, BlockProcessorQueue, BlockSource, BoundedBacklog,
+        LocalBlockBroadcaster, LocalBlockBroadcasterExt,
     },
     bootstrap::Bootstrapper,
-    cementation::ConfirmingSet,
+    cementation::{ConfirmingSet, ConfirmingSetInfo},
     config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{
-        ActiveElectionsContainer, AecTicker, AecVoter, CurrentRepTiers, LocalVoteHistory,
-        RequestAggregator, VoteCache, VoteCacheProcessor, VoteGenerators, VoteProcessor,
-        VoteProcessorExt, VoteProcessorQueue, VoteRebroadcaster, WinnerBlockBroadcaster,
-        election_schedulers::ElectionSchedulers,
+        ActiveElectionsContainer, ActiveElectionsInfo, AecTicker, AecVoter, CurrentRepTiers,
+        LocalVoteHistory, RepTier, RequestAggregator, VoteCache, VoteCacheProcessor, VoteGenerators,
+        VoteProcessor, VoteProcessorExt, VoteProcessorQueue, VoteRebroadcaster,
+        WinnerBlockBroadcaster, election_schedulers::ElectionSchedulers,
     },
-    representatives::{OnlineReps, RepCrawler, RepCrawlerExt},
+    representatives::{OnlineRepInfo, OnlineReps, PeeredRepInfo, RepCrawler, RepCrawlerExt},
 };
+use rsnano_ledger::BlockError;
 use rsnano_utils::ticker::TimerThread;
+use rsnano_utils::fair_queue::FairQueueInfo;
+use rsnano_nullable_clock::Timestamp;
+use rsnano_types::{Amount, Block, BlockHash, QualifiedRoot, SavedBlock};
 
 use super::lifecycle::Lifecycle;
 
@@ -55,6 +59,19 @@ pub struct ConsensusContext {
     pub network_params: NetworkParams,
     pub aec_ticker: Arc<TimerThread<AecTicker>>,
     pub aec_voter: Arc<TimerThread<AecVoter>>,
+}
+
+#[derive(Clone)]
+pub struct OnlineRepsSnapshot {
+    pub quorum_delta: Amount,
+    pub quorum_percent: u8,
+    pub online_weight_minimum: Amount,
+    pub online_weight: Amount,
+    pub trended_weight: Amount,
+    pub peered_weight: Amount,
+    pub minimum_principal_weight: Amount,
+    pub peered_reps: Vec<PeeredRepInfo>,
+    pub online_reps: Vec<OnlineRepInfo>,
 }
 
 /// Facade over consensus internals (active elections, vote processor, schedulers).
@@ -173,48 +190,87 @@ impl ConsensusSubsystem {
         }
     }
 
-    pub fn block_processor_queue(&self) -> Arc<BlockProcessorQueue> {
-        self.block_processor_queue.clone()
+    pub fn enqueue_block(&self, context: BlockContext) {
+        self.block_processor_queue.push(context);
     }
 
-    pub fn active(&self) -> Arc<RwLock<ActiveElectionsContainer>> {
-        self.active.clone()
+    pub fn push_block_blocking(
+        &self,
+        block: Block,
+        source: BlockSource,
+    ) -> Result<(), BlockError> {
+        self.block_processor_queue
+            .push_blocking(Arc::new(block), source)
+            .map_err(|_| BlockError::BadSignature)?
+            .map(|_| ())
     }
 
-    pub fn confirming_set(&self) -> Arc<ConfirmingSet> {
-        self.confirming_set.clone()
+    pub fn block_processor_queue_info(&self) -> FairQueueInfo<BlockSource> {
+        self.block_processor_queue.info()
     }
 
-    pub fn request_aggregator(&self) -> Arc<RequestAggregator> {
-        self.request_aggregator.clone()
+    pub fn vote_processor_queue_info(&self) -> FairQueueInfo<RepTier> {
+        self.vote_processor_queue.info()
     }
 
-    pub fn vote_processor_queue(&self) -> Arc<VoteProcessorQueue> {
-        self.vote_processor_queue.clone()
+    pub fn active_info(&self) -> ActiveElectionsInfo {
+        self.with_active(|active| active.info())
     }
 
-    pub fn vote_processor(&self) -> Arc<VoteProcessor> {
-        self.vote_processor.clone()
+    pub fn scheduler_limits(&self) -> (usize, usize) {
+        (
+            self.election_schedulers.optimistic.max_elections,
+            self.election_schedulers.hinted.max_elections,
+        )
     }
 
-    pub fn vote_generators(&self) -> Arc<VoteGenerators> {
-        self.vote_generators.clone()
+    pub fn push_manual(&self, block: SavedBlock) {
+        self.election_schedulers.manual.push(block);
     }
 
-    pub fn block_processor(&self) -> Arc<BlockProcessor> {
-        self.block_processor.clone()
+    pub fn confirming_set_info(&self) -> ConfirmingSetInfo {
+        self.confirming_set.info()
     }
 
-    pub fn election_schedulers(&self) -> Arc<ElectionSchedulers> {
-        self.election_schedulers.clone()
+    pub fn with_active<R>(&self, f: impl FnOnce(&ActiveElectionsContainer) -> R) -> R {
+        let guard = self.active.read().unwrap();
+        f(&guard)
     }
 
-    pub fn online_reps(&self) -> Arc<Mutex<OnlineReps>> {
-        self.online_reps.clone()
+    pub fn with_active_mut<R>(&self, f: impl FnOnce(&mut ActiveElectionsContainer) -> R) -> R {
+        let mut guard = self.active.write().unwrap();
+        f(&mut guard)
     }
 
-    pub fn rep_tiers(&self) -> Arc<CurrentRepTiers> {
-        self.rep_tiers.clone()
+    pub fn is_active_root(&self, root: &QualifiedRoot) -> bool {
+        self.with_active(|active| active.is_active_root(root))
+    }
+
+    pub fn is_active_hash(&self, hash: &BlockHash) -> bool {
+        self.with_active(|active| active.is_active_hash(hash))
+    }
+
+    pub fn erase_active(&self, root: &QualifiedRoot) -> bool {
+        self.with_active_mut(|active| active.erase(root))
+    }
+
+    pub fn force_confirm(&self, block_hash: &BlockHash, now: Timestamp) {
+        self.with_active_mut(|active| active.force_confirm(block_hash, now));
+    }
+
+    pub fn online_reps_snapshot(&self) -> OnlineRepsSnapshot {
+        let reps = self.online_reps.lock().unwrap();
+        OnlineRepsSnapshot {
+            quorum_delta: reps.quorum_delta(),
+            quorum_percent: reps.quorum_percent(),
+            online_weight_minimum: reps.online_weight_minimum(),
+            online_weight: reps.online_weight(),
+            trended_weight: reps.trended_or_minimum_weight(),
+            peered_weight: reps.peered_weight(),
+            minimum_principal_weight: reps.minimum_principal_weight(),
+            peered_reps: reps.peered_reps(),
+            online_reps: reps.online_reps().collect(),
+        }
     }
 
     #[cfg(test)]

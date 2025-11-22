@@ -32,7 +32,7 @@ fn compose_null_node_exposes_basic_services() {
     );
 
     assert!(
-        node.wallet_services().work_factory.work_threads() > 0,
+        node.wallet_services().work_threads() > 0,
         "work factory must provision at least one thread"
     );
 }

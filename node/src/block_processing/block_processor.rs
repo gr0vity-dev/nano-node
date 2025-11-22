@@ -1,8 +1,4 @@
-use std::{
-    sync::{Arc, Mutex},
-    thread::JoinHandle,
-    time::{Duration, Instant},
-};
+use std::{sync::{Arc, Mutex}, thread::JoinHandle, time::Instant};
 
 use rsnano_ledger::Ledger;
 use rsnano_nullable_clock::SteadyClock;

@@ -198,7 +198,6 @@ impl Node {
     }
 
     #[cfg(test)]
-    #[cfg(test)]
     pub fn aec_ticker(&self) -> Arc<TimerThread<AecTicker>> {
         self.consensus_subsystem.aec_ticker()
     }
@@ -332,10 +331,7 @@ impl Node {
 
     pub fn process_local(&self, block: Block) -> Result<(), BlockError> {
         self.consensus_subsystem
-            .block_processor_queue()
-            .push_blocking(Arc::new(block), BlockSource::Local)
-            .map_err(|_| BlockError::BadSignature)?
-            .map(|_| {})
+            .push_block_blocking(block, BlockSource::Local)
     }
 
     pub fn try_process(&self, block: Block) -> Result<SavedBlock, BlockError> {
@@ -377,8 +373,7 @@ impl Node {
 
     pub fn process_active(&self, block: Block) {
         self.consensus_subsystem
-            .block_processor_queue()
-            .push(BlockContext::new(
+            .enqueue_block(BlockContext::new(
                 block,
                 BlockSource::Live,
                 ChannelId::LOOPBACK,
@@ -412,7 +407,6 @@ impl Node {
     pub fn work_generate_dev(&self, root: impl Into<Root>) -> WorkNonce {
         let difficulty = self.network_params.work.threshold_base();
         self.bootstrap_work_services()
-            .work_factory
             .generate_work(WorkRequest::new(root.into(), difficulty))
             .unwrap()
     }
@@ -469,19 +463,11 @@ impl Node {
     }
 
     pub fn is_active_root(&self, root: &QualifiedRoot) -> bool {
-        self.consensus_subsystem
-            .active()
-            .read()
-            .unwrap()
-            .is_active_root(root)
+        self.consensus_subsystem.is_active_root(root)
     }
 
     pub fn is_active_hash(&self, hash: &BlockHash) -> bool {
-        self.consensus_subsystem
-            .active()
-            .read()
-            .unwrap()
-            .is_active_hash(hash)
+        self.consensus_subsystem.is_active_hash(hash)
     }
 
     pub fn force_confirm(&self, hash: &BlockHash) {
@@ -489,11 +475,8 @@ impl Node {
             self.network_params.network.current_network,
             Networks::NanoDevNetwork
         );
-        let now = self.network_subsystem.steady_clock().now();
+        let now = self.network_subsystem.now();
         self.consensus_subsystem
-            .active()
-            .write()
-            .unwrap()
             .force_confirm(hash, now);
     }
 

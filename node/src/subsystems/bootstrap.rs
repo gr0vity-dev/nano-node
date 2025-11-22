@@ -6,6 +6,7 @@ use crate::{
 };
 
 use super::lifecycle::Lifecycle;
+use rsnano_types::{WorkRequest, WorkNonce, Root, Peer};
 
 /// Construction-only bundle of bootstrap collaborators used to wire up the
 /// `BootstrapSubsystem`. This is purely for composition; do not store it on
@@ -61,8 +62,28 @@ impl BootstrapSubsystem {
         }
     }
 
-    pub fn work_factory(&self) -> Arc<WorkFactory> {
-        self.work_factory.clone()
+    pub fn work_generation_enabled(&self) -> bool {
+        self.work_factory.work_generation_enabled()
+    }
+
+    pub fn generate_work(&self, request: WorkRequest) -> Option<WorkNonce> {
+        self.work_factory.generate_work(request)
+    }
+
+    pub fn cancel_work(&self, root: Root) {
+        self.work_factory.cancel(root);
+    }
+
+    pub fn work_peers(&self) -> Vec<Peer> {
+        self.work_factory.peers()
+    }
+
+    pub fn add_work_peer(&self, peer: Peer) {
+        self.work_factory.add_peer(peer);
+    }
+
+    pub fn clear_work_peers(&self) {
+        self.work_factory.clear_peers();
     }
 
     /// **Legacy test access - technical debt.**

@@ -555,7 +555,7 @@ impl ResponseHelper {
     fn connect(&self, node: &Node) {
         let responses = self.responses.clone();
         node.bootstrap_work_services()
-            .bootstrap_server
+            .bootstrap_server_handle()
             .set_response_callback(Box::new(move |response, _channel| {
                 responses.lock().unwrap().push(response.clone());
             }));

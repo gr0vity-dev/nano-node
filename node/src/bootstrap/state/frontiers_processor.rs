@@ -123,7 +123,7 @@ pub struct OutdatedAccounts {
     pub frontiers_received: usize,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Debug)]
 pub struct FrontiersStats {
     pub processed_responses: u64,
     pub processed_frontiers: u64,

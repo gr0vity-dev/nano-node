@@ -40,11 +40,10 @@ impl RpcCommandHandler {
                 bail!("Invalid work")
             }
             work
-        } else {
-            if !self.wallet_services.work_factory.work_generation_enabled() {
-                bail!("Work generation is disabled");
-            }
+        } else if self.wallet_services.work_generation_enabled() {
             0.into()
+        } else {
+            bail!("Work generation is disabled");
         };
 
         // Representative is only used by receive_action when opening accounts

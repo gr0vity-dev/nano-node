@@ -41,7 +41,7 @@ fn vote_minimum() {
     let wallet_id = node.wallet_services().wallets.wallet_ids()[0];
     assert_eq!(
         node.wallet_services()
-            .wallet_reps
+            .wallet_reps_handle()
             .lock()
             .unwrap()
             .voting_reps(),
@@ -61,13 +61,13 @@ fn vote_minimum() {
         .insert_adhoc2(&wallet_id, &key2.raw_key(), false)
         .unwrap();
     node.wallet_services()
-        .wallet_reps
+        .wallet_reps_handle()
         .lock()
         .unwrap()
         .compute_reps();
     assert_eq!(
         node.wallet_services()
-            .wallet_reps
+            .wallet_reps_handle()
             .lock()
             .unwrap()
             .voting_reps(),
