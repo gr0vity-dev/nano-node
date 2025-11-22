@@ -227,67 +227,65 @@ impl Node {
     pub(crate) fn new(composed: ComposedNode) -> anyhow::Result<Self> {
         let max_inbound_connections = composed.config.tcp.max_inbound_connections;
         let network_subsystem = {
-            let services = &composed.services;
             let wiring = NetworkWiring {
-                network: services.network.clone(),
-                tcp_listener: services.tcp_listener.clone(),
-                peer_connector: services.peer_connector.clone(),
-                network_threads: services.network_threads.clone(),
-                message_processor: services.message_processor.clone(),
-                message_sender: services.message_sender.clone(),
-                message_flooder: services.message_flooder.clone(),
-                keepalive_publisher: services.keepalive_publisher.clone(),
-                inbound_message_queue: services.inbound_message_queue.clone(),
-                network_filter: services.network_filter.clone(),
-                steady_clock: services.steady_clock.clone(),
+                network: composed.network.clone(),
+                tcp_listener: composed.tcp_listener.clone(),
+                peer_connector: composed.peer_connector.clone(),
+                network_threads: composed.network_threads.clone(),
+                message_processor: composed.message_processor.clone(),
+                message_sender: composed.message_sender.clone(),
+                message_flooder: composed.message_flooder.clone(),
+                keepalive_publisher: composed.keepalive_publisher.clone(),
+                inbound_message_queue: composed.inbound_message_queue.clone(),
+                network_filter: composed.network_filter.clone(),
+                steady_clock: composed.steady_clock.clone(),
             };
             NetworkSubsystem::new(wiring, max_inbound_connections)
         };
 
         let consensus_subsystem = {
-            let s = &composed.services;
             let wiring = ConsensusWiring {
-                active: s.active.clone(),
-                election_schedulers: s.election_schedulers.clone(),
-                vote_processor: s.vote_processor.clone(),
-                vote_generators: s.vote_generators.clone(),
-                vote_history: s.vote_history.clone(),
-                request_aggregator: s.request_aggregator.clone(),
-                bounded_backlog: s.bounded_backlog.clone(),
-                bootstrapper: s.bootstrapper.clone(),
-                rep_crawler: s.rep_crawler.clone(),
-                online_reps: s.online_reps.clone(),
-                rep_tiers: s.rep_tiers.clone(),
-                local_block_broadcaster: s.local_block_broadcaster.clone(),
-                winner_block_broadcaster: s.winner_block_broadcaster.clone(),
-                vote_processor_queue: s.vote_processor_queue.clone(),
-                vote_cache: s.vote_cache.clone(),
-                vote_cache_processor: s.vote_cache_processor.clone(),
-                confirming_set: s.confirming_set.clone(),
-                block_processor: s.block_processor.clone(),
-                block_processor_queue: s.block_processor_queue.clone(),
-                vote_rebroadcaster: s.vote_rebroadcaster.clone(),
+                active: composed.active.clone(),
+                election_schedulers: composed.election_schedulers.clone(),
+                vote_processor: composed.vote_processor.clone(),
+                vote_generators: composed.vote_generators.clone(),
+                vote_history: composed.vote_history.clone(),
+                request_aggregator: composed.request_aggregator.clone(),
+                bounded_backlog: composed.bounded_backlog.clone(),
+                bootstrapper: composed.bootstrapper.clone(),
+                rep_crawler: composed.rep_crawler.clone(),
+                online_reps: composed.online_reps.clone(),
+                rep_tiers: composed.rep_tiers.clone(),
+                local_block_broadcaster: composed.local_block_broadcaster.clone(),
+                winner_block_broadcaster: composed.winner_block_broadcaster.clone(),
+                vote_processor_queue: composed.vote_processor_queue.clone(),
+                vote_cache: composed.vote_cache.clone(),
+                vote_cache_processor: composed.vote_cache_processor.clone(),
+                confirming_set: composed.confirming_set.clone(),
+                block_processor: composed.block_processor.clone(),
+                block_processor_queue: composed.block_processor_queue.clone(),
+                vote_rebroadcaster: composed.vote_rebroadcaster.clone(),
             };
             ConsensusSubsystem::new(wiring, composed.config.clone(), composed.flags.clone())
         };
         let bootstrap_wiring = BootstrapWiring {
-            bootstrapper: composed.services.bootstrapper.clone(),
-            bootstrap_server: composed.services.bootstrap_server.clone(),
-            work_factory: composed.services.work_factory.clone(),
+            bootstrapper: composed.bootstrapper.clone(),
+            bootstrap_server: composed.bootstrap_server.clone(),
+            work_factory: composed.work_factory.clone(),
         };
         let bootstrap_subsystem =
             BootstrapSubsystem::new(bootstrap_wiring, composed.config.enable_bootstrap_responder);
         let telemetry_wiring = TelemetryWiring {
-            telemetry: composed.services.telemetry.clone(),
-            tcp_listener: composed.services.tcp_listener.clone(),
+            telemetry: composed.telemetry.clone(),
+            tcp_listener: composed.tcp_listener.clone(),
         };
         let telemetry_subsystem = TelemetrySubsystem::new(telemetry_wiring);
         let ticker_subsystem = TickerSubsystem::new(composed.ticker_services);
-        let handles = ProductionHandles::new(composed.services.ledger());
-        let wallet_services = composed.services.wallet_services();
-        let ledger_query_services = composed.services.ledger_query_services();
-        let bootstrap_work_services = composed.services.bootstrap_work_services();
-        let stats = composed.services.stats();
+        let handles = ProductionHandles::new(composed.ledger.clone());
+        let wallet_services = composed.wallet_services.clone();
+        let ledger_query_services = composed.ledger_query_services.clone();
+        let bootstrap_work_services = composed.bootstrap_work_services.clone();
+        let stats = composed.stats.clone();
 
         Ok(Self {
             is_nulled: composed.is_nulled,
