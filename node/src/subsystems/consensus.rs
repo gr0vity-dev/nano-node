@@ -18,6 +18,33 @@ use crate::{
 
 use super::lifecycle::Lifecycle;
 
+/// Construction-only bundle of consensus collaborators used to wire up the
+/// `ConsensusSubsystem`. This is strictly for composition; callers must not
+/// store it on long-lived structs.
+#[derive(Clone)]
+pub struct ConsensusWiring {
+    pub active: Arc<RwLock<ActiveElectionsContainer>>,
+    pub election_schedulers: Arc<ElectionSchedulers>,
+    pub vote_processor: Arc<VoteProcessor>,
+    pub vote_generators: Arc<VoteGenerators>,
+    pub vote_history: Arc<LocalVoteHistory>,
+    pub request_aggregator: Arc<RequestAggregator>,
+    pub bounded_backlog: Arc<BoundedBacklog>,
+    pub bootstrapper: Arc<Bootstrapper>,
+    pub rep_crawler: Arc<RepCrawler>,
+    pub online_reps: Arc<Mutex<OnlineReps>>,
+    pub rep_tiers: Arc<CurrentRepTiers>,
+    pub local_block_broadcaster: Arc<LocalBlockBroadcaster>,
+    pub winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
+    pub vote_processor_queue: Arc<VoteProcessorQueue>,
+    pub vote_cache: Arc<Mutex<VoteCache>>,
+    pub vote_cache_processor: Arc<VoteCacheProcessor>,
+    pub confirming_set: Arc<ConfirmingSet>,
+    pub block_processor: Arc<BlockProcessor>,
+    pub block_processor_queue: Arc<BlockProcessorQueue>,
+    pub vote_rebroadcaster: Arc<Mutex<VoteRebroadcaster>>,
+}
+
 /// Facade over consensus internals (active elections, vote processor, schedulers).
 #[derive(Clone)]
 pub struct ConsensusSubsystem {
