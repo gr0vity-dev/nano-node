@@ -1,19 +1,19 @@
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::{
-    ConsensusServices,
     block_processing::{
         BlockProcessor, BlockProcessorQueue, BoundedBacklog, LocalBlockBroadcaster,
+        LocalBlockBroadcasterExt,
     },
     bootstrap::Bootstrapper,
     cementation::ConfirmingSet,
     config::{NodeConfig, NodeFlags},
     consensus::{
         ActiveElectionsContainer, CurrentRepTiers, LocalVoteHistory, RequestAggregator, VoteCache,
-        VoteCacheProcessor, VoteGenerators, VoteProcessor, VoteProcessorQueue, VoteRebroadcaster,
-        WinnerBlockBroadcaster, election_schedulers::ElectionSchedulers,
+        VoteCacheProcessor, VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
+        VoteRebroadcaster, WinnerBlockBroadcaster, election_schedulers::ElectionSchedulers,
     },
-    representatives::{OnlineReps, RepCrawler},
+    representatives::{OnlineReps, RepCrawler, RepCrawlerExt},
 };
 
 use super::lifecycle::Lifecycle;
@@ -48,7 +48,26 @@ pub struct ConsensusWiring {
 /// Facade over consensus internals (active elections, vote processor, schedulers).
 #[derive(Clone)]
 pub struct ConsensusSubsystem {
-    services: ConsensusServices,
+    active: Arc<RwLock<ActiveElectionsContainer>>,
+    election_schedulers: Arc<ElectionSchedulers>,
+    vote_processor: Arc<VoteProcessor>,
+    vote_generators: Arc<VoteGenerators>,
+    vote_history: Arc<LocalVoteHistory>,
+    request_aggregator: Arc<RequestAggregator>,
+    bounded_backlog: Arc<BoundedBacklog>,
+    bootstrapper: Arc<Bootstrapper>,
+    rep_crawler: Arc<RepCrawler>,
+    online_reps: Arc<Mutex<OnlineReps>>,
+    rep_tiers: Arc<CurrentRepTiers>,
+    local_block_broadcaster: Arc<LocalBlockBroadcaster>,
+    winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
+    vote_processor_queue: Arc<VoteProcessorQueue>,
+    vote_cache: Arc<Mutex<VoteCache>>,
+    vote_cache_processor: Arc<VoteCacheProcessor>,
+    confirming_set: Arc<ConfirmingSet>,
+    block_processor: Arc<BlockProcessor>,
+    block_processor_queue: Arc<BlockProcessorQueue>,
+    vote_rebroadcaster: Arc<Mutex<VoteRebroadcaster>>,
     config: NodeConfig,
     flags: NodeFlags,
 }
@@ -79,60 +98,135 @@ pub struct ConsensusTestHandles {
 }
 
 impl ConsensusSubsystem {
-    pub fn new(services: ConsensusServices, config: NodeConfig, flags: NodeFlags) -> Self {
+    pub fn new(wiring: ConsensusWiring, config: NodeConfig, flags: NodeFlags) -> Self {
+        let ConsensusWiring {
+            active,
+            election_schedulers,
+            vote_processor,
+            vote_generators,
+            vote_history,
+            request_aggregator,
+            bounded_backlog,
+            bootstrapper,
+            rep_crawler,
+            online_reps,
+            rep_tiers,
+            local_block_broadcaster,
+            winner_block_broadcaster,
+            vote_processor_queue,
+            vote_cache,
+            vote_cache_processor,
+            confirming_set,
+            block_processor,
+            block_processor_queue,
+            vote_rebroadcaster,
+        } = wiring;
+
         Self {
-            services,
+            active,
+            election_schedulers,
+            vote_processor,
+            vote_generators,
+            vote_history,
+            request_aggregator,
+            bounded_backlog,
+            bootstrapper,
+            rep_crawler,
+            online_reps,
+            rep_tiers,
+            local_block_broadcaster,
+            winner_block_broadcaster,
+            vote_processor_queue,
+            vote_cache,
+            vote_cache_processor,
+            confirming_set,
+            block_processor,
+            block_processor_queue,
+            vote_rebroadcaster,
             config,
             flags,
         }
     }
 
     pub fn block_processor_queue(&self) -> Arc<BlockProcessorQueue> {
-        self.services.block_processor_queue.clone()
+        self.block_processor_queue.clone()
     }
 
     pub fn active(&self) -> Arc<RwLock<ActiveElectionsContainer>> {
-        self.services.active.clone()
+        self.active.clone()
     }
 
     pub fn confirming_set(&self) -> Arc<ConfirmingSet> {
-        self.services.confirming_set.clone()
+        self.confirming_set.clone()
     }
 
     pub fn request_aggregator(&self) -> Arc<RequestAggregator> {
-        self.services.request_aggregator.clone()
+        self.request_aggregator.clone()
     }
 
     pub fn vote_processor_queue(&self) -> Arc<VoteProcessorQueue> {
-        self.services.vote_processor_queue.clone()
+        self.vote_processor_queue.clone()
     }
 
     pub fn vote_processor(&self) -> Arc<VoteProcessor> {
-        self.services.vote_processor.clone()
+        self.vote_processor.clone()
     }
 
     pub fn vote_generators(&self) -> Arc<VoteGenerators> {
-        self.services.vote_generators.clone()
+        self.vote_generators.clone()
     }
 
     pub fn block_processor(&self) -> Arc<BlockProcessor> {
-        self.services.block_processor.clone()
+        self.block_processor.clone()
     }
 
     pub fn election_schedulers(&self) -> Arc<ElectionSchedulers> {
-        self.services.election_schedulers.clone()
+        self.election_schedulers.clone()
     }
 
     pub fn online_reps(&self) -> Arc<Mutex<OnlineReps>> {
-        self.services.online_reps.clone()
+        self.online_reps.clone()
     }
 
     pub fn rep_tiers(&self) -> Arc<CurrentRepTiers> {
-        self.services.rep_tiers.clone()
+        self.rep_tiers.clone()
     }
 
-    pub fn services(&self) -> ConsensusServices {
-        self.services.clone()
+    fn start_internal(&self) {
+        if self.config.enable_vote_processor {
+            self.vote_processor.start();
+        }
+        self.block_processor.start(self.config.block_processor_threads);
+        if !self.flags.disable_rep_crawler {
+            self.rep_crawler.start();
+        }
+        self.vote_generators.start();
+        self.request_aggregator.start();
+        self.confirming_set.start();
+        self.election_schedulers.start();
+        if self.config.enable_bounded_backlog {
+            self.bounded_backlog.start();
+        }
+        self.local_block_broadcaster.start();
+        self.vote_cache_processor.start();
+        if self.config.enable_vote_rebroadcast {
+            self.vote_rebroadcaster.lock().unwrap().start();
+        }
+    }
+
+    fn stop_internal(&self) {
+        self.local_block_broadcaster.stop();
+        self.request_aggregator.stop();
+        self.vote_processor.stop();
+        self.election_schedulers.stop();
+        self.active.write().unwrap().stop();
+        self.vote_generators.stop();
+        self.confirming_set.stop();
+        self.bounded_backlog.stop();
+        self.rep_crawler.stop();
+        self.block_processor.stop();
+        self.vote_rebroadcaster.lock().unwrap().stop();
+        self.vote_cache_processor.stop();
     }
 
     /// **Legacy test access - technical debt.**
@@ -143,36 +237,36 @@ impl ConsensusSubsystem {
     #[doc(hidden)]
     pub fn test_handles(&self) -> ConsensusTestHandles {
         ConsensusTestHandles {
-            active: self.services.active.clone(),
-            election_schedulers: self.services.election_schedulers.clone(),
-            vote_processor: self.services.vote_processor.clone(),
-            vote_generators: self.services.vote_generators.clone(),
-            vote_history: self.services.vote_history.clone(),
-            request_aggregator: self.services.request_aggregator.clone(),
-            bounded_backlog: self.services.bounded_backlog.clone(),
-            bootstrapper: self.services.bootstrapper.clone(),
-            rep_crawler: self.services.rep_crawler.clone(),
-            online_reps: self.services.online_reps.clone(),
-            rep_tiers: self.services.rep_tiers.clone(),
-            local_block_broadcaster: self.services.local_block_broadcaster.clone(),
-            winner_block_broadcaster: self.services.winner_block_broadcaster.clone(),
-            vote_processor_queue: self.services.vote_processor_queue.clone(),
-            vote_cache: self.services.vote_cache.clone(),
-            vote_cache_processor: self.services.vote_cache_processor.clone(),
-            confirming_set: self.services.confirming_set.clone(),
-            block_processor: self.services.block_processor.clone(),
-            block_processor_queue: self.services.block_processor_queue.clone(),
-            vote_rebroadcaster: self.services.vote_rebroadcaster.clone(),
+            active: self.active.clone(),
+            election_schedulers: self.election_schedulers.clone(),
+            vote_processor: self.vote_processor.clone(),
+            vote_generators: self.vote_generators.clone(),
+            vote_history: self.vote_history.clone(),
+            request_aggregator: self.request_aggregator.clone(),
+            bounded_backlog: self.bounded_backlog.clone(),
+            bootstrapper: self.bootstrapper.clone(),
+            rep_crawler: self.rep_crawler.clone(),
+            online_reps: self.online_reps.clone(),
+            rep_tiers: self.rep_tiers.clone(),
+            local_block_broadcaster: self.local_block_broadcaster.clone(),
+            winner_block_broadcaster: self.winner_block_broadcaster.clone(),
+            vote_processor_queue: self.vote_processor_queue.clone(),
+            vote_cache: self.vote_cache.clone(),
+            vote_cache_processor: self.vote_cache_processor.clone(),
+            confirming_set: self.confirming_set.clone(),
+            block_processor: self.block_processor.clone(),
+            block_processor_queue: self.block_processor_queue.clone(),
+            vote_rebroadcaster: self.vote_rebroadcaster.clone(),
         }
     }
 }
 
 impl Lifecycle for ConsensusSubsystem {
     fn start(&mut self) {
-        self.services.start(&self.config, &self.flags);
+        self.start_internal();
     }
 
     fn stop(&mut self) {
-        self.services.stop();
+        self.stop_internal();
     }
 }

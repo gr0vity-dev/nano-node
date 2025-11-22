@@ -33,12 +33,12 @@ pub struct BootstrapTestHandles {
 }
 
 impl BootstrapSubsystem {
-    pub fn new(
-        bootstrapper: Arc<Bootstrapper>,
-        bootstrap_server: Arc<BootstrapServer>,
-        work_factory: Arc<WorkFactory>,
-        enable_responder: bool,
-    ) -> Self {
+    pub fn new(wiring: BootstrapWiring, enable_responder: bool) -> Self {
+        let BootstrapWiring {
+            bootstrapper,
+            bootstrap_server,
+            work_factory,
+        } = wiring;
         Self {
             bootstrapper,
             bootstrap_server,

@@ -9,19 +9,18 @@ use bounded_vec_deque::BoundedVecDeque;
 use crate::{
     block_processing::{
         BacklogScan, BlockProcessor, BlockProcessorQueue, BoundedBacklog, LocalBlockBroadcaster,
-        LocalBlockBroadcasterExt,
     },
     block_rate_calculator::CurrentBlockRates,
     bootstrap::{BootstrapExt, BootstrapServer, Bootstrapper},
     cementation::ConfirmingSet,
-    config::{NetworkParams, NodeConfig, NodeFlags},
+    config::{NetworkParams, NodeFlags},
     consensus::{
         ActiveElectionsContainer, AecTicker, AecVoter, CurrentRepTiers, LocalVoteHistory,
         RequestAggregator, VoteCache, VoteCacheProcessor, VoteGenerators, VoteProcessor,
-        VoteProcessorExt, VoteProcessorQueue, VoteRebroadcaster, WinnerBlockBroadcaster,
+        VoteProcessorQueue, VoteRebroadcaster, WinnerBlockBroadcaster,
         election::ConfirmedElection, election_schedulers::ElectionSchedulers,
     },
-    representatives::{OnlineReps, RepCrawler, RepCrawlerExt},
+    representatives::{OnlineReps, RepCrawler},
     telemetry::{TelementryExt, Telemetry},
     transport::{
         MessageFlooder, MessageProcessor, MessageSender, NetworkThreads,
@@ -722,115 +721,6 @@ impl NodeServiceBundle {
         )
     }
 }
-#[derive(Clone)]
-pub struct ConsensusServices {
-    pub active: Arc<RwLock<ActiveElectionsContainer>>,
-    pub election_schedulers: Arc<ElectionSchedulers>,
-    pub vote_processor: Arc<VoteProcessor>,
-    pub vote_generators: Arc<VoteGenerators>,
-    pub vote_history: Arc<LocalVoteHistory>,
-    pub request_aggregator: Arc<RequestAggregator>,
-    pub bounded_backlog: Arc<BoundedBacklog>,
-    pub bootstrapper: Arc<Bootstrapper>,
-    pub rep_crawler: Arc<RepCrawler>,
-    pub online_reps: Arc<Mutex<OnlineReps>>,
-    pub rep_tiers: Arc<CurrentRepTiers>,
-    pub local_block_broadcaster: Arc<LocalBlockBroadcaster>,
-    pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
-    pub vote_processor_queue: Arc<VoteProcessorQueue>,
-    pub vote_cache: Arc<Mutex<VoteCache>>,
-    pub(crate) vote_cache_processor: Arc<VoteCacheProcessor>,
-    pub confirming_set: Arc<ConfirmingSet>,
-    pub block_processor: Arc<BlockProcessor>,
-    pub block_processor_queue: Arc<BlockProcessorQueue>,
-    pub(crate) vote_rebroadcaster: Arc<Mutex<VoteRebroadcaster>>,
-}
-
-impl ConsensusServices {
-    pub(crate) fn new(
-        active: Arc<RwLock<ActiveElectionsContainer>>,
-        election_schedulers: Arc<ElectionSchedulers>,
-        vote_processor: Arc<VoteProcessor>,
-        vote_generators: Arc<VoteGenerators>,
-        vote_history: Arc<LocalVoteHistory>,
-        request_aggregator: Arc<RequestAggregator>,
-        bounded_backlog: Arc<BoundedBacklog>,
-        bootstrapper: Arc<Bootstrapper>,
-        rep_crawler: Arc<RepCrawler>,
-        online_reps: Arc<Mutex<OnlineReps>>,
-        rep_tiers: Arc<CurrentRepTiers>,
-        local_block_broadcaster: Arc<LocalBlockBroadcaster>,
-        winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
-        vote_processor_queue: Arc<VoteProcessorQueue>,
-        vote_cache: Arc<Mutex<VoteCache>>,
-        vote_cache_processor: Arc<VoteCacheProcessor>,
-        confirming_set: Arc<ConfirmingSet>,
-        block_processor: Arc<BlockProcessor>,
-        block_processor_queue: Arc<BlockProcessorQueue>,
-        vote_rebroadcaster: Arc<Mutex<VoteRebroadcaster>>,
-    ) -> Self {
-        Self {
-            active,
-            election_schedulers,
-            vote_processor,
-            vote_generators,
-            vote_history,
-            request_aggregator,
-            bounded_backlog,
-            bootstrapper,
-            rep_crawler,
-            online_reps,
-            rep_tiers,
-            local_block_broadcaster,
-            winner_block_broadcaster,
-            vote_processor_queue,
-            vote_cache,
-            vote_cache_processor,
-            confirming_set,
-            block_processor,
-            block_processor_queue,
-            vote_rebroadcaster,
-        }
-    }
-
-    pub fn start(&self, config: &NodeConfig, flags: &NodeFlags) {
-        if config.enable_vote_processor {
-            self.vote_processor.start();
-        }
-        self.block_processor.start(config.block_processor_threads);
-        if !flags.disable_rep_crawler {
-            self.rep_crawler.start();
-        }
-        self.vote_generators.start();
-        self.request_aggregator.start();
-        self.confirming_set.start();
-        self.election_schedulers.start();
-        if config.enable_bounded_backlog {
-            self.bounded_backlog.start();
-        }
-        self.local_block_broadcaster.start();
-        self.vote_cache_processor.start();
-        if config.enable_vote_rebroadcast {
-            self.vote_rebroadcaster.lock().unwrap().start();
-        }
-    }
-
-    pub fn stop(&self) {
-        self.local_block_broadcaster.stop();
-        self.request_aggregator.stop();
-        self.vote_processor.stop();
-        self.election_schedulers.stop();
-        self.active.write().unwrap().stop();
-        self.vote_generators.stop();
-        self.confirming_set.stop();
-        self.bounded_backlog.stop();
-        self.rep_crawler.stop();
-        self.block_processor.stop();
-        self.vote_rebroadcaster.lock().unwrap().stop();
-        self.vote_cache_processor.stop();
-    }
-}
-
 #[derive(Clone)]
 pub struct LedgerQueryServices {
     ledger: Arc<Ledger>,

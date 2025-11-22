@@ -66,21 +66,20 @@ pub struct NetworkTestHandles {
 }
 
 impl NetworkSubsystem {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
-        network: Arc<RwLock<Network>>,
-        tcp_listener: Arc<TcpListener>,
-        peer_connector: Arc<PeerConnector>,
-        network_threads: Arc<Mutex<NetworkThreads>>,
-        message_processor: Arc<Mutex<MessageProcessor>>,
-        message_sender: Arc<Mutex<MessageSender>>,
-        message_flooder: Arc<Mutex<MessageFlooder>>,
-        keepalive_publisher: Arc<KeepalivePublisher>,
-        inbound_message_queue: Arc<InboundMessageQueue>,
-        network_filter: Arc<NetworkFilter>,
-        steady_clock: Arc<SteadyClock>,
-        max_inbound_connections: usize,
-    ) -> Self {
+    pub(crate) fn new(wiring: NetworkWiring, max_inbound_connections: usize) -> Self {
+        let NetworkWiring {
+            network,
+            tcp_listener,
+            peer_connector,
+            network_threads,
+            message_processor,
+            message_sender,
+            message_flooder,
+            keepalive_publisher,
+            inbound_message_queue,
+            network_filter,
+            steady_clock,
+        } = wiring;
         Self {
             network,
             tcp_listener,

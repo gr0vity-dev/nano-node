@@ -28,7 +28,7 @@ use crate::TelemetryServices;
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
-    BacklogServices, BootstrapWorkServices, ConsensusServices, ConsensusTimerServices,
+    BacklogServices, BootstrapWorkServices, ConsensusTimerServices,
     LedgerQueryServices, NodeCallbacks, ProductionHandles, WalletServices,
     block_processing::{BlockContext, BlockSource, ProcessedResult, UncheckedMap},
     config::{NetworkParams, NodeConfig, NodeFlags},
@@ -36,8 +36,8 @@ use crate::{
     node_builder::ComposedNode,
     node_id_key_file::NodeIdKeyFile,
     subsystems::{
-        BootstrapSubsystem, ConsensusSubsystem, Lifecycle, NetworkSubsystem, TelemetrySubsystem,
-        TickerSubsystem,
+        BootstrapSubsystem, BootstrapWiring, ConsensusSubsystem, ConsensusWiring, Lifecycle,
+        NetworkSubsystem, NetworkWiring, TelemetrySubsystem, TelemetryWiring, TickerSubsystem,
     },
     tokio_runner::TokioRunner,
 };
@@ -241,7 +241,7 @@ impl Node {
                 network_filter,
                 steady_clock,
             ) = services.network_components();
-            NetworkSubsystem::new(
+            let wiring = NetworkWiring {
                 network,
                 tcp_listener,
                 peer_connector,
@@ -253,8 +253,8 @@ impl Node {
                 inbound_message_queue,
                 network_filter,
                 steady_clock,
-                max_inbound_connections,
-            )
+            };
+            NetworkSubsystem::new(wiring, max_inbound_connections)
         };
 
         let consensus_subsystem = {
@@ -281,7 +281,7 @@ impl Node {
                 block_processor_queue,
                 vote_rebroadcaster,
             ) = s.consensus_components();
-            let services = ConsensusServices::new(
+            let wiring = ConsensusWiring {
                 active,
                 election_schedulers,
                 vote_processor,
@@ -302,18 +302,23 @@ impl Node {
                 block_processor,
                 block_processor_queue,
                 vote_rebroadcaster,
-            );
-            ConsensusSubsystem::new(services, composed.config.clone(), composed.flags.clone())
+            };
+            ConsensusSubsystem::new(wiring, composed.config.clone(), composed.flags.clone())
         };
         let (bootstrapper, bootstrap_server, work_factory) = composed.services.bootstrap_components();
-        let bootstrap_subsystem = BootstrapSubsystem::new(
+        let bootstrap_wiring = BootstrapWiring {
             bootstrapper,
             bootstrap_server,
             work_factory,
-            composed.config.enable_bootstrap_responder,
-        );
+        };
+        let bootstrap_subsystem =
+            BootstrapSubsystem::new(bootstrap_wiring, composed.config.enable_bootstrap_responder);
         let (telemetry, tcp_listener) = composed.services.telemetry_components();
-        let telemetry_subsystem = TelemetrySubsystem::new(telemetry, tcp_listener);
+        let telemetry_wiring = TelemetryWiring {
+            telemetry,
+            tcp_listener,
+        };
+        let telemetry_subsystem = TelemetrySubsystem::new(telemetry_wiring);
         let ticker_subsystem = TickerSubsystem::new(composed.ticker_services);
         let handles = ProductionHandles::new(composed.services.ledger());
         let wallet_services = composed.services.wallet_services();

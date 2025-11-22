@@ -29,11 +29,12 @@ pub struct TelemetryTestHandles {
 }
 
 impl TelemetrySubsystem {
-    pub fn new(telemetry: Arc<Telemetry>, tcp_listener: Arc<TcpListener>) -> Self {
-        Self {
+    pub fn new(wiring: TelemetryWiring) -> Self {
+        let TelemetryWiring {
             telemetry,
             tcp_listener,
-        }
+        } = wiring;
+        Self { telemetry, tcp_listener }
     }
 
     pub fn local_snapshot(&self) -> TelemetryData {
