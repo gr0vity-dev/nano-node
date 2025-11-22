@@ -380,26 +380,20 @@ impl BacklogServices {
         Self { backlog_scan }
     }
 
+    pub fn trigger(&self) {
+        self.backlog_scan.trigger();
+    }
+
+    pub fn notify(&self) {
+        self.backlog_scan.trigger();
+    }
+
     pub fn start(&mut self) {
         self.backlog_scan.start();
     }
 
     pub fn stop(&mut self) {
         self.backlog_scan.stop();
-    }
-}
-
-impl Deref for BacklogServices {
-    type Target = BacklogScan;
-
-    fn deref(&self) -> &Self::Target {
-        &self.backlog_scan
-    }
-}
-
-impl DerefMut for BacklogServices {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.backlog_scan
     }
 }
 

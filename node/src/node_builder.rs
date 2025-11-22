@@ -39,7 +39,7 @@ use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
 use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
 use crate::{
     BacklogServices, BootstrapWorkServices, LedgerQueryServices, Node, NodeArgs, NodeEvent,
-    OnlineWeightSampler, TickerServices, TelemetryServices, WalletServices,
+    OnlineWeightSampler, TickerServices, WalletServices,
     aec_event_processor::AecEventProcessor,
     block_processing::{
         BacklogScan, BacklogWaiter, BlockProcessor, BlockProcessorQueue, BoundedBacklog,

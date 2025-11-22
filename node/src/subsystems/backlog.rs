@@ -15,6 +15,14 @@ impl BacklogSubsystem {
     pub fn services(&self) -> &BacklogServices {
         &self.services
     }
+
+    pub fn trigger(&self) {
+        self.services.trigger();
+    }
+
+    pub fn notify(&self) {
+        self.services.notify();
+    }
 }
 
 impl Lifecycle for BacklogSubsystem {
