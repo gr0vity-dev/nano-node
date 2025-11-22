@@ -7,6 +7,16 @@ use crate::{
 
 use super::lifecycle::Lifecycle;
 
+/// Construction-only bundle of bootstrap collaborators used to wire up the
+/// `BootstrapSubsystem`. This is purely for composition; do not store it on
+/// long-lived structs.
+#[derive(Clone)]
+pub struct BootstrapWiring {
+    pub bootstrapper: Arc<Bootstrapper>,
+    pub bootstrap_server: Arc<BootstrapServer>,
+    pub work_factory: Arc<WorkFactory>,
+}
+
 #[derive(Clone)]
 pub struct BootstrapSubsystem {
     bootstrapper: Arc<Bootstrapper>,

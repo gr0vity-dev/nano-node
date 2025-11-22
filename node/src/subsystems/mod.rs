@@ -7,9 +7,9 @@ pub mod network;
 pub mod telemetry;
 pub mod ticker;
 
-pub use bootstrap::{BootstrapSubsystem, BootstrapTestHandles};
+pub use bootstrap::{BootstrapSubsystem, BootstrapTestHandles, BootstrapWiring};
 pub use consensus::{ConsensusSubsystem, ConsensusTestHandles, ConsensusWiring};
 pub use lifecycle::Lifecycle;
 pub use network::{NetworkSubsystem, NetworkTestHandles, NetworkWiring};
-pub use telemetry::{TelemetrySubsystem, TelemetryTestHandles};
+pub use telemetry::{TelemetrySubsystem, TelemetryTestHandles, TelemetryWiring};
 pub use ticker::{TickerSubsystem, TickerTestHandles};

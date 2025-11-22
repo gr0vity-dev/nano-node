@@ -7,6 +7,15 @@ use rsnano_network::TcpListener;
 
 use super::lifecycle::Lifecycle;
 
+/// Construction-only bundle of telemetry collaborators used to wire up the
+/// `TelemetrySubsystem`. This is purely for composition; do not store it on
+/// long-lived structs.
+#[derive(Clone)]
+pub struct TelemetryWiring {
+    pub telemetry: Arc<Telemetry>,
+    pub tcp_listener: Arc<TcpListener>,
+}
+
 #[derive(Clone)]
 pub struct TelemetrySubsystem {
     telemetry: Arc<Telemetry>,
