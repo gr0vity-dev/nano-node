@@ -14,6 +14,24 @@ use crate::transport::{MessageFlooder, MessageProcessor, MessageSender, NetworkT
 
 use super::lifecycle::Lifecycle;
 
+/// Construction-only bundle of network collaborators used to wire up the
+/// `NetworkSubsystem`. This is purely for composition; callers must not store
+/// it on long-lived structs.
+#[derive(Clone)]
+pub struct NetworkWiring {
+    pub network: Arc<RwLock<Network>>,
+    pub tcp_listener: Arc<TcpListener>,
+    pub peer_connector: Arc<PeerConnector>,
+    pub network_threads: Arc<Mutex<NetworkThreads>>,
+    pub message_processor: Arc<Mutex<MessageProcessor>>,
+    pub message_sender: Arc<Mutex<MessageSender>>,
+    pub message_flooder: Arc<Mutex<MessageFlooder>>,
+    pub keepalive_publisher: Arc<KeepalivePublisher>,
+    pub inbound_message_queue: Arc<InboundMessageQueue>,
+    pub network_filter: Arc<NetworkFilter>,
+    pub steady_clock: Arc<SteadyClock>,
+}
+
 /// Facade over network internals (listener, peer connector, filters, queues).
 /// Concrete wiring will replace the placeholders during encapsulation work.
 #[derive(Clone)]

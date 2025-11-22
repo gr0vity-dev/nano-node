@@ -10,6 +10,6 @@ pub mod ticker;
 pub use bootstrap::{BootstrapSubsystem, BootstrapTestHandles};
 pub use consensus::{ConsensusSubsystem, ConsensusTestHandles};
 pub use lifecycle::Lifecycle;
-pub use network::{NetworkSubsystem, NetworkTestHandles};
+pub use network::{NetworkSubsystem, NetworkTestHandles, NetworkWiring};
 pub use telemetry::{TelemetrySubsystem, TelemetryTestHandles};
 pub use ticker::{TickerSubsystem, TickerTestHandles};
