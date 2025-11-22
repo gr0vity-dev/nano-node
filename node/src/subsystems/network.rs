@@ -11,6 +11,7 @@ use tracing::warn;
 
 use crate::transport::keepalive::KeepalivePublisher;
 use crate::transport::{MessageFlooder, MessageProcessor, MessageSender, NetworkThreads};
+use rsnano_utils::thread_pool::ThreadPool;
 
 use super::lifecycle::Lifecycle;
 
@@ -48,6 +49,7 @@ pub struct NetworkSubsystem {
     network_filter: Arc<NetworkFilter>,
     steady_clock: Arc<SteadyClock>,
     max_inbound_connections: usize,
+    workers: Arc<ThreadPool>,
 }
 
 /// Test-only access to network internals.
@@ -66,7 +68,11 @@ pub struct NetworkTestHandles {
 }
 
 impl NetworkSubsystem {
-    pub(crate) fn new(wiring: NetworkWiring, max_inbound_connections: usize) -> Self {
+    pub(crate) fn new(
+        wiring: NetworkWiring,
+        workers: Arc<ThreadPool>,
+        max_inbound_connections: usize,
+    ) -> Self {
         let NetworkWiring {
             network,
             tcp_listener,
@@ -93,6 +99,7 @@ impl NetworkSubsystem {
             network_filter,
             steady_clock,
             max_inbound_connections,
+            workers,
         }
     }
 
@@ -148,6 +155,7 @@ impl NetworkSubsystem {
         self.peer_connector.stop();
         self.message_processor.lock().unwrap().stop();
         self.network_threads.lock().unwrap().stop();
+        self.workers.join();
     }
 
     pub fn start(&mut self) {

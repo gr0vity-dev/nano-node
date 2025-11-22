@@ -19,25 +19,26 @@ use rsnano_types::{
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoFactory, ContainerInfoProvider},
     stats::{Direction, Stats, StatsCollection, StatsCollector},
-    thread_pool::ThreadPool,
-    ticker::TimerThread,
 };
 
 #[cfg(test)]
-use crate::TelemetryServices;
+use crate::{TelemetryServices, consensus::AecTicker};
+#[cfg(test)]
+use rsnano_utils::ticker::TimerThread;
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
-    BacklogServices, BootstrapWorkServices, ConsensusTimerServices,
-    LedgerQueryServices, NodeCallbacks, ProductionHandles, WalletServices,
+    BacklogServices, BootstrapWorkServices, LedgerQueryServices, NodeCallbacks, ProductionHandles,
+    WalletServices,
     block_processing::{BlockContext, BlockSource, ProcessedResult, UncheckedMap},
     config::{NetworkParams, NodeConfig, NodeFlags},
-    consensus::{AecTicker, AecVoter, election::ConfirmedElection},
+    consensus::{election::ConfirmedElection},
     node_builder::ComposedNode,
     node_id_key_file::NodeIdKeyFile,
     subsystems::{
-        BootstrapSubsystem, BootstrapWiring, ConsensusSubsystem, ConsensusWiring, Lifecycle,
-        NetworkSubsystem, NetworkWiring, TelemetrySubsystem, TelemetryWiring, TickerSubsystem,
+        BacklogSubsystem, BootstrapSubsystem, BootstrapWiring, ConsensusContext, ConsensusSubsystem,
+        ConsensusWiring, Lifecycle, NetworkSubsystem, NetworkWiring, TelemetrySubsystem,
+        TelemetryWiring, TickerSubsystem, WalletSubsystem,
     },
     tokio_runner::TokioRunner,
 };
@@ -51,26 +52,21 @@ pub struct Node {
     node_id: PrivateKey,
     config: NodeConfig,
     network_params: NetworkParams,
-    workers: Arc<ThreadPool>,
     flags: NodeFlags,
-    wallet_services: WalletServices,
+    wallet_subsystem: WalletSubsystem,
     ledger_query_services: LedgerQueryServices,
     bootstrap_work_services: BootstrapWorkServices,
     stats: Arc<Stats>,
     handles: ProductionHandles,
     network_subsystem: NetworkSubsystem,
     consensus_subsystem: ConsensusSubsystem,
-    // private: callers must use unchecked() accessor
+    backlog_subsystem: BacklogSubsystem,
     unchecked: Arc<Mutex<UncheckedMap>>,
-    backlog_scan: BacklogServices,
     stopped: AtomicBool,
     start_stop_listener: OutputListenerMt<&'static str>,
     tokio_runner: TokioRunner,
-    aec_ticker: TimerThread<AecTicker>,
-    // private: callers must use stats_collector() accessor
     stats_collector: StatsCollector,
     container_info_factory: ContainerInfoFactory,
-    aec_voter: TimerThread<AecVoter>,
     ticker_subsystem: TickerSubsystem,
     bootstrap_subsystem: BootstrapSubsystem,
     telemetry_subsystem: TelemetrySubsystem,
@@ -125,7 +121,7 @@ impl Node {
     }
 
     pub fn wallet_services(&self) -> WalletServices {
-        self.wallet_services.clone()
+        self.wallet_subsystem.services()
     }
 
     pub fn telemetry_subsystem(&self) -> TelemetrySubsystem {
@@ -189,10 +185,6 @@ impl Node {
         &self.ticker_subsystem
     }
 
-    fn consensus_timer_services(&self) -> ConsensusTimerServices<'_> {
-        ConsensusTimerServices::new(&self.aec_ticker, &self.aec_voter)
-    }
-
     pub fn unchecked(&self) -> Arc<Mutex<UncheckedMap>> {
         self.unchecked.clone()
     }
@@ -202,12 +194,13 @@ impl Node {
     }
 
     pub fn backlog_scan(&self) -> &BacklogServices {
-        &self.backlog_scan
+        self.backlog_subsystem.services()
     }
 
     #[cfg(test)]
-    pub fn aec_ticker(&self) -> &TimerThread<AecTicker> {
-        &self.aec_ticker
+    #[cfg(test)]
+    pub fn aec_ticker(&self) -> Arc<TimerThread<AecTicker>> {
+        self.consensus_subsystem.aec_ticker()
     }
 
     #[cfg(feature = "ledger_snapshots")]
@@ -240,7 +233,11 @@ impl Node {
                 network_filter: composed.network_filter.clone(),
                 steady_clock: composed.steady_clock.clone(),
             };
-            NetworkSubsystem::new(wiring, max_inbound_connections)
+            NetworkSubsystem::new(
+                wiring,
+                composed.workers.clone(),
+                max_inbound_connections,
+            )
         };
 
         let consensus_subsystem = {
@@ -266,7 +263,14 @@ impl Node {
                 block_processor_queue: composed.block_processor_queue.clone(),
                 vote_rebroadcaster: composed.vote_rebroadcaster.clone(),
             };
-            ConsensusSubsystem::new(wiring, composed.config.clone(), composed.flags.clone())
+            let context = ConsensusContext {
+                config: composed.config.clone(),
+                flags: composed.flags.clone(),
+                network_params: composed.network_params.clone(),
+                aec_ticker: composed.aec_ticker.clone(),
+                aec_voter: composed.aec_voter.clone(),
+            };
+            ConsensusSubsystem::new(wiring, context)
         };
         let bootstrap_wiring = BootstrapWiring {
             bootstrapper: composed.bootstrapper.clone(),
@@ -282,10 +286,11 @@ impl Node {
         let telemetry_subsystem = TelemetrySubsystem::new(telemetry_wiring);
         let ticker_subsystem = TickerSubsystem::new(composed.ticker_services);
         let handles = ProductionHandles::new(composed.ledger.clone());
-        let wallet_services = composed.wallet_services.clone();
+        let wallet_subsystem = WalletSubsystem::new(composed.wallet_services.clone());
         let ledger_query_services = composed.ledger_query_services.clone();
         let bootstrap_work_services = composed.bootstrap_work_services.clone();
         let stats = composed.stats.clone();
+        let backlog_subsystem = BacklogSubsystem::new(composed.backlog_scan);
 
         Ok(Self {
             is_nulled: composed.is_nulled,
@@ -294,9 +299,8 @@ impl Node {
             node_id: composed.node_id,
             config: composed.config,
             network_params: composed.network_params,
-            workers: composed.workers,
             flags: composed.flags,
-            wallet_services,
+            wallet_subsystem,
             ledger_query_services,
             bootstrap_work_services,
             stats,
@@ -307,14 +311,12 @@ impl Node {
             telemetry_subsystem,
             ticker_subsystem,
             unchecked: composed.unchecked,
-            backlog_scan: composed.backlog_scan,
+            backlog_subsystem,
             stopped: AtomicBool::new(false),
             start_stop_listener: OutputListenerMt::new(),
             tokio_runner: composed.tokio_runner,
-            aec_ticker: composed.aec_ticker,
             stats_collector: composed.stats_collector,
             container_info_factory: composed.container_info_factory,
-            aec_voter: composed.aec_voter,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots: composed.ledger_snapshots,
         })
@@ -526,18 +528,13 @@ impl Node {
             panic!("Genesis block not found!");
         }
 
-        let mut telemetry_services = self.telemetry_subsystem();
-
         self.network_subsystem.start();
-        self.consensus_timer_services()
-            .start(&self.flags, &self.network_params);
-
-        Lifecycle::start(&mut self.consensus_subsystem);
-        self.backlog_scan.start();
-        Lifecycle::start(&mut self.bootstrap_subsystem);
-        telemetry_services.start();
-
+        self.consensus_subsystem.start();
+        self.backlog_subsystem.start();
+        self.bootstrap_subsystem.start();
+        self.telemetry_subsystem.start();
         self.ticker_subsystem.start();
+        self.wallet_subsystem.start();
     }
 
     pub fn stop(&mut self) {
@@ -552,21 +549,14 @@ impl Node {
         }
         info!("Node stopping...");
 
-        let mut telemetry_services = self.telemetry_subsystem();
-        let wallet_services = self.wallet_services();
-
+        self.wallet_subsystem.stop();
         self.ticker_subsystem.stop();
-        self.network_subsystem.stop_listeners();
-        self.consensus_timer_services().stop();
-        Lifecycle::stop(&mut self.bootstrap_subsystem);
-        self.backlog_scan.stop();
-        Lifecycle::stop(&mut self.consensus_subsystem);
-        telemetry_services.stop();
-        wallet_services.stop();
-        self.network_subsystem.stop_threads(); // Stop network last to avoid killing in-use sockets
-        self.workers.join();
+        self.telemetry_subsystem.stop();
+        self.bootstrap_subsystem.stop();
+        self.backlog_subsystem.stop();
+        self.consensus_subsystem.stop();
+        self.network_subsystem.stop();
         self.tokio_runner.stop();
-        // work pool is not stopped on purpose due to testing setup
     }
 }
 
@@ -664,7 +654,8 @@ mod tests {
         };
         let node = Node::build_from_args(args, true, NodeIdKeyFile::new_null())
             .expect("null node build failed");
-        let task = node.aec_ticker.task();
+        let ticker_handle = node.aec_ticker();
+        let task = ticker_handle.task();
         let ticker = task.as_ref().unwrap();
 
         assert_has_aec_ticker_plugin::<ConfirmationSolicitorPlugin>(ticker);

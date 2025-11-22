@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex, RwLock};
+use std::{sync::{Arc, Mutex, RwLock}, time::Duration};
 
 use crate::{
     block_processing::{
@@ -7,14 +7,16 @@ use crate::{
     },
     bootstrap::Bootstrapper,
     cementation::ConfirmingSet,
-    config::{NodeConfig, NodeFlags},
+    config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{
-        ActiveElectionsContainer, CurrentRepTiers, LocalVoteHistory, RequestAggregator, VoteCache,
-        VoteCacheProcessor, VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
-        VoteRebroadcaster, WinnerBlockBroadcaster, election_schedulers::ElectionSchedulers,
+        ActiveElectionsContainer, AecTicker, AecVoter, CurrentRepTiers, LocalVoteHistory,
+        RequestAggregator, VoteCache, VoteCacheProcessor, VoteGenerators, VoteProcessor,
+        VoteProcessorExt, VoteProcessorQueue, VoteRebroadcaster, WinnerBlockBroadcaster,
+        election_schedulers::ElectionSchedulers,
     },
     representatives::{OnlineReps, RepCrawler, RepCrawlerExt},
 };
+use rsnano_utils::ticker::TimerThread;
 
 use super::lifecycle::Lifecycle;
 
@@ -45,6 +47,16 @@ pub struct ConsensusWiring {
     pub vote_rebroadcaster: Arc<Mutex<VoteRebroadcaster>>,
 }
 
+/// Runtime context for consensus execution and timers.
+#[derive(Clone)]
+pub struct ConsensusContext {
+    pub config: NodeConfig,
+    pub flags: NodeFlags,
+    pub network_params: NetworkParams,
+    pub aec_ticker: Arc<TimerThread<AecTicker>>,
+    pub aec_voter: Arc<TimerThread<AecVoter>>,
+}
+
 /// Facade over consensus internals (active elections, vote processor, schedulers).
 #[derive(Clone)]
 pub struct ConsensusSubsystem {
@@ -70,6 +82,9 @@ pub struct ConsensusSubsystem {
     vote_rebroadcaster: Arc<Mutex<VoteRebroadcaster>>,
     config: NodeConfig,
     flags: NodeFlags,
+    network_params: NetworkParams,
+    aec_ticker: Arc<TimerThread<AecTicker>>,
+    aec_voter: Arc<TimerThread<AecVoter>>,
 }
 
 /// Test-only access to consensus internals.
@@ -98,7 +113,7 @@ pub struct ConsensusTestHandles {
 }
 
 impl ConsensusSubsystem {
-    pub fn new(wiring: ConsensusWiring, config: NodeConfig, flags: NodeFlags) -> Self {
+    pub fn new(wiring: ConsensusWiring, context: ConsensusContext) -> Self {
         let ConsensusWiring {
             active,
             election_schedulers,
@@ -121,6 +136,13 @@ impl ConsensusSubsystem {
             block_processor_queue,
             vote_rebroadcaster,
         } = wiring;
+        let ConsensusContext {
+            config,
+            flags,
+            network_params,
+            aec_ticker,
+            aec_voter,
+        } = context;
 
         Self {
             active,
@@ -145,6 +167,9 @@ impl ConsensusSubsystem {
             vote_rebroadcaster,
             config,
             flags,
+            network_params,
+            aec_ticker,
+            aec_voter,
         }
     }
 
@@ -192,7 +217,17 @@ impl ConsensusSubsystem {
         self.rep_tiers.clone()
     }
 
+    #[cfg(test)]
+    pub fn aec_ticker(&self) -> Arc<TimerThread<AecTicker>> {
+        self.aec_ticker.clone()
+    }
+
     fn start_internal(&self) {
+        self.aec_voter.start(Duration::from_millis(20));
+        if !self.flags.disable_request_loop {
+            self.aec_ticker
+                .start(self.network_params.network.aec_loop_interval);
+        }
         if self.config.enable_vote_processor {
             self.vote_processor.start();
         }
@@ -215,6 +250,8 @@ impl ConsensusSubsystem {
     }
 
     fn stop_internal(&self) {
+        self.aec_ticker.stop();
+        self.aec_voter.stop();
         self.local_block_broadcaster.stop();
         self.request_aggregator.stop();
         self.vote_processor.stop();

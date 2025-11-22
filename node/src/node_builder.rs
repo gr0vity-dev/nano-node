@@ -203,16 +203,15 @@ pub(crate) struct ComposedNode {
     pub(crate) stats: Arc<Stats>,
     pub(crate) ledger: Arc<Ledger>,
     pub(crate) wallet_services: WalletServices,
-    pub(crate) telemetry_services: TelemetryServices,
     pub(crate) ledger_query_services: LedgerQueryServices,
     pub(crate) bootstrap_work_services: BootstrapWorkServices,
     pub(crate) unchecked: Arc<Mutex<UncheckedMap>>,
     pub(crate) backlog_scan: BacklogServices,
     pub(crate) tokio_runner: TokioRunner,
-    pub(crate) aec_ticker: TimerThread<AecTicker>,
+    pub(crate) aec_ticker: Arc<TimerThread<AecTicker>>,
     pub(crate) stats_collector: StatsCollector,
     pub(crate) container_info_factory: ContainerInfoFactory,
-    pub(crate) aec_voter: TimerThread<AecVoter>,
+    pub(crate) aec_voter: Arc<TimerThread<AecVoter>>,
     pub(crate) ticker_services: TickerServices,
     #[cfg(feature = "ledger_snapshots")]
     pub(crate) ledger_snapshots: Arc<LedgerSnapshots>,
@@ -1653,7 +1652,6 @@ pub(crate) fn compose_root(
 
     let wallet_services =
         WalletServices::new(wallets.clone(), work_factory.clone(), wallet_reps.clone());
-    let telemetry_services = TelemetryServices::new(telemetry.clone(), tcp_listener.clone());
     let ledger_query_services = LedgerQueryServices::new(
         ledger.clone(),
         block_rates.clone(),
@@ -1710,16 +1708,15 @@ pub(crate) fn compose_root(
         stats,
         ledger,
         wallet_services,
-        telemetry_services,
         ledger_query_services,
         bootstrap_work_services,
         unchecked,
         backlog_scan,
         tokio_runner,
-        aec_ticker: TimerThread::new("AEC ticker", aec_ticker),
+        aec_ticker: Arc::new(TimerThread::new("AEC ticker", aec_ticker)),
         stats_collector,
         container_info_factory: container_info,
-        aec_voter: TimerThread::new("AEC voter", aec_voter),
+        aec_voter: Arc::new(TimerThread::new("AEC voter", aec_voter)),
         ticker_services,
         #[cfg(feature = "ledger_snapshots")]
         ledger_snapshots,

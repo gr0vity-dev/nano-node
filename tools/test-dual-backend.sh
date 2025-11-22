@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-set -uo pipefail
+set -euo pipefail
 
 # --- Visual Helpers ---
 # Hide Cursor to stop flickering
 cleanup() { tput cnorm; }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 tput civis 
 
 # Function to strip ANSI codes (colors) for the progress bar display
@@ -19,11 +19,12 @@ run_interactive_test() {
     local log_file
     log_file=$(mktemp)
 
-    for ((i=1; i<=max_attempts; i++)); do
+    for ((attempt=1; attempt<=max_attempts; attempt++)); do
         local attempt_label=""
-        if [ "$i" -eq 2 ]; then attempt_label="(Retry) "; fi
+        if [ "$attempt" -eq 2 ]; then attempt_label="(retry) "; fi
 
         echo -n "$title ${attempt_label}starting..."
+        : > "$log_file"
 
         # We use a pipe to capture output line-by-line
         # 1. Run Command (capturing stdout and stderr)
@@ -52,28 +53,38 @@ run_interactive_test() {
         if [ $exit_code -eq 0 ]; then
             # --- SUCCESS ---
             # Clear the progress line and print PASS
-            printf "\r\033[K%-40s \033[0;32mPASS\033[0m\n" "$title $attempt_label"
+            printf "\r\033[K%-40s \033[0;32mPASS\033[0m\n" "$title"
             rm "$log_file"
             return 0
-        else
-            # --- FAILURE ---
-            if [ "$i" -lt "$max_attempts" ]; then
-                # If it was attempt 1, we just loop again. 
-                # We leave a quick message but it gets overwritten by the next loop's progress
-                printf "\r\033[K%-40s \033[0;33mRETRYING...\033[0m" "$title"
-                sleep 1 # Brief pause to see the retry message
-            else
-                # If attempt 2 failed
-                printf "\r\033[K%-40s \033[0;31mFAILED\033[0m\n" "$title"
-                echo "========================================"
-                echo "Captured Output:"
-                echo "========================================"
-                cat "$log_file"
-                echo "========================================"
-                rm "$log_file"
-                return 1
-            fi
         fi
+
+        # Detect compile/build errors; do not retry those
+        if strip_colors < "$log_file" | grep -E -q 'error: could not compile|error\[[A-Za-z0-9]+\]:'; then
+            printf "\r\033[K%-40s \033[0;31mFAILED (build)\033[0m\n" "$title"
+            echo "========================================"
+            echo "Captured Output:"
+            echo "========================================"
+            cat "$log_file"
+            echo "========================================"
+            rm "$log_file"
+            return 1
+        fi
+
+        if [ "$attempt" -lt "$max_attempts" ]; then
+            printf "\r\033[K%-40s \033[0;33mRETRYING...\033[0m" "$title"
+            sleep 1
+            continue
+        fi
+
+        # --- FAILURE after retries ---
+        printf "\r\033[K%-40s \033[0;31mFAILED\033[0m\n" "$title"
+        echo "========================================"
+        echo "Captured Output:"
+        echo "========================================"
+        cat "$log_file"
+        echo "========================================"
+        rm "$log_file"
+        return 1
     done
 }
 
