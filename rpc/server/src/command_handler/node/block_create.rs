@@ -217,7 +217,7 @@ impl RpcCommandHandler {
         Ok(BlockCreateResponse::new(
             block.hash(),
             self.node
-                .network_params
+                .network_params()
                 .work
                 .difficulty_block(&block)
                 .into(),
@@ -268,8 +268,8 @@ pub fn difficulty_ledger(node: Arc<Node>, ledger: &LedgerQueryHandle, block: &Bl
     }
 
     if details_found {
-        node.network_params.work.threshold(&details)
+        node.network_params().work.threshold(&details)
     } else {
-        node.network_params.work.threshold_base()
+        node.network_params().work.threshold_base()
     }
 }

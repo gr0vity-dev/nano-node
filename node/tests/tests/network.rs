@@ -285,7 +285,7 @@ fn send_with_receive() {
     node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
-    let block1 = lattice.genesis().send(&key2, node1.config.receive_minimum);
+    let block1 = lattice.genesis().send(&key2, node1.config().receive_minimum);
 
     node1.process_active(block1.clone());
     assert_timely(Duration::from_secs(5), || {
@@ -297,8 +297,8 @@ fn send_with_receive() {
     });
     node2.wallet_services().insert_into_wallet(&key2);
     assert_timely(Duration::from_secs(10), || {
-        node1.balance(&key2.public_key().as_account()) == node1.config.receive_minimum
-            && node2.balance(&key2.public_key().as_account()) == node1.config.receive_minimum
+        node1.balance(&key2.public_key().as_account()) == node1.config().receive_minimum
+            && node2.balance(&key2.public_key().as_account()) == node1.config().receive_minimum
     });
 }
 
@@ -327,7 +327,7 @@ fn receive_weight_change() {
             node1_wallets.wallets.wallet_ids()[0],
             *DEV_GENESIS_ACCOUNT,
             key2.public_key().as_account(),
-            node1.config.receive_minimum,
+            node1.config().receive_minimum,
             0.into(),
             true,
             None,
@@ -337,8 +337,8 @@ fn receive_weight_change() {
     let node1_ledger = node1.ledger_query_services().ledger_arc().clone();
     let node2_ledger = node2.ledger_query_services().ledger_arc().clone();
     assert_timely(Duration::from_secs(10), || {
-        node1_ledger.any().weight_exact(key2.public_key()) == node1.config.receive_minimum
-            && node2_ledger.any().weight_exact(key2.public_key()) == node1.config.receive_minimum
+        node1_ledger.any().weight_exact(key2.public_key()) == node1.config().receive_minimum
+            && node2_ledger.any().weight_exact(key2.public_key()) == node1.config().receive_minimum
     });
 }
 

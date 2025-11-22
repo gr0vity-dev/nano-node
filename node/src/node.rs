@@ -29,7 +29,7 @@ use crate::TelemetryServices;
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
     BacklogServices, BootstrapWorkServices, ConsensusServices, ConsensusTimerServices,
-    LedgerQueryServices, NodeCallbacks, NodeServices, ProductionHandles, WalletServices,
+    LedgerQueryServices, NodeCallbacks, ProductionHandles, WalletServices,
     block_processing::{BlockContext, BlockSource, ProcessedResult, UncheckedMap},
     config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{AecTicker, AecVoter, election::ConfirmedElection},
@@ -47,23 +47,26 @@ pub struct Node {
     is_nulled: bool,
     // private: callers must use runtime() accessor
     runtime: tokio::runtime::Handle,
-    pub data_path: PathBuf,
-    pub node_id: PrivateKey,
-    pub config: NodeConfig,
-    pub network_params: NetworkParams,
+    data_path: PathBuf,
+    node_id: PrivateKey,
+    config: NodeConfig,
+    network_params: NetworkParams,
     workers: Arc<ThreadPool>,
-    pub flags: NodeFlags,
-    services: NodeServices,
+    flags: NodeFlags,
+    wallet_services: WalletServices,
+    ledger_query_services: LedgerQueryServices,
+    bootstrap_work_services: BootstrapWorkServices,
+    stats: Arc<Stats>,
     handles: ProductionHandles,
     network_subsystem: NetworkSubsystem,
     consensus_subsystem: ConsensusSubsystem,
     // private: callers must use unchecked() accessor
     unchecked: Arc<Mutex<UncheckedMap>>,
-    pub backlog_scan: BacklogServices,
+    backlog_scan: BacklogServices,
     stopped: AtomicBool,
     start_stop_listener: OutputListenerMt<&'static str>,
     tokio_runner: TokioRunner,
-    pub aec_ticker: TimerThread<AecTicker>,
+    aec_ticker: TimerThread<AecTicker>,
     // private: callers must use stats_collector() accessor
     stats_collector: StatsCollector,
     container_info_factory: ContainerInfoFactory,
@@ -72,7 +75,7 @@ pub struct Node {
     bootstrap_subsystem: BootstrapSubsystem,
     telemetry_subsystem: TelemetrySubsystem,
     #[cfg(feature = "ledger_snapshots")]
-    pub ledger_snapshots: Arc<LedgerSnapshots>,
+    ledger_snapshots: Arc<LedgerSnapshots>,
 }
 
 pub(crate) struct NodeArgs {
@@ -122,7 +125,7 @@ impl Node {
     }
 
     pub fn wallet_services(&self) -> WalletServices {
-        self.services.wallet_services()
+        self.wallet_services.clone()
     }
 
     pub fn telemetry_subsystem(&self) -> TelemetrySubsystem {
@@ -133,9 +136,25 @@ impl Node {
         self.runtime.clone()
     }
 
+    pub fn data_path(&self) -> &PathBuf {
+        &self.data_path
+    }
+
+    pub fn config(&self) -> &NodeConfig {
+        &self.config
+    }
+
+    pub fn network_params(&self) -> &NetworkParams {
+        &self.network_params
+    }
+
+    pub fn flags(&self) -> &NodeFlags {
+        &self.flags
+    }
+
     #[cfg(test)]
     pub fn telemetry_services(&self) -> TelemetryServices {
-        self.services.telemetry_services()
+        self.telemetry_subsystem.telemetry_services()
     }
 
     pub fn network_subsystem(&self) -> NetworkSubsystem {
@@ -146,20 +165,16 @@ impl Node {
         self.consensus_subsystem.clone()
     }
 
-    pub(crate) fn services(&self) -> &NodeServices {
-        &self.services
-    }
-
     pub fn production_handles(&self) -> ProductionHandles {
         self.handles.clone()
     }
 
     pub fn ledger_query_services(&self) -> LedgerQueryServices {
-        self.services.ledger_query_services()
+        self.ledger_query_services.clone()
     }
 
     pub fn bootstrap_work_services(&self) -> BootstrapWorkServices {
-        self.services.bootstrap_work_services()
+        self.bootstrap_work_services.clone()
     }
 
     pub fn bootstrap_subsystem(&self) -> BootstrapSubsystem {
@@ -167,7 +182,7 @@ impl Node {
     }
 
     pub fn stats_service(&self) -> Arc<Stats> {
-        self.services.stats.clone()
+        self.stats.clone()
     }
 
     pub fn ticker_subsystem(&self) -> &TickerSubsystem {
@@ -186,6 +201,20 @@ impl Node {
         &self.stats_collector
     }
 
+    pub fn backlog_scan(&self) -> &BacklogServices {
+        &self.backlog_scan
+    }
+
+    #[cfg(test)]
+    pub fn aec_ticker(&self) -> &TimerThread<AecTicker> {
+        &self.aec_ticker
+    }
+
+    #[cfg(feature = "ledger_snapshots")]
+    pub fn ledger_snapshots(&self) -> Arc<LedgerSnapshots> {
+        self.ledger_snapshots.clone()
+    }
+
     fn build_from_args(
         args: NodeArgs,
         is_nulled: bool,
@@ -199,60 +228,98 @@ impl Node {
         let max_inbound_connections = composed.config.tcp.max_inbound_connections;
         let network_subsystem = {
             let services = &composed.services;
+            let (
+                network,
+                tcp_listener,
+                peer_connector,
+                network_threads,
+                message_processor,
+                message_sender,
+                message_flooder,
+                keepalive_publisher,
+                inbound_message_queue,
+                network_filter,
+                steady_clock,
+            ) = services.network_components();
             NetworkSubsystem::new(
-                services.network.clone(),
-                services.tcp_listener.clone(),
-                services.peer_connector.clone(),
-                services.network_threads.clone(),
-                services.message_processor.clone(),
-                services.message_sender.clone(),
-                services.message_flooder.clone(),
-                services.keepalive_publisher.clone(),
-                services.inbound_message_queue.clone(),
-                services.network_filter.clone(),
-                services.steady_clock.clone(),
+                network,
+                tcp_listener,
+                peer_connector,
+                network_threads,
+                message_processor,
+                message_sender,
+                message_flooder,
+                keepalive_publisher,
+                inbound_message_queue,
+                network_filter,
+                steady_clock,
                 max_inbound_connections,
             )
         };
 
         let consensus_subsystem = {
             let s = &composed.services;
+            let (
+                active,
+                election_schedulers,
+                vote_processor,
+                vote_generators,
+                vote_history,
+                request_aggregator,
+                bounded_backlog,
+                bootstrapper,
+                rep_crawler,
+                online_reps,
+                rep_tiers,
+                local_block_broadcaster,
+                winner_block_broadcaster,
+                vote_processor_queue,
+                vote_cache,
+                vote_cache_processor,
+                confirming_set,
+                block_processor,
+                block_processor_queue,
+                vote_rebroadcaster,
+            ) = s.consensus_components();
             let services = ConsensusServices::new(
-                s.active.clone(),
-                s.election_schedulers.clone(),
-                s.vote_processor.clone(),
-                s.vote_generators.clone(),
-                s.vote_history.clone(),
-                s.request_aggregator.clone(),
-                s.bounded_backlog.clone(),
-                s.bootstrapper.clone(),
-                s.rep_crawler.clone(),
-                s.online_reps.clone(),
-                s.rep_tiers.clone(),
-                s.local_block_broadcaster.clone(),
-                s.winner_block_broadcaster.clone(),
-                s.vote_processor_queue.clone(),
-                s.vote_cache.clone(),
-                s.vote_cache_processor.clone(),
-                s.confirming_set.clone(),
-                s.block_processor.clone(),
-                s.block_processor_queue.clone(),
-                s.vote_rebroadcaster.clone(),
+                active,
+                election_schedulers,
+                vote_processor,
+                vote_generators,
+                vote_history,
+                request_aggregator,
+                bounded_backlog,
+                bootstrapper,
+                rep_crawler,
+                online_reps,
+                rep_tiers,
+                local_block_broadcaster,
+                winner_block_broadcaster,
+                vote_processor_queue,
+                vote_cache,
+                vote_cache_processor,
+                confirming_set,
+                block_processor,
+                block_processor_queue,
+                vote_rebroadcaster,
             );
             ConsensusSubsystem::new(services, composed.config.clone(), composed.flags.clone())
         };
+        let (bootstrapper, bootstrap_server, work_factory) = composed.services.bootstrap_components();
         let bootstrap_subsystem = BootstrapSubsystem::new(
-            composed.services.bootstrapper.clone(),
-            composed.services.bootstrap_server.clone(),
-            composed.services.work_factory.clone(),
+            bootstrapper,
+            bootstrap_server,
+            work_factory,
             composed.config.enable_bootstrap_responder,
         );
-        let telemetry_subsystem = TelemetrySubsystem::new(
-            composed.services.telemetry.clone(),
-            composed.services.tcp_listener.clone(),
-        );
+        let (telemetry, tcp_listener) = composed.services.telemetry_components();
+        let telemetry_subsystem = TelemetrySubsystem::new(telemetry, tcp_listener);
         let ticker_subsystem = TickerSubsystem::new(composed.ticker_services);
         let handles = ProductionHandles::new(composed.services.ledger());
+        let wallet_services = composed.services.wallet_services();
+        let ledger_query_services = composed.services.ledger_query_services();
+        let bootstrap_work_services = composed.services.bootstrap_work_services();
+        let stats = composed.services.stats();
 
         Ok(Self {
             is_nulled: composed.is_nulled,
@@ -263,7 +330,10 @@ impl Node {
             network_params: composed.network_params,
             workers: composed.workers,
             flags: composed.flags,
-            services: composed.services,
+            wallet_services,
+            ledger_query_services,
+            bootstrap_work_services,
+            stats,
             handles,
             network_subsystem,
             consensus_subsystem,

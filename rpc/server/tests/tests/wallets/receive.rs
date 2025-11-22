@@ -30,7 +30,7 @@ fn receive() {
             wallet,
             *DEV_GENESIS_ACCOUNT,
             key1.public_key().into(),
-            node.config.receive_minimum,
+            node.config().receive_minimum,
             node.work_generate_dev(*DEV_GENESIS_HASH),
             true,
             None,
@@ -62,7 +62,7 @@ fn receive() {
             wallet,
             *DEV_GENESIS_ACCOUNT,
             key1.public_key().into(),
-            node.config.receive_minimum - Amount::raw(1),
+            node.config().receive_minimum - Amount::raw(1),
             node.work_generate_dev(send1.hash()),
             true,
             None,
@@ -84,7 +84,7 @@ fn receive() {
 
     assert_eq!(
         any.account_balance(&key1.public_key().into()),
-        node.config.receive_minimum - Amount::raw(1)
+        node.config().receive_minimum - Amount::raw(1)
     );
 
     let args = ReceiveArgs::builder(wallet, key1.public_key().into(), send2.hash()).build();

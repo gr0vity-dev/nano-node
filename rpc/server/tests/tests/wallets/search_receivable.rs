@@ -20,7 +20,7 @@ fn search_receivable() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
 
     // Create a send block
-    let receive_minimum = node.config.receive_minimum.clone();
+    let receive_minimum = node.config().receive_minimum.clone();
     let send_amount = receive_minimum + Amount::raw(1);
     let block = lattice.genesis().send(&*DEV_GENESIS_KEY, send_amount);
 

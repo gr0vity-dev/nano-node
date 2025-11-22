@@ -16,7 +16,7 @@ impl RpcCommandHandler {
             .inner();
 
         let max_difficulty = DifficultyV1::from_multiplier(
-            self.node.config.max_work_generate_multiplier,
+            self.node.config().max_work_generate_multiplier,
             default_difficulty,
         );
 
@@ -25,7 +25,7 @@ impl RpcCommandHandler {
             || difficulty
                 < self
                     .node
-                    .network_params
+                    .network_params()
                     .work
                     .threshold_entry(BlockType::State)
         {
@@ -44,7 +44,13 @@ impl RpcCommandHandler {
             }
 
             // If optional block difficulty is higher than requested difficulty, send error
-            if self.node.network_params.work.difficulty_block(&block) >= difficulty {
+            if self
+                .node
+                .network_params()
+                .work
+                .difficulty_block(&block)
+                >= difficulty
+            {
                 bail!("Provided work is already enough for given difficulty");
             }
         }

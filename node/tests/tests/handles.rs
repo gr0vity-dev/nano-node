@@ -74,7 +74,7 @@ fn ledger_account_count_handle_matches_ledger_account_count() {
 #[test]
 fn ledger_account_balance_handle_matches_ledger_sets() {
     let node = Node::new_null();
-    let account = node.network_params.ledger.genesis_account;
+    let account = node.network_params().ledger.genesis_account;
     let handle = node.production_handles().ledger_account_balances();
     let ledger = node.ledger_query_services().ledger_arc();
     let ledger_for_confirmed = ledger.clone();
@@ -118,8 +118,8 @@ fn ledger_state_check_handle_matches_ledger_queries() {
     let node = Node::new_null();
     let handle = node.production_handles().ledger_state_checks();
     let ledger = node.ledger_query_services().ledger_arc();
-    let genesis_hash = node.network_params.ledger.genesis_block.hash();
-    let genesis_account = node.network_params.ledger.genesis_account;
+    let genesis_hash = node.network_params().ledger.genesis_block.hash();
+    let genesis_account = node.network_params().ledger.genesis_account;
 
     assert!(handle.block_exists(&genesis_hash));
     assert_eq!(
@@ -127,7 +127,7 @@ fn ledger_state_check_handle_matches_ledger_queries() {
         ledger.any().account_balance(&genesis_account)
     );
 
-    if let Some(link) = node.network_params.ledger.epochs.link(Epoch::Epoch1) {
+    if let Some(link) = node.network_params().ledger.epochs.link(Epoch::Epoch1) {
         assert!(handle.is_epoch_link(link));
     }
 }
@@ -137,8 +137,8 @@ fn ledger_query_handle_matches_ledger_reads() {
     let node = Node::new_null();
     let handle = node.production_handles().ledger_queries();
     let ledger = node.ledger_query_services().ledger_arc();
-    let genesis_account = node.network_params.ledger.genesis_account;
-    let genesis_hash = node.network_params.ledger.genesis_block.hash();
+    let genesis_account = node.network_params().ledger.genesis_account;
+    let genesis_hash = node.network_params().ledger.genesis_block.hash();
 
     let account_info = handle.account_info(&genesis_account).unwrap();
     let ledger_account_info = ledger.any().get_account(&genesis_account).unwrap();
@@ -181,7 +181,7 @@ fn ledger_query_handle_matches_ledger_reads() {
 #[test]
 fn ledger_query_handle_receivable_upper_bound_matches_iterator() {
     let node = Node::new_null();
-    let account = node.network_params.ledger.genesis_account;
+    let account = node.network_params().ledger.genesis_account;
     let start = BlockHash::ZERO;
     let handle_iter = node
         .production_handles()
@@ -203,8 +203,8 @@ fn ledger_query_handle_receivable_upper_bound_matches_iterator() {
 fn ledger_query_handle_pending_from_matches_iterator() {
     let node = Node::new_null();
     let start = PendingKey::new(
-        node.network_params.ledger.genesis_account,
-        node.network_params.ledger.genesis_block.hash(),
+        node.network_params().ledger.genesis_account,
+        node.network_params().ledger.genesis_block.hash(),
     );
     let handle_iter = node
         .production_handles()

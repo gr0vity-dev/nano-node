@@ -126,7 +126,7 @@ impl System {
         node.start();
 
         // Check that we don't start more nodes than limit for single IP address
-        debug_assert!(self.nodes.len() < node.config.network.max_peers_per_ip.into());
+        debug_assert!(self.nodes.len() < node.config().network.max_peers_per_ip.into());
         let node = Arc::new(node);
         self.nodes.push(node.clone());
 
@@ -154,13 +154,13 @@ impl System {
                     .network
                     .read()
                     .unwrap()
-                    .find_node_id(&other.node_id.public_key().into())
+                    .find_node_id(&other.node_id().as_key().into())
                     .is_some()
                     && other_network
                         .network
                         .read()
                         .unwrap()
-                        .find_node_id(&node.node_id.public_key().into())
+                        .find_node_id(&node.node_id().as_key().into())
                         .is_some()
                 {
                     break;
@@ -209,7 +209,7 @@ impl System {
                 std::thread::yield_now();
             }
             exclusive_node.stop();
-            std::fs::remove_dir_all(&node.data_path).expect("Could not delete node data dir");
+        std::fs::remove_dir_all(node.data_path()).expect("Could not delete node data dir");
         }
     }
 
@@ -388,7 +388,7 @@ pub fn establish_tcp(node: &Node, peer: &Node) -> Arc<Channel> {
                 .network
                 .read()
                 .unwrap()
-                .find_node_id(&peer.node_id.public_key().into())
+                .find_node_id(&peer.node_id().as_key().into())
                 .is_some()
         },
         "node did not connect",
@@ -399,7 +399,7 @@ pub fn establish_tcp(node: &Node, peer: &Node) -> Arc<Channel> {
         .network
         .read()
         .unwrap()
-        .find_node_id(&peer.node_id.public_key().into())
+        .find_node_id(&peer.node_id().as_key().into())
         .unwrap()
         .clone()
 }

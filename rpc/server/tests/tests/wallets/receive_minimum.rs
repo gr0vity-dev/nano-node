@@ -11,7 +11,7 @@ fn receive_minimum() {
         .runtime()
         .block_on(async { server.client.receive_minimum().await.unwrap() });
 
-    assert_eq!(result.amount, node.config.receive_minimum);
+    assert_eq!(result.amount, node.config().receive_minimum);
 }
 
 #[test]

@@ -3,7 +3,7 @@ use rsnano_rpc_messages::ActiveDifficultyResponse;
 
 impl RpcCommandHandler {
     pub(crate) fn active_difficulty(&self) -> ActiveDifficultyResponse {
-        let work = &self.node.network_params.work;
+        let work = &self.node.network_params().work;
 
         ActiveDifficultyResponse {
             deprecated: "1".to_owned(),

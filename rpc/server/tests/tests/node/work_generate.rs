@@ -17,7 +17,7 @@ fn work_generate() {
     assert_eq!(hash, work_generate_dto.hash);
 
     let work: WorkNonce = work_generate_dto.work.into();
-    let result_difficulty = node.network_params.work.difficulty(&hash.into(), work);
+    let result_difficulty = node.network_params().work.difficulty(&hash.into(), work);
 
     assert_eq!(result_difficulty, work_generate_dto.difficulty.inner());
 

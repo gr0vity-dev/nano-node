@@ -16,7 +16,7 @@ fn search_receivable_all() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send = lattice
         .genesis()
-        .send(&*DEV_GENESIS_KEY, node.config.receive_minimum);
+        .send(&*DEV_GENESIS_KEY, node.config().receive_minimum);
 
     node.process(send);
 

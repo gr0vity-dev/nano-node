@@ -4,7 +4,7 @@ use rsnano_types::{BlockDetails, DifficultyV1};
 
 impl RpcCommandHandler {
     pub(crate) fn work_validate(&self, args: WorkValidateArgs) -> WorkValidateResponse {
-        let default_difficulty = self.node.network_params.work.threshold_base();
+        let default_difficulty = self.node.network_params().work.threshold_base();
 
         let difficulty = if let Some(multiplier) = args.multiplier {
             DifficultyV1::from_multiplier(multiplier.inner(), default_difficulty)
@@ -22,7 +22,7 @@ impl RpcCommandHandler {
 
         let result_difficulty = self
             .node
-            .network_params
+            .network_params()
             .work
             .difficulty(&args.hash.into(), args.work.unwrap_or_default());
 
@@ -42,7 +42,7 @@ impl RpcCommandHandler {
             "0".to_owned()
         };
 
-        let receive_difficulty = self.node.network_params.work.threshold(&BlockDetails::new(
+        let receive_difficulty = self.node.network_params().work.threshold(&BlockDetails::new(
             rsnano_types::Epoch::Epoch2,
             false,
             true,

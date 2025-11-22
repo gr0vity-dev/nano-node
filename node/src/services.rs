@@ -444,54 +444,162 @@ impl TelemetryServices {
 /// higher layers can grab a focused subset without touching the gigantic
 /// `Node` struct directly.
 #[derive(Clone)]
-pub(crate) struct NodeServices {
-    pub steady_clock: Arc<SteadyClock>,
-    pub stats: Arc<Stats>,
-    pub work_factory: Arc<WorkFactory>,
+pub(crate) struct NodeServiceBundle {
+    steady_clock: Arc<SteadyClock>,
+    stats: Arc<Stats>,
+    work_factory: Arc<WorkFactory>,
     ledger: Arc<Ledger>,
-    pub network: Arc<RwLock<Network>>,
-    pub telemetry: Arc<Telemetry>,
-    pub bootstrap_server: Arc<BootstrapServer>,
-    pub online_reps: Arc<Mutex<OnlineReps>>,
-    pub rep_tiers: Arc<CurrentRepTiers>,
-    pub vote_processor_queue: Arc<VoteProcessorQueue>,
-    pub vote_history: Arc<LocalVoteHistory>,
-    pub confirming_set: Arc<ConfirmingSet>,
-    pub vote_cache: Arc<Mutex<VoteCache>>,
-    pub(crate) vote_cache_processor: Arc<VoteCacheProcessor>,
-    pub block_processor: Arc<BlockProcessor>,
-    pub block_processor_queue: Arc<BlockProcessorQueue>,
-    pub wallets: Arc<Wallets>,
-    pub vote_generators: Arc<VoteGenerators>,
-    pub active: Arc<RwLock<ActiveElectionsContainer>>,
-    pub vote_processor: Arc<VoteProcessor>,
-    pub rep_crawler: Arc<RepCrawler>,
-    pub tcp_listener: Arc<TcpListener>,
-    pub election_schedulers: Arc<ElectionSchedulers>,
-    pub request_aggregator: Arc<RequestAggregator>,
-    pub bounded_backlog: Arc<BoundedBacklog>,
-    pub bootstrapper: Arc<Bootstrapper>,
-    pub local_block_broadcaster: Arc<LocalBlockBroadcaster>,
-    pub(crate) network_threads: Arc<Mutex<NetworkThreads>>,
-    pub peer_connector: Arc<PeerConnector>,
-    pub inbound_message_queue: Arc<InboundMessageQueue>,
-    pub network_filter: Arc<NetworkFilter>,
-    pub message_processor: Arc<Mutex<MessageProcessor>>,
-    pub message_sender: Arc<Mutex<MessageSender>>,
-    pub message_flooder: Arc<Mutex<MessageFlooder>>,
-    pub keepalive_publisher: Arc<KeepalivePublisher>,
-    pub recently_cemented: Arc<Mutex<BoundedVecDeque<ConfirmedElection>>>,
-    pub block_rates: Arc<CurrentBlockRates>,
-    pub wallet_reps: Arc<Mutex<WalletRepresentatives>>,
-    pub(crate) vote_rebroadcaster: Arc<Mutex<VoteRebroadcaster>>,
-    pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
+    network: Arc<RwLock<Network>>,
+    telemetry: Arc<Telemetry>,
+    bootstrap_server: Arc<BootstrapServer>,
+    online_reps: Arc<Mutex<OnlineReps>>,
+    rep_tiers: Arc<CurrentRepTiers>,
+    vote_processor_queue: Arc<VoteProcessorQueue>,
+    vote_history: Arc<LocalVoteHistory>,
+    confirming_set: Arc<ConfirmingSet>,
+    vote_cache: Arc<Mutex<VoteCache>>,
+    vote_cache_processor: Arc<VoteCacheProcessor>,
+    block_processor: Arc<BlockProcessor>,
+    block_processor_queue: Arc<BlockProcessorQueue>,
+    wallets: Arc<Wallets>,
+    vote_generators: Arc<VoteGenerators>,
+    active: Arc<RwLock<ActiveElectionsContainer>>,
+    vote_processor: Arc<VoteProcessor>,
+    rep_crawler: Arc<RepCrawler>,
+    tcp_listener: Arc<TcpListener>,
+    election_schedulers: Arc<ElectionSchedulers>,
+    request_aggregator: Arc<RequestAggregator>,
+    bounded_backlog: Arc<BoundedBacklog>,
+    bootstrapper: Arc<Bootstrapper>,
+    local_block_broadcaster: Arc<LocalBlockBroadcaster>,
+    network_threads: Arc<Mutex<NetworkThreads>>,
+    peer_connector: Arc<PeerConnector>,
+    inbound_message_queue: Arc<InboundMessageQueue>,
+    network_filter: Arc<NetworkFilter>,
+    message_processor: Arc<Mutex<MessageProcessor>>,
+    message_sender: Arc<Mutex<MessageSender>>,
+    message_flooder: Arc<Mutex<MessageFlooder>>,
+    keepalive_publisher: Arc<KeepalivePublisher>,
+    recently_cemented: Arc<Mutex<BoundedVecDeque<ConfirmedElection>>>,
+    block_rates: Arc<CurrentBlockRates>,
+    wallet_reps: Arc<Mutex<WalletRepresentatives>>,
+    vote_rebroadcaster: Arc<Mutex<VoteRebroadcaster>>,
+    winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
     #[cfg(feature = "ledger_snapshots")]
     pub ledger_snapshots: Arc<LedgerSnapshots>,
 }
 
-impl NodeServices {
+#[cfg(any(test, feature = "test_support"))]
+pub(crate) type NodeServices = NodeServiceBundle;
+
+impl NodeServiceBundle {
     pub(crate) fn ledger(&self) -> Arc<Ledger> {
         self.ledger.clone()
+    }
+
+    pub(crate) fn stats(&self) -> Arc<Stats> {
+        self.stats.clone()
+    }
+
+    pub(crate) fn work_factory(&self) -> Arc<WorkFactory> {
+        self.work_factory.clone()
+    }
+
+    pub(crate) fn wallet_reps(&self) -> Arc<Mutex<WalletRepresentatives>> {
+        self.wallet_reps.clone()
+    }
+
+    pub(crate) fn network_components(
+        &self,
+    ) -> (
+        Arc<RwLock<Network>>,
+        Arc<TcpListener>,
+        Arc<PeerConnector>,
+        Arc<Mutex<NetworkThreads>>,
+        Arc<Mutex<MessageProcessor>>,
+        Arc<Mutex<MessageSender>>,
+        Arc<Mutex<MessageFlooder>>,
+        Arc<KeepalivePublisher>,
+        Arc<InboundMessageQueue>,
+        Arc<NetworkFilter>,
+        Arc<SteadyClock>,
+    ) {
+        (
+            self.network.clone(),
+            self.tcp_listener.clone(),
+            self.peer_connector.clone(),
+            self.network_threads.clone(),
+            self.message_processor.clone(),
+            self.message_sender.clone(),
+            self.message_flooder.clone(),
+            self.keepalive_publisher.clone(),
+            self.inbound_message_queue.clone(),
+            self.network_filter.clone(),
+            self.steady_clock.clone(),
+        )
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn consensus_components(
+        &self,
+    ) -> (
+        Arc<RwLock<ActiveElectionsContainer>>,
+        Arc<ElectionSchedulers>,
+        Arc<VoteProcessor>,
+        Arc<VoteGenerators>,
+        Arc<LocalVoteHistory>,
+        Arc<RequestAggregator>,
+        Arc<BoundedBacklog>,
+        Arc<Bootstrapper>,
+        Arc<RepCrawler>,
+        Arc<Mutex<OnlineReps>>,
+        Arc<CurrentRepTiers>,
+        Arc<LocalBlockBroadcaster>,
+        Arc<Mutex<WinnerBlockBroadcaster>>,
+        Arc<VoteProcessorQueue>,
+        Arc<Mutex<VoteCache>>,
+        Arc<VoteCacheProcessor>,
+        Arc<ConfirmingSet>,
+        Arc<BlockProcessor>,
+        Arc<BlockProcessorQueue>,
+        Arc<Mutex<VoteRebroadcaster>>,
+    ) {
+        (
+            self.active.clone(),
+            self.election_schedulers.clone(),
+            self.vote_processor.clone(),
+            self.vote_generators.clone(),
+            self.vote_history.clone(),
+            self.request_aggregator.clone(),
+            self.bounded_backlog.clone(),
+            self.bootstrapper.clone(),
+            self.rep_crawler.clone(),
+            self.online_reps.clone(),
+            self.rep_tiers.clone(),
+            self.local_block_broadcaster.clone(),
+            self.winner_block_broadcaster.clone(),
+            self.vote_processor_queue.clone(),
+            self.vote_cache.clone(),
+            self.vote_cache_processor.clone(),
+            self.confirming_set.clone(),
+            self.block_processor.clone(),
+            self.block_processor_queue.clone(),
+            self.vote_rebroadcaster.clone(),
+        )
+    }
+
+    pub(crate) fn telemetry_components(&self) -> (Arc<Telemetry>, Arc<TcpListener>) {
+        (self.telemetry.clone(), self.tcp_listener.clone())
+    }
+
+    pub(crate) fn bootstrap_components(
+        &self,
+    ) -> (Arc<Bootstrapper>, Arc<BootstrapServer>, Arc<WorkFactory>) {
+        (
+            self.bootstrapper.clone(),
+            self.bootstrap_server.clone(),
+            self.work_factory.clone(),
+        )
     }
 
     #[allow(clippy::too_many_arguments)]

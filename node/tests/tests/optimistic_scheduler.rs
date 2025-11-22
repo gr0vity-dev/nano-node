@@ -148,7 +148,7 @@ pub fn under_gap_threshold() {
     node.confirm(blocks[55].hash());
 
     // Manually trigger backlog scan
-    node.backlog_scan.trigger();
+    node.backlog_scan().trigger();
 
     // Ensure unconfirmed account head block gets activated
     let block = blocks.last().unwrap();

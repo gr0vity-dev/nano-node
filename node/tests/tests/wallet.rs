@@ -780,7 +780,7 @@ fn work_cache_delayed() {
         .unwrap();
 
     assert_eq!(node1.wallet_services().wallets.delayed_work_count(), 1);
-    let threshold = node1.network_params.work.threshold_base();
+    let threshold = node1.network_params().work.threshold_base();
     let start = Instant::now();
     loop {
         let work1 = node1
@@ -1165,7 +1165,7 @@ fn epoch_2_validation() {
     // An epoch 2 receive block should be generated with lower difficulty with high probability
     let mut tries = 0;
     let max_tries = 20;
-    let amount = node.config.receive_minimum;
+    let amount = node.config().receive_minimum;
     while tries < max_tries {
         tries += 1;
         let send = node
@@ -1258,7 +1258,7 @@ fn epoch_2_receive_propagation() {
             .wallets
             .insert_adhoc2(&wallet_id, &key.raw_key(), false)
             .unwrap();
-        let amount = node.config.receive_minimum;
+        let amount = node.config().receive_minimum;
         let send1 = node
             .wallet_services()
             .wallets
@@ -1370,7 +1370,7 @@ fn epoch_2_receive_unopened() {
             .wallets
             .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), false)
             .unwrap();
-        let amount = node.config.receive_minimum;
+        let amount = node.config().receive_minimum;
 
         let send1 = node
             .wallet_services()
@@ -1395,7 +1395,7 @@ fn epoch_2_receive_unopened() {
             representative: PublicKey::ZERO,
             balance: Amount::ZERO,
             link: *node
-                .network_params
+                .network_params()
                 .ledger
                 .epochs
                 .link(Epoch::Epoch2)
@@ -1470,7 +1470,7 @@ fn search_receivable() {
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send = lattice
         .genesis()
-        .send(&*DEV_GENESIS_KEY, node.config.receive_minimum);
+        .send(&*DEV_GENESIS_KEY, node.config().receive_minimum);
     node.process(send.clone());
     node.wallet_services()
         .wallets

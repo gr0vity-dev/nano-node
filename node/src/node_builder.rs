@@ -38,7 +38,7 @@ use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
 use crate::{
-    BacklogServices, Node, NodeArgs, NodeEvent, NodeServices, OnlineWeightSampler, TickerServices,
+    BacklogServices, Node, NodeArgs, NodeEvent, NodeServiceBundle, OnlineWeightSampler, TickerServices,
     aec_event_processor::AecEventProcessor,
     block_processing::{
         BacklogScan, BacklogWaiter, BlockProcessor, BlockProcessorQueue, BoundedBacklog,
@@ -162,7 +162,7 @@ pub(crate) struct ComposedNode {
     pub(crate) network_params: NetworkParams,
     pub(crate) workers: Arc<ThreadPool>,
     pub(crate) flags: NodeFlags,
-    pub(crate) services: NodeServices,
+    pub(crate) services: NodeServiceBundle,
     pub(crate) unchecked: Arc<Mutex<UncheckedMap>>,
     pub(crate) backlog_scan: BacklogServices,
     pub(crate) tokio_runner: TokioRunner,
@@ -1608,7 +1608,7 @@ pub(crate) fn compose_root(
     container_info.add("fork_cache", fork_cache.clone());
     container_info.add("event_queues", event_queues_info);
 
-    let services = NodeServices::new(
+    let services = NodeServiceBundle::new(
         steady_clock.clone(),
         stats.clone(),
         work_factory.clone(),

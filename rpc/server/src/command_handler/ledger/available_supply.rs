@@ -7,7 +7,7 @@ impl RpcCommandHandler {
         // Cold storage genesis
         let genesis_balance = self
             .node
-            .balance(&self.node.network_params.ledger.genesis_account);
+            .balance(&self.node.network_params().ledger.genesis_account);
 
         // Active unavailable account
         let landing_balance = self.node.balance(

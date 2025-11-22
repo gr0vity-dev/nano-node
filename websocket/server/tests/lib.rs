@@ -359,7 +359,7 @@ fn confirmation_options_votes() {
         // Confirm a state block for an in-wallet account
         node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
         let key = PrivateKey::new();
-        let send_amount = node1.config.online_weight_minimum + Amount::raw(1);
+        let send_amount = node1.config().online_weight_minimum + Amount::raw(1);
         let mut lattice = UnsavedBlockLatticeBuilder::new();
         let send = lattice.genesis().send(&key, send_amount);
         let send_hash = send.hash();
@@ -409,7 +409,7 @@ fn confirmation_options_sideband() {
         node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
         let key = PrivateKey::new();
-        let send_amount = node1.config.online_weight_minimum + Amount::raw(1);
+        let send_amount = node1.config().online_weight_minimum + Amount::raw(1);
         let mut lattice = UnsavedBlockLatticeBuilder::new();
         let send = lattice.genesis().send(&key, send_amount);
         node1.process_active(send);
@@ -686,9 +686,9 @@ fn create_node_with_websocket(system: &mut System) -> (Arc<Node>, Arc<WebsocketL
         .finish();
 
     let ws_config = WebsocketConfig {
-        enabled: node.config.websocket_config.enabled,
-        port: node.config.websocket_config.port,
-        address: node.config.websocket_config.address.clone(),
+        enabled: node.config().websocket_config.enabled,
+        port: node.config().websocket_config.port,
+        address: node.config().websocket_config.address.clone(),
     };
 
     let mut event_handlers = CompositeNodeEventHandler::new(receiver);
@@ -713,7 +713,7 @@ fn create_node_with_websocket(system: &mut System) -> (Arc<Node>, Arc<WebsocketL
 async fn connect_websocket(node: &Node) -> NanoWebSocketClient {
     let client_factory = NanoWebSocketClientFactory::default();
     client_factory
-        .connect(&format!("ws://[::1]:{}", node.config.websocket_config.port))
+        .connect(&format!("ws://[::1]:{}", node.config().websocket_config.port))
         .await
         .expect("Failed to connect")
 }

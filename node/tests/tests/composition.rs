@@ -64,7 +64,7 @@ fn node_builder_supports_rocksdb_backend_via_config() {
     config.ledger_store_config.backend = LedgerBackend::RocksDb(RocksDbConfig::default());
     let node = system.build_node().config(config).finish();
 
-    let ledger_dir = node.data_path.join("data.rocksdb");
+    let ledger_dir = node.data_path().join("data.rocksdb");
     assert!(
         ledger_dir.join("CURRENT").exists(),
         "RocksDB ledger should create CURRENT file at {:?}",
@@ -90,7 +90,7 @@ max_open_files = 64
         .finish()
         .expect("node loads from config");
     assert!(matches!(
-        node.config.ledger_store_config.backend,
+        node.config().ledger_store_config.backend,
         LedgerBackend::RocksDb(_)
     ));
     node.stop();

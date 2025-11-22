@@ -28,10 +28,10 @@ impl RpcCommandHandler {
             let details = BlockDetails::new(info.epoch, true, false, false);
             if self
                 .node
-                .network_params
+                .network_params()
                 .work
                 .difficulty(&info.head.into(), work)
-                < self.node.network_params.work.threshold(&details)
+                < self.node.network_params().work.threshold(&details)
             {
                 bail!("Invalid work")
             }

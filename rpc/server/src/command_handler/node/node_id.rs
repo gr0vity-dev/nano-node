@@ -3,7 +3,7 @@ use rsnano_rpc_messages::NodeIdResponse;
 
 impl RpcCommandHandler {
     pub(crate) fn node_id(&self) -> NodeIdResponse {
-        let public = self.node.node_id.public_key();
+        let public = self.node.node_id().as_key();
         let as_account = public.as_account();
         NodeIdResponse {
             public,

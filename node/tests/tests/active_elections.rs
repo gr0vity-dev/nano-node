@@ -629,7 +629,7 @@ fn inactive_votes_cache_election_start() {
         .unwrap()
         .trended_or_minimum_weight()
         / 100)
-        * node.config.hinted_scheduler.hinting_threshold_percent as u128)
+        * node.config().hinted_scheduler.hinting_threshold_percent as u128)
         / 2
         + Amount::nano(1_000_000);
 
@@ -1293,7 +1293,7 @@ fn confirmation_consistency() {
                 wallet_id,
                 *DEV_GENESIS_ACCOUNT,
                 Account::from(0),
-                node.config.receive_minimum,
+                node.config().receive_minimum,
                 0.into(),
                 true,
                 None,

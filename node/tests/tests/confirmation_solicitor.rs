@@ -28,7 +28,7 @@ fn batches() {
         .network
         .read()
         .unwrap()
-        .find_node_id(&node1.node_id.public_key().into())
+        .find_node_id(&node1.node_id().as_key().into())
         .unwrap()
         .clone();
 
@@ -85,7 +85,7 @@ fn different_hashes() {
         .network
         .read()
         .unwrap()
-        .find_node_id(&node1.node_id.public_key().into())
+        .find_node_id(&node1.node_id().as_key().into())
         .unwrap()
         .clone();
     // Solicitor will only solicit from this representative

@@ -36,7 +36,7 @@ fn account_history() {
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
             *DEV_GENESIS_ACCOUNT,
-            node.config.receive_minimum,
+            node.config().receive_minimum,
             node.work_generate_dev(change.hash()),
             false,
             None,
@@ -51,7 +51,7 @@ fn account_history() {
             wallet_id,
             send.hash(),
             *DEV_GENESIS_PUB_KEY,
-            node.config.receive_minimum,
+            node.config().receive_minimum,
             *DEV_GENESIS_ACCOUNT,
             node.work_generate_dev(send.hash()),
             false,
@@ -133,14 +133,14 @@ fn account_history() {
     assert_eq!(history[2].block_type, Some(BlockTypeDto::Receive));
     assert_eq!(history[2].hash, receive.hash());
     assert_eq!(history[2].account, Some(*DEV_GENESIS_ACCOUNT));
-    assert_eq!(history[2].amount, Some(node.config.receive_minimum));
+    assert_eq!(history[2].amount, Some(node.config().receive_minimum));
     assert_eq!(history[2].height, 4.into());
     assert_eq!(history[2].confirmed, false.into());
 
     assert_eq!(history[3].block_type, Some(BlockTypeDto::Send));
     assert_eq!(history[3].hash, send.hash());
     assert_eq!(history[3].account, Some(*DEV_GENESIS_ACCOUNT));
-    assert_eq!(history[3].amount, Some(node.config.receive_minimum));
+    assert_eq!(history[3].amount, Some(node.config().receive_minimum));
     assert_eq!(history[3].height, 3.into());
     assert_eq!(history[3].confirmed, false.into());
 
@@ -186,7 +186,7 @@ fn account_history() {
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
             account2,
-            node.config.receive_minimum,
+            node.config().receive_minimum,
             node.work_generate_dev(uchange.hash()),
             false,
             None,
@@ -200,7 +200,7 @@ fn account_history() {
             wallet_id,
             send2.hash(),
             account2.into(),
-            node.config.receive_minimum,
+            node.config().receive_minimum,
             account2.into(),
             node.work_generate_dev(send2.hash()),
             false,

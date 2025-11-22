@@ -268,7 +268,7 @@ fn send_callback() {
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
-            node.config.receive_minimum,
+            node.config().receive_minimum,
             0.into(),
             true,
             None,
@@ -280,7 +280,7 @@ fn send_callback() {
     assert_timely2(|| node.balance(&key2.account()).is_zero());
 
     assert_eq!(
-        Amount::MAX - node.config.receive_minimum,
+        Amount::MAX - node.config().receive_minimum,
         node.balance(&DEV_GENESIS_ACCOUNT)
     );
 }
@@ -777,7 +777,7 @@ fn unlock_search() {
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
-            node.config.receive_minimum,
+            node.config().receive_minimum,
             0.into(),
             true,
             None,
@@ -838,7 +838,7 @@ fn search_receivable_confirmed() {
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
-            node.config.receive_minimum,
+            node.config().receive_minimum,
             0.into(),
             true,
             None,
@@ -854,7 +854,7 @@ fn search_receivable_confirmed() {
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
-            node.config.receive_minimum,
+            node.config().receive_minimum,
             0.into(),
             true,
             None,
@@ -880,7 +880,7 @@ fn search_receivable_confirmed() {
 
     assert_timely_eq2(
         || node.balance(&key2.account()),
-        node.config.receive_minimum * 2,
+        node.config().receive_minimum * 2,
     );
 }
 
@@ -900,7 +900,7 @@ fn search_receivable() {
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
-            node.config.receive_minimum,
+            node.config().receive_minimum,
             0.into(),
             true,
             None,
@@ -942,7 +942,7 @@ fn search_receivable_same() {
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
-            node.config.receive_minimum,
+            node.config().receive_minimum,
             0.into(),
             true,
             None,
@@ -957,7 +957,7 @@ fn search_receivable_same() {
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
-            node.config.receive_minimum,
+            node.config().receive_minimum,
             0.into(),
             true,
             None,
@@ -972,7 +972,7 @@ fn search_receivable_same() {
         .wait_timeout(Duration::from_secs(5))
         .unwrap();
 
-    assert_timely2(|| node.balance(&key2.account()) == node.config.receive_minimum * 2);
+    assert_timely2(|| node.balance(&key2.account()) == node.config().receive_minimum * 2);
 }
 
 #[test]
@@ -997,7 +997,7 @@ fn search_receivable_multiple() {
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
             key3.account(),
-            node.config.receive_minimum,
+            node.config().receive_minimum,
             0.into(),
             true,
             None,
@@ -1012,7 +1012,7 @@ fn search_receivable_multiple() {
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
-            node.config.receive_minimum,
+            node.config().receive_minimum,
             0.into(),
             true,
             None,
@@ -1025,7 +1025,7 @@ fn search_receivable_multiple() {
             wallet_id,
             key3.account(),
             key2.account(),
-            node.config.receive_minimum,
+            node.config().receive_minimum,
             0.into(),
             true,
             None,
@@ -1042,7 +1042,7 @@ fn search_receivable_multiple() {
         .wait_timeout(Duration::from_secs(5))
         .unwrap();
 
-    assert_timely2(|| node.balance(&key2.account()) == node.config.receive_minimum * 2);
+    assert_timely2(|| node.balance(&key2.account()) == node.config().receive_minimum * 2);
 }
 
 #[test]
@@ -1134,9 +1134,9 @@ fn send_out_of_order() {
     let key2 = PrivateKey::new();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
-    let send1 = lattice.genesis().send(&key2, node1.config.receive_minimum);
-    let send2 = lattice.genesis().send(&key2, node1.config.receive_minimum);
-    let send3 = lattice.genesis().send(&key2, node1.config.receive_minimum);
+    let send1 = lattice.genesis().send(&key2, node1.config().receive_minimum);
+    let send2 = lattice.genesis().send(&key2, node1.config().receive_minimum);
+    let send3 = lattice.genesis().send(&key2, node1.config().receive_minimum);
 
     node1.process_active(send3.clone());
     node1.process_active(send2.clone());
@@ -1146,7 +1146,7 @@ fn send_out_of_order() {
         Duration::from_secs(10),
         || {
             system.nodes.iter().all(|node| {
-                node.balance(&DEV_GENESIS_ACCOUNT) == Amount::MAX - node1.config.receive_minimum * 3
+            node.balance(&DEV_GENESIS_ACCOUNT) == Amount::MAX - node1.config().receive_minimum * 3
             })
         },
         "balance is incorrect on at least one node",
@@ -1180,7 +1180,7 @@ fn send_single_observing_peer() {
             wallet_id1,
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
-            node1.config.receive_minimum,
+            node1.config().receive_minimum,
             0.into(),
             true,
             None,
@@ -1189,7 +1189,7 @@ fn send_single_observing_peer() {
         .unwrap();
 
     assert_eq!(
-        Amount::MAX - node1.config.receive_minimum,
+        Amount::MAX - node1.config().receive_minimum,
         node1.balance(&DEV_GENESIS_ACCOUNT)
     );
 
@@ -1234,7 +1234,7 @@ fn send_single() {
             wallet_id1,
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
-            node1.config.receive_minimum,
+            node1.config().receive_minimum,
             0.into(),
             true,
             None,
@@ -1243,7 +1243,7 @@ fn send_single() {
         .unwrap();
 
     assert_eq!(
-        Amount::MAX - node1.config.receive_minimum,
+        Amount::MAX - node1.config().receive_minimum,
         node1.balance(&DEV_GENESIS_ACCOUNT)
     );
 
@@ -1277,7 +1277,7 @@ fn send_self() {
             wallet_id,
             *DEV_GENESIS_ACCOUNT,
             key2.account(),
-            node.config.receive_minimum,
+            node.config().receive_minimum,
             0.into(),
             true,
             None,
@@ -1292,7 +1292,7 @@ fn send_self() {
     );
 
     assert_eq!(
-        Amount::MAX - node.config.receive_minimum,
+        Amount::MAX - node.config().receive_minimum,
         node.balance(&DEV_GENESIS_ACCOUNT)
     );
 }
@@ -1322,7 +1322,7 @@ fn work_generate() {
     // Test with higher difficulty
     {
         let difficulty =
-            DifficultyV1::from_multiplier(1.5, node.network_params.work.threshold_base());
+            DifficultyV1::from_multiplier(1.5, node.network_params().work.threshold_base());
 
         let work = node
             .wallet_services()
@@ -1331,13 +1331,13 @@ fn work_generate() {
 
         assert!(work.is_some());
         let work = work.unwrap();
-        assert!(node.network_params.work.difficulty(&root, work) >= difficulty);
+        assert!(node.network_params().work.difficulty(&root, work) >= difficulty);
     }
 
     // Test with lower difficulty
     {
         let difficulty =
-            DifficultyV1::from_multiplier(0.5, node.network_params.work.threshold_base());
+            DifficultyV1::from_multiplier(0.5, node.network_params().work.threshold_base());
         let mut work;
         loop {
             work = node
@@ -1345,18 +1345,18 @@ fn work_generate() {
                 .work_factory
                 .generate_work(WorkRequest::new(root, difficulty));
             if let Some(work_value) = work {
-                if node.network_params.work.difficulty(&root, work_value)
-                    < node.network_params.work.threshold_base()
+                if node.network_params().work.difficulty(&root, work_value)
+                    < node.network_params().work.threshold_base()
                 {
                     break;
                 }
             }
         }
         let work = work.unwrap();
-        assert!(node.network_params.work.difficulty(&root, work) >= difficulty);
+        assert!(node.network_params().work.difficulty(&root, work) >= difficulty);
         assert!(
-            node.network_params.work.difficulty(&root, work)
-                < node.network_params.work.threshold_base()
+            node.network_params().work.difficulty(&root, work)
+                < node.network_params().work.threshold_base()
         );
     }
 }
@@ -1489,7 +1489,7 @@ fn fork_no_vote_quorum() {
             wallet_id1,
             *DEV_GENESIS_ACCOUNT,
             key1.into(),
-            node1.config.receive_minimum,
+            node1.config().receive_minimum,
             0.into(),
             true,
             None,
@@ -1500,22 +1500,22 @@ fn fork_no_vote_quorum() {
     assert_timely_msg(
         Duration::from_secs(30),
         || {
-            node3.balance(&key1.into()) == node1.config.receive_minimum
-                && node2.balance(&key1.into()) == node1.config.receive_minimum
-                && node1.balance(&key1.into()) == node1.config.receive_minimum
+            node3.balance(&key1.into()) == node1.config().receive_minimum
+                && node2.balance(&key1.into()) == node1.config().receive_minimum
+                && node1.balance(&key1.into()) == node1.config().receive_minimum
         },
         "balances are wrong",
     );
     assert_eq!(
-        node1.config.receive_minimum,
+        node1.config().receive_minimum,
         node1.ledger_query_services().ledger_arc().weight(&key1)
     );
     assert_eq!(
-        node1.config.receive_minimum,
+        node1.config().receive_minimum,
         node2.ledger_query_services().ledger_arc().weight(&key1)
     );
     assert_eq!(
-        node1.config.receive_minimum,
+        node1.config().receive_minimum,
         node3.ledger_query_services().ledger_arc().weight(&key1)
     );
 
@@ -1523,7 +1523,7 @@ fn fork_no_vote_quorum() {
         key: &DEV_GENESIS_KEY,
         previous: block.hash(),
         representative: *DEV_GENESIS_PUB_KEY,
-        balance: (Amount::MAX / 4) - (node1.config.receive_minimum * 2),
+        balance: (Amount::MAX / 4) - (node1.config().receive_minimum * 2),
         link: Account::from(key1).into(),
         work: node1.work_generate_dev(block.hash()),
     }
@@ -1543,7 +1543,7 @@ fn fork_no_vote_quorum() {
         key: &DEV_GENESIS_KEY,
         previous: block.hash(),
         representative: *DEV_GENESIS_PUB_KEY,
-        balance: (Amount::MAX / 4) - (node1.config.receive_minimum * 2),
+        balance: (Amount::MAX / 4) - (node1.config().receive_minimum * 2),
         link: Account::from(key2).into(),
         work: node1.work_generate_dev(block.hash()),
     }
@@ -3063,7 +3063,7 @@ fn bounded_backlog() {
         false,
     );
 
-    node.backlog_scan.trigger();
+    node.backlog_scan().trigger();
 
     assert_timely_eq(
         Duration::from_secs(20),

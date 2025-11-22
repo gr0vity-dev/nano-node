@@ -24,7 +24,7 @@ fn vote_minimum() {
     let key2 = PrivateKey::new();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
-    let send1 = lattice.genesis().send(&key1, node.config.vote_minimum);
+    let send1 = lattice.genesis().send(&key1, node.config().vote_minimum);
     node.process(send1.clone());
 
     let open1 = lattice.account(&key1).receive(&send1);
@@ -32,7 +32,7 @@ fn vote_minimum() {
 
     let send2 = lattice
         .genesis()
-        .send(&key2, node.config.vote_minimum - Amount::raw(1));
+        .send(&key2, node.config().vote_minimum - Amount::raw(1));
     node.process(send2.clone());
 
     let open2 = lattice.account(&key2).receive(&send2);
@@ -144,7 +144,7 @@ fn search_receivable() {
         let mut lattice = UnsavedBlockLatticeBuilder::new();
         let send = lattice
             .genesis()
-            .send(&*DEV_GENESIS_KEY, node.config.receive_minimum);
+            .send(&*DEV_GENESIS_KEY, node.config().receive_minimum);
         node.process(send.clone());
 
         if search_all {
