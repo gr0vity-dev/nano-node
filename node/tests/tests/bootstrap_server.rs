@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex},
+    net::{Ipv6Addr, SocketAddrV6},
+    sync::{Arc, Mutex, atomic::{AtomicU16, Ordering}},
     time::Duration,
 };
 
@@ -13,16 +14,28 @@ use rsnano_node::{Node, bootstrap::BootstrapServer};
 use rsnano_types::{Account, Block, BlockHash, DEV_GENESIS_KEY, HashOrAccount, SavedBlock};
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{
-    System, assert_always_eq, assert_timely_eq, assert_timely_eq2, make_fake_channel, setup_chains,
+    System, assert_always_eq, assert_timely_eq, assert_timely_eq2, setup_chains,
 };
+
+static NEXT_TEST_PORT: AtomicU16 = AtomicU16::new(50_000);
+
+fn next_test_endpoint() -> SocketAddrV6 {
+    let port = NEXT_TEST_PORT.fetch_add(1, Ordering::Relaxed);
+    SocketAddrV6::new(Ipv6Addr::LOCALHOST, port, 0, 0)
+}
+
+fn enqueue_inbound(node: &Node, message: Message) {
+    let endpoint = next_test_endpoint();
+    let network = node.network_subsystem();
+    network.connect_test_peer(endpoint, None);
+    network.enqueue_inbound(message, endpoint).unwrap();
+}
 
 #[test]
 fn serve_account_blocks() {
     let mut system = System::new();
     let node = system.make_node();
-    let network_services = node.network_subsystem().test_handles();
-
-    let responses = ResponseHelper::new();
+        let responses = ResponseHelper::new();
     responses.connect(&node);
 
     let mut chains = setup_chains(&node, 1, 128, &DEV_GENESIS_KEY, true);
@@ -38,11 +51,7 @@ fn serve_account_blocks() {
         }),
     });
 
-    let channel = make_fake_channel(&network_services);
-    node.network_subsystem()
-        .test_handles()
-        .inbound_message_queue
-        .put(request, channel);
+    enqueue_inbound(&node, request);
 
     assert_timely_eq(Duration::from_secs(5), || responses.len(), 1);
 
@@ -64,9 +73,7 @@ fn serve_account_blocks() {
 fn serve_hash() {
     let mut system = System::new();
     let node = system.make_node();
-    let network_services = node.network_subsystem().test_handles();
-
-    let responses = ResponseHelper::new();
+        let responses = ResponseHelper::new();
     responses.connect(&node);
 
     let mut chains = setup_chains(&node, 1, 256, &DEV_GENESIS_KEY, true);
@@ -85,11 +92,7 @@ fn serve_hash() {
         }),
     });
 
-    let channel = make_fake_channel(&network_services);
-    node.network_subsystem()
-        .test_handles()
-        .inbound_message_queue
-        .put(request, channel);
+    enqueue_inbound(&node, request);
 
     assert_timely_eq2(|| responses.len(), 1);
 
@@ -111,9 +114,7 @@ fn serve_hash() {
 fn serve_hash_one() {
     let mut system = System::new();
     let node = system.make_node();
-    let network_services = node.network_subsystem().test_handles();
-
-    let responses = ResponseHelper::new();
+        let responses = ResponseHelper::new();
     responses.connect(&node);
 
     let mut chains = setup_chains(&node, 1, 256, &DEV_GENESIS_KEY, true);
@@ -132,11 +133,7 @@ fn serve_hash_one() {
         }),
     });
 
-    let channel = make_fake_channel(&network_services);
-    node.network_subsystem()
-        .test_handles()
-        .inbound_message_queue
-        .put(request, channel);
+    enqueue_inbound(&node, request);
 
     assert_timely_eq2(|| responses.len(), 1);
 
@@ -173,11 +170,7 @@ fn serve_end_of_chain() {
         }),
     });
 
-    let channel = make_fake_channel(&node.network_subsystem().test_handles());
-    node.network_subsystem()
-        .test_handles()
-        .inbound_message_queue
-        .put(request, channel);
+    enqueue_inbound(&node, request);
 
     assert_timely_eq(Duration::from_secs(5), || responses.len(), 1);
 
@@ -216,11 +209,7 @@ fn serve_missing() {
         }),
     });
 
-    let channel = make_fake_channel(&node.network_subsystem().test_handles());
-    node.network_subsystem()
-        .test_handles()
-        .inbound_message_queue
-        .put(request, channel);
+    enqueue_inbound(&node, request);
 
     assert_timely_eq2(|| responses.len(), 1);
 
@@ -259,11 +248,7 @@ fn serve_multiple() {
             });
             next_id += 1;
 
-            let channel = make_fake_channel(&node.network_subsystem().test_handles());
-            node.network_subsystem()
-                .test_handles()
-                .inbound_message_queue
-                .put(request, channel);
+            enqueue_inbound(&node, request);
         }
     }
 
@@ -310,11 +295,7 @@ fn serve_account_info() {
         }),
     });
 
-    let channel = make_fake_channel(&node.network_subsystem().test_handles());
-    node.network_subsystem()
-        .test_handles()
-        .inbound_message_queue
-        .put(request, channel);
+    enqueue_inbound(&node, request);
 
     assert_timely_eq2(|| responses.len(), 1);
 
@@ -358,11 +339,7 @@ fn serve_account_info_missing() {
         }),
     });
 
-    let channel = make_fake_channel(&node.network_subsystem().test_handles());
-    node.network_subsystem()
-        .test_handles()
-        .inbound_message_queue
-        .put(request, channel);
+    enqueue_inbound(&node, request);
 
     assert_timely_eq2(|| responses.len(), 1);
 
@@ -403,11 +380,7 @@ fn serve_frontiers() {
         }),
     });
 
-    let channel = make_fake_channel(&node.network_subsystem().test_handles());
-    node.network_subsystem()
-        .test_handles()
-        .inbound_message_queue
-        .put(request, channel);
+    enqueue_inbound(&node, request);
 
     assert_timely_eq2(|| responses.len(), 1);
 
@@ -455,11 +428,7 @@ fn serve_frontiers_invalid_count() {
             }),
         });
 
-        let channel = make_fake_channel(&node.network_subsystem().test_handles());
-        node.network_subsystem()
-            .test_handles()
-            .inbound_message_queue
-            .put(request, channel);
+        enqueue_inbound(&node, request);
     }
 
     assert_timely_eq(
@@ -484,11 +453,7 @@ fn serve_frontiers_invalid_count() {
             }),
         });
 
-        let channel = make_fake_channel(&node.network_subsystem().test_handles());
-        node.network_subsystem()
-            .test_handles()
-            .inbound_message_queue
-            .put(request, channel);
+        enqueue_inbound(&node, request);
     }
 
     assert_timely_eq(
@@ -513,11 +478,7 @@ fn serve_frontiers_invalid_count() {
             }),
         });
 
-        let channel = make_fake_channel(&node.network_subsystem().test_handles());
-        node.network_subsystem()
-            .test_handles()
-            .inbound_message_queue
-            .put(request, channel);
+        enqueue_inbound(&node, request);
     }
 
     assert_timely_eq(

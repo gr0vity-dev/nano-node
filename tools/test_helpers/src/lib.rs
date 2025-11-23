@@ -1,17 +1,16 @@
 use std::{
     net::{IpAddr, Ipv6Addr, SocketAddr},
-    sync::{Arc, OnceLock, mpsc::SyncSender},
+    sync::{Arc, OnceLock, atomic::{AtomicU16, Ordering}, mpsc::SyncSender},
     thread::sleep,
     time::{Duration, Instant},
 };
 
 use rsnano_ledger::{DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY};
-use rsnano_network::{Channel, ChannelDirection, NULL_ENDPOINT, TEST_ENDPOINT_1};
+use rsnano_network::Channel;
 use rsnano_node::{
     Node, NodeBuilder, NodeEvent,
     block_processing::BacklogScanConfig,
     config::{NetworkParams, NodeConfig, NodeFlags},
-    subsystems::NetworkTestHandles,
     unique_path,
 };
 use rsnano_rpc_client::{NanoRpcClient, Url};
@@ -27,6 +26,7 @@ mod node_test_behaviors;
 pub use node_test_behaviors::NodeTestBehavior;
 
 const TEST_LEDGER_BACKEND_ENV: &str = "RSNANO_TEST_LEDGER_BACKEND";
+static NEXT_NODE_PORT: AtomicU16 = AtomicU16::new(40_000);
 
 pub struct System {
     pub network_params: NetworkParams,
@@ -50,7 +50,7 @@ impl System {
 
     pub fn default_config() -> NodeConfig {
         let network_params = NetworkParams::new(Networks::NanoDevNetwork);
-        let port = get_available_port();
+        let port = NEXT_NODE_PORT.fetch_add(1, Ordering::Relaxed);
         let mut config = NodeConfig::new(Some(port), &network_params, 1);
         config.representative_vote_weight_minimum = Amount::ZERO;
         config.io_threads = 1;
@@ -401,21 +401,6 @@ pub fn establish_tcp(node: &Node, peer: &Node) -> Arc<Channel> {
         .clone()
 }
 
-pub fn make_fake_channel(network: &NetworkTestHandles) -> Arc<Channel> {
-    network
-        .network
-        .write()
-        .unwrap()
-        .add(
-            NULL_ENDPOINT,
-            TEST_ENDPOINT_1,
-            ChannelDirection::Inbound,
-            network.steady_clock.now(),
-        )
-        .unwrap()
-        .0
-}
-
 pub fn start_election(node: &Node, hash: &BlockHash) {
     node.start_election_for_test(hash);
 }
@@ -573,7 +558,6 @@ pub fn setup_independent_blocks(node: &Node, count: usize, source: &PrivateKey) 
     blocks
 }
 
-use rsnano_nullable_tcp::get_available_port;
 use rsnano_nullable_tracing_subscriber::TracingInitializer;
 use tokio::net::TcpListener as TokioTcpListener;
 

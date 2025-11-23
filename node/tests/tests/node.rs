@@ -1,6 +1,7 @@
 use std::{
     cmp::max,
     collections::HashMap,
+    net::{Ipv6Addr, SocketAddrV6},
     sync::{Arc, mpsc::TryRecvError},
     thread::sleep,
     time::{Duration, Instant},
@@ -28,9 +29,16 @@ use rsnano_utils::{
 };
 use test_helpers::{
     System, activate_hashes, assert_never, assert_timely, assert_timely_eq, assert_timely_eq2,
-    assert_timely_msg, assert_timely2, establish_tcp, make_fake_channel, setup_chains,
-    start_election,
+    assert_timely_msg, assert_timely2, establish_tcp, setup_chains, start_election,
 };
+
+fn enqueue_inbound(node: &rsnano_node::Node, message: Message) {
+    let endpoint =
+        SocketAddrV6::new(Ipv6Addr::LOCALHOST, get_available_port(), 0, 0);
+    let network = node.network_subsystem();
+    network.connect_test_peer(endpoint, None);
+    network.enqueue_inbound(message, endpoint).unwrap();
+}
 
 #[test]
 fn rollback_gap_source() {
@@ -1602,16 +1610,7 @@ fn fork_open() {
     let send1 = lattice.genesis().send(&key1, Amount::MAX);
     let mut fork_lattice = lattice.clone();
 
-    let network_services = node.network_subsystem().test_handles();
-    let channel = make_fake_channel(&network_services);
-
-    node.network_subsystem()
-        .test_handles()
-        .inbound_message_queue
-        .put(
-            Message::Publish(Publish::new_forward(send1.clone())),
-            channel.clone(),
-        );
+    enqueue_inbound(&node, Message::Publish(Publish::new_forward(send1.clone())));
 
     assert_timely2(|| node.is_active_root(&send1.qualified_root()));
     node.force_confirm(&send1.hash());
@@ -1636,13 +1635,7 @@ fn fork_open() {
 
     // create the 1st open block to receive send1, which should be regarded as the winner just because it is first
     let open1 = lattice.account(&key1).receive_and_change(&send1, 1);
-    node.network_subsystem()
-        .test_handles()
-        .inbound_message_queue
-        .put(
-            Message::Publish(Publish::new_forward(open1.clone())),
-            channel.clone(),
-        );
+    enqueue_inbound(&node, Message::Publish(Publish::new_forward(open1.clone())));
     assert_timely_eq(
         Duration::from_secs(5),
         || {
@@ -1659,13 +1652,7 @@ fn fork_open() {
     // create 2nd open block, which is a fork of open1 block
     // create the 1st open block to receive send1, which should be regarded as the winner just because it is first
     let open2 = fork_lattice.account(&key1).receive_and_change(&send1, 2);
-    node.network_subsystem()
-        .test_handles()
-        .inbound_message_queue
-        .put(
-            Message::Publish(Publish::new_forward(open2.clone())),
-            channel.clone(),
-        );
+    enqueue_inbound(&node, Message::Publish(Publish::new_forward(open2.clone())));
     assert_timely2(|| node.is_active_root(&open2.qualified_root()));
 
     // we expect to find 2 blocks in the election and we expect the first block to be the winner just because it was first
@@ -1712,8 +1699,10 @@ fn online_reps_rep_crawler() {
     let node = system.build_node().flags(flags).finish();
 
     // Without rep crawler
-    let network_services = node.network_subsystem().test_handles();
-    let channel = make_fake_channel(&network_services);
+    let endpoint =
+        SocketAddrV6::new(Ipv6Addr::LOCALHOST, get_available_port(), 0, 0);
+    let network = node.network_subsystem();
+    let channel_id = network.connect_test_peer(endpoint, None);
 
     let vote: FilteredVote = ReceivedVote::new(
         Arc::new(Vote::new(
@@ -1723,7 +1712,7 @@ fn online_reps_rep_crawler() {
             vec![*DEV_GENESIS_HASH],
         )),
         VoteSource::Live,
-        Some(channel.clone()),
+        None,
     )
     .into();
 
@@ -1756,7 +1745,7 @@ fn online_reps_rep_crawler() {
     node.consensus_subsystem()
         .test_handles()
         .rep_crawler
-        .force_query(*DEV_GENESIS_HASH, channel.channel_id());
+        .force_query(*DEV_GENESIS_HASH, channel_id);
     let _ = node
         .consensus_subsystem()
         .test_handles()
@@ -1819,13 +1808,11 @@ fn online_reps_election() {
             .online_weight()
     );
 
-    let network_services = node.network_subsystem().test_handles();
-    let channel = make_fake_channel(&network_services);
     let _ = node
         .consensus_subsystem()
         .test_handles()
         .vote_processor
-        .vote_blocking(&ReceivedVote::new(vote.into(), VoteSource::Live, Some(channel)).into());
+        .vote_blocking(&ReceivedVote::new(vote.into(), VoteSource::Live, None).into());
 
     assert_eq!(
         Amount::MAX - Amount::nano(1000),
@@ -1952,34 +1939,17 @@ fn fork_election_invalid_block_signature() {
     let mut send3 = send2.clone();
     send3.set_signature(Signature::new()); // Invalid signature
 
-    let network_services = node1.network_subsystem().test_handles();
-    let channel = make_fake_channel(&network_services);
-    node1
-        .network_subsystem()
-        .test_handles()
-        .inbound_message_queue
-        .put(
-            Message::Publish(Publish::new_forward(send1.clone())),
-            channel.clone(),
-        );
+    enqueue_inbound(
+        &node1,
+        Message::Publish(Publish::new_forward(send1.clone())),
+    );
     assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
 
-    node1
-        .network_subsystem()
-        .test_handles()
-        .inbound_message_queue
-        .put(
-            Message::Publish(Publish::new_forward(send3)),
-            channel.clone(),
-        );
-    node1
-        .network_subsystem()
-        .test_handles()
-        .inbound_message_queue
-        .put(
-            Message::Publish(Publish::new_forward(send2.clone())),
-            channel.clone(),
-        );
+    enqueue_inbound(&node1, Message::Publish(Publish::new_forward(send3)));
+    enqueue_inbound(
+        &node1,
+        Message::Publish(Publish::new_forward(send2.clone())),
+    );
     assert_timely2(|| {
         node1
             .consensus_subsystem()
@@ -2087,7 +2057,10 @@ fn rep_crawler_rep_remove() {
     searching_node.process(receive_rep2);
 
     // Create channel for Rep1
-    let channel_rep1 = make_fake_channel(&searching_node.network_subsystem().test_handles());
+    let rep1_endpoint =
+        SocketAddrV6::new(Ipv6Addr::LOCALHOST, get_available_port(), 0, 0);
+    let rep1_network = searching_node.network_subsystem();
+    let rep1_channel_id = rep1_network.connect_test_peer(rep1_endpoint, None);
 
     // Ensure Rep1 is found by the rep_crawler after receiving a vote from it
     let vote_rep1 = ReceivedVote::new(
@@ -2137,10 +2110,10 @@ fn rep_crawler_rep_remove() {
             .weight(&reps[0].rep_key)
     );
     assert_eq!(key_rep1.public_key(), reps[0].rep_key);
-    assert_eq!(channel_rep1.channel_id(), reps[0].channel_id());
+    assert_eq!(rep1_channel_id, reps[0].channel_id());
 
     // When rep1 disconnects then rep1 should not be found anymore
-    channel_rep1.close();
+    rep1_network.set_channel_node_id(rep1_channel_id, NodeId::new_zero());
     assert_timely_eq(
         Duration::from_secs(5),
         || {

@@ -150,6 +150,11 @@ impl NetworkSubsystem {
             .await
     }
 
+    /// Whether the network has been stopped.
+    pub fn is_stopped(&self) -> bool {
+        self.network.read().unwrap().is_stopped()
+    }
+
     /// Initiate an outbound connection attempt to a peer.
     pub fn connect(&self, endpoint: SocketAddrV6) -> Result<()> {
         self.peer_connector

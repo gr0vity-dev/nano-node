@@ -1,22 +1,37 @@
 use std::{
+    net::{Ipv6Addr, SocketAddrV6},
     sync::Arc,
     time::{Duration, Instant},
 };
 
 use rsnano_ledger::{AnySet, test_helpers::UnsavedBlockLatticeBuilder};
-use rsnano_messages::ConfirmAck;
+use rsnano_messages::{ConfirmAck, ConfirmReq, Message};
 use rsnano_node::{
     config::NodeFlags,
-    consensus::{AggregatorRequest, VoteGenerationEvent},
+    consensus::VoteGenerationEvent,
+    Node,
 };
 use rsnano_output_tracker::OutputTrackerMt;
-use rsnano_types::{Amount, DEV_GENESIS_KEY, PrivateKey};
+use rsnano_nullable_tcp::get_available_port;
+use rsnano_types::{Amount, BlockHash, DEV_GENESIS_KEY, PrivateKey, Root};
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 
 use test_helpers::{
     System, assert_timely_eq, assert_timely_eq2, assert_timely_msg, assert_timely2,
-    make_fake_channel,
 };
+
+fn enqueue_confirm_req(
+    node: &Node,
+    roots_hashes: Vec<(BlockHash, Root)>,
+) {
+    let endpoint =
+        SocketAddrV6::new(Ipv6Addr::LOCALHOST, get_available_port(), 0, 0);
+    let network = node.network_subsystem();
+    network.connect_test_peer(endpoint, None);
+    network
+        .enqueue_inbound(Message::ConfirmReq(ConfirmReq::new(roots_hashes)), endpoint)
+        .unwrap();
+}
 
 #[test]
 fn one() {
@@ -44,17 +59,7 @@ fn one() {
         .genesis()
         .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
 
-    let network_services = node.network_subsystem().test_handles();
-    let channel = make_fake_channel(&network_services);
-    let request = AggregatorRequest {
-        channel: channel.clone(),
-        roots_hashes: vec![(send1.hash(), send1.root())],
-    };
-
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request.clone());
+    enqueue_confirm_req(&node, vec![(send1.hash(), send1.root())]);
     assert_timely_msg(
         Duration::from_secs(3),
         || {
@@ -85,10 +90,7 @@ fn one() {
     node.confirm(send1.hash());
 
     // In the ledger but no vote generated yet
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request.clone());
+    enqueue_confirm_req(&node, vec![(send1.hash(), send1.root())]);
     assert_timely_msg(
         Duration::from_secs(3),
         || {
@@ -113,10 +115,7 @@ fn one() {
 
     // Already cached
     // TODO: This is outdated, aggregator should not be using cache
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request);
+    enqueue_confirm_req(&node, vec![(send1.hash(), send1.root())]);
     assert_timely_msg(
         Duration::from_secs(3),
         || {
@@ -222,26 +221,9 @@ fn one_update() {
     node.process(receive1.clone());
     node.confirm(receive1.hash());
 
-    let dummy_channel = make_fake_channel(&node.network_subsystem().test_handles());
-
-    let request1 = AggregatorRequest {
-        channel: dummy_channel.clone(),
-        roots_hashes: vec![(send2.hash(), send2.root())],
-    };
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request1);
-
+    enqueue_confirm_req(&node, vec![(send2.hash(), send2.root())]);
     // Update the pool of requests with another hash
-    let request2 = AggregatorRequest {
-        channel: dummy_channel.clone(),
-        roots_hashes: vec![(receive1.hash(), receive1.root())],
-    };
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request2);
+    enqueue_confirm_req(&node, vec![(receive1.hash(), receive1.root())]);
 
     // In the ledger but no vote generated yet
     assert_timely_msg(
@@ -358,20 +340,11 @@ fn two() {
 
     node.process_and_confirm_multi(&[send1, send2.clone(), receive1.clone()]);
 
-    let dummy_channel = make_fake_channel(&node.network_subsystem().test_handles());
-    let request = AggregatorRequest {
-        channel: dummy_channel.clone(),
-        roots_hashes: vec![
-            (send2.hash(), send2.root()),
-            (receive1.hash(), receive1.root()),
-        ],
-    };
-
     // Process both blocks
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request.clone());
+    enqueue_confirm_req(
+        &node,
+        vec![(send2.hash(), send2.root()), (receive1.hash(), receive1.root())],
+    );
     // One vote should be generated for both blocks
     assert_timely_msg(
         Duration::from_secs(3),
@@ -395,10 +368,10 @@ fn two() {
         "aggregator empty",
     );
     // The same request should now send the cached vote
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request.clone());
+    enqueue_confirm_req(
+        &node,
+        vec![(send2.hash(), send2.root()), (receive1.hash(), receive1.root())],
+    );
     assert_timely_msg(
         Duration::from_secs(3),
         || {
@@ -522,15 +495,7 @@ fn split() {
     );
     assert_eq!(MAX_VBH + 1, roots_hashes.len());
 
-    let dummy_channel = make_fake_channel(&node.network_subsystem().test_handles());
-    let request = AggregatorRequest {
-        channel: dummy_channel.clone(),
-        roots_hashes,
-    };
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request);
+    enqueue_confirm_req(&node, roots_hashes);
     // In the ledger but no vote generated yet
     assert_timely_eq(
         Duration::from_secs(3),
@@ -618,19 +583,8 @@ fn channel_max_queue() {
         .send(&*DEV_GENESIS_KEY, Amount::nano(1000));
     node.process(send1.clone());
 
-    let channel = make_fake_channel(&node.network_subsystem().test_handles());
-    let request = AggregatorRequest {
-        channel: channel.clone(),
-        roots_hashes: vec![(send1.hash(), send1.root())],
-    };
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request.clone());
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request.clone());
+    enqueue_confirm_req(&node, vec![(send1.hash(), send1.root())]);
+    enqueue_confirm_req(&node, vec![(send1.hash(), send1.root())]);
 
     assert!(
         node.stats_service().count(
@@ -672,16 +626,11 @@ fn cannot_vote() {
         false
     );
 
-    let dummy_channel = make_fake_channel(&node.network_subsystem().test_handles());
     // correct + incorrect
-    let request = AggregatorRequest {
-        channel: dummy_channel.clone(),
-        roots_hashes: vec![(send2.hash(), send2.root()), (1.into(), send2.root())],
-    };
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request.clone());
+    enqueue_confirm_req(
+        &node,
+        vec![(send2.hash(), send2.root()), (1.into(), send2.root())],
+    );
 
     assert_timely_msg(
         Duration::from_secs(3),
@@ -744,10 +693,10 @@ fn cannot_vote() {
         .add_manual(send2.clone());
     assert_timely2(|| node.is_active_root(&send2.qualified_root()));
 
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request.clone());
+    enqueue_confirm_req(
+        &node,
+        vec![(send2.hash(), send2.root()), (1.into(), send2.root())],
+    );
 
     assert_timely2(|| {
         node.consensus_subsystem()
@@ -802,10 +751,10 @@ fn cannot_vote() {
     node.confirm(send1.hash());
     node.confirm(send2.hash());
 
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request.clone());
+    enqueue_confirm_req(
+        &node,
+        vec![(send2.hash(), send2.root()), (1.into(), send2.root())],
+    );
 
     assert_timely_msg(
         Duration::from_secs(3),
@@ -869,17 +818,8 @@ fn forked_open() {
         .vote_generators
         .track();
 
-    let channel = make_fake_channel(&node.network_subsystem().test_handles());
-
     // Request vote for the wrong fork
-    let request = AggregatorRequest {
-        channel: channel.clone(),
-        roots_hashes: vec![(open1.hash(), open1.root())],
-    };
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request);
+    enqueue_confirm_req(&node, vec![(open1.hash(), open1.root())]);
 
     let vote_event = wait_vote_event(&vote_tracker);
 
@@ -929,17 +869,10 @@ fn epoch_conflict() {
         .test_handles()
         .vote_generators
         .track();
-    let channel = make_fake_channel(&node.network_subsystem().test_handles());
 
     // Request vote for conflicting epoch block
-    let request = AggregatorRequest {
-        channel: channel.clone(),
-        roots_hashes: vec![(epoch_open.hash(), epoch_open.root())],
-    };
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request.clone());
+    let request_roots = vec![(epoch_open.hash(), epoch_open.root())];
+    enqueue_confirm_req(&node, request_roots.clone());
 
     let vote_event = wait_vote_event(&vote_tracker);
 
@@ -955,14 +888,8 @@ fn epoch_conflict() {
     // Workaround for vote spacing dropping requests with the same root
     // FIXME: Vote spacing should use full qualified root
     std::thread::sleep(Duration::from_secs(1));
-    let channel = make_fake_channel(&node.network_subsystem().test_handles());
-    let request = AggregatorRequest { channel, ..request };
-
     // Request vote for the conflicting epoch block again
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request);
+    enqueue_confirm_req(&node, request_roots);
 
     let vote_event = wait_vote_event(&vote_tracker);
     assert_eq!(vote_event.blocks.len(), 1);
@@ -994,23 +921,15 @@ fn cemented_no_spacing() {
         .test_handles()
         .vote_generators
         .track();
-    let channel = make_fake_channel(&node.network_subsystem().test_handles());
-
     // Request votes for blocks at different positions in the chain
-    let request = AggregatorRequest {
-        channel: channel.clone(),
-        roots_hashes: vec![
+    enqueue_confirm_req(
+        &node,
+        vec![
             (send1.hash(), send1.root()),
             (send2.hash(), send2.root()),
             (send3.hash(), send3.root()),
         ],
-    };
-
-    // Request votes for all blocks
-    node.consensus_subsystem()
-        .test_handles()
-        .request_aggregator
-        .request(request);
+    );
 
     let vote_event = wait_vote_event(&vote_tracker);
 

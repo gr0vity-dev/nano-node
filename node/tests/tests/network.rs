@@ -1,21 +1,36 @@
-use std::{ops::Deref, sync::Arc, thread::sleep, time::Duration};
+use std::{
+    net::{Ipv6Addr, SocketAddrV6},
+    ops::Deref,
+    sync::Arc,
+    thread::sleep,
+    time::Duration,
+};
 
 use rsnano_ledger::{
     DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, LedgerSet, test_helpers::UnsavedBlockLatticeBuilder,
 };
 use rsnano_messages::{ConfirmAck, Keepalive, Message, MessageHeader, MessageSerializer};
 use rsnano_network::{ChannelMode, TrafficType};
-use rsnano_node::{config::NodeConfig, consensus::VoteProcessorConfig};
+use rsnano_node::{Node, config::NodeConfig, consensus::VoteProcessorConfig};
 use rsnano_types::{
     Account, Amount, Block, DEV_GENESIS_KEY, Networks, PrivateKey, ProtocolInfo, Root,
     StateBlockArgs, UnixMillisTimestamp, Vote,
 };
+use rsnano_nullable_tcp::get_available_port;
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 
 use test_helpers::{
     System, assert_always_eq, assert_timely, assert_timely_eq, assert_timely_eq2,
-    assert_timely_msg, assert_timely2, establish_tcp, make_fake_channel, start_election,
+    assert_timely_msg, assert_timely2, establish_tcp, start_election,
 };
+
+fn enqueue_inbound(node: &Node, message: Message) {
+    let endpoint =
+        SocketAddrV6::new(Ipv6Addr::LOCALHOST, get_available_port(), 0, 0);
+    let network = node.network_subsystem();
+    network.connect_test_peer(endpoint, None);
+    network.enqueue_inbound(message, endpoint).unwrap();
+}
 
 #[test]
 fn last_contacted() {
@@ -143,8 +158,6 @@ fn receivable_processor_confirm_insufficient_pos() {
     start_election(&node1, &send1.hash());
     let key1 = PrivateKey::new();
     let vote = Arc::new(Vote::new_final(&key1, vec![send1.hash()]));
-    let network_services = node1.network_subsystem().test_handles();
-    let channel = make_fake_channel(&network_services);
     let con1 = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(
         vote.deref().clone(),
     ));
@@ -158,11 +171,7 @@ fn receivable_processor_confirm_insufficient_pos() {
             .vote_count()
     );
 
-    let inbound_queue = node1
-        .network_subsystem()
-        .test_handles()
-        .inbound_message_queue;
-    inbound_queue.put(con1, channel);
+    enqueue_inbound(&node1, con1);
 
     assert_timely_eq2(
         || {
@@ -191,8 +200,6 @@ fn receivable_processor_confirm_sufficient_pos() {
 
     start_election(&node1, &send1.hash());
     let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]));
-    let network_services = node1.network_subsystem().test_handles();
-    let channel = make_fake_channel(&network_services);
     let con1 = Message::ConfirmAck(ConfirmAck::new_with_rebroadcasted_vote(
         vote.deref().clone(),
     ));
@@ -206,11 +213,7 @@ fn receivable_processor_confirm_sufficient_pos() {
             .vote_count()
     );
 
-    let inbound_queue = node1
-        .network_subsystem()
-        .test_handles()
-        .inbound_message_queue;
-    inbound_queue.put(con1, channel);
+    enqueue_inbound(&node1, con1);
 
     assert_timely2(|| {
         ledger_services

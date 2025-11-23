@@ -28,10 +28,18 @@ pub fn unique_path() -> Option<PathBuf> {
 }
 
 fn unique_path_for(network: Networks) -> Option<PathBuf> {
-    working_path_for(network).map(|mut path| {
-        let uuid = Uuid::new_v4();
-        path.push(uuid.to_string());
-        std::fs::create_dir_all(&path).unwrap();
-        path
-    })
+    if let Some(mut path) = working_path_for(network) {
+        path.push(Uuid::new_v4().to_string());
+        if std::fs::create_dir_all(&path).is_ok() {
+            return Some(path);
+        }
+    }
+
+    let mut fallback = std::env::temp_dir();
+    fallback.push(format!("rsnano-{}", Uuid::new_v4()));
+    if std::fs::create_dir_all(&fallback).is_ok() {
+        return Some(fallback);
+    }
+
+    None
 }

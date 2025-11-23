@@ -1,5 +1,6 @@
 use core::panic;
 use std::{
+    net::{Ipv6Addr, SocketAddrV6},
     sync::{Arc, mpsc::sync_channel},
     thread::spawn,
     time::Duration,
@@ -27,18 +28,24 @@ use rsnano_websocket_server::{
     TelemetryReceived, VoteReceived, WebsocketListener, WebsocketListenerExt,
     create_websocket_server, vote_received,
 };
-use test_helpers::{System, assert_timely2, make_fake_channel};
+use test_helpers::{System, assert_timely2};
 use tokio::{task::spawn_blocking, time::timeout};
 
 pub type WsMessage = rsnano_websocket_client::Message;
+
+fn enqueue_inbound(node: &Node, message: Message) {
+    let endpoint =
+        SocketAddrV6::new(Ipv6Addr::LOCALHOST, get_available_port(), 0, 0);
+    let network = node.network_subsystem();
+    network.connect_test_peer(endpoint, None);
+    network.enqueue_inbound(message, endpoint).unwrap();
+}
 
 /// Tests getting notification of a started election
 #[test]
 fn started_election() {
     let mut system = System::new();
     let (node1, websocket) = create_node_with_websocket(&mut system);
-    let network_services = node1.network_subsystem().test_handles();
-    let channel1 = make_fake_channel(&network_services);
     node1.runtime().block_on(async {
         let mut ws_client = connect_websocket(&node1).await;
         ws_client
@@ -60,11 +67,7 @@ fn started_election() {
         let key1 = PrivateKey::new();
         let send1 = lattice.genesis().send_max(&key1);
         let publish1 = Message::Publish(Publish::new_forward(send1.clone()));
-        node1
-            .network_subsystem()
-            .test_handles()
-            .inbound_message_queue
-            .put(publish1, channel1);
+        enqueue_inbound(&node1, publish1);
         assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
 
         let Ok(response) = timeout(Duration::from_secs(5), ws_client.next()).await else {
@@ -80,8 +83,6 @@ fn started_election() {
 fn stopped_election() {
     let mut system = System::new();
     let (node1, websocket) = create_node_with_websocket(&mut system);
-    let network_services = node1.network_subsystem().test_handles();
-    let channel1 = make_fake_channel(&network_services);
     node1.runtime().block_on(async {
         let mut ws_client = connect_websocket(&node1).await;
         ws_client
@@ -103,11 +104,7 @@ fn stopped_election() {
         let key1 = PrivateKey::new();
         let send1 = lattice.genesis().send_max(&key1);
         let publish1 = Message::Publish(Publish::new_forward(send1.clone()));
-        node1
-            .network_subsystem()
-            .test_handles()
-            .inbound_message_queue
-            .put(publish1, channel1);
+        enqueue_inbound(&node1, publish1);
         assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
         let active = node1.consensus_subsystem().test_handles().active.clone();
         spawn_blocking(move || active.write().unwrap().erase(&send1.qualified_root()))
