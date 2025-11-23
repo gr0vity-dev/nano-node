@@ -285,7 +285,9 @@ fn send_with_receive() {
     node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
-    let block1 = lattice.genesis().send(&key2, node1.config().receive_minimum);
+    let block1 = lattice
+        .genesis()
+        .send(&key2, node1.config().receive_minimum);
 
     node1.process_active(block1.clone());
     assert_timely(Duration::from_secs(5), || {

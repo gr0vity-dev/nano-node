@@ -56,12 +56,7 @@ impl RpcCommandHandler {
     }
 
     fn is_local_address(&self, addr: &SocketAddrV6) -> bool {
-        addr.ip().is_loopback()
-            && addr.port()
-                == self
-                    .telemetry_services
-                    .listener_address()
-                    .port()
+        addr.ip().is_loopback() && addr.port() == self.telemetry_services.listener_address().port()
     }
 }
 
@@ -117,12 +112,7 @@ mod tests {
         let cmd = RpcCommand::Telemetry(TelemetryArgs {
             raw: None,
             address: Some(Ipv6Addr::LOCALHOST),
-            port: Some(
-                node.telemetry_subsystem()
-                    .listener_address()
-                    .port()
-                    .into(),
-            ),
+            port: Some(node.telemetry_subsystem().listener_address().port().into()),
         });
 
         let expected = node.telemetry_subsystem().local_telemetry();

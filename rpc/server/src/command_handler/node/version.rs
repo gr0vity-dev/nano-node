@@ -7,12 +7,7 @@ impl RpcCommandHandler {
         VersionResponse {
             rpc_version: 1.into(),
             store_version: self.ledger_info.store_version().into(),
-            protocol_version: self
-                .node
-                .network_params()
-                .network
-                .protocol_version
-                .into(),
+            protocol_version: self.node.network_params().network.protocol_version.into(),
             node_vendor: rsnano_version_string(),
             store_vendor: self.ledger_info.store_vendor(),
             network: self

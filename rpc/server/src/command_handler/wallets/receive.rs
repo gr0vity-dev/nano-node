@@ -30,11 +30,7 @@ impl RpcCommandHandler {
                 (Root::from(args.account), pending_info.epoch)
             };
             let details = BlockDetails::new(epoch, false, true, false);
-            if self
-                .node
-                .network_params()
-                .work
-                .difficulty(&head, work)
+            if self.node.network_params().work.difficulty(&head, work)
                 < self.node.network_params().work.threshold(&details)
             {
                 bail!("Invalid work")
@@ -48,9 +44,7 @@ impl RpcCommandHandler {
 
         // Representative is only used by receive_action when opening accounts
         // Set a wallet default representative for new accounts
-        let representative = self
-            .wallet_services
-            .wallet_representative(args.wallet)?;
+        let representative = self.wallet_services.wallet_representative(args.wallet)?;
 
         // Disable work generation if "work" option is provided
         let generate_work = work.is_zero();

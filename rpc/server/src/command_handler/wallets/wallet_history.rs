@@ -11,9 +11,7 @@ impl RpcCommandHandler {
         args: WalletHistoryArgs,
     ) -> anyhow::Result<WalletHistoryResponse> {
         let modified_since: UnixTimestamp = args.modified_since.unwrap_or_default().inner().into();
-        let accounts = self
-            .wallet_services
-            .accounts_of_wallet(&args.wallet)?;
+        let accounts = self.wallet_services.accounts_of_wallet(&args.wallet)?;
         let mut entries: Vec<HistoryEntry> = Vec::new();
 
         for account in accounts {

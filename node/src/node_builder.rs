@@ -80,7 +80,8 @@ use crate::{
     tokio_runner::TokioRunner,
     transport::{
         MessageFlooder, MessageProcessor, MessageSender, NetworkMessageProcessor, NetworkThreads,
-        PeerCacheConnector, PeerCacheUpdater, keepalive::{KeepaliveMessageFactory, KeepalivePublisher},
+        PeerCacheConnector, PeerCacheUpdater,
+        keepalive::{KeepaliveMessageFactory, KeepalivePublisher},
         run_loopback_channel_adapter,
     },
     utils::spawn_backpressure_processor,
@@ -158,7 +159,11 @@ pub enum NodeBuildError {
 impl fmt::Display for NodeBuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::GenesisBlockMissing { data_path, network, genesis_hash } => write!(
+            Self::GenesisBlockMissing {
+                data_path,
+                network,
+                genesis_hash,
+            } => write!(
                 f,
                 "Genesis block {genesis_hash} not found in ledger at {:?} for {:?} network. Check --network/--data_path and ensure the ledger is initialized.",
                 data_path, network
@@ -197,7 +202,6 @@ pub struct NodeBuilder {
 }
 
 pub(crate) struct ComposedNode {
-    pub(crate) is_nulled: bool,
     pub(crate) runtime: tokio::runtime::Handle,
     pub(crate) data_path: PathBuf,
     pub(crate) node_id: PrivateKey,
@@ -1704,11 +1708,13 @@ pub(crate) fn compose_root(
         recently_cemented.clone(),
         stats.clone(),
     );
-    let bootstrap_work_services =
-        BootstrapWorkServices::new(bootstrapper.clone(), bootstrap_server.clone(), work_factory.clone());
+    let bootstrap_work_services = BootstrapWorkServices::new(
+        bootstrapper.clone(),
+        bootstrap_server.clone(),
+        work_factory.clone(),
+    );
 
     Ok(ComposedNode {
-        is_nulled,
         runtime,
         data_path: application_path,
         node_id: node_id_key,

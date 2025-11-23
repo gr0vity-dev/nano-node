@@ -206,7 +206,7 @@ impl System {
                 std::thread::yield_now();
             }
             exclusive_node.stop();
-        std::fs::remove_dir_all(node.data_path()).expect("Could not delete node data dir");
+            std::fs::remove_dir_all(node.data_path()).expect("Could not delete node data dir");
         }
     }
 

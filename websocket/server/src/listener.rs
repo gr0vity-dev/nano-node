@@ -15,9 +15,9 @@ use tokio_tungstenite::tungstenite::protocol::{CloseFrame, frame::coding::CloseC
 use tracing::{info, warn};
 
 use rsnano_node::{
+    WalletServices,
     consensus::election::{ConfirmedElection, VoteSummary},
     handles::LedgerQueryHandle,
-    WalletServices,
 };
 use rsnano_types::{Account, Amount, BlockSideband, SavedBlock};
 use rsnano_websocket_messages::{

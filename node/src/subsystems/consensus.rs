@@ -1,4 +1,7 @@
-use std::{sync::{Arc, Mutex, RwLock}, time::Duration};
+use std::{
+    sync::{Arc, Mutex, RwLock},
+    time::Duration,
+};
 
 use crate::{
     block_processing::{
@@ -10,17 +13,17 @@ use crate::{
     config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{
         ActiveElectionsContainer, ActiveElectionsInfo, AecTicker, AecVoter, CurrentRepTiers,
-        LocalVoteHistory, RepTier, RequestAggregator, VoteCache, VoteCacheProcessor, VoteGenerators,
-        VoteProcessor, VoteProcessorExt, VoteProcessorQueue, VoteRebroadcaster,
+        LocalVoteHistory, RepTier, RequestAggregator, VoteCache, VoteCacheProcessor,
+        VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue, VoteRebroadcaster,
         WinnerBlockBroadcaster, election_schedulers::ElectionSchedulers,
     },
     representatives::{OnlineRepInfo, OnlineReps, PeeredRepInfo, RepCrawler, RepCrawlerExt},
 };
 use rsnano_ledger::BlockError;
-use rsnano_utils::ticker::TimerThread;
-use rsnano_utils::fair_queue::FairQueueInfo;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Amount, Block, BlockHash, QualifiedRoot, SavedBlock};
+use rsnano_utils::fair_queue::FairQueueInfo;
+use rsnano_utils::ticker::TimerThread;
 
 use super::lifecycle::Lifecycle;
 
@@ -196,11 +199,7 @@ impl ConsensusSubsystem {
         self.block_processor_queue.push(context);
     }
 
-    pub fn push_block_blocking(
-        &self,
-        block: Block,
-        source: BlockSource,
-    ) -> Result<(), BlockError> {
+    pub fn push_block_blocking(&self, block: Block, source: BlockSource) -> Result<(), BlockError> {
         self.block_processor_queue
             .push_blocking(Arc::new(block), source)
             .map_err(|_| BlockError::BadSignature)?
@@ -289,7 +288,8 @@ impl ConsensusSubsystem {
         if self.config.enable_vote_processor {
             self.vote_processor.start();
         }
-        self.block_processor.start(self.config.block_processor_threads);
+        self.block_processor
+            .start(self.config.block_processor_threads);
         if !self.flags.disable_rep_crawler {
             self.rep_crawler.start();
         }

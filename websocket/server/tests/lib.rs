@@ -713,7 +713,10 @@ fn create_node_with_websocket(system: &mut System) -> (Arc<Node>, Arc<WebsocketL
 async fn connect_websocket(node: &Node) -> NanoWebSocketClient {
     let client_factory = NanoWebSocketClientFactory::default();
     client_factory
-        .connect(&format!("ws://[::1]:{}", node.config().websocket_config.port))
+        .connect(&format!(
+            "ws://[::1]:{}",
+            node.config().websocket_config.port
+        ))
         .await
         .expect("Failed to connect")
 }

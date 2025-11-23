@@ -13,71 +13,72 @@ impl RpcCommandHandler {
     ) -> anyhow::Result<ConfirmationInfoResponse> {
         let include_representatives = args.representatives.unwrap_or(false.into()).inner();
         let contents = args.contents.unwrap_or(true.into()).inner();
-        let result: anyhow::Result<ConfirmationInfoResponse> = self.consensus.with_active(|active| {
-            let election = active
-                .election_for_root(&args.root)
-                .ok_or_else(|| anyhow!("Active confirmation not found"))?;
+        let result: anyhow::Result<ConfirmationInfoResponse> =
+            self.consensus.with_active(|active| {
+                let election = active
+                    .election_for_root(&args.root)
+                    .ok_or_else(|| anyhow!("Active confirmation not found"))?;
 
-            let announcements = 0; // not supported in RsNano
-            let voters = election.votes().len();
-            let last_winner = election.winner().hash();
-            let final_tally = election.winner_final_tally();
-            let mut total_tally = Amount::ZERO;
-            let mut blocks = IndexMap::new();
+                let announcements = 0; // not supported in RsNano
+                let voters = election.votes().len();
+                let last_winner = election.winner().hash();
+                let final_tally = election.winner_final_tally();
+                let mut total_tally = Amount::ZERO;
+                let mut blocks = IndexMap::new();
 
-            for block in election.candidate_blocks().values() {
-                let tally = election.tallies().get(&block.hash());
+                for block in election.candidate_blocks().values() {
+                    let tally = election.tallies().get(&block.hash());
 
-                total_tally += tally;
+                    total_tally += tally;
 
-                let contents = if contents {
-                    Some(block.json_representation())
-                } else {
-                    None
-                };
+                    let contents = if contents {
+                        Some(block.json_representation())
+                    } else {
+                        None
+                    };
 
-                let (representatives, representatives_final) = if include_representatives {
-                    let mut reps = IndexMap::new();
-                    let mut reps_final = IndexMap::new();
-                    for (representative, vote) in election.votes() {
-                        if block.hash() == vote.hash {
-                            let amount = self
-                                .ledger_queries
-                                .weight_exact(Account::from(representative));
+                    let (representatives, representatives_final) = if include_representatives {
+                        let mut reps = IndexMap::new();
+                        let mut reps_final = IndexMap::new();
+                        for (representative, vote) in election.votes() {
+                            if block.hash() == vote.hash {
+                                let amount = self
+                                    .ledger_queries
+                                    .weight_exact(Account::from(representative));
 
-                            reps.insert(Account::from(representative), amount);
+                                reps.insert(Account::from(representative), amount);
 
-                            if vote.is_final_vote() {
-                                reps_final.insert(Account::from(representative), amount);
+                                if vote.is_final_vote() {
+                                    reps_final.insert(Account::from(representative), amount);
+                                }
                             }
                         }
-                    }
-                    reps.sort_by(|k1, _, k2, _| k2.cmp(k1));
-                    reps_final.sort_by(|k1, _, k2, _| k2.cmp(k1));
-                    (Some(reps), Some(reps_final))
-                } else {
-                    (None, None)
-                };
+                        reps.sort_by(|k1, _, k2, _| k2.cmp(k1));
+                        reps_final.sort_by(|k1, _, k2, _| k2.cmp(k1));
+                        (Some(reps), Some(reps_final))
+                    } else {
+                        (None, None)
+                    };
 
-                let entry = ConfirmationBlockInfoDto {
-                    tally,
-                    contents,
-                    representatives,
-                    representatives_final,
-                };
+                    let entry = ConfirmationBlockInfoDto {
+                        tally,
+                        contents,
+                        representatives,
+                        representatives_final,
+                    };
 
-                blocks.insert(block.hash(), entry);
-            }
+                    blocks.insert(block.hash(), entry);
+                }
 
-            Ok(ConfirmationInfoResponse {
-                announcements: (announcements as u32).into(),
-                voters: (voters as u32).into(),
-                last_winner,
-                total_tally,
-                final_tally,
-                blocks,
-            })
-        });
+                Ok(ConfirmationInfoResponse {
+                    announcements: (announcements as u32).into(),
+                    voters: (voters as u32).into(),
+                    last_winner,
+                    total_tally,
+                    final_tally,
+                    blocks,
+                })
+            });
 
         result
     }

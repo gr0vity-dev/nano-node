@@ -1,6 +1,12 @@
 use std::collections::VecDeque;
 
-use rsnano_node::{bootstrap::{FrontierHeadInfo, state::{BootstrapLogicSnapshot, frontiers_processor::FrontiersStats}}, utils::RateCalculator};
+use rsnano_node::{
+    bootstrap::{
+        FrontierHeadInfo,
+        state::{BootstrapLogicSnapshot, frontiers_processor::FrontiersStats},
+    },
+    utils::RateCalculator,
+};
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::Account;
 

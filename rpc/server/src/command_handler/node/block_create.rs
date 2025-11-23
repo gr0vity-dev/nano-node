@@ -41,8 +41,7 @@ impl RpcCommandHandler {
         let ledger = self.ledger_queries.clone();
 
         if !wallet_id.is_zero() && !account.is_zero() {
-            self.wallet_services
-                .fetch(&wallet_id, &account.into())?;
+            self.wallet_services.fetch(&wallet_id, &account.into())?;
             previous = ledger.account_head(&account).unwrap_or_default();
             balance = ledger.account_balance(&account);
         }
@@ -202,7 +201,10 @@ impl RpcCommandHandler {
                 difficulty
             };
 
-            let work = match self.bootstrap.generate_work(WorkRequest::new(root, difficulty)) {
+            let work = match self
+                .bootstrap
+                .generate_work(WorkRequest::new(root, difficulty))
+            {
                 Some(work) => work,
                 None => bail!("Work generation cancellation or failure"),
             };

@@ -91,5 +91,5 @@ fn build_duplicate_events(
                 timestamp,
             }
         })
-                .collect()
+        .collect()
 }

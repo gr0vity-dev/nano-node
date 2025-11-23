@@ -438,13 +438,15 @@ fn unchecked_receive() {
             BlockSource::Live,
             ChannelId::LOOPBACK,
         ));
-    let check_block_is_listed =
-        |hash: &BlockHash| node1.unchecked().contains_dependency(*hash);
+    let check_block_is_listed = |hash: &BlockHash| node1.unchecked().contains_dependency(*hash);
     // Previous block for receive1 is unknown, signature cannot be validated
 
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
     assert_timely2(|| check_block_is_listed(&receive1.previous()));
-    assert_eq!(node1.unchecked().dependent_block_count(receive1.previous()), 1);
+    assert_eq!(
+        node1.unchecked().dependent_block_count(receive1.previous()),
+        1
+    );
 
     // Waits for the open1 block to pass through block_processor and unchecked.put queues
     node1

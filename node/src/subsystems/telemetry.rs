@@ -55,7 +55,10 @@ impl TelemetrySubsystem {
             telemetry,
             tcp_listener,
         } = wiring;
-        Self { telemetry, tcp_listener }
+        Self {
+            telemetry,
+            tcp_listener,
+        }
     }
 
     pub fn local_snapshot(&self) -> TelemetryData {

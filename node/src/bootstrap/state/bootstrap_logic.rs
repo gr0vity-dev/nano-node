@@ -9,10 +9,12 @@ use rsnano_utils::{
     stats::{StatsCollection, StatsSource},
 };
 
+use super::frontiers_processor::FrontiersStats;
 use super::{
-    CandidateAccounts, CandidateAccountsSnapshot, PeerScoring, PriorityResult, RunningQueryContainer,
-    running_query::QuerySource,
+    CandidateAccounts, CandidateAccountsSnapshot, PeerScoring, PriorityResult,
+    RunningQueryContainer, running_query::QuerySource,
 };
+use crate::bootstrap::state::frontier_scan::FrontierHeadInfo;
 use crate::bootstrap::{
     AscPullQuerySpec, BootstrapConfig,
     state::{
@@ -22,8 +24,6 @@ use crate::bootstrap::{
         frontiers_processor::{FrontiersProcessor, OutdatedAccounts},
     },
 };
-use crate::bootstrap::state::frontier_scan::FrontierHeadInfo;
-use super::frontiers_processor::FrontiersStats;
 
 pub struct BootstrapLogic {
     pub candidate_accounts: CandidateAccounts,
@@ -60,10 +60,7 @@ impl From<&BootstrapLogic> for BootstrapLogicSnapshot {
                 outdated_accounts_found: stats.outdated_accounts_found,
             },
             frontier_heads: logic.frontiers_processor.heads(),
-            last_outdated_accounts: logic
-                .frontiers_processor
-                .last_outdated_accounts
-                .clone(),
+            last_outdated_accounts: logic.frontiers_processor.last_outdated_accounts.clone(),
         }
     }
 }

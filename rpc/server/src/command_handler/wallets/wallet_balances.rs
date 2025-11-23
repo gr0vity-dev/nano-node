@@ -9,9 +9,7 @@ impl RpcCommandHandler {
         args: WalletBalancesArgs,
     ) -> anyhow::Result<AccountsBalancesResponse> {
         let threshold = args.threshold.unwrap_or(Amount::ZERO);
-        let accounts = self
-            .wallet_services
-            .accounts_of_wallet(&args.wallet)?;
+        let accounts = self.wallet_services.accounts_of_wallet(&args.wallet)?;
         let mut balances = HashMap::new();
         for account in accounts {
             let balance = self.ledger_queries.account_balance(&account);

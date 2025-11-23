@@ -11,24 +11,20 @@ use tracing::info;
 
 use rsnano_ledger::BlockError;
 use rsnano_network::ChannelId;
+#[cfg(any(test, feature = "test_support"))]
+use rsnano_nullable_clock::Timestamp;
 use rsnano_output_tracker::OutputListenerMt;
 use rsnano_types::{
     Account, Amount, Block, BlockHash, Networks, NodeId, PrivateKey, QualifiedRoot, Root,
     SavedBlock, Vote, VoteError, WorkNonce, WorkRequest,
 };
+#[cfg(any(test, feature = "test_support"))]
+use rsnano_utils::stats::{DetailType, StatType};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoFactory, ContainerInfoProvider},
     stats::{Direction, Stats, StatsCollection, StatsCollector},
 };
-#[cfg(any(test, feature = "test_support"))]
-use rsnano_nullable_clock::Timestamp;
-#[cfg(any(test, feature = "test_support"))]
-use rsnano_utils::stats::{DetailType, StatType};
 
-#[cfg(test)]
-use crate::{TelemetryServices, consensus::AecTicker};
-#[cfg(test)]
-use rsnano_utils::ticker::TimerThread;
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
@@ -36,20 +32,23 @@ use crate::{
     WalletServices,
     block_processing::{BlockContext, BlockSource, ProcessedResult, UncheckedHandle, UncheckedMap},
     config::{NetworkParams, NodeConfig, NodeFlags},
-    consensus::{election::ConfirmedElection},
+    consensus::election::ConfirmedElection,
     node_builder::{ComposedNode, NodeBuildError, NodeBuildResult},
     node_id_key_file::NodeIdKeyFile,
     subsystems::{
-        BacklogSubsystem, BootstrapSubsystem, BootstrapWiring, ConsensusContext, ConsensusSubsystem,
-        ConsensusWiring, Lifecycle, NetworkSubsystem, NetworkWiring, TelemetrySubsystem,
-        TelemetryWiring, TickerSubsystem, WalletSubsystem,
+        BacklogSubsystem, BootstrapSubsystem, BootstrapWiring, ConsensusContext,
+        ConsensusSubsystem, ConsensusWiring, Lifecycle, NetworkSubsystem, NetworkWiring,
+        TelemetrySubsystem, TelemetryWiring, TickerSubsystem, WalletSubsystem,
     },
     tokio_runner::TokioRunner,
 };
+#[cfg(test)]
+use crate::{TelemetryServices, consensus::AecTicker};
+#[cfg(test)]
+use rsnano_utils::ticker::TimerThread;
 
 #[allow(dead_code)]
 pub struct Node {
-    is_nulled: bool,
     // private: callers must use runtime() accessor
     runtime: tokio::runtime::Handle,
     data_path: PathBuf,
@@ -125,6 +124,7 @@ impl NodeArgs {
 }
 
 impl Node {
+    /// Creates a node with no-op subsystems suitable for tests; start/stop are safe to call.
     pub fn new_null() -> Self {
         Self::new_null_with_callbacks(Default::default())
     }
@@ -214,7 +214,9 @@ impl Node {
     #[cfg(any(test, feature = "test_support"))]
     #[doc(hidden)]
     pub fn stats_service(&self) -> StatsHandle {
-        StatsHandle { stats: self.stats.clone() }
+        StatsHandle {
+            stats: self.stats.clone(),
+        }
     }
 
     pub fn ticker_subsystem(&self) -> &TickerSubsystem {
@@ -307,11 +309,7 @@ impl Node {
                 network_filter: composed.network_filter.clone(),
                 steady_clock: composed.steady_clock.clone(),
             };
-            NetworkSubsystem::new(
-                wiring,
-                composed.workers.clone(),
-                max_inbound_connections,
-            )
+            NetworkSubsystem::new(wiring, composed.workers.clone(), max_inbound_connections)
         };
 
         let consensus_subsystem = {
@@ -353,10 +351,8 @@ impl Node {
         );
         let bootstrap_subsystem =
             BootstrapSubsystem::new(bootstrap_wiring, composed.config.enable_bootstrap_responder);
-        let telemetry_wiring = TelemetryWiring::new(
-            composed.telemetry.clone(),
-            composed.tcp_listener.clone(),
-        );
+        let telemetry_wiring =
+            TelemetryWiring::new(composed.telemetry.clone(), composed.tcp_listener.clone());
         let telemetry_subsystem = TelemetrySubsystem::new(telemetry_wiring);
         let ticker_subsystem = TickerSubsystem::new(composed.ticker_services);
         let handles = ProductionHandles::new(composed.ledger.clone());
@@ -367,7 +363,6 @@ impl Node {
         let backlog_subsystem = BacklogSubsystem::new(composed.backlog_scan);
 
         Ok(Self {
-            is_nulled: composed.is_nulled,
             runtime: composed.runtime,
             data_path: composed.data_path,
             node_id: composed.node_id,
@@ -447,12 +442,11 @@ impl Node {
     }
 
     pub fn process_active(&self, block: Block) {
-        self.consensus_subsystem
-            .enqueue_block(BlockContext::new(
-                block,
-                BlockSource::Live,
-                ChannelId::LOOPBACK,
-            ));
+        self.consensus_subsystem.enqueue_block(BlockContext::new(
+            block,
+            BlockSource::Live,
+            ChannelId::LOOPBACK,
+        ));
     }
 
     pub fn process_local_multi(&self, blocks: &[Block]) {
@@ -551,8 +545,7 @@ impl Node {
             Networks::NanoDevNetwork
         );
         let now = self.network_subsystem.now();
-        self.consensus_subsystem
-            .force_confirm(hash, now);
+        self.consensus_subsystem.force_confirm(hash, now);
     }
 
     pub fn get_stat(&self, stat: &'static str, detail: &'static str, dir: Direction) -> u64 {
@@ -566,10 +559,6 @@ impl Node {
     /// Note: Start must not be called from an async thread, because it blocks!
     pub fn start(&mut self) {
         self.start_stop_listener.emit("start");
-        if self.is_nulled {
-            return; // TODO better nullability implementation
-        }
-
         self.network_subsystem.start();
         self.consensus_subsystem.start();
         self.backlog_subsystem.start();
@@ -581,16 +570,9 @@ impl Node {
 
     pub fn stop(&mut self) {
         self.start_stop_listener.emit("stop");
-        if self.is_nulled {
-            return; // TODO better nullability implementation
-        }
-
-        // Ensure stop can only be called once
         if self.stopped.swap(true, Ordering::SeqCst) {
             return;
         }
-        info!("Node stopping...");
-
         self.wallet_subsystem.stop();
         self.ticker_subsystem.stop();
         self.telemetry_subsystem.stop();

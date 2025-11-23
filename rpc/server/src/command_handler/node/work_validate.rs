@@ -42,12 +42,16 @@ impl RpcCommandHandler {
             "0".to_owned()
         };
 
-        let receive_difficulty = self.node.network_params().work.threshold(&BlockDetails::new(
-            rsnano_types::Epoch::Epoch2,
-            false,
-            true,
-            false,
-        ));
+        let receive_difficulty = self
+            .node
+            .network_params()
+            .work
+            .threshold(&BlockDetails::new(
+                rsnano_types::Epoch::Epoch2,
+                false,
+                true,
+                false,
+            ));
         let valid_receive = if result_difficulty >= receive_difficulty {
             "1".to_owned()
         } else {

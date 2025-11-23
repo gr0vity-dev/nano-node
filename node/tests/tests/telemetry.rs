@@ -62,10 +62,7 @@ fn basic() {
         .unwrap()
         .clone();
 
-    let telemetry = node_client
-        .telemetry_subsystem()
-        .test_handles()
-        .telemetry();
+    let telemetry = node_client.telemetry_subsystem().test_handles().telemetry();
 
     assert_timely2(|| telemetry.get_telemetry(&channel.peer_addr()).is_some());
     let telemetry_data = telemetry.get_telemetry(&channel.peer_addr()).unwrap();
@@ -109,10 +106,7 @@ fn disconnected() {
         .clone();
 
     // Ensure telemetry is available before disconnecting
-    let telemetry = node_client
-        .telemetry_subsystem()
-        .test_handles()
-        .telemetry();
+    let telemetry = node_client.telemetry_subsystem().test_handles().telemetry();
 
     assert_timely(Duration::from_secs(5), || {
         telemetry.get_telemetry(&channel.peer_addr()).is_some()
@@ -175,12 +169,13 @@ fn invalid_endpoint() {
     let mut system = System::new();
     let node = system.make_node();
     let endpoint: SocketAddrV6 = "[::ffff:240.0.0.0]:12345".parse().unwrap();
-    assert!(node
-        .telemetry_subsystem()
-        .test_handles()
-        .telemetry()
-        .get_telemetry(&endpoint)
-        .is_none());
+    assert!(
+        node.telemetry_subsystem()
+            .test_handles()
+            .telemetry()
+            .get_telemetry(&endpoint)
+            .is_none()
+    );
 }
 
 #[test]

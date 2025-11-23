@@ -1134,9 +1134,15 @@ fn send_out_of_order() {
     let key2 = PrivateKey::new();
 
     let mut lattice = UnsavedBlockLatticeBuilder::new();
-    let send1 = lattice.genesis().send(&key2, node1.config().receive_minimum);
-    let send2 = lattice.genesis().send(&key2, node1.config().receive_minimum);
-    let send3 = lattice.genesis().send(&key2, node1.config().receive_minimum);
+    let send1 = lattice
+        .genesis()
+        .send(&key2, node1.config().receive_minimum);
+    let send2 = lattice
+        .genesis()
+        .send(&key2, node1.config().receive_minimum);
+    let send3 = lattice
+        .genesis()
+        .send(&key2, node1.config().receive_minimum);
 
     node1.process_active(send3.clone());
     node1.process_active(send2.clone());
@@ -1146,7 +1152,8 @@ fn send_out_of_order() {
         Duration::from_secs(10),
         || {
             system.nodes.iter().all(|node| {
-            node.balance(&DEV_GENESIS_ACCOUNT) == Amount::MAX - node1.config().receive_minimum * 3
+                node.balance(&DEV_GENESIS_ACCOUNT)
+                    == Amount::MAX - node1.config().receive_minimum * 3
             })
         },
         "balance is incorrect on at least one node",

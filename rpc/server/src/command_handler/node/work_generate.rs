@@ -44,13 +44,7 @@ impl RpcCommandHandler {
             }
 
             // If optional block difficulty is higher than requested difficulty, send error
-            if self
-                .node
-                .network_params()
-                .work
-                .difficulty_block(&block)
-                >= difficulty
-            {
+            if self.node.network_params().work.difficulty_block(&block) >= difficulty {
                 bail!("Provided work is already enough for given difficulty");
             }
         }

@@ -3,9 +3,9 @@ use std::collections::HashSet;
 use serde_json::Value;
 use tracing::warn;
 
+use rsnano_node::WalletServices;
 use rsnano_types::Account;
 use rsnano_websocket_messages::ConfirmationJsonOptions;
-use rsnano_node::WalletServices;
 
 pub trait WalletAccountLookup {
     fn account_exists(&self, account: &Account) -> bool;

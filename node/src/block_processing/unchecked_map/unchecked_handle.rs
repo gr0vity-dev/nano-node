@@ -28,7 +28,10 @@ impl UncheckedHandle {
     }
 
     pub fn contains_dependency(&self, dependency_hash: BlockHash) -> bool {
-        self.map.lock().unwrap().contains_dependency(dependency_hash)
+        self.map
+            .lock()
+            .unwrap()
+            .contains_dependency(dependency_hash)
     }
 
     pub fn submit(&self, dependency: BlockHash, block: Block, now: Timestamp) {
@@ -52,7 +55,11 @@ impl UncheckedHandle {
             .count()
     }
 
-    pub fn blocks_starting_at(&self, start_dependency: BlockHash, limit: usize) -> Vec<(BlockHash, Block)> {
+    pub fn blocks_starting_at(
+        &self,
+        start_dependency: BlockHash,
+        limit: usize,
+    ) -> Vec<(BlockHash, Block)> {
         self.map
             .lock()
             .unwrap()
@@ -63,10 +70,12 @@ impl UncheckedHandle {
     }
 
     pub fn find(&self, hash: &BlockHash) -> Option<Block> {
-        self.map
-            .lock()
-            .unwrap()
-            .iter()
-            .find_map(|(_, block)| if block.hash() == *hash { Some(block.clone()) } else { None })
+        self.map.lock().unwrap().iter().find_map(|(_, block)| {
+            if block.hash() == *hash {
+                Some(block.clone())
+            } else {
+                None
+            }
+        })
     }
 }

@@ -2,27 +2,24 @@ use std::sync::{Arc, Mutex};
 
 use bounded_vec_deque::BoundedVecDeque;
 
+use crate::bootstrap::state::BootstrapLogicSnapshot;
 use crate::{
     block_processing::BacklogScan,
     block_rate_calculator::CurrentBlockRates,
     bootstrap::{BootstrapExt, BootstrapServer, Bootstrapper},
     cementation::ConfirmingSet,
     consensus::election::ConfirmedElection,
-    telemetry::{TelementryExt, Telemetry},
     handles::LedgerQueryHandle,
+    telemetry::{TelementryExt, Telemetry},
     wallets::WalletRepresentatives,
     work::WorkFactory,
 };
-use crate::bootstrap::state::BootstrapLogicSnapshot;
 use rsnano_ledger::Ledger;
-use rsnano_network::TcpListener;
 use rsnano_messages::TelemetryData;
-use std::net::SocketAddrV6;
+use rsnano_network::TcpListener;
 use rsnano_store_lmdb::KeyType;
-use rsnano_utils::{
-    stats::Stats,
-    ticker::TickerPool,
-};
+use rsnano_utils::{stats::Stats, ticker::TickerPool};
+use std::net::SocketAddrV6;
 
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
@@ -141,10 +138,7 @@ impl WalletServices {
         self.wallets.import_replace(wallet_id, contents, password)
     }
 
-    pub fn accounts_of_wallet(
-        &self,
-        wallet_id: &WalletId,
-    ) -> Result<Vec<Account>, WalletsError> {
+    pub fn accounts_of_wallet(&self, wallet_id: &WalletId) -> Result<Vec<Account>, WalletsError> {
         self.wallets.get_accounts_of_wallet(wallet_id)
     }
 
@@ -174,11 +168,7 @@ impl WalletServices {
         self.wallets.deterministic_index_get(wallet_id)
     }
 
-    pub fn fetch(
-        &self,
-        wallet_id: &WalletId,
-        account: &PublicKey,
-    ) -> Result<RawKey, WalletsError> {
+    pub fn fetch(&self, wallet_id: &WalletId, account: &PublicKey) -> Result<RawKey, WalletsError> {
         self.wallets.fetch(wallet_id, account)
     }
 
@@ -297,8 +287,15 @@ impl WalletServices {
         generate_work: bool,
         id: Option<String>,
     ) -> BlockPromise {
-        self.wallets
-            .send(wallet_id, source, destination, amount, work, generate_work, id)
+        self.wallets.send(
+            wallet_id,
+            source,
+            destination,
+            amount,
+            work,
+            generate_work,
+            id,
+        )
     }
 
     pub fn receive(
@@ -311,16 +308,15 @@ impl WalletServices {
         work: WorkNonce,
         generate_work: bool,
     ) -> BlockPromise {
-        self.wallets
-            .receive(
-                wallet_id,
-                send_hash,
-                representative,
-                amount,
-                account,
-                work,
-                generate_work,
-            )
+        self.wallets.receive(
+            wallet_id,
+            send_hash,
+            representative,
+            amount,
+            account,
+            work,
+            generate_work,
+        )
     }
 
     pub fn account_exists(&self, account: &PublicKey) -> bool {

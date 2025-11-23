@@ -17,9 +17,7 @@ impl RpcCommandHandler {
         let min_version = args.min_version.unwrap_or_default().inner();
         let include_only_confirmed = args.include_only_confirmed.unwrap_or(true.into()).inner();
 
-        let accounts = self
-            .wallet_services
-            .accounts_of_wallet(&args.wallet)?;
+        let accounts = self.wallet_services.accounts_of_wallet(&args.wallet)?;
 
         let mut pending_source = IndexMap::new();
         let mut pending_threshold = IndexMap::new();

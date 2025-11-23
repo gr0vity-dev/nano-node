@@ -136,10 +136,7 @@ impl InsightApp {
         if let Some(hash) = BlockHash::decode_hex(&self.rollback_hash)
             && let Some(node) = self.node_runner.node()
         {
-            let _ = node
-                .production_handles()
-                .ledger_queries()
-                .roll_back(&hash);
+            let _ = node.production_handles().ledger_queries().roll_back(&hash);
         }
     }
 }

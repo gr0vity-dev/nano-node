@@ -6,7 +6,7 @@ use crate::{
 };
 
 use super::lifecycle::Lifecycle;
-use rsnano_types::{WorkRequest, WorkNonce, Root, Peer};
+use rsnano_types::{Peer, Root, WorkNonce, WorkRequest};
 
 /// Construction-only bundle of bootstrap collaborators used to wire up the
 /// `BootstrapSubsystem`. This is purely for composition; do not store it on

@@ -3,10 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use rsnano_node::{
-    Node, NodeBuilder, NodeBuildError,
-    config::get_node_toml_config_path,
-};
+use rsnano_node::{Node, NodeBuildError, NodeBuilder, config::get_node_toml_config_path};
 use rsnano_types::Networks;
 use store_traits::config::{LedgerBackend, RocksDbConfig};
 use test_helpers::System;

@@ -2,8 +2,7 @@ use super::WebsocketListener;
 use rsnano_messages::TelemetryData;
 use rsnano_node::{
     CompositeNodeEventHandler, NodeEvent, NodeEventHandler, TelemetryServices, WalletServices,
-    config::WebsocketConfig,
-    handles::LedgerQueryHandle,
+    config::WebsocketConfig, handles::LedgerQueryHandle,
 };
 use rsnano_types::{Account, BlockHash, Vote, VoteError};
 use rsnano_websocket_messages::{MessageEnvelope, Topic, new_block_arrived_message};
@@ -48,12 +47,12 @@ pub fn create_websocket_server(
 
     let server_w = Arc::downgrade(&server);
     telemetry_services.on_telemetry_processed(Box::new(move |data, peer_addr| {
-            if let Some(server) = server_w.upgrade()
-                && server.any_subscriber(Topic::Telemetry)
-            {
-                server.broadcast(&telemetry_received(data, *peer_addr));
-            }
-        }));
+        if let Some(server) = server_w.upgrade()
+            && server.any_subscriber(Topic::Telemetry)
+        {
+            server.broadcast(&telemetry_received(data, *peer_addr));
+        }
+    }));
 
     Some(server)
 }
@@ -193,10 +192,7 @@ impl NodeEventHandler for NodeEventProcessor {
                 }
             }
             NodeEvent::BlockConfirmed(block, election) => {
-                let amount = self
-                    .ledger
-                    .block_amount_for(block)
-                    .unwrap_or_default();
+                let amount = self.ledger.block_amount_for(block).unwrap_or_default();
 
                 self.server.broadcast_confirmation(block, &amount, election);
             }

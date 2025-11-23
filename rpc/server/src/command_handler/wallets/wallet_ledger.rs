@@ -15,9 +15,7 @@ impl RpcCommandHandler {
         let receivable = args.receivable.unwrap_or_default().inner();
         let modified_since = args.modified_since.unwrap_or_default().inner();
 
-        let accounts = self
-            .wallet_services
-            .accounts_of_wallet(&args.wallet)?;
+        let accounts = self.wallet_services.accounts_of_wallet(&args.wallet)?;
         let account_dtos = get_accounts_info(
             self.ledger_queries.clone(),
             accounts,
