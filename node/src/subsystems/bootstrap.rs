@@ -55,17 +55,20 @@ pub struct BootstrapTestHandles {
 
 #[cfg(any(test, feature = "test_support"))]
 impl BootstrapTestHandles {
-    #[cfg(any(test, feature = "test_support"))] #[doc(hidden)]
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
     pub fn bootstrapper(&self) -> Arc<Bootstrapper> {
         self.bootstrapper.clone()
     }
 
-    #[cfg(any(test, feature = "test_support"))] #[doc(hidden)]
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
     pub fn bootstrap_server(&self) -> Arc<BootstrapServer> {
         self.bootstrap_server.clone()
     }
 
-    #[cfg(any(test, feature = "test_support"))] #[doc(hidden)]
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
     pub fn work_factory(&self) -> Arc<WorkFactory> {
         self.work_factory.clone()
     }

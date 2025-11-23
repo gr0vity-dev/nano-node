@@ -275,7 +275,8 @@ impl ConsensusSubsystem {
         }
     }
 
-    #[cfg(any(test, feature = "test_support"))] #[doc(hidden)]
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
     pub fn aec_ticker(&self) -> Arc<TimerThread<AecTicker>> {
         self.aec_ticker.clone()
     }

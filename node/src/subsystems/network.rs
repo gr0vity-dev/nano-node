@@ -142,7 +142,8 @@ impl NetworkSubsystem {
     }
 
     /// Sorted realtime channels for diagnostics/telemetry.
-    #[cfg(any(test, feature = "test_support"))] #[deprecated(note = "Use channel_infos() for production code")]
+    #[cfg(any(test, feature = "test_support"))]
+    #[deprecated(note = "Use channel_infos() for production code")]
     pub fn sorted_channels(&self) -> Vec<Arc<Channel>> {
         self.network.read().unwrap().sorted_channels()
     }

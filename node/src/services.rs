@@ -1,5 +1,8 @@
 //! Service facades expose production-ready, behavior-focused APIs for wallets, ledger queries, telemetry, and bootstrap work. Raw handles are confined to test-only cfg gates.
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use bounded_vec_deque::BoundedVecDeque;
 
@@ -19,15 +22,21 @@ use rsnano_ledger::Ledger;
 use rsnano_messages::TelemetryData;
 use rsnano_network::TcpListener;
 use rsnano_store_lmdb::KeyType;
-use rsnano_utils::{stats::Stats, ticker::TickerPool};
+use rsnano_utils::{
+    stats::Stats,
+    ticker::{Tickable, TickerPool},
+};
 use std::net::SocketAddrV6;
 
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 
-use rsnano_types::{Account, Amount, BlockHash, PublicKey, RawKey, WalletId, WorkNonce, WorkRequest};
+use crate::subsystems::ticker::TickerSchedule;
 #[cfg(any(test, feature = "test_support"))]
 use rsnano_types::PrivateKey;
+use rsnano_types::{
+    Account, Amount, BlockHash, PublicKey, RawKey, WalletId, WorkNonce, WorkRequest,
+};
 use rsnano_wallet::{BlockPromise, MultiBlockPromise, Wallets, WalletsError};
 
 pub struct TickerServices {
@@ -45,6 +54,16 @@ impl TickerServices {
 
     pub fn stop(&mut self) {
         self.ticker_pool.stop();
+    }
+
+    pub fn interval_for<T: Tickable + 'static>(&self) -> Option<Duration> {
+        let _ = &self.ticker_pool;
+        None
+    }
+
+    pub fn schedule_snapshot(&self) -> Vec<TickerSchedule> {
+        let _ = &self.ticker_pool;
+        Vec::new()
     }
 
     pub fn ticker_pool(&self) -> &TickerPool {

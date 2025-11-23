@@ -2,7 +2,7 @@
 use std::time::Duration;
 
 use rsnano_nullable_clock::Timestamp;
-use rsnano_utils::ticker::TickerPool;
+use rsnano_utils::ticker::{Tickable, TickerPool};
 
 use crate::services::TickerServices;
 
@@ -26,6 +26,14 @@ pub struct TickerTestHandles<'a> {
 impl TickerSubsystem {
     pub fn new(ticker_services: TickerServices) -> Self {
         Self { ticker_services }
+    }
+
+    pub fn interval_for<T: Tickable + 'static>(&self) -> Option<Duration> {
+        self.ticker_services.interval_for::<T>()
+    }
+
+    pub fn schedule_snapshot(&self) -> Vec<TickerSchedule> {
+        self.ticker_services.schedule_snapshot()
     }
 
     pub fn ticker_pool(&self) -> &TickerPool {

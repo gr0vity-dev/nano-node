@@ -41,11 +41,15 @@ pub struct TelemetryTestHandles {
 
 #[cfg(any(test, feature = "test_support"))]
 impl TelemetryTestHandles {
-    #[cfg(any(test, feature = "test_support"))] #[doc(hidden)] pub fn telemetry(&self) -> Arc<Telemetry> {
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
+    pub fn telemetry(&self) -> Arc<Telemetry> {
         self.telemetry.clone()
     }
 
-    #[cfg(any(test, feature = "test_support"))] #[doc(hidden)] pub fn tcp_listener(&self) -> Arc<TcpListener> {
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
+    pub fn tcp_listener(&self) -> Arc<TcpListener> {
         self.tcp_listener.clone()
     }
 }
