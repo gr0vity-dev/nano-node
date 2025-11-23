@@ -1,9 +1,19 @@
 //! TickerSubsystem owns periodic task execution for node services. Production APIs control lifecycle; timing internals are test-only.
+use std::time::Duration;
+
+use rsnano_nullable_clock::Timestamp;
 use rsnano_utils::ticker::TickerPool;
 
 use crate::services::TickerServices;
 
 use super::lifecycle::Lifecycle;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TickerSchedule {
+    pub type_name: String,
+    pub interval: Duration,
+    pub last_started: Option<Timestamp>,
+}
 
 pub struct TickerSubsystem {
     ticker_services: TickerServices,
