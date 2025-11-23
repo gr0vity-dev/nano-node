@@ -29,7 +29,7 @@ impl ChangeWalletSeedArgs {
         wallet_services.ensure_wallet_is_unlocked(wallet_id, &password);
 
         wallet_services
-            .change_wallet_seed(wallet_id, &seed, 0)
+            .restore_wallet_from_seed(wallet_id, &seed, 0)
             .map_err(|e| anyhow!("Failed to change wallet seed: {:?}", e))?;
 
         Ok(())

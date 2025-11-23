@@ -79,13 +79,15 @@ impl WalletServices {
         }
     }
 
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
     pub fn insert_into_wallet(&self, keys: &PrivateKey) {
         let wallet_id = self.wallet_ids()[0];
         self.insert_adhoc(&wallet_id, &keys.raw_key(), true)
             .unwrap();
     }
 
-    pub fn stop(&self) {
+    pub(crate) fn stop(&self) {
         self.wallets.stop();
     }
 
@@ -168,8 +170,27 @@ impl WalletServices {
         self.wallets.deterministic_index_get(wallet_id)
     }
 
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
     pub fn fetch(&self, wallet_id: &WalletId, account: &PublicKey) -> Result<RawKey, WalletsError> {
         self.wallets.fetch(wallet_id, account)
+    }
+
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
+    pub fn account_private_key(
+        &self,
+        wallet_id: &WalletId,
+        account: &PublicKey,
+    ) -> Result<RawKey, WalletsError> {
+        self.wallets.fetch(wallet_id, account)
+    }
+
+    pub fn has_account_in_wallet(&self, wallet_id: &WalletId, account: &PublicKey) -> bool {
+        self.wallets
+            .get_accounts_of_wallet(wallet_id)
+            .map(|accounts| accounts.iter().any(|a| a.as_key() == *account))
+            .unwrap_or(false)
     }
 
     pub fn move_accounts(
@@ -206,11 +227,24 @@ impl WalletServices {
         self.wallets.remove_key(wallet_id, account)
     }
 
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
     pub fn wallet_seed(&self, wallet_id: WalletId) -> Result<RawKey, WalletsError> {
         self.wallets.get_seed(wallet_id)
     }
 
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
     pub fn change_wallet_seed(
+        &self,
+        wallet_id: WalletId,
+        seed: &RawKey,
+        count: u32,
+    ) -> Result<(u32, Account), WalletsError> {
+        self.wallets.change_seed(wallet_id, seed, count)
+    }
+
+    pub fn restore_wallet_from_seed(
         &self,
         wallet_id: WalletId,
         seed: &RawKey,
@@ -254,6 +288,8 @@ impl WalletServices {
         self.wallets.work_set(wallet_id, account, work)
     }
 
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
     pub fn decrypt_wallet(
         &self,
         wallet_id: WalletId,
@@ -261,7 +297,13 @@ impl WalletServices {
         self.wallets.decrypt(wallet_id)
     }
 
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
     pub fn serialize_wallet(&self, wallet_id: WalletId) -> Result<String, WalletsError> {
+        self.wallets.serialize(wallet_id)
+    }
+
+    pub fn export_wallet_json(&self, wallet_id: WalletId) -> Result<String, WalletsError> {
         self.wallets.serialize(wallet_id)
     }
 
@@ -329,14 +371,18 @@ impl WalletServices {
         self.wallet_reps.clone()
     }
 
-    pub fn generate_work(&self, request: WorkRequest) -> Option<WorkNonce> {
-        self.work_factory.generate_work(request)
-    }
-
     pub fn work_generation_enabled(&self) -> bool {
         self.work_factory.work_generation_enabled()
     }
 
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
+    pub fn generate_work(&self, request: WorkRequest) -> Option<WorkNonce> {
+        self.work_factory.generate_work(request)
+    }
+
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
     pub fn work_threads(&self) -> usize {
         self.work_factory.work_threads()
     }

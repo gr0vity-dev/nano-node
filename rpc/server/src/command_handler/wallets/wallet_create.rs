@@ -11,16 +11,14 @@ impl RpcCommandHandler {
         let wallet = WalletId::random();
         self.wallet_services.create_wallet(wallet);
 
-        let last_restored_account;
-        let restored_count;
-        if let Some(seed) = args.seed {
-            let (count, last) = self.wallet_services.change_wallet_seed(wallet, &seed, 0)?;
-            last_restored_account = Some(last);
-            restored_count = Some(count.into());
+        let (last_restored_account, restored_count) = if let Some(seed) = args.seed {
+            let (count, last) = self
+                .wallet_services
+                .restore_wallet_from_seed(wallet, &seed, 0)?;
+            (Some(last), Some(count.into()))
         } else {
-            last_restored_account = None;
-            restored_count = None;
-        }
+            (None, None)
+        };
 
         Ok(WalletCreateResponse {
             wallet,

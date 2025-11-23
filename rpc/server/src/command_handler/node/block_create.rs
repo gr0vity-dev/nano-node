@@ -41,7 +41,12 @@ impl RpcCommandHandler {
         let ledger = self.ledger_queries.clone();
 
         if !wallet_id.is_zero() && !account.is_zero() {
-            self.wallet_services.fetch(&wallet_id, &account.into())?;
+            if !self
+                .wallet_services
+                .has_account_in_wallet(&wallet_id, &account.into())
+            {
+                bail!("Account not found in wallet");
+            }
             previous = ledger.account_head(&account).unwrap_or_default();
             balance = ledger.account_balance(&account);
         }
