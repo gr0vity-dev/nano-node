@@ -1,12 +1,12 @@
 use std::{
-    net::{IpAddr, Ipv6Addr, SocketAddr},
-    sync::{Arc, OnceLock, atomic::{AtomicU16, Ordering}, mpsc::SyncSender},
+    net::{IpAddr, Ipv6Addr, SocketAddr, SocketAddrV6},
+    sync::{Arc, OnceLock, mpsc::SyncSender},
     thread::sleep,
     time::{Duration, Instant},
 };
 
 use rsnano_ledger::{DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY};
-use rsnano_network::Channel;
+use rsnano_network::{Channel, TcpListener};
 use rsnano_node::{
     Node, NodeBuilder, NodeEvent,
     block_processing::BacklogScanConfig,
@@ -15,6 +15,7 @@ use rsnano_node::{
 };
 use rsnano_rpc_client::{NanoRpcClient, Url};
 use rsnano_rpc_server::run_rpc_server;
+use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
     Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, Epoch, Networks, PrivateKey, PublicKey,
     SavedBlock, StateBlockArgs, WalletId,
@@ -26,7 +27,6 @@ mod node_test_behaviors;
 pub use node_test_behaviors::NodeTestBehavior;
 
 const TEST_LEDGER_BACKEND_ENV: &str = "RSNANO_TEST_LEDGER_BACKEND";
-static NEXT_NODE_PORT: AtomicU16 = AtomicU16::new(40_000);
 
 pub struct System {
     pub network_params: NetworkParams,
@@ -50,7 +50,7 @@ impl System {
 
     pub fn default_config() -> NodeConfig {
         let network_params = NetworkParams::new(Networks::NanoDevNetwork);
-        let port = NEXT_NODE_PORT.fetch_add(1, Ordering::Relaxed);
+        let port = get_available_port();
         let mut config = NodeConfig::new(Some(port), &network_params, 1);
         config.representative_vote_weight_minimum = Amount::ZERO;
         config.io_threads = 1;
@@ -123,17 +123,10 @@ impl System {
 
         if self.nodes.len() > 1 && !disconnected {
             let other = &self.nodes[0];
-            let mut node_addr = node
-                .network_subsystem()
-                .test_handles()
-                .tcp_listener
-                .local_address();
-            if node_addr.port() == 0 {
-                node_addr.set_port(node.config().default_peering_port as u16);
-            }
-            if node_addr.ip().is_unspecified() {
-                node_addr.set_ip(Ipv6Addr::LOCALHOST);
-            }
+            let node_addr = wait_for_listener(&node.network_subsystem().test_handles().tcp_listener);
+            let other_addr =
+                wait_for_listener(&other.network_subsystem().test_handles().tcp_listener);
+            dbg!(node_addr, other_addr);
             if let Err(e) = other
                 .network_subsystem()
                 .test_handles()
@@ -144,6 +137,7 @@ impl System {
             }
 
             let start = Instant::now();
+            let mut reverse_attempted = false;
             let node_network = node.network_subsystem().test_handles();
             let other_network = other.network_subsystem().test_handles();
             loop {
@@ -161,6 +155,13 @@ impl System {
                         .is_some()
                 {
                     break;
+                }
+
+                if !reverse_attempted && start.elapsed() > Duration::from_millis(500) {
+                    if let Err(e) = node_network.peer_connector.connect_to(other_addr) {
+                        panic!("Reverse connect to {} failed: {:?}", other_addr, e);
+                    }
+                    reverse_attempted = true;
                 }
 
                 if start.elapsed() > Duration::from_secs(7) {
@@ -369,13 +370,24 @@ pub fn init_tracing() {
     });
 }
 
+fn wait_for_listener(listener: &Arc<TcpListener>) -> SocketAddrV6 {
+    assert_timely_msg(
+        Duration::from_secs(1),
+        || listener.local_address().port() != 0,
+        "tcp listener not started",
+    );
+    let mut addr = listener.local_address();
+    if addr.ip().is_unspecified() {
+        addr.set_ip(Ipv6Addr::LOCALHOST);
+    }
+    addr
+}
+
 pub fn establish_tcp(node: &Node, peer: &Node) -> Arc<Channel> {
     let node_net = node.network_subsystem().test_handles();
     let peer_net = peer.network_subsystem().test_handles();
-    node_net
-        .peer_connector
-        .connect_to(peer_net.tcp_listener.local_address())
-        .unwrap();
+    let peer_addr = wait_for_listener(&peer_net.tcp_listener);
+    node_net.peer_connector.connect_to(peer_addr).unwrap();
 
     assert_timely_msg(
         Duration::from_secs(2),

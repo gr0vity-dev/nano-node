@@ -277,6 +277,11 @@ impl NetworkSubsystem {
             .set_node_id(channel_id, node_id);
     }
 
+    #[cfg(any(test, feature = "test_support"))]
+    pub fn disconnect_test_peer(&self, channel_id: ChannelId) {
+        self.network.write().unwrap().remove(channel_id);
+    }
+
     pub fn filter_counts(&self) -> FilterDiagnostics {
         FilterDiagnostics {
             size: self.network_filter.capacity(),

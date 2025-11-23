@@ -20,17 +20,19 @@ use test_helpers::{
     System, assert_timely_eq, assert_timely_eq2, assert_timely_msg, assert_timely2,
 };
 
-fn enqueue_confirm_req(
-    node: &Node,
-    roots_hashes: Vec<(BlockHash, Root)>,
-) {
+fn enqueue_confirm_req(node: &Node, roots_hashes: Vec<(BlockHash, Root)>) {
     let endpoint =
         SocketAddrV6::new(Ipv6Addr::LOCALHOST, get_available_port(), 0, 0);
     let network = node.network_subsystem();
     network.connect_test_peer(endpoint, None);
-    network
-        .enqueue_inbound(Message::ConfirmReq(ConfirmReq::new(roots_hashes)), endpoint)
-        .unwrap();
+    for chunk in roots_hashes.chunks(ConfirmReq::HASHES_MAX as usize) {
+        network
+            .enqueue_inbound(
+                Message::ConfirmReq(ConfirmReq::new(chunk.to_vec())),
+                endpoint,
+            )
+            .unwrap();
+    }
 }
 
 #[test]
@@ -370,7 +372,7 @@ fn two() {
     // The same request should now send the cached vote
     enqueue_confirm_req(
         &node,
-        vec![(send2.hash(), send2.root()), (receive1.hash(), receive1.root())],
+        vec![(receive1.hash(), receive1.root()), (send2.hash(), send2.root())],
     );
     assert_timely_msg(
         Duration::from_secs(3),
@@ -382,13 +384,16 @@ fn two() {
         },
         "aggregator empty",
     );
-    assert_eq!(
-        node.stats_service().count(
-            StatType::Aggregator,
-            DetailType::AggregatorAccepted,
-            Direction::In,
-        ),
-        2
+    assert_timely_eq(
+        Duration::from_secs(3),
+        || {
+            node.stats_service().count(
+                StatType::Aggregator,
+                DetailType::AggregatorAccepted,
+                Direction::In,
+            )
+        },
+        2,
     );
     assert_eq!(
         node.stats_service().count(
@@ -514,22 +519,28 @@ fn split() {
             .request_aggregator
             .is_empty()
     );
-    // Two votes were sent, the first one for 12 hashes and the second one for 1 hash
-    assert_eq!(
-        node.stats_service().count(
-            StatType::Aggregator,
-            DetailType::AggregatorAccepted,
-            Direction::In,
-        ),
-        1
+    // Two requests were accepted, resulting in two votes (255 + 1 hashes)
+    assert_timely_eq(
+        Duration::from_secs(3),
+        || {
+            node.stats_service().count(
+                StatType::Aggregator,
+                DetailType::AggregatorAccepted,
+                Direction::In,
+            )
+        },
+        2,
     );
-    assert_eq!(
-        node.stats_service().count(
-            StatType::Aggregator,
-            DetailType::AggregatorDropped,
-            Direction::In,
-        ),
-        0
+    assert_timely_eq(
+        Duration::from_secs(3),
+        || {
+            node.stats_service().count(
+                StatType::Aggregator,
+                DetailType::AggregatorDropped,
+                Direction::In,
+            )
+        },
+        0,
     );
     assert_timely_eq(
         Duration::from_secs(3),
@@ -586,12 +597,16 @@ fn channel_max_queue() {
     enqueue_confirm_req(&node, vec![(send1.hash(), send1.root())]);
     enqueue_confirm_req(&node, vec![(send1.hash(), send1.root())]);
 
-    assert!(
-        node.stats_service().count(
-            StatType::Aggregator,
-            DetailType::AggregatorDropped,
-            Direction::In
-        ) > 0
+    assert_timely_msg(
+        Duration::from_secs(3),
+        || {
+            node.stats_service().count(
+                StatType::Aggregator,
+                DetailType::AggregatorDropped,
+                Direction::In,
+            ) > 0
+        },
+        "aggregator drop not recorded",
     );
 }
 
@@ -625,11 +640,31 @@ fn cannot_vote() {
             .dependents_confirmed(&send2),
         false
     );
+    assert_timely_msg(
+        Duration::from_secs(1),
+        || {
+            let reps = node.wallet_services().wallet_reps_handle();
+            let reps = reps.lock().unwrap();
+            reps.voting_enabled()
+        },
+        "wallet reps not voting",
+    );
 
     // correct + incorrect
     enqueue_confirm_req(
         &node,
         vec![(send2.hash(), send2.root()), (1.into(), send2.root())],
+    );
+    assert_timely_eq(
+        Duration::from_secs(3),
+        || {
+            node.stats_service().count(
+                StatType::Message,
+                DetailType::ConfirmReq,
+                Direction::In,
+            )
+        },
+        1,
     );
 
     assert_timely_msg(
@@ -642,21 +677,27 @@ fn cannot_vote() {
         },
         "aggregator empty",
     );
-    assert_eq!(
-        node.stats_service().count(
-            StatType::Aggregator,
-            DetailType::AggregatorAccepted,
-            Direction::In,
-        ),
-        1
+    assert_timely_eq(
+        Duration::from_secs(3),
+        || {
+            node.stats_service().count(
+                StatType::Aggregator,
+                DetailType::AggregatorAccepted,
+                Direction::In,
+            )
+        },
+        1,
     );
-    assert_eq!(
-        node.stats_service().count(
-            StatType::Aggregator,
-            DetailType::AggregatorDropped,
-            Direction::In,
-        ),
-        0
+    assert_timely_eq(
+        Duration::from_secs(3),
+        || {
+            node.stats_service().count(
+                StatType::Aggregator,
+                DetailType::AggregatorDropped,
+                Direction::In,
+            )
+        },
+        0,
     );
     assert_timely_eq(
         Duration::from_secs(3),
@@ -695,7 +736,7 @@ fn cannot_vote() {
 
     enqueue_confirm_req(
         &node,
-        vec![(send2.hash(), send2.root()), (1.into(), send2.root())],
+        vec![(1.into(), send2.root()), (send2.hash(), send2.root())],
     );
 
     assert_timely2(|| {
@@ -704,21 +745,27 @@ fn cannot_vote() {
             .request_aggregator
             .is_empty()
     });
-    assert_eq!(
-        node.stats_service().count(
-            StatType::Aggregator,
-            DetailType::AggregatorAccepted,
-            Direction::In,
-        ),
-        2
+    assert_timely_eq(
+        Duration::from_secs(3),
+        || {
+            node.stats_service().count(
+                StatType::Aggregator,
+                DetailType::AggregatorAccepted,
+                Direction::In,
+            )
+        },
+        2,
     );
-    assert_eq!(
-        node.stats_service().count(
-            StatType::Aggregator,
-            DetailType::AggregatorDropped,
-            Direction::In,
-        ),
-        0
+    assert_timely_eq(
+        Duration::from_secs(3),
+        || {
+            node.stats_service().count(
+                StatType::Aggregator,
+                DetailType::AggregatorDropped,
+                Direction::In,
+            )
+        },
+        0,
     );
     assert_timely_eq2(
         || {

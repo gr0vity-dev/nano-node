@@ -14,7 +14,7 @@ use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_messages::{ConfirmReq, Message};
 use rsnano_network::{Channel, ChannelId, Network, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_types::{Account, BlockHash, Root, Vote};
+use rsnano_types::{Account, BlockHash, Root, Vote, VoteSource};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Direction, Sample, StatType, Stats},
@@ -191,6 +191,22 @@ impl RepCrawler {
             guard.prioritized.push(target_channel);
         }
         self.condition.notify_all();
+    }
+
+    #[cfg(any(test, feature = "test_support"))]
+    pub fn force_process_vote(&self, vote: Vote, channel_id: ChannelId) {
+        assert!(self.network_params.network.is_dev_network());
+        if let Some(channel) = self.network.read().unwrap().get(channel_id).cloned() {
+            let received = ReceivedVote::new(Arc::new(vote), VoteSource::Live, Some(channel));
+            {
+                let mut guard = self.rep_crawler_impl.lock().unwrap();
+                guard.responses.push_back(received);
+            }
+            // Process immediately so tests do not depend on background thread
+            let guard = self.rep_crawler_impl.lock().unwrap();
+            self.validate_and_process(guard);
+            self.condition.notify_all();
+        }
     }
 
     // Only for tests

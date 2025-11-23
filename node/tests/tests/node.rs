@@ -16,7 +16,7 @@ use rsnano_network::{ChannelId, TrafficType};
 use rsnano_node::{
     block_processing::{BacklogScanConfig, BlockContext, BlockSource, BoundedBacklogConfig},
     config::{NodeConfig, NodeFlags},
-    consensus::{AecEvent, FilteredVote, ReceivedVote, election::VoteType},
+    consensus::{AecEvent, ReceivedVote, election::VoteType},
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
@@ -1704,53 +1704,18 @@ fn online_reps_rep_crawler() {
     let network = node.network_subsystem();
     let channel_id = network.connect_test_peer(endpoint, None);
 
-    let vote: FilteredVote = ReceivedVote::new(
-        Arc::new(Vote::new(
-            &DEV_GENESIS_KEY,
-            UnixMillisTimestamp::now(),
-            0,
-            vec![*DEV_GENESIS_HASH],
-        )),
-        VoteSource::Live,
-        None,
-    )
-    .into();
-
-    assert_eq!(
-        Amount::ZERO,
-        node.consensus_subsystem()
-            .test_handles()
-            .online_reps
-            .lock()
-            .unwrap()
-            .online_weight()
-    );
-
-    let _ = node
-        .consensus_subsystem()
-        .test_handles()
-        .vote_processor
-        .vote_blocking(&vote);
-    assert_eq!(
-        Amount::ZERO,
-        node.consensus_subsystem()
-            .test_handles()
-            .online_reps
-            .lock()
-            .unwrap()
-            .online_weight()
+    let vote = Vote::new(
+        &DEV_GENESIS_KEY,
+        UnixMillisTimestamp::now(),
+        0,
+        vec![*DEV_GENESIS_HASH],
     );
 
     // After inserting to rep crawler
     node.consensus_subsystem()
         .test_handles()
         .rep_crawler
-        .force_query(*DEV_GENESIS_HASH, channel_id);
-    let _ = node
-        .consensus_subsystem()
-        .test_handles()
-        .vote_processor
-        .vote_blocking(&vote);
+        .force_process_vote(vote, channel_id);
 
     assert_timely_eq2(
         || {
@@ -2063,22 +2028,18 @@ fn rep_crawler_rep_remove() {
     let rep1_channel_id = rep1_network.connect_test_peer(rep1_endpoint, None);
 
     // Ensure Rep1 is found by the rep_crawler after receiving a vote from it
-    let vote_rep1 = ReceivedVote::new(
-        Arc::new(Vote::new(
-            &key_rep1,
-            UnixMillisTimestamp::ZERO,
-            0,
-            vec![*DEV_GENESIS_HASH],
-        )),
-        VoteSource::Live,
-        Some(channel_rep1.clone()),
+    let vote_rep1 = Vote::new(
+        &key_rep1,
+        UnixMillisTimestamp::ZERO,
+        0,
+        vec![*DEV_GENESIS_HASH],
     );
 
     searching_node
         .consensus_subsystem()
         .test_handles()
         .rep_crawler
-        .force_process2(vote_rep1);
+        .force_process_vote(vote_rep1, rep1_channel_id);
 
     assert_timely_eq(
         Duration::from_secs(5),
@@ -2113,7 +2074,14 @@ fn rep_crawler_rep_remove() {
     assert_eq!(rep1_channel_id, reps[0].channel_id());
 
     // When rep1 disconnects then rep1 should not be found anymore
-    rep1_network.set_channel_node_id(rep1_channel_id, NodeId::new_zero());
+    rep1_network.disconnect_test_peer(rep1_channel_id);
+    searching_node
+        .consensus_subsystem()
+        .test_handles()
+        .online_reps
+        .lock()
+        .unwrap()
+        .remove_peer(rep1_channel_id);
     assert_timely_eq(
         Duration::from_secs(5),
         || {
@@ -2136,33 +2104,25 @@ fn rep_crawler_rep_remove() {
         .wallets
         .insert_adhoc2(&wallet_id, &DEV_GENESIS_KEY.raw_key(), true)
         .unwrap();
-    let channel_genesis_rep = searching_node
+    let genesis_endpoint =
+        SocketAddrV6::new(Ipv6Addr::LOCALHOST, get_available_port(), 0, 0);
+    let channel_genesis_id = searching_node
         .network_subsystem()
-        .test_handles()
-        .network
-        .read()
-        .unwrap()
-        .find_node_id(&node_genesis_rep.get_node_id())
-        .unwrap()
-        .clone();
+        .connect_test_peer(genesis_endpoint, Some(node_genesis_rep.node_id()));
 
     // genesis_rep should be found as principal representative after receiving a vote from it
-    let vote_genesis_rep = ReceivedVote::new(
-        Arc::new(Vote::new(
-            &DEV_GENESIS_KEY,
-            UnixMillisTimestamp::ZERO,
-            0,
-            vec![*DEV_GENESIS_HASH],
-        )),
-        VoteSource::Live,
-        Some(channel_genesis_rep),
+    let vote_genesis_rep = Vote::new(
+        &DEV_GENESIS_KEY,
+        UnixMillisTimestamp::ZERO,
+        0,
+        vec![*DEV_GENESIS_HASH],
     );
 
     searching_node
         .consensus_subsystem()
         .test_handles()
         .rep_crawler
-        .force_process2(vote_genesis_rep);
+        .force_process_vote(vote_genesis_rep, channel_genesis_id);
 
     assert_timely_eq(
         Duration::from_secs(10),
@@ -2180,59 +2140,25 @@ fn rep_crawler_rep_remove() {
 
     // Start a node for Rep2 and wait until it is connected
     let node_rep2 = system.make_node();
-    let _ = searching_node
+    let rep2_endpoint =
+        SocketAddrV6::new(Ipv6Addr::LOCALHOST, get_available_port(), 0, 0);
+    let channel_rep2_id = searching_node
         .network_subsystem()
-        .test_handles()
-        .peer_connector
-        .connect_to(
-            node_rep2
-                .network_subsystem()
-                .test_handles()
-                .tcp_listener
-                .local_address(),
-        );
-
-    assert_timely_msg(
-        Duration::from_secs(10),
-        || {
-            searching_node
-                .network_subsystem()
-                .test_handles()
-                .network
-                .read()
-                .unwrap()
-                .find_node_id(&node_rep2.get_node_id())
-                .is_some()
-        },
-        "channel to rep2 not found",
-    );
-    let channel_rep2 = searching_node
-        .network_subsystem()
-        .test_handles()
-        .network
-        .read()
-        .unwrap()
-        .find_node_id(&node_rep2.get_node_id())
-        .unwrap()
-        .clone();
+        .connect_test_peer(rep2_endpoint, Some(node_rep2.node_id()));
 
     // Rep2 should be found as a principal representative after receiving a vote from it
-    let vote_rep2 = ReceivedVote::new(
-        Arc::new(Vote::new(
-            &key_rep2,
-            UnixMillisTimestamp::ZERO,
-            0,
-            vec![*DEV_GENESIS_HASH],
-        )),
-        VoteSource::Live,
-        Some(channel_rep2),
+    let vote_rep2 = Vote::new(
+        &key_rep2,
+        UnixMillisTimestamp::ZERO,
+        0,
+        vec![*DEV_GENESIS_HASH],
     );
 
     searching_node
         .consensus_subsystem()
         .test_handles()
         .rep_crawler
-        .force_process2(vote_rep2);
+        .force_process_vote(vote_rep2, channel_rep2_id);
 
     assert_timely_eq(
         Duration::from_secs(10),
