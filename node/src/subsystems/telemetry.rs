@@ -1,4 +1,4 @@
-//! TelemetrySubsystem manages telemetry collection and dissemination. Production APIs provide lifecycle and callback hooks; raw telemetry internals remain test-only.
+//! TelemetrySubsystem manages telemetry collection and dissemination. Production surface: lifecycle + fetch (local/all/by-endpoint) + listener address + uptime + callback. Tests use same façade; no raw handles.
 use std::{net::SocketAddrV6, sync::Arc, time::Duration};
 
 use crate::services::TelemetryServices;
