@@ -126,16 +126,6 @@ impl TickerPool {
             .map(|metadata| metadata.data.clone())
             .collect()
     }
-
-    pub fn get<T: Tickable + 'static>(&self) -> Option<Duration> {
-        self.tickers.lock().unwrap().iter().find_map(|s| {
-            if s.ticker_type == TypeId::of::<T>() {
-                Some(s.interval)
-            } else {
-                None
-            }
-        })
-    }
 }
 
 struct TickerLoop {

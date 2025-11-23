@@ -662,7 +662,7 @@ mod tests {
 
         // helper:
         fn assert_ticker<T: Tickable + 'static>(node: &Node, expected: Duration) {
-            let Some(interval) = node.ticker_subsystem().ticker_pool().get::<T>() else {
+            let Some(interval) = node.ticker_subsystem().interval_for::<T>() else {
                 panic!("Should schedule ticker of type: {}", type_name::<T>());
             };
             assert_eq!(interval, expected, "interval for {}", type_name::<T>());

@@ -67,15 +67,6 @@ impl TickerServices {
             .map(TickerSchedule::from)
             .collect()
     }
-
-    #[cfg(any(test, feature = "test_support"))]
-    #[doc(hidden)]
-    #[deprecated(
-        note = "Use ticker diagnostics via interval_for/schedule_snapshot instead of raw pool"
-    )]
-    pub fn ticker_pool(&self) -> &TickerPool {
-        &self.ticker_pool
-    }
 }
 
 #[derive(Clone)]
