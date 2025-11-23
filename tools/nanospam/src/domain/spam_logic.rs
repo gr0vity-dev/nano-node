@@ -34,7 +34,7 @@ pub(crate) struct SpamLogic {
 impl SpamLogic {
     pub(crate) fn new(account_map: AccountMap, spec: SpamSpec) -> Self {
         Self {
-            delayed: Default::default(),
+            delayed: DelayedBlocks::new(),
             high_prio_tracker: Default::default(),
             block_factory: BlockFactory::new(account_map, spec.max_blocks, spec.spam_strategy),
             current_bps: spec.rate.initial_bps,
@@ -154,6 +154,8 @@ impl SpamLogic {
     }
 
     pub(crate) fn stats(&self, now: Timestamp) -> SpamStats {
+        let _ = self.delayed.len();
+
         SpamStats {
             total_confirmed: self.confirmed_total,
             target_bps: self.current_bps,

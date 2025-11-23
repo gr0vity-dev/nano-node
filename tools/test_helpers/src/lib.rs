@@ -5,9 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rsnano_ledger::{
-    AnySet, DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY, LedgerSet,
-};
+use rsnano_ledger::{DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY};
 use rsnano_network::{Channel, ChannelDirection, NULL_ENDPOINT, TEST_ENDPOINT_1};
 use rsnano_node::{
     Node, NodeBuilder, NodeEvent,
@@ -92,21 +90,14 @@ impl System {
     }
 
     fn setup_node(&mut self, node: &Node) {
+        let ledger_queries = node.ledger_query_services().ledger_queries();
         for block in &self.initialization_blocks {
-            node.ledger_query_services()
-                .ledger_arc()
-                .process_one(block)
-                .unwrap();
+            ledger_queries.process_one(block).unwrap();
         }
 
         for block in &self.initialization_blocks_cemented {
-            node.ledger_query_services()
-                .ledger_arc()
-                .process_one(block)
-                .unwrap();
-            node.ledger_query_services()
-                .ledger_arc()
-                .confirm(block.hash());
+            ledger_queries.process_one(block).unwrap();
+            ledger_queries.confirm_block(block.hash());
         }
     }
 
@@ -122,7 +113,7 @@ impl System {
         self.setup_node(&node);
 
         let wallet_id = WalletId::random();
-        node.wallet_services().wallets.create(wallet_id);
+        node.wallet_services().create_wallet(wallet_id);
         node.start();
 
         // Check that we don't start more nodes than limit for single IP address
@@ -649,15 +640,13 @@ pub fn send_block(node: Arc<Node>) -> BlockHash {
 }
 
 pub fn send_block_to(node: Arc<Node>, account: Account, amount: Amount) -> Block {
-    let ledger_services = node.ledger_query_services();
-    let ledger = ledger_services.ledger_arc();
-    let any = ledger.any();
+    let ledger_queries = node.ledger_query_services().ledger_queries();
 
-    let previous = any
+    let previous = ledger_queries
         .account_head(&DEV_GENESIS_ACCOUNT)
         .unwrap_or(*DEV_GENESIS_HASH);
 
-    let balance = any.account_balance(&DEV_GENESIS_ACCOUNT);
+    let balance = ledger_queries.account_balance(&DEV_GENESIS_ACCOUNT);
 
     let send: Block = StateBlockArgs {
         key: &DEV_GENESIS_KEY,
@@ -676,15 +665,13 @@ pub fn send_block_to(node: Arc<Node>, account: Account, amount: Amount) -> Block
 }
 
 pub fn process_send_block(node: Arc<Node>, account: Account, amount: Amount) -> Block {
-    let ledger_services = node.ledger_query_services();
-    let ledger = ledger_services.ledger_arc();
-    let any = ledger.any();
+    let ledger_queries = node.ledger_query_services().ledger_queries();
 
-    let previous = any
+    let previous = ledger_queries
         .account_head(&DEV_GENESIS_ACCOUNT)
         .unwrap_or(*DEV_GENESIS_HASH);
 
-    let balance = any.account_balance(&DEV_GENESIS_ACCOUNT);
+    let balance = ledger_queries.account_balance(&DEV_GENESIS_ACCOUNT);
 
     let send: Block = StateBlockArgs {
         key: &DEV_GENESIS_KEY,
@@ -702,13 +689,11 @@ pub fn process_send_block(node: Arc<Node>, account: Account, amount: Amount) -> 
 }
 
 pub fn process_open_block(node: Arc<Node>, keys: PrivateKey) -> Block {
-    let ledger_services = node.ledger_query_services();
-    let ledger = ledger_services.ledger_arc();
-    let any = ledger.any();
+    let ledger_queries = node.ledger_query_services().ledger_queries();
     let account = keys.account();
 
-    let (key, info) = any
-        .account_receivable_upper_bound(account, BlockHash::ZERO)
+    let (key, info) = ledger_queries
+        .receivable_upper_bound(account, BlockHash::ZERO)
         .next()
         .unwrap();
 
@@ -728,23 +713,17 @@ pub fn process_open_block(node: Arc<Node>, keys: PrivateKey) -> Block {
 }
 
 pub fn upgrade_epoch(node: Arc<Node>, epoch: Epoch) -> Block {
-    let ledger_services = node.ledger_query_services();
-    let ledger = ledger_services.ledger_arc();
-    let any = ledger.any();
+    let ledger_queries = node.ledger_query_services().ledger_queries();
     let account = *DEV_GENESIS_ACCOUNT;
-    let latest = any.account_head(&account).unwrap();
-    let balance = any.account_balance(&account);
+    let latest = ledger_queries.account_head(&account).unwrap();
+    let balance = ledger_queries.account_balance(&account);
 
     let epoch_block: Block = StateBlockArgs {
         key: &DEV_GENESIS_KEY,
         previous: latest,
         representative: *DEV_GENESIS_PUB_KEY,
         balance,
-        link: node
-            .ledger_query_services()
-            .ledger_arc()
-            .epoch_link(epoch)
-            .unwrap(),
+        link: ledger_queries.epoch_link(epoch).unwrap(),
         work: node.work_generate_dev(*DEV_GENESIS_HASH),
     }
     .into();

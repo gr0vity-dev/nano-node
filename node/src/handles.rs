@@ -7,8 +7,8 @@ use rsnano_ledger::{
     RollbackError, StoreIterator,
 };
 use rsnano_types::{
-    Account, AccountInfo, Amount, Block, BlockHash, ConfirmationHeightInfo, DetailedBlock, Link,
-    PendingInfo, PendingKey, SavedBlock,
+    Account, AccountInfo, Amount, Block, BlockHash, ConfirmationHeightInfo, DetailedBlock, Epoch,
+    Link, PendingInfo, PendingKey, SavedBlock,
 };
 use store_traits::ledger::MemoryStats;
 
@@ -413,6 +413,10 @@ impl LedgerQueryHandle {
 
     pub fn constants(&self) -> &LedgerConstants {
         &self.ledger.constants
+    }
+
+    pub fn epoch_link(&self, epoch: Epoch) -> Option<Link> {
+        self.ledger.epoch_link(epoch)
     }
 
     pub fn is_epoch_link(&self, link: &Link) -> bool {

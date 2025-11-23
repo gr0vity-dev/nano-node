@@ -28,37 +28,37 @@ use super::lifecycle::Lifecycle;
 /// `ConsensusSubsystem`. This is strictly for composition; callers must not
 /// store it on long-lived structs.
 #[derive(Clone)]
-pub struct ConsensusWiring {
-    pub active: Arc<RwLock<ActiveElectionsContainer>>,
-    pub election_schedulers: Arc<ElectionSchedulers>,
-    pub vote_processor: Arc<VoteProcessor>,
-    pub vote_generators: Arc<VoteGenerators>,
-    pub vote_history: Arc<LocalVoteHistory>,
-    pub request_aggregator: Arc<RequestAggregator>,
-    pub bounded_backlog: Arc<BoundedBacklog>,
-    pub bootstrapper: Arc<Bootstrapper>,
-    pub rep_crawler: Arc<RepCrawler>,
-    pub online_reps: Arc<Mutex<OnlineReps>>,
-    pub rep_tiers: Arc<CurrentRepTiers>,
-    pub local_block_broadcaster: Arc<LocalBlockBroadcaster>,
-    pub winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
-    pub vote_processor_queue: Arc<VoteProcessorQueue>,
-    pub vote_cache: Arc<Mutex<VoteCache>>,
-    pub vote_cache_processor: Arc<VoteCacheProcessor>,
-    pub confirming_set: Arc<ConfirmingSet>,
-    pub block_processor: Arc<BlockProcessor>,
-    pub block_processor_queue: Arc<BlockProcessorQueue>,
-    pub vote_rebroadcaster: Arc<Mutex<VoteRebroadcaster>>,
+pub(crate) struct ConsensusWiring {
+    pub(crate) active: Arc<RwLock<ActiveElectionsContainer>>,
+    pub(crate) election_schedulers: Arc<ElectionSchedulers>,
+    pub(crate) vote_processor: Arc<VoteProcessor>,
+    pub(crate) vote_generators: Arc<VoteGenerators>,
+    pub(crate) vote_history: Arc<LocalVoteHistory>,
+    pub(crate) request_aggregator: Arc<RequestAggregator>,
+    pub(crate) bounded_backlog: Arc<BoundedBacklog>,
+    pub(crate) bootstrapper: Arc<Bootstrapper>,
+    pub(crate) rep_crawler: Arc<RepCrawler>,
+    pub(crate) online_reps: Arc<Mutex<OnlineReps>>,
+    pub(crate) rep_tiers: Arc<CurrentRepTiers>,
+    pub(crate) local_block_broadcaster: Arc<LocalBlockBroadcaster>,
+    pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
+    pub(crate) vote_processor_queue: Arc<VoteProcessorQueue>,
+    pub(crate) vote_cache: Arc<Mutex<VoteCache>>,
+    pub(crate) vote_cache_processor: Arc<VoteCacheProcessor>,
+    pub(crate) confirming_set: Arc<ConfirmingSet>,
+    pub(crate) block_processor: Arc<BlockProcessor>,
+    pub(crate) block_processor_queue: Arc<BlockProcessorQueue>,
+    pub(crate) vote_rebroadcaster: Arc<Mutex<VoteRebroadcaster>>,
 }
 
 /// Runtime context for consensus execution and timers.
 #[derive(Clone)]
-pub struct ConsensusContext {
-    pub config: NodeConfig,
-    pub flags: NodeFlags,
-    pub network_params: NetworkParams,
-    pub aec_ticker: Arc<TimerThread<AecTicker>>,
-    pub aec_voter: Arc<TimerThread<AecVoter>>,
+pub(crate) struct ConsensusContext {
+    pub(crate) config: NodeConfig,
+    pub(crate) flags: NodeFlags,
+    pub(crate) network_params: NetworkParams,
+    pub(crate) aec_ticker: Arc<TimerThread<AecTicker>>,
+    pub(crate) aec_voter: Arc<TimerThread<AecVoter>>,
 }
 
 #[derive(Clone)]
@@ -105,6 +105,8 @@ pub struct ConsensusSubsystem {
 }
 
 /// Test-only access to consensus internals.
+#[cfg(any(test, feature = "test_support"))]
+#[allow(private_interfaces)]
 #[derive(Clone)]
 pub struct ConsensusTestHandles {
     pub active: Arc<RwLock<ActiveElectionsContainer>>,
@@ -130,7 +132,7 @@ pub struct ConsensusTestHandles {
 }
 
 impl ConsensusSubsystem {
-    pub fn new(wiring: ConsensusWiring, context: ConsensusContext) -> Self {
+    pub(crate) fn new(wiring: ConsensusWiring, context: ConsensusContext) -> Self {
         let ConsensusWiring {
             active,
             election_schedulers,
@@ -327,6 +329,7 @@ impl ConsensusSubsystem {
     /// This method exposes internal subsystem components for testing.
     /// It is marked hidden and should be avoided in new tests.
     /// Phase 5 will introduce behavioral test helpers to replace this pattern.
+    #[cfg(any(test, feature = "test_support"))]
     #[doc(hidden)]
     pub fn test_handles(&self) -> ConsensusTestHandles {
         ConsensusTestHandles {

@@ -19,18 +19,18 @@ use super::lifecycle::Lifecycle;
 /// `NetworkSubsystem`. This is purely for composition; callers must not store
 /// it on long-lived structs.
 #[derive(Clone)]
-pub struct NetworkWiring {
-    pub network: Arc<RwLock<Network>>,
-    pub tcp_listener: Arc<TcpListener>,
-    pub peer_connector: Arc<PeerConnector>,
-    pub network_threads: Arc<Mutex<NetworkThreads>>,
-    pub message_processor: Arc<Mutex<MessageProcessor>>,
-    pub message_sender: Arc<Mutex<MessageSender>>,
-    pub message_flooder: Arc<Mutex<MessageFlooder>>,
-    pub keepalive_publisher: Arc<KeepalivePublisher>,
-    pub inbound_message_queue: Arc<InboundMessageQueue>,
-    pub network_filter: Arc<NetworkFilter>,
-    pub steady_clock: Arc<SteadyClock>,
+pub(crate) struct NetworkWiring {
+    pub(crate) network: Arc<RwLock<Network>>,
+    pub(crate) tcp_listener: Arc<TcpListener>,
+    pub(crate) peer_connector: Arc<PeerConnector>,
+    pub(crate) network_threads: Arc<Mutex<NetworkThreads>>,
+    pub(crate) message_processor: Arc<Mutex<MessageProcessor>>,
+    pub(crate) message_sender: Arc<Mutex<MessageSender>>,
+    pub(crate) message_flooder: Arc<Mutex<MessageFlooder>>,
+    pub(crate) keepalive_publisher: Arc<KeepalivePublisher>,
+    pub(crate) inbound_message_queue: Arc<InboundMessageQueue>,
+    pub(crate) network_filter: Arc<NetworkFilter>,
+    pub(crate) steady_clock: Arc<SteadyClock>,
 }
 
 /// Facade over network internals (listener, peer connector, filters, queues).
@@ -53,6 +53,7 @@ pub struct NetworkSubsystem {
 }
 
 /// Test-only access to network internals.
+#[cfg(any(test, feature = "test_support"))]
 #[derive(Clone)]
 pub struct NetworkTestHandles {
     pub network: Arc<RwLock<Network>>,
@@ -183,6 +184,7 @@ impl NetworkSubsystem {
     /// This method exposes internal subsystem components for testing.
     /// It is marked hidden and should be avoided in new tests.
     /// Phase 5 will introduce behavioral test helpers to replace this pattern.
+    #[cfg(any(test, feature = "test_support"))]
     #[doc(hidden)]
     pub fn test_handles(&self) -> NetworkTestHandles {
         NetworkTestHandles {

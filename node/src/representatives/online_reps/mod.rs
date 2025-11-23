@@ -95,6 +95,10 @@ impl OnlineReps {
         self.online_weight_minimum
     }
 
+    pub fn weight_interval(&self) -> Duration {
+        self.weight_interval
+    }
+
     #[allow(dead_code)]
     fn trended_weight(&self) -> Amount {
         self.trended_weight
@@ -290,6 +294,7 @@ impl OnlineReps {
         self.rep_weights.read().clone()
     }
 
+    #[cfg(feature = "ledger_snapshots")]
     pub(crate) fn get_consensus_params(&self) -> ConsensusParams {
         let rep_weights = self.get_rep_weights();
         let quorum_weight = self.quorum_delta();

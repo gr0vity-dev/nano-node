@@ -11,9 +11,15 @@ pub mod wallet;
 
 pub use backlog::BacklogSubsystem;
 pub use bootstrap::{BootstrapSubsystem, BootstrapTestHandles, BootstrapWiring};
-pub use consensus::{ConsensusContext, ConsensusSubsystem, ConsensusTestHandles, ConsensusWiring};
+pub use consensus::ConsensusSubsystem;
+pub(crate) use consensus::{ConsensusContext, ConsensusWiring};
+#[cfg(any(test, feature = "test_support"))]
+pub use consensus::ConsensusTestHandles;
 pub use lifecycle::Lifecycle;
-pub use network::{NetworkSubsystem, NetworkTestHandles, NetworkWiring};
+pub use network::NetworkSubsystem;
+pub(crate) use network::NetworkWiring;
+#[cfg(any(test, feature = "test_support"))]
+pub use network::NetworkTestHandles;
 pub use telemetry::{TelemetrySubsystem, TelemetryTestHandles, TelemetryWiring};
 pub use ticker::{TickerSubsystem, TickerTestHandles};
 pub use wallet::WalletSubsystem;

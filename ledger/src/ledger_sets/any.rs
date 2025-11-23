@@ -649,7 +649,7 @@ pub struct AnyReceivableIterator<'a> {
 }
 
 impl<'a> AnyReceivableIterator<'a> {
-    pub fn new(
+    pub(crate) fn new(
         txn: &'a dyn LedgerReadTxn,
         pending: &'a dyn PendingStore,
         requested_account: Account,

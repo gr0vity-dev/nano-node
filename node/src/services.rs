@@ -1,4 +1,4 @@
-use std::{sync::{Arc, Mutex}, time::Duration};
+use std::sync::{Arc, Mutex};
 
 use bounded_vec_deque::BoundedVecDeque;
 
@@ -7,10 +7,7 @@ use crate::{
     block_rate_calculator::CurrentBlockRates,
     bootstrap::{BootstrapExt, BootstrapServer, Bootstrapper},
     cementation::ConfirmingSet,
-    config::{NetworkParams, NodeFlags},
-    consensus::{
-        AecTicker, AecVoter, election::ConfirmedElection,
-    },
+    consensus::election::ConfirmedElection,
     telemetry::{TelementryExt, Telemetry},
     handles::LedgerQueryHandle,
     wallets::WalletRepresentatives,
@@ -24,7 +21,7 @@ use std::net::SocketAddrV6;
 use rsnano_store_lmdb::KeyType;
 use rsnano_utils::{
     stats::Stats,
-    ticker::{TickerPool, TimerThread},
+    ticker::TickerPool,
 };
 
 #[cfg(feature = "ledger_snapshots")]
@@ -34,41 +31,6 @@ use rsnano_types::{
     Account, Amount, BlockHash, PrivateKey, PublicKey, RawKey, WalletId, WorkNonce, WorkRequest,
 };
 use rsnano_wallet::{BlockPromise, MultiBlockPromise, Wallets, WalletsError};
-
-pub struct ConsensusTimerServices<'a> {
-    aec_ticker: &'a TimerThread<AecTicker>,
-    aec_voter: &'a TimerThread<AecVoter>,
-}
-
-impl<'a> ConsensusTimerServices<'a> {
-    pub(crate) fn new(
-        aec_ticker: &'a TimerThread<AecTicker>,
-        aec_voter: &'a TimerThread<AecVoter>,
-    ) -> Self {
-        Self {
-            aec_ticker,
-            aec_voter,
-        }
-    }
-
-    pub fn start(&self, flags: &NodeFlags, network_params: &NetworkParams) {
-        self.aec_voter.start(Duration::from_millis(20));
-        if !flags.disable_request_loop {
-            self.aec_ticker
-                .start(network_params.network.aec_loop_interval);
-        }
-    }
-
-    pub fn stop(&self) {
-        self.aec_ticker.stop();
-        self.aec_voter.stop();
-    }
-
-    #[cfg(test)]
-    pub fn ticker(&self) -> &TimerThread<AecTicker> {
-        self.aec_ticker
-    }
-}
 
 pub struct TickerServices {
     ticker_pool: TickerPool,

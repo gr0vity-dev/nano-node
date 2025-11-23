@@ -52,7 +52,6 @@ pub enum IteratorMetricKind {
     AccountFullScan,
     PendingRange,
     BlockRange,
-    ConfirmationHeightRange,
     ReceivableRange,
 }
 
@@ -63,9 +62,6 @@ impl IteratorMetricKind {
             IteratorMetricKind::AccountFullScan => DetailType::LedgerIteratorAccountFull,
             IteratorMetricKind::PendingRange => DetailType::LedgerIteratorPendingRange,
             IteratorMetricKind::BlockRange => DetailType::LedgerIteratorBlockRange,
-            IteratorMetricKind::ConfirmationHeightRange => {
-                DetailType::LedgerIteratorConfirmationRange
-            }
             IteratorMetricKind::ReceivableRange => DetailType::LedgerIteratorReceivable,
         }
     }

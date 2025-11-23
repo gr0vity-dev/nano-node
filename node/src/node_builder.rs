@@ -517,12 +517,13 @@ fn build_network(
         config.max_unchecked_blocks as usize,
     )));
 
+    let online_weight_interval = OnlineReps::default_interval_for(current_network);
     let online_reps = Arc::new(Mutex::new(
         OnlineReps::builder()
             .rep_weights(rep_weights.clone())
             .online_weight_minimum(config.online_weight_minimum)
             .representative_weight_minimum(config.representative_vote_weight_minimum)
-            .weight_interval(OnlineReps::default_interval_for(current_network))
+            .weight_interval(online_weight_interval)
             .finish(),
     ));
 
@@ -537,7 +538,7 @@ fn build_network(
     online_weight_calculation.tick(&CancellationToken::new());
     ticker_pool.insert(
         online_weight_calculation,
-        OnlineReps::default_interval_for(current_network),
+        online_reps.lock().unwrap().weight_interval(),
     );
 
     let mut message_sender =

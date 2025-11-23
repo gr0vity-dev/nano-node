@@ -148,7 +148,6 @@ pub enum DetailType {
     LedgerIteratorAccountRange,
     LedgerIteratorPendingRange,
     LedgerIteratorBlockRange,
-    LedgerIteratorConfirmationRange,
     LedgerIteratorReceivable,
 
     // block source

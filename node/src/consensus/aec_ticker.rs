@@ -16,6 +16,7 @@ pub struct AecTicker {
 }
 
 impl AecTicker {
+    #[allow(dead_code)]
     pub fn new(
         active_elections: Arc<RwLock<ActiveElectionsContainer>>,
         clock: Arc<SteadyClock>,
@@ -27,6 +28,7 @@ impl AecTicker {
         }
     }
 
+    #[allow(dead_code)]
     pub fn new_null() -> Self {
         Self {
             active_elections: Arc::new(RwLock::new(ActiveElectionsContainer::default())),
@@ -39,6 +41,7 @@ impl AecTicker {
         self.plugins.push(Box::new(plugin));
     }
 
+    #[allow(dead_code)]
     pub fn get_plugin<T>(&self) -> Option<&T>
     where
         T: AecTickerPlugin + 'static,
@@ -70,9 +73,13 @@ impl Tickable for AecTicker {
 
 pub trait AecTickerPlugin: Send + 'static {
     fn run(&mut self, aec: &RwLock<ActiveElectionsContainer>);
+
+    #[allow(dead_code)]
     fn type_id(&self) -> TypeId {
         TypeId::of::<Self>()
     }
+
+    #[allow(dead_code)]
     fn as_any(&self) -> &dyn Any;
 }
 
