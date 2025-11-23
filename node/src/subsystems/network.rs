@@ -150,6 +150,26 @@ impl NetworkSubsystem {
             .await
     }
 
+    /// Initiate an outbound connection attempt to a peer.
+    pub fn connect(&self, endpoint: SocketAddrV6) -> Result<()> {
+        self.peer_connector
+            .connect_to(endpoint)
+            .map_err(|e| anyhow!(e.to_string()))
+    }
+
+    /// Validate whether an outbound connection would be accepted.
+    pub fn validate_outbound(&self, endpoint: SocketAddrV6) -> Result<()> {
+        self.network
+            .write()
+            .unwrap()
+            .validate_new_connection(
+                &endpoint,
+                ChannelDirection::Outbound,
+                self.steady_clock.now(),
+            )
+            .map_err(|e| anyhow!(e.to_string()))
+    }
+
     /// Sorted realtime channels for diagnostics/telemetry.
     #[cfg(any(test, feature = "test_support"))]
     #[deprecated(note = "Use channel_infos() for production code")]
