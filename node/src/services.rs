@@ -14,14 +14,18 @@ use crate::{
     cementation::ConfirmingSet,
     consensus::election::ConfirmedElection,
     handles::LedgerQueryHandle,
+    subsystems::network::{ChannelInfo, FilterDiagnostics, NetworkSubsystem},
     telemetry::{TelementryExt, Telemetry, TelemetrySnapshot},
     wallets::WalletRepresentatives,
     work::WorkFactory,
 };
+use anyhow::Result;
 use rsnano_ledger::Ledger;
-use rsnano_messages::TelemetryData;
-use rsnano_network::TcpListener;
+use rsnano_messages::{Message, TelemetryData};
+use rsnano_network::{ChannelId, TcpListener};
+use rsnano_nullable_clock::Timestamp;
 use rsnano_store_lmdb::KeyType;
+use rsnano_types::NodeId;
 use rsnano_utils::{
     stats::Stats,
     ticker::{Tickable, TickerPool},
@@ -66,6 +70,77 @@ impl TickerServices {
             .into_iter()
             .map(TickerSchedule::from)
             .collect()
+    }
+}
+
+#[derive(Clone)]
+pub struct NetworkServices {
+    network: NetworkSubsystem,
+}
+
+impl NetworkServices {
+    pub(crate) fn new(network: NetworkSubsystem) -> Self {
+        Self { network }
+    }
+
+    pub fn start(&mut self) {
+        self.network.start();
+    }
+
+    pub fn stop(&mut self) {
+        self.network.stop();
+    }
+
+    pub fn stop_listeners(&self) {
+        self.network.stop_listeners();
+    }
+
+    pub fn stop_threads(&self) {
+        self.network.stop_threads();
+    }
+
+    pub fn local_endpoint(&self) -> SocketAddrV6 {
+        self.network.local_endpoint()
+    }
+
+    pub fn peer_count(&self) -> usize {
+        self.network.peer_count()
+    }
+
+    pub async fn keepalive_or_connect(&self, address: String, port: u16) {
+        self.network.keepalive_or_connect(address, port).await;
+    }
+
+    pub fn channel_infos(&self) -> Vec<ChannelInfo> {
+        self.network.channel_infos()
+    }
+
+    pub fn now(&self) -> Timestamp {
+        self.network.now()
+    }
+
+    pub fn steady_now(&self) -> Timestamp {
+        self.network.steady_now()
+    }
+
+    pub fn inbound_queue_len(&self) -> usize {
+        self.network.inbound_queue_len()
+    }
+
+    pub fn enqueue_inbound(&self, message: Message, endpoint: SocketAddrV6) -> Result<()> {
+        self.network.enqueue_inbound(message, endpoint)
+    }
+
+    pub fn connect_test_peer(&self, endpoint: SocketAddrV6, node_id: Option<NodeId>) -> ChannelId {
+        self.network.connect_test_peer(endpoint, node_id)
+    }
+
+    pub fn set_channel_node_id(&self, channel_id: ChannelId, node_id: NodeId) {
+        self.network.set_channel_node_id(channel_id, node_id)
+    }
+
+    pub fn filter_counts(&self) -> FilterDiagnostics {
+        self.network.filter_counts()
     }
 }
 

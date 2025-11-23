@@ -6,11 +6,12 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-use rsnano_messages::NetworkFilter;
+use anyhow::{Result, anyhow};
+use rsnano_messages::{Message, NetworkFilter};
 #[cfg(any(test, feature = "test_support"))]
 use rsnano_network::Channel;
 use rsnano_network::{
-    ChannelDirection, ChannelId, Network, PeerConnector, TcpListener, TcpListenerExt,
+    ChannelDirection, ChannelId, ChannelMode, Network, PeerConnector, TcpListener, TcpListenerExt,
 };
 use rsnano_network_protocol::InboundMessageQueue;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
@@ -22,6 +23,7 @@ use crate::transport::{MessageFlooder, MessageProcessor, MessageSender, NetworkT
 use rsnano_utils::thread_pool::ThreadPool;
 
 use super::lifecycle::Lifecycle;
+use crate::services::NetworkServices;
 
 /// Construction-only bundle of network collaborators used to wire up the
 /// `NetworkSubsystem`. This is purely for composition; callers must not store
@@ -68,8 +70,15 @@ pub struct ChannelInfo {
     pub direction: ChannelDirection,
     pub protocol_version: u8,
     pub node_id: Option<NodeId>,
-    pub score: u64,
+    pub score: i32,
     pub last_packet_ms: u64,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct FilterDiagnostics {
+    pub size: usize,
+    pub age_cutoff: u64,
+    pub current_epoch: u64,
 }
 
 /// Test-only access to network internals.
@@ -179,6 +188,78 @@ impl NetworkSubsystem {
         self.steady_clock.now()
     }
 
+    pub fn steady_now(&self) -> Timestamp {
+        self.steady_clock.now()
+    }
+
+    pub fn inbound_queue_len(&self) -> usize {
+        self.inbound_message_queue.size()
+    }
+
+    pub fn enqueue_inbound(&self, message: Message, endpoint: SocketAddrV6) -> Result<()> {
+        let channel = {
+            if let Some(channel) = self
+                .network
+                .read()
+                .unwrap()
+                .find_realtime_channel_by_remote_addr(&endpoint)
+            {
+                channel.clone()
+            } else {
+                let local = self.tcp_listener.local_address();
+                let now = self.steady_clock.now();
+                let (channel, _) = self
+                    .network
+                    .write()
+                    .unwrap()
+                    .add(local, endpoint, ChannelDirection::Inbound, now)
+                    .map_err(|e| anyhow!(e.to_string()))?;
+                channel.set_mode(ChannelMode::Realtime);
+                channel
+            }
+        };
+
+        if self.inbound_message_queue.put(message, channel) {
+            Ok(())
+        } else {
+            Err(anyhow!("Inbound queue overfilled"))
+        }
+    }
+
+    pub fn connect_test_peer(&self, endpoint: SocketAddrV6, node_id: Option<NodeId>) -> ChannelId {
+        let local = self.tcp_listener.local_address();
+        let now = self.steady_clock.now();
+        let (channel, _) = self
+            .network
+            .write()
+            .unwrap()
+            .add(local, endpoint, ChannelDirection::Outbound, now)
+            .expect("test peer connection should succeed");
+        channel.set_mode(ChannelMode::Realtime);
+        if let Some(id) = node_id {
+            self.network
+                .write()
+                .unwrap()
+                .set_node_id(channel.channel_id(), id);
+        }
+        channel.channel_id()
+    }
+
+    pub fn set_channel_node_id(&self, channel_id: ChannelId, node_id: NodeId) {
+        self.network
+            .write()
+            .unwrap()
+            .set_node_id(channel_id, node_id);
+    }
+
+    pub fn filter_counts(&self) -> FilterDiagnostics {
+        FilterDiagnostics {
+            size: self.network_filter.capacity(),
+            age_cutoff: self.network_filter.age_cutoff,
+            current_epoch: self.network_filter.current_epoch(),
+        }
+    }
+
     /// Access to inbound queue for transport-level dispatchers.
     #[cfg(any(test, feature = "test_support"))]
     pub fn inbound_message_queue(&self) -> Arc<InboundMessageQueue> {
@@ -225,6 +306,10 @@ impl NetworkSubsystem {
     pub fn stop_threads(&self) {
         self.message_processor.lock().unwrap().stop();
         self.network_threads.lock().unwrap().stop();
+    }
+
+    pub fn services(&self) -> NetworkServices {
+        NetworkServices::new(self.clone())
     }
 
     /// **Legacy test access - technical debt.**

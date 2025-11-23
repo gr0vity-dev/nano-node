@@ -90,6 +90,14 @@ impl<T: NetworkFilterHasher> NetworkFilter<T> {
         }
     }
 
+    pub fn capacity(&self) -> usize {
+        self.items.lock().unwrap().len()
+    }
+
+    pub fn current_epoch(&self) -> u64 {
+        self.current_epoch.load(Ordering::SeqCst)
+    }
+
     pub fn clear_bytes(&self, bytes: &[u8]) {
         self.clear(self.hash(bytes));
     }
