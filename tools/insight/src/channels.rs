@@ -1,10 +1,7 @@
 use crate::message_collection::MessageCollection;
 use rsnano_messages::TelemetryData;
 use rsnano_network::{ChannelDirection, ChannelId};
-use rsnano_node::{
-    representatives::PeeredRepInfo,
-    subsystems::network::ChannelInfo,
-};
+use rsnano_node::{representatives::PeeredRepInfo, subsystems::network::ChannelInfo};
 use rsnano_types::Amount;
 use std::{
     collections::{HashMap, HashSet},

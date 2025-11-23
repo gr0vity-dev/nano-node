@@ -9,7 +9,9 @@ use std::{
 use rsnano_messages::NetworkFilter;
 #[cfg(any(test, feature = "test_support"))]
 use rsnano_network::Channel;
-use rsnano_network::{ChannelDirection, ChannelId, Network, PeerConnector, TcpListener, TcpListenerExt};
+use rsnano_network::{
+    ChannelDirection, ChannelId, Network, PeerConnector, TcpListener, TcpListenerExt,
+};
 use rsnano_network_protocol::InboundMessageQueue;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::NodeId;
@@ -140,7 +142,8 @@ impl NetworkSubsystem {
     }
 
     /// Sorted realtime channels for diagnostics/telemetry.
-    #[cfg(any(test, feature = "test_support"))] #[deprecated(note = "Use channel_infos() for production code")]
+    #[cfg(any(test, feature = "test_support"))]
+    #[deprecated(note = "Use channel_infos() for production code")]
     pub fn sorted_channels(&self) -> Vec<Arc<Channel>> {
         self.network.read().unwrap().sorted_channels()
     }
@@ -155,10 +158,8 @@ impl NetworkSubsystem {
             .into_iter()
             .map(|channel| {
                 let last_activity = channel.last_activity();
-                let last_packet_ms = now
-                    .millis()
-                    .saturating_sub(last_activity.millis())
-                    .max(0) as u64;
+                let last_packet_ms =
+                    now.millis().saturating_sub(last_activity.millis()).max(0) as u64;
                 ChannelInfo {
                     channel_id: channel.channel_id(),
                     endpoint: channel.peer_addr(),
@@ -179,12 +180,14 @@ impl NetworkSubsystem {
     }
 
     /// Access to inbound queue for transport-level dispatchers.
-    #[cfg(any(test, feature = "test_support"))] pub fn inbound_message_queue(&self) -> Arc<InboundMessageQueue> {
+    #[cfg(any(test, feature = "test_support"))]
+    pub fn inbound_message_queue(&self) -> Arc<InboundMessageQueue> {
         self.inbound_message_queue.clone()
     }
 
     /// Lightweight reference to the network filter used by transport paths.
-    #[cfg(any(test, feature = "test_support"))] pub fn network_filter(&self) -> Arc<NetworkFilter> {
+    #[cfg(any(test, feature = "test_support"))]
+    pub fn network_filter(&self) -> Arc<NetworkFilter> {
         self.network_filter.clone()
     }
 
