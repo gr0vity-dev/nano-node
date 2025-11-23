@@ -7,7 +7,7 @@ use std::{
     },
 };
 
-use tracing::{error, info};
+use tracing::info;
 
 use rsnano_ledger::BlockError;
 use rsnano_network::ChannelId;
@@ -18,9 +18,12 @@ use rsnano_types::{
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoFactory, ContainerInfoProvider},
-    stats::{DetailType, Direction, StatType, Stats, StatsCollection, StatsCollector},
+    stats::{Direction, Stats, StatsCollection, StatsCollector},
 };
+#[cfg(any(test, feature = "test_support"))]
 use rsnano_nullable_clock::Timestamp;
+#[cfg(any(test, feature = "test_support"))]
+use rsnano_utils::stats::{DetailType, StatType};
 
 #[cfg(test)]
 use crate::{TelemetryServices, consensus::AecTicker};
@@ -34,7 +37,7 @@ use crate::{
     block_processing::{BlockContext, BlockSource, ProcessedResult, UncheckedHandle, UncheckedMap},
     config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{election::ConfirmedElection},
-    node_builder::ComposedNode,
+    node_builder::{ComposedNode, NodeBuildError, NodeBuildResult},
     node_id_key_file::NodeIdKeyFile,
     subsystems::{
         BacklogSubsystem, BootstrapSubsystem, BootstrapWiring, ConsensusContext, ConsensusSubsystem,
@@ -135,7 +138,7 @@ impl Node {
             .expect("null node initialization failed")
     }
 
-    pub(crate) fn new_with_args(args: NodeArgs) -> anyhow::Result<Self> {
+    pub(crate) fn new_with_args(args: NodeArgs) -> NodeBuildResult<Self> {
         Self::build_from_args(args, false, NodeIdKeyFile::default())
     }
 
@@ -265,9 +268,27 @@ impl Node {
         args: NodeArgs,
         is_nulled: bool,
         node_id_key_file: NodeIdKeyFile,
-    ) -> anyhow::Result<Self> {
+    ) -> NodeBuildResult<Self> {
         let composed = crate::node_builder::compose_root(args, is_nulled, node_id_key_file)?;
-        Self::new(composed)
+        Self::validate_genesis_block(&composed)?;
+        Self::new(composed).map_err(NodeBuildError::from)
+    }
+
+    fn validate_genesis_block(composed: &ComposedNode) -> Result<(), NodeBuildError> {
+        let genesis_hash = composed.network_params.ledger.genesis_block.hash();
+        if composed
+            .ledger_query_services
+            .ledger_queries()
+            .block_exists(&genesis_hash)
+        {
+            Ok(())
+        } else {
+            Err(NodeBuildError::GenesisBlockMissing {
+                data_path: composed.data_path.clone(),
+                network: composed.network_params.network.current_network,
+                genesis_hash,
+            })
+        }
     }
 
     pub(crate) fn new(composed: ComposedNode) -> anyhow::Result<Self> {
@@ -547,22 +568,6 @@ impl Node {
         self.start_stop_listener.emit("start");
         if self.is_nulled {
             return; // TODO better nullability implementation
-        }
-
-        if !self
-            .production_handles()
-            .ledger_queries()
-            .block_exists(&self.network_params.ledger.genesis_block.hash())
-        {
-            error!(
-                "Genesis block not found. This commonly indicates a configuration issue, check that the --network or --data_path command line arguments are correct, and also the ledger backend node config option. If using a read-only CLI command a ledger must already exist, start the node with --daemon first."
-            );
-
-            if self.network_params.network.is_beta_network() {
-                error!("Beta network may have reset, try clearing database files");
-            }
-
-            panic!("Genesis block not found!");
         }
 
         self.network_subsystem.start();

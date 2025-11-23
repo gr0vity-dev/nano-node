@@ -117,7 +117,7 @@ pub(crate) fn build_node(args: &GlobalArgs) -> anyhow::Result<Node> {
     } else {
         builder
     };
-    builder.finish()
+    builder.finish().map_err(anyhow::Error::from)
 }
 
 #[derive(Default)]

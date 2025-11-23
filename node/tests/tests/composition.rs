@@ -3,7 +3,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use rsnano_node::{Node, NodeBuilder, config::get_node_toml_config_path};
+use rsnano_node::{
+    Node, NodeBuilder, NodeBuildError,
+    config::get_node_toml_config_path,
+};
 use rsnano_types::Networks;
 use store_traits::config::{LedgerBackend, RocksDbConfig};
 use test_helpers::System;
@@ -54,6 +57,34 @@ fn composition_fails_when_data_path_is_a_file() {
     );
 
     fs::remove_file(&data_file).ok();
+    fs::remove_dir_all(&temp_dir).ok();
+}
+
+#[test]
+fn builder_fails_when_genesis_missing_from_ledger() {
+    let temp_dir = unique_path("missing-genesis");
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    let mut node = NodeBuilder::new(Networks::NanoDevNetwork)
+        .data_path(&temp_dir)
+        .finish()
+        .expect("node builds for setup");
+
+    let genesis_hash = node.network_params().ledger.genesis_block.hash();
+    let ledger = node.ledger_query_services().ledger_arc();
+    let mut txn = ledger.store.begin_write();
+    ledger.store.block().del(txn.as_mut(), &genesis_hash);
+    txn.commit().unwrap();
+    node.stop();
+    drop(node);
+
+    let err = NodeBuilder::new(Networks::NanoDevNetwork)
+        .data_path(&temp_dir)
+        .finish()
+        .err()
+        .expect("builder should fail when genesis block is missing");
+    assert!(matches!(err, NodeBuildError::GenesisBlockMissing { .. }));
+
     fs::remove_dir_all(&temp_dir).ok();
 }
 

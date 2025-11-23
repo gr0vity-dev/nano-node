@@ -1,4 +1,6 @@
 use std::{
+    error::Error,
+    fmt,
     path::PathBuf,
     sync::{
         Arc, Mutex, RwLock,
@@ -23,7 +25,7 @@ use rsnano_network_protocol::{
 };
 use rsnano_nullable_clock::{SteadyClock, SystemTimeFactory};
 use rsnano_store_lmdb::EnvironmentFlags;
-use rsnano_types::{KeyDerivationFunction, Networks, NodeId, PrivateKey};
+use rsnano_types::{BlockHash, KeyDerivationFunction, Networks, NodeId, PrivateKey};
 use rsnano_utils::{
     CancellationToken,
     container_info::ContainerInfoFactory,
@@ -142,6 +144,46 @@ impl NodeCallbacksBuilder {
         self.0
     }
 }
+
+#[derive(Debug)]
+pub enum NodeBuildError {
+    GenesisBlockMissing {
+        data_path: PathBuf,
+        network: Networks,
+        genesis_hash: BlockHash,
+    },
+    BuildFailed(anyhow::Error),
+}
+
+impl fmt::Display for NodeBuildError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::GenesisBlockMissing { data_path, network, genesis_hash } => write!(
+                f,
+                "Genesis block {genesis_hash} not found in ledger at {:?} for {:?} network. Check --network/--data_path and ensure the ledger is initialized.",
+                data_path, network
+            ),
+            Self::BuildFailed(err) => write!(f, "{err}"),
+        }
+    }
+}
+
+impl Error for NodeBuildError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::BuildFailed(err) => Some(err.as_ref()),
+            _ => None,
+        }
+    }
+}
+
+impl From<anyhow::Error> for NodeBuildError {
+    fn from(err: anyhow::Error) -> Self {
+        Self::BuildFailed(err)
+    }
+}
+
+pub type NodeBuildResult<T = Node> = Result<T, NodeBuildError>;
 
 pub struct NodeBuilder {
     network: Networks,
@@ -272,7 +314,7 @@ impl NodeBuilder {
         }
     }
 
-    pub fn finish(self) -> anyhow::Result<Node> {
+    pub fn finish(self) -> NodeBuildResult {
         let data_path = self.get_data_path()?;
 
         let network_params = self
@@ -286,8 +328,10 @@ impl NodeBuilder {
                 let mut daemon_config = DaemonConfig::new(&network_params, cpu_count);
                 let config_path = get_node_toml_config_path(&data_path);
                 if config_path.exists() {
-                    let toml_str = std::fs::read_to_string(config_path)?;
-                    let daemon_toml: DaemonToml = toml::de::from_str(&toml_str)?;
+                    let toml_str =
+                        std::fs::read_to_string(config_path).map_err(anyhow::Error::from)?;
+                    let daemon_toml: DaemonToml =
+                        toml::de::from_str(&toml_str).map_err(anyhow::Error::from)?;
                     daemon_config.merge_toml(&daemon_toml);
                 }
                 daemon_config.node
