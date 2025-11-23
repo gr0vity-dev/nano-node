@@ -1,12 +1,18 @@
+//! NetworkSubsystem manages peer connections, message routing, and transport lifecycle.
+//! Production APIs expose connection info as DTOs; raw channels/queues/filters are test-only.
+
 use std::{
     net::SocketAddrV6,
     sync::{Arc, Mutex, RwLock},
 };
 
 use rsnano_messages::NetworkFilter;
-use rsnano_network::{Channel, Network, PeerConnector, TcpListener, TcpListenerExt};
+#[cfg(any(test, feature = "test_support"))]
+use rsnano_network::Channel;
+use rsnano_network::{ChannelDirection, ChannelId, Network, PeerConnector, TcpListener, TcpListenerExt};
 use rsnano_network_protocol::InboundMessageQueue;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
+use rsnano_types::NodeId;
 use tracing::warn;
 
 use crate::transport::keepalive::KeepalivePublisher;
@@ -50,6 +56,18 @@ pub struct NetworkSubsystem {
     steady_clock: Arc<SteadyClock>,
     max_inbound_connections: usize,
     workers: Arc<ThreadPool>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ChannelInfo {
+    pub channel_id: ChannelId,
+    pub endpoint: SocketAddrV6,
+    pub peering_endpoint: SocketAddrV6,
+    pub direction: ChannelDirection,
+    pub protocol_version: u8,
+    pub node_id: Option<NodeId>,
+    pub score: u64,
+    pub last_packet_ms: u64,
 }
 
 /// Test-only access to network internals.
@@ -122,8 +140,37 @@ impl NetworkSubsystem {
     }
 
     /// Sorted realtime channels for diagnostics/telemetry.
+    #[cfg(any(test, feature = "test_support"))] #[deprecated(note = "Use channel_infos() for production code")]
     pub fn sorted_channels(&self) -> Vec<Arc<Channel>> {
         self.network.read().unwrap().sorted_channels()
+    }
+
+    /// Returns DTOs describing realtime channels without exposing internals.
+    pub fn channel_infos(&self) -> Vec<ChannelInfo> {
+        let now = self.steady_clock.now();
+        self.network
+            .read()
+            .unwrap()
+            .sorted_channels()
+            .into_iter()
+            .map(|channel| {
+                let last_activity = channel.last_activity();
+                let last_packet_ms = now
+                    .millis()
+                    .saturating_sub(last_activity.millis())
+                    .max(0) as u64;
+                ChannelInfo {
+                    channel_id: channel.channel_id(),
+                    endpoint: channel.peer_addr(),
+                    peering_endpoint: channel.peering_addr_or_peer_addr(),
+                    direction: channel.direction(),
+                    protocol_version: channel.protocol_version(),
+                    node_id: channel.node_id(),
+                    score: 0,
+                    last_packet_ms,
+                }
+            })
+            .collect()
     }
 
     /// Current steady clock timestamp.
@@ -132,14 +179,12 @@ impl NetworkSubsystem {
     }
 
     /// Access to inbound queue for transport-level dispatchers.
-    #[cfg(any(test, feature = "test_support"))]
-    pub fn inbound_message_queue(&self) -> Arc<InboundMessageQueue> {
+    #[cfg(any(test, feature = "test_support"))] pub fn inbound_message_queue(&self) -> Arc<InboundMessageQueue> {
         self.inbound_message_queue.clone()
     }
 
     /// Lightweight reference to the network filter used by transport paths.
-    #[cfg(any(test, feature = "test_support"))]
-    pub fn network_filter(&self) -> Arc<NetworkFilter> {
+    #[cfg(any(test, feature = "test_support"))] pub fn network_filter(&self) -> Arc<NetworkFilter> {
         self.network_filter.clone()
     }
 

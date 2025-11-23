@@ -1,7 +1,10 @@
 use crate::message_collection::MessageCollection;
 use rsnano_messages::TelemetryData;
-use rsnano_network::{Channel, ChannelDirection, ChannelId};
-use rsnano_node::representatives::PeeredRepInfo;
+use rsnano_network::{ChannelDirection, ChannelId};
+use rsnano_node::{
+    representatives::PeeredRepInfo,
+    subsystems::network::ChannelInfo,
+};
 use rsnano_types::Amount;
 use std::{
     collections::{HashMap, HashSet},
@@ -46,7 +49,7 @@ impl Channels {
 
     pub(crate) fn update(
         &mut self,
-        channels: Vec<Arc<Channel>>,
+        channels: Vec<ChannelInfo>,
         telemetries: HashMap<SocketAddrV6, TelemetryData>,
         reps: Vec<PeeredRepInfo>,
         min_rep_weight: Amount,
@@ -56,16 +59,16 @@ impl Channels {
             let mut pending: HashSet<ChannelId> = self.channel_map.keys().cloned().collect();
 
             for info in channels {
-                if let Some(channel) = self.channel_map.get_mut(&info.channel_id()) {
+                if let Some(channel) = self.channel_map.get_mut(&info.channel_id) {
                     channel.telemetry = telemetries.get(&channel.remote_addr).cloned();
-                    pending.remove(&info.channel_id());
+                    pending.remove(&info.channel_id);
                 } else {
                     self.channel_map.insert(
-                        info.channel_id(),
+                        info.channel_id,
                         ChannelModel {
-                            channel_id: info.channel_id(),
-                            remote_addr: info.peer_addr(),
-                            direction: info.direction(),
+                            channel_id: info.channel_id,
+                            remote_addr: info.endpoint,
+                            direction: info.direction,
                             telemetry: None,
                             rep_weight: Amount::ZERO,
                             rep_state: RepState::NoRep,
@@ -155,14 +158,31 @@ impl Channels {
 mod tests {
     use super::*;
     use crate::message_collection::{MessageCollection, MessageFilter};
-    use std::{collections::HashMap, sync::RwLock};
+    use std::{
+        collections::HashMap,
+        net::{Ipv6Addr, SocketAddrV6},
+        sync::RwLock,
+    };
+
+    fn sample_channel(id: usize) -> ChannelInfo {
+        ChannelInfo {
+            channel_id: ChannelId::from(id),
+            endpoint: SocketAddrV6::new(Ipv6Addr::LOCALHOST, 1000 + id as u16, 0, 0),
+            peering_endpoint: SocketAddrV6::new(Ipv6Addr::LOCALHOST, 2000 + id as u16, 0, 0),
+            direction: ChannelDirection::Outbound,
+            protocol_version: 1,
+            node_id: None,
+            score: 0,
+            last_packet_ms: 0,
+        }
+    }
 
     #[test]
     fn when_channel_selected_should_set_message_filter() {
         let messages = Arc::new(RwLock::new(MessageCollection::default()));
         let mut channels = Channels::new(messages.clone());
         channels.update(
-            vec![Arc::new(Channel::new_test_instance())],
+            vec![sample_channel(1)],
             HashMap::new(),
             Vec::new(),
             Amount::ZERO,
@@ -180,7 +200,7 @@ mod tests {
         let messages = Arc::new(RwLock::new(MessageCollection::default()));
         let mut channels = Channels::new(messages.clone());
         channels.update(
-            vec![Arc::new(Channel::new_test_instance())],
+            vec![sample_channel(1)],
             HashMap::new(),
             Vec::new(),
             Amount::ZERO,

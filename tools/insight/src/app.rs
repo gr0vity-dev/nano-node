@@ -96,7 +96,7 @@ impl InsightApp {
 
         if let Some(node) = self.node_runner.node() {
             self.ledger_stats.update(&node);
-            let channels = node.network_subsystem().sorted_channels();
+            let channels = node.network_subsystem().channel_infos();
             let telemetries = node.telemetry_subsystem().all_telemetries();
             let reps_snapshot = node.consensus_subsystem().online_reps_snapshot();
             let peered_reps = reps_snapshot.peered_reps.clone();

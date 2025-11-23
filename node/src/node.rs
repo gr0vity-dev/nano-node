@@ -7,8 +7,6 @@ use std::{
     },
 };
 
-use tracing::info;
-
 use rsnano_ledger::BlockError;
 use rsnano_network::ChannelId;
 #[cfg(any(test, feature = "test_support"))]
