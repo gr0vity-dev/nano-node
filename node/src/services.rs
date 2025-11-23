@@ -1,3 +1,4 @@
+//! Service facades expose production-ready, behavior-focused APIs for wallets, ledger queries, telemetry, and bootstrap work. Raw handles are confined to test-only cfg gates.
 use std::sync::{Arc, Mutex};
 
 use bounded_vec_deque::BoundedVecDeque;
@@ -24,9 +25,9 @@ use std::net::SocketAddrV6;
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 
-use rsnano_types::{
-    Account, Amount, BlockHash, PrivateKey, PublicKey, RawKey, WalletId, WorkNonce, WorkRequest,
-};
+use rsnano_types::{Account, Amount, BlockHash, PublicKey, RawKey, WalletId, WorkNonce, WorkRequest};
+#[cfg(any(test, feature = "test_support"))]
+use rsnano_types::PrivateKey;
 use rsnano_wallet::{BlockPromise, MultiBlockPromise, Wallets, WalletsError};
 
 pub struct TickerServices {

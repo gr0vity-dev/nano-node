@@ -1,3 +1,4 @@
+//! TelemetrySubsystem manages telemetry collection and dissemination. Production APIs provide lifecycle and callback hooks; raw telemetry internals remain test-only.
 use std::{collections::HashMap, net::SocketAddrV6, sync::Arc, time::Duration};
 
 use crate::services::TelemetryServices;
@@ -40,11 +41,11 @@ pub struct TelemetryTestHandles {
 
 #[cfg(any(test, feature = "test_support"))]
 impl TelemetryTestHandles {
-    pub fn telemetry(&self) -> Arc<Telemetry> {
+    #[cfg(any(test, feature = "test_support"))] #[doc(hidden)] pub fn telemetry(&self) -> Arc<Telemetry> {
         self.telemetry.clone()
     }
 
-    pub fn tcp_listener(&self) -> Arc<TcpListener> {
+    #[cfg(any(test, feature = "test_support"))] #[doc(hidden)] pub fn tcp_listener(&self) -> Arc<TcpListener> {
         self.tcp_listener.clone()
     }
 }

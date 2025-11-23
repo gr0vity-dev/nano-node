@@ -1,3 +1,4 @@
+//! TickerSubsystem owns periodic task execution for node services. Production APIs control lifecycle; timing internals are test-only.
 use rsnano_utils::ticker::TickerPool;
 
 use crate::services::TickerServices;

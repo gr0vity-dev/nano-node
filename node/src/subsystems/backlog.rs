@@ -1,3 +1,4 @@
+//! BacklogSubsystem manages backlog scanning and notifications. Production APIs trigger scans; internal wiring remains encapsulated.
 use crate::BacklogServices;
 
 use super::lifecycle::Lifecycle;

@@ -1,3 +1,4 @@
+//! WalletSubsystem provides lifecycle integration for wallet services. Production APIs surface WalletServices; internal handles remain encapsulated.
 use crate::WalletServices;
 
 use super::lifecycle::Lifecycle;

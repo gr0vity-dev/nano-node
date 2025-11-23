@@ -56,7 +56,6 @@ pub struct Node {
     flags: NodeFlags,
     wallet_subsystem: WalletSubsystem,
     ledger_query_services: LedgerQueryServices,
-    bootstrap_work_services: BootstrapWorkServices,
     stats: Arc<Stats>,
     handles: ProductionHandles,
     network_subsystem: NetworkSubsystem,
@@ -73,6 +72,8 @@ pub struct Node {
     telemetry_subsystem: TelemetrySubsystem,
     #[cfg(feature = "ledger_snapshots")]
     ledger_snapshots: Arc<LedgerSnapshots>,
+    #[cfg_attr(not(any(test, feature = "test_support")), allow(dead_code))]
+    bootstrap_work_services: BootstrapWorkServices,
 }
 
 #[cfg(any(test, feature = "test_support"))]
@@ -193,6 +194,8 @@ impl Node {
         self.ledger_query_services.clone()
     }
 
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
     pub fn bootstrap_work_services(&self) -> BootstrapWorkServices {
         self.bootstrap_work_services.clone()
     }
@@ -471,6 +474,8 @@ impl Node {
         self.node_id.public_key().into()
     }
 
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
     pub fn work_generate_dev(&self, root: impl Into<Root>) -> WorkNonce {
         let difficulty = self.network_params.work.threshold_base();
         self.bootstrap_work_services()

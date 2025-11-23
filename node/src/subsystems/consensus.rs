@@ -1,3 +1,4 @@
+//! ConsensusSubsystem coordinates election scheduling, vote processing, and confirmation. Production APIs expose lifecycle and aggregate info; raw internals are available only via test handles.
 use std::{
     sync::{Arc, Mutex, RwLock},
     time::Duration,
@@ -274,7 +275,7 @@ impl ConsensusSubsystem {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test_support"))] #[doc(hidden)]
     pub fn aec_ticker(&self) -> Arc<TimerThread<AecTicker>> {
         self.aec_ticker.clone()
     }
