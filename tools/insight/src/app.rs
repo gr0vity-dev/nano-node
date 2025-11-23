@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     sync::{Arc, RwLock},
     time::Duration,
 };
@@ -97,7 +98,12 @@ impl InsightApp {
         if let Some(node) = self.node_runner.node() {
             self.ledger_stats.update(&node);
             let channels = node.network_subsystem().channel_infos();
-            let telemetries = node.telemetry_subsystem().all_telemetries();
+            let telemetries = node
+                .telemetry_subsystem()
+                .all_telemetry()
+                .into_iter()
+                .map(|snapshot| (snapshot.endpoint, snapshot.data))
+                .collect::<HashMap<_, _>>();
             let reps_snapshot = node.consensus_subsystem().online_reps_snapshot();
             let peered_reps = reps_snapshot.peered_reps.clone();
             let min_rep_weight = reps_snapshot.minimum_principal_weight;

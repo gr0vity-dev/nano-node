@@ -12,7 +12,7 @@ use super::lifecycle::Lifecycle;
 /// `TelemetrySubsystem`. This is purely for composition; do not store it on
 /// long-lived structs.
 #[derive(Clone)]
-pub struct TelemetryWiring {
+pub(crate) struct TelemetryWiring {
     telemetry: Arc<Telemetry>,
     tcp_listener: Arc<TcpListener>,
 }
@@ -30,28 +30,6 @@ impl TelemetryWiring {
 pub struct TelemetrySubsystem {
     telemetry: Arc<Telemetry>,
     tcp_listener: Arc<TcpListener>,
-}
-
-#[cfg(any(test, feature = "test_support"))]
-#[derive(Clone)]
-pub struct TelemetryTestHandles {
-    telemetry: Arc<Telemetry>,
-    tcp_listener: Arc<TcpListener>,
-}
-
-#[cfg(any(test, feature = "test_support"))]
-impl TelemetryTestHandles {
-    #[cfg(any(test, feature = "test_support"))]
-    #[doc(hidden)]
-    pub fn telemetry(&self) -> Arc<Telemetry> {
-        self.telemetry.clone()
-    }
-
-    #[cfg(any(test, feature = "test_support"))]
-    #[doc(hidden)]
-    pub fn tcp_listener(&self) -> Arc<TcpListener> {
-        self.tcp_listener.clone()
-    }
 }
 
 impl TelemetrySubsystem {
@@ -95,20 +73,6 @@ impl TelemetrySubsystem {
 
     pub fn telemetry_services(&self) -> TelemetryServices {
         TelemetryServices::new(self.telemetry.clone(), self.tcp_listener.clone())
-    }
-
-    /// **Legacy test access - technical debt.**
-    ///
-    /// This method exposes internal subsystem components for testing.
-    /// It is marked hidden and should be avoided in new tests.
-    /// Phase 5 will introduce behavioral test helpers to replace this pattern.
-    #[cfg(any(test, feature = "test_support"))]
-    #[doc(hidden)]
-    pub fn test_handles(&self) -> TelemetryTestHandles {
-        TelemetryTestHandles {
-            telemetry: self.telemetry.clone(),
-            tcp_listener: self.tcp_listener.clone(),
-        }
     }
 }
 

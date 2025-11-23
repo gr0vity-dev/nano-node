@@ -11,11 +11,7 @@ fn invalid_signature() {
     let mut system = System::new();
     let node = system.make_node();
 
-    let mut telemetry = node
-        .telemetry_subsystem()
-        .test_handles()
-        .telemetry()
-        .local_telemetry();
+    let mut telemetry = node.telemetry_subsystem().local_telemetry();
     telemetry.block_count = 9999; // Change data so signature is no longer valid
     let node_id = telemetry.node_id;
     let message = Message::TelemetryAck(TelemetryAck(Some(telemetry)));
@@ -62,20 +58,26 @@ fn basic() {
         .unwrap()
         .clone();
 
-    let telemetry = node_client.telemetry_subsystem().test_handles().telemetry();
+    let telemetry = node_client.telemetry_subsystem();
 
-    assert_timely2(|| telemetry.get_telemetry(&channel.peer_addr()).is_some());
-    let telemetry_data = telemetry.get_telemetry(&channel.peer_addr()).unwrap();
+    assert_timely2(|| telemetry.telemetry_for(channel.peer_addr()).is_some());
+    let telemetry_data = telemetry
+        .telemetry_for(channel.peer_addr())
+        .expect("telemetry present");
     assert_eq!(node_server.get_node_id(), telemetry_data.node_id);
 
     // Check the metrics are correct
     // TODO
 
     // Call again straight away
-    let telemetry_data2 = telemetry.get_telemetry(&channel.peer_addr()).unwrap();
+    let telemetry_data2 = telemetry
+        .telemetry_for(channel.peer_addr())
+        .expect("telemetry present");
 
     // Call again straight away
-    let telemetry_data3 = telemetry.get_telemetry(&channel.peer_addr()).unwrap();
+    let telemetry_data3 = telemetry
+        .telemetry_for(channel.peer_addr())
+        .expect("telemetry present");
 
     // we expect at least one consecutive repeat of telemetry
     assert!(telemetry_data == telemetry_data2 || telemetry_data2 == telemetry_data3);
@@ -83,7 +85,9 @@ fn basic() {
     // Wait the cache period and check cache is not used
     sleep(Duration::from_secs(3));
 
-    let telemetry_data4 = telemetry.get_telemetry(&channel.peer_addr()).unwrap();
+    let telemetry_data4 = telemetry
+        .telemetry_for(channel.peer_addr())
+        .expect("telemetry present");
 
     assert_ne!(telemetry_data, telemetry_data4);
 }
@@ -106,16 +110,16 @@ fn disconnected() {
         .clone();
 
     // Ensure telemetry is available before disconnecting
-    let telemetry = node_client.telemetry_subsystem().test_handles().telemetry();
+    let telemetry = node_client.telemetry_subsystem();
 
     assert_timely(Duration::from_secs(5), || {
-        telemetry.get_telemetry(&channel.peer_addr()).is_some()
+        telemetry.telemetry_for(channel.peer_addr()).is_some()
     });
     system.stop_node(node_server);
 
     // Ensure telemetry from disconnected peer is removed
     assert_timely(Duration::from_secs(5), || {
-        telemetry.get_telemetry(&channel.peer_addr()).is_none()
+        telemetry.telemetry_for(channel.peer_addr()).is_none()
     });
 }
 
@@ -124,11 +128,7 @@ fn mismatched_node_id() {
     let mut system = System::new();
     let node = system.make_node();
 
-    let telemetry = node
-        .telemetry_subsystem()
-        .test_handles()
-        .telemetry()
-        .local_telemetry();
+    let telemetry = node.telemetry_subsystem().local_telemetry();
 
     let message = Message::TelemetryAck(TelemetryAck(Some(telemetry)));
     let channel = make_fake_channel(&node.network_subsystem().test_handles());
@@ -156,11 +156,7 @@ fn mismatched_node_id() {
 fn no_peers() {
     let mut system = System::new();
     let node = system.make_node();
-    let responses = node
-        .telemetry_subsystem()
-        .test_handles()
-        .telemetry()
-        .get_all_telemetries();
+    let responses = node.telemetry_subsystem().all_telemetry();
     assert_eq!(responses.len(), 0);
 }
 
@@ -169,13 +165,7 @@ fn invalid_endpoint() {
     let mut system = System::new();
     let node = system.make_node();
     let endpoint: SocketAddrV6 = "[::ffff:240.0.0.0]:12345".parse().unwrap();
-    assert!(
-        node.telemetry_subsystem()
-            .test_handles()
-            .telemetry()
-            .get_telemetry(&endpoint)
-            .is_none()
-    );
+    assert!(node.telemetry_subsystem().telemetry_for(endpoint).is_none());
 }
 
 #[test]

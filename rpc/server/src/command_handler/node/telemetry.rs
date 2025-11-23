@@ -15,7 +15,7 @@ impl RpcCommandHandler {
             } else {
                 let telemetry = self
                     .telemetry_services
-                    .telemetry_for(&endpoint)
+                    .telemetry_for(endpoint)
                     .ok_or_else(|| anyhow!("Peer not found"))?;
 
                 Ok(TelemetryResponse::Single(telemetry.into()))
@@ -25,12 +25,12 @@ impl RpcCommandHandler {
             // setting "raw" to true returns metrics from all nodes requested.
             let output_raw = args.raw.unwrap_or_default().inner();
             if output_raw {
-                let all_telemetries = self.telemetry_services.all_telemetries();
+                let all_telemetries = self.telemetry_services.all_telemetry();
                 let mut responses = Vec::new();
-                for (addr, data) in all_telemetries {
-                    let mut metric = TelemetryDto::from(data);
-                    metric.address = Some(*addr.ip());
-                    metric.port = Some(addr.port().into());
+                for snapshot in all_telemetries {
+                    let mut metric = TelemetryDto::from(snapshot.data);
+                    metric.address = Some(*snapshot.endpoint.ip());
+                    metric.port = Some(snapshot.endpoint.port().into());
                     responses.push(metric);
                 }
                 Ok(TelemetryResponse::Raw(RawTelemetryResponse {
