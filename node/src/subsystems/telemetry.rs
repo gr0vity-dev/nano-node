@@ -1,8 +1,8 @@
 //! TelemetrySubsystem manages telemetry collection and dissemination. Production APIs provide lifecycle and callback hooks; raw telemetry internals remain test-only.
-use std::{collections::HashMap, net::SocketAddrV6, sync::Arc, time::Duration};
+use std::{net::SocketAddrV6, sync::Arc, time::Duration};
 
 use crate::services::TelemetryServices;
-use crate::telemetry::{TelementryExt, Telemetry};
+use crate::telemetry::{TelementryExt, Telemetry, TelemetrySnapshot};
 use rsnano_messages::TelemetryData;
 use rsnano_network::TcpListener;
 
@@ -66,19 +66,15 @@ impl TelemetrySubsystem {
         }
     }
 
-    pub fn local_snapshot(&self) -> TelemetryData {
-        self.telemetry.local_telemetry()
-    }
-
     pub fn local_telemetry(&self) -> TelemetryData {
         self.telemetry.local_telemetry()
     }
 
-    pub fn telemetry_for(&self, endpoint: &SocketAddrV6) -> Option<TelemetryData> {
-        self.telemetry.get_telemetry(endpoint)
+    pub fn telemetry_for(&self, endpoint: SocketAddrV6) -> Option<TelemetryData> {
+        self.telemetry.get_telemetry(&endpoint)
     }
 
-    pub fn all_telemetries(&self) -> HashMap<SocketAddrV6, TelemetryData> {
+    pub fn all_telemetry(&self) -> Vec<TelemetrySnapshot> {
         self.telemetry.get_all_telemetries()
     }
 

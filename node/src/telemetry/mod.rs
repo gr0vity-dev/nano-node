@@ -25,6 +25,12 @@ use crate::{
     transport::MessageSender,
 };
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct TelemetrySnapshot {
+    pub endpoint: SocketAddrV6,
+    pub data: TelemetryData,
+}
+
 /**
  * This class periodically broadcasts and requests telemetry from peers.
  * Those intervals are configurable via `telemetry_request_interval` & `telemetry_broadcast_interval` network constants
@@ -286,15 +292,17 @@ impl Telemetry {
         None
     }
 
-    pub fn get_all_telemetries(&self) -> HashMap<SocketAddrV6, TelemetryData> {
+    pub fn get_all_telemetries(&self) -> Vec<TelemetrySnapshot> {
         let guard = self.mutex.lock().unwrap();
-        let mut result = HashMap::new();
-        for entry in guard.telemetries.iter() {
-            if !self.has_timed_out(entry) {
-                result.insert(entry.endpoint, entry.data.clone());
-            }
-        }
-        result
+        guard
+            .telemetries
+            .iter()
+            .filter(|entry| !self.has_timed_out(entry))
+            .map(|entry| TelemetrySnapshot {
+                endpoint: entry.endpoint,
+                data: entry.data.clone(),
+            })
+            .collect()
     }
 
     pub fn local_telemetry(&self) -> TelemetryData {

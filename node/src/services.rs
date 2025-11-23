@@ -14,7 +14,7 @@ use crate::{
     cementation::ConfirmingSet,
     consensus::election::ConfirmedElection,
     handles::LedgerQueryHandle,
-    telemetry::{TelementryExt, Telemetry},
+    telemetry::{TelementryExt, Telemetry, TelemetrySnapshot},
     wallets::WalletRepresentatives,
     work::WorkFactory,
 };
@@ -458,6 +458,26 @@ impl TelemetryServices {
 
     pub fn stop(&self) {
         self.telemetry.stop();
+    }
+
+    pub fn local_telemetry(&self) -> TelemetryData {
+        self.telemetry.local_telemetry()
+    }
+
+    pub fn telemetry_for(&self, endpoint: SocketAddrV6) -> Option<TelemetryData> {
+        self.telemetry.get_telemetry(&endpoint)
+    }
+
+    pub fn all_telemetry(&self) -> Vec<TelemetrySnapshot> {
+        self.telemetry.get_all_telemetries()
+    }
+
+    pub fn listener_address(&self) -> SocketAddrV6 {
+        self.tcp_listener.local_address()
+    }
+
+    pub fn uptime(&self) -> Duration {
+        self.telemetry.startup_time.elapsed()
     }
 
     pub fn on_telemetry_processed(
