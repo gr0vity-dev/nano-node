@@ -76,6 +76,7 @@ use crate::{
     node_monitor::NodeMonitor,
     recently_cemented_inserter::RecentlyCementedInserter,
     representatives::{OnlineReps, OnlineRepsCleanup, OnlineWeightCalculation, RepCrawler},
+    subsystems::{NetworkSubsystem, NetworkWiring},
     telemetry::Telemetry,
     tokio_runner::TokioRunner,
     transport::{
@@ -209,6 +210,7 @@ pub(crate) struct ComposedNode {
     pub(crate) network_params: NetworkParams,
     pub(crate) workers: Arc<ThreadPool>,
     pub(crate) flags: NodeFlags,
+    pub(crate) network_subsystem: NetworkSubsystem,
     // Wiring fields
     pub(crate) network: Arc<RwLock<Network>>,
     pub(crate) tcp_listener: Arc<TcpListener>,
@@ -1036,6 +1038,8 @@ pub(crate) fn compose_root(
         &flags,
         &mut ticker_pool,
     );
+    let message_sender_arc = Arc::new(Mutex::new(message_sender.clone()));
+    let message_flooder_arc = Arc::new(Mutex::new(message_flooder.clone()));
 
     let ConsensusBits {
         vote_processor_queue,
@@ -1378,7 +1382,7 @@ pub(crate) fn compose_root(
 
     let keepalive_factory_w: std::sync::Weak<KeepaliveMessageFactory> =
         Arc::downgrade(&keepalive_factory);
-    let message_publisher_l = Arc::new(Mutex::new(message_sender.clone()));
+    let message_publisher_l = message_sender_arc.clone();
     let message_publisher_w = Arc::downgrade(&message_publisher_l);
     network
         .write()
@@ -1442,8 +1446,25 @@ pub(crate) fn compose_root(
     let is_dev_network = network_params.network.is_dev_network();
     let time_factory = SystemTimeFactory::default();
 
+    let network_subsystem = {
+        let wiring = NetworkWiring {
+            network: network.clone(),
+            tcp_listener: tcp_listener.clone(),
+            peer_connector: peer_connector.clone(),
+            network_threads: network_threads.clone(),
+            message_processor: message_processor.clone(),
+            message_sender: message_sender_arc.clone(),
+            message_flooder: message_flooder_arc.clone(),
+            keepalive_publisher: keepalive_publisher.clone(),
+            inbound_message_queue: inbound_message_queue.clone(),
+            network_filter: network_filter.clone(),
+            steady_clock: steady_clock.clone(),
+        };
+        NetworkSubsystem::new(wiring, workers.clone(), config.tcp.max_inbound_connections)
+    };
+
     let peer_cache_updater = PeerCacheUpdater::new(
-        network.clone(),
+        network_subsystem.clone(),
         ledger.clone(),
         time_factory,
         stats.clone(),
@@ -1543,8 +1564,6 @@ pub(crate) fn compose_root(
     );
 
     let ticker_services = TickerServices::new(ticker_pool);
-
-    let message_flooder = Arc::new(Mutex::new(message_flooder.clone()));
 
     let recently_cemented_inserter = RecentlyCementedInserter {
         recently_cemented: recently_cemented.clone(),
@@ -1722,13 +1741,14 @@ pub(crate) fn compose_root(
         network_params,
         workers,
         flags,
+        network_subsystem: network_subsystem.clone(),
         network,
         tcp_listener,
         peer_connector,
         network_threads,
         message_processor,
         message_sender: message_publisher_l,
-        message_flooder,
+        message_flooder: message_flooder_arc.clone(),
         keepalive_publisher,
         inbound_message_queue,
         network_filter,

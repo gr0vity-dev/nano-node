@@ -1,15 +1,11 @@
-use std::{
-    net::SocketAddrV6,
-    sync::{Arc, RwLock},
-    time::Duration,
-};
+use std::{net::SocketAddrV6, sync::Arc, time::Duration};
 
 use tracing::debug;
 
 #[cfg(test)]
 use crate::ledger_factory::default_ledger_store_factory;
+use crate::subsystems::NetworkSubsystem;
 use rsnano_ledger::{Ledger, LedgerWriteTxn};
-use rsnano_network::{Channel, Network};
 use rsnano_nullable_clock::SystemTimeFactory;
 use rsnano_utils::{
     CancellationToken,
@@ -20,7 +16,7 @@ use rsnano_utils::{
 /// Writes a snapshot of the current peers to the database,
 /// so that we can reconnect to them when the node is restarted
 pub struct PeerCacheUpdater {
-    network: Arc<RwLock<Network>>,
+    network: NetworkSubsystem,
     ledger: Arc<Ledger>,
     time_factory: SystemTimeFactory,
     stats: Arc<Stats>,
@@ -29,7 +25,7 @@ pub struct PeerCacheUpdater {
 
 impl PeerCacheUpdater {
     pub fn new(
-        network: Arc<RwLock<Network>>,
+        network: NetworkSubsystem,
         ledger: Arc<Ledger>,
         time_factory: SystemTimeFactory,
         stats: Arc<Stats>,
@@ -45,22 +41,19 @@ impl PeerCacheUpdater {
     }
 
     fn save_peers(&self, tx: &mut dyn LedgerWriteTxn) {
-        let live_peers = self.network.read().unwrap().sorted_channels();
+        let live_peers = self.network.channel_infos();
         for peer in &live_peers {
-            self.save_peer(tx, peer);
+            self.save_peer(tx, &peer.peering_endpoint);
         }
     }
 
-    fn save_peer(&self, tx: &mut dyn LedgerWriteTxn, channel: &Channel) {
-        let Some(endpoint) = channel.peering_addr() else {
-            return;
-        };
-        let exists = self.ledger.store.peer().exists(tx, endpoint);
+    fn save_peer(&self, tx: &mut dyn LedgerWriteTxn, endpoint: &SocketAddrV6) {
+        let exists = self.ledger.store.peer().exists(tx, *endpoint);
 
         self.ledger
             .store
             .peer()
-            .put(tx, endpoint, self.time_factory.now());
+            .put(tx, *endpoint, self.time_factory.now());
 
         if !exists {
             self.stats.inc(StatType::PeerHistory, DetailType::Inserted);
@@ -111,11 +104,8 @@ mod tests {
 
     use tracing_test::traced_test;
 
-    use rsnano_network::{
-        ChannelDirection, ChannelMode, NULL_ENDPOINT, TEST_ENDPOINT_1, TEST_ENDPOINT_2,
-        TEST_ENDPOINT_3,
-    };
-    use rsnano_nullable_clock::Timestamp;
+    use crate::Node;
+    use rsnano_network::{TEST_ENDPOINT_1, TEST_ENDPOINT_2, TEST_ENDPOINT_3};
     use rsnano_utils::stats::Direction;
 
     use super::*;
@@ -290,17 +280,10 @@ mod tests {
         Vec<SocketAddrV6>,
         Arc<Stats>,
     ) {
-        let mut network = Network::new_test_instance();
-        for endpoint in open_channels {
-            let (channel, _) = network
-                .add(
-                    NULL_ENDPOINT,
-                    endpoint,
-                    ChannelDirection::Outbound,
-                    Timestamp::new_test_instance(),
-                )
-                .unwrap();
-            channel.set_mode(ChannelMode::Realtime);
+        let node = Node::new_null();
+        let network = node.network_subsystem();
+        for endpoint in open_channels.iter().copied() {
+            network.connect_test_peer(endpoint, None);
         }
         let ledger = Arc::new(
             Ledger::new_null_builder(default_ledger_store_factory())
@@ -312,13 +295,8 @@ mod tests {
         let put_tracker = ledger.store.peer().track_puts();
         let delete_tracker = ledger.store.peer().track_deletions();
         let erase_cutoff = Duration::from_secs(60 * 60);
-        let mut peer_history = PeerCacheUpdater::new(
-            Arc::new(RwLock::new(network)),
-            ledger,
-            time_factory,
-            Arc::clone(&stats),
-            erase_cutoff,
-        );
+        let mut peer_history =
+            PeerCacheUpdater::new(network, ledger, time_factory, stats.clone(), erase_cutoff);
 
         peer_history.tick(&CancellationToken::new());
 

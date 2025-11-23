@@ -236,12 +236,12 @@ impl NetworkSubsystem {
             .add(local, endpoint, ChannelDirection::Outbound, now)
             .expect("test peer connection should succeed");
         channel.set_mode(ChannelMode::Realtime);
-        if let Some(id) = node_id {
-            self.network
-                .write()
-                .unwrap()
-                .set_node_id(channel.channel_id(), id);
-        }
+        #[cfg(any(test, feature = "test_support"))]
+        channel.reopen_for_tests();
+        self.network
+            .write()
+            .unwrap()
+            .upgrade_to_realtime_connection(channel.channel_id(), node_id.unwrap_or_default());
         channel.channel_id()
     }
 

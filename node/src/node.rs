@@ -35,8 +35,8 @@ use crate::{
     node_id_key_file::NodeIdKeyFile,
     subsystems::{
         BacklogSubsystem, BootstrapSubsystem, BootstrapWiring, ConsensusContext,
-        ConsensusSubsystem, ConsensusWiring, Lifecycle, NetworkSubsystem, NetworkWiring,
-        TelemetrySubsystem, TelemetryWiring, TickerSubsystem, WalletSubsystem,
+        ConsensusSubsystem, ConsensusWiring, Lifecycle, NetworkSubsystem, TelemetrySubsystem,
+        TelemetryWiring, TickerSubsystem, WalletSubsystem,
     },
     tokio_runner::TokioRunner,
 };
@@ -295,23 +295,7 @@ impl Node {
     }
 
     pub(crate) fn new(composed: ComposedNode) -> anyhow::Result<Self> {
-        let max_inbound_connections = composed.config.tcp.max_inbound_connections;
-        let network_subsystem = {
-            let wiring = NetworkWiring {
-                network: composed.network.clone(),
-                tcp_listener: composed.tcp_listener.clone(),
-                peer_connector: composed.peer_connector.clone(),
-                network_threads: composed.network_threads.clone(),
-                message_processor: composed.message_processor.clone(),
-                message_sender: composed.message_sender.clone(),
-                message_flooder: composed.message_flooder.clone(),
-                keepalive_publisher: composed.keepalive_publisher.clone(),
-                inbound_message_queue: composed.inbound_message_queue.clone(),
-                network_filter: composed.network_filter.clone(),
-                steady_clock: composed.steady_clock.clone(),
-            };
-            NetworkSubsystem::new(wiring, composed.workers.clone(), max_inbound_connections)
-        };
+        let network_subsystem = composed.network_subsystem.clone();
 
         let consensus_subsystem = {
             let wiring = ConsensusWiring {

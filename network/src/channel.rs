@@ -230,6 +230,10 @@ impl Channel {
         self.socket_type.store(mode as u8, Ordering::SeqCst);
     }
 
+    pub fn reopen_for_tests(&self) {
+        self.closed.store(false, Ordering::Relaxed);
+    }
+
     pub fn last_bootstrap_attempt(&self) -> Timestamp {
         Timestamp::new(self.last_bootstrap_attempt.load(Ordering::Relaxed) as i128 * 1_000_000)
     }
