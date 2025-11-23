@@ -13,9 +13,23 @@ use rsnano_types::{WorkRequest, WorkNonce, Root, Peer};
 /// long-lived structs.
 #[derive(Clone)]
 pub struct BootstrapWiring {
-    pub bootstrapper: Arc<Bootstrapper>,
-    pub bootstrap_server: Arc<BootstrapServer>,
-    pub work_factory: Arc<WorkFactory>,
+    bootstrapper: Arc<Bootstrapper>,
+    bootstrap_server: Arc<BootstrapServer>,
+    work_factory: Arc<WorkFactory>,
+}
+
+impl BootstrapWiring {
+    pub(crate) fn new(
+        bootstrapper: Arc<Bootstrapper>,
+        bootstrap_server: Arc<BootstrapServer>,
+        work_factory: Arc<WorkFactory>,
+    ) -> Self {
+        Self {
+            bootstrapper,
+            bootstrap_server,
+            work_factory,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -26,11 +40,27 @@ pub struct BootstrapSubsystem {
     enable_responder: bool,
 }
 
+#[cfg(any(test, feature = "test_support"))]
 #[derive(Clone)]
 pub struct BootstrapTestHandles {
-    pub bootstrapper: Arc<Bootstrapper>,
-    pub bootstrap_server: Arc<BootstrapServer>,
-    pub work_factory: Arc<WorkFactory>,
+    bootstrapper: Arc<Bootstrapper>,
+    bootstrap_server: Arc<BootstrapServer>,
+    work_factory: Arc<WorkFactory>,
+}
+
+#[cfg(any(test, feature = "test_support"))]
+impl BootstrapTestHandles {
+    pub fn bootstrapper(&self) -> Arc<Bootstrapper> {
+        self.bootstrapper.clone()
+    }
+
+    pub fn bootstrap_server(&self) -> Arc<BootstrapServer> {
+        self.bootstrap_server.clone()
+    }
+
+    pub fn work_factory(&self) -> Arc<WorkFactory> {
+        self.work_factory.clone()
+    }
 }
 
 impl BootstrapSubsystem {
@@ -91,6 +121,7 @@ impl BootstrapSubsystem {
     /// This method exposes internal subsystem components for testing.
     /// It is marked hidden and should be avoided in new tests.
     /// Phase 5 will introduce behavioral test helpers to replace this pattern.
+    #[cfg(any(test, feature = "test_support"))]
     #[doc(hidden)]
     pub fn test_handles(&self) -> BootstrapTestHandles {
         BootstrapTestHandles {

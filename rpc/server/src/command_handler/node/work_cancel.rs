@@ -29,7 +29,7 @@ mod tests {
         let cancel_tracker = node
             .bootstrap_subsystem()
             .test_handles()
-            .work_factory
+            .work_factory()
             .track_cancellations();
         let root = Root::from(42);
 

@@ -12,8 +12,17 @@ use super::lifecycle::Lifecycle;
 /// long-lived structs.
 #[derive(Clone)]
 pub struct TelemetryWiring {
-    pub telemetry: Arc<Telemetry>,
-    pub tcp_listener: Arc<TcpListener>,
+    telemetry: Arc<Telemetry>,
+    tcp_listener: Arc<TcpListener>,
+}
+
+impl TelemetryWiring {
+    pub(crate) fn new(telemetry: Arc<Telemetry>, tcp_listener: Arc<TcpListener>) -> Self {
+        Self {
+            telemetry,
+            tcp_listener,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -22,10 +31,22 @@ pub struct TelemetrySubsystem {
     tcp_listener: Arc<TcpListener>,
 }
 
+#[cfg(any(test, feature = "test_support"))]
 #[derive(Clone)]
 pub struct TelemetryTestHandles {
-    pub telemetry: Arc<Telemetry>,
-    pub tcp_listener: Arc<TcpListener>,
+    telemetry: Arc<Telemetry>,
+    tcp_listener: Arc<TcpListener>,
+}
+
+#[cfg(any(test, feature = "test_support"))]
+impl TelemetryTestHandles {
+    pub fn telemetry(&self) -> Arc<Telemetry> {
+        self.telemetry.clone()
+    }
+
+    pub fn tcp_listener(&self) -> Arc<TcpListener> {
+        self.tcp_listener.clone()
+    }
 }
 
 impl TelemetrySubsystem {
@@ -77,6 +98,7 @@ impl TelemetrySubsystem {
     /// This method exposes internal subsystem components for testing.
     /// It is marked hidden and should be avoided in new tests.
     /// Phase 5 will introduce behavioral test helpers to replace this pattern.
+    #[cfg(any(test, feature = "test_support"))]
     #[doc(hidden)]
     pub fn test_handles(&self) -> TelemetryTestHandles {
         TelemetryTestHandles {

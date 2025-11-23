@@ -11,8 +11,11 @@ fn invalid_signature() {
     let mut system = System::new();
     let node = system.make_node();
 
-    let telemetry_handles = node.telemetry_subsystem().test_handles();
-    let mut telemetry = telemetry_handles.telemetry.local_telemetry();
+    let mut telemetry = node
+        .telemetry_subsystem()
+        .test_handles()
+        .telemetry()
+        .local_telemetry();
     telemetry.block_count = 9999; // Change data so signature is no longer valid
     let node_id = telemetry.node_id;
     let message = Message::TelemetryAck(TelemetryAck(Some(telemetry)));
@@ -59,40 +62,23 @@ fn basic() {
         .unwrap()
         .clone();
 
-    assert_timely2(|| {
-        node_client
-            .telemetry_subsystem()
-            .test_handles()
-            .telemetry
-            .get_telemetry(&channel.peer_addr())
-            .is_some()
-    });
-    let telemetry_data = node_client
+    let telemetry = node_client
         .telemetry_subsystem()
         .test_handles()
-        .telemetry
-        .get_telemetry(&channel.peer_addr())
-        .unwrap();
+        .telemetry();
+
+    assert_timely2(|| telemetry.get_telemetry(&channel.peer_addr()).is_some());
+    let telemetry_data = telemetry.get_telemetry(&channel.peer_addr()).unwrap();
     assert_eq!(node_server.get_node_id(), telemetry_data.node_id);
 
     // Check the metrics are correct
     // TODO
 
     // Call again straight away
-    let telemetry_data2 = node_client
-        .telemetry_subsystem()
-        .test_handles()
-        .telemetry
-        .get_telemetry(&channel.peer_addr())
-        .unwrap();
+    let telemetry_data2 = telemetry.get_telemetry(&channel.peer_addr()).unwrap();
 
     // Call again straight away
-    let telemetry_data3 = node_client
-        .telemetry_subsystem()
-        .test_handles()
-        .telemetry
-        .get_telemetry(&channel.peer_addr())
-        .unwrap();
+    let telemetry_data3 = telemetry.get_telemetry(&channel.peer_addr()).unwrap();
 
     // we expect at least one consecutive repeat of telemetry
     assert!(telemetry_data == telemetry_data2 || telemetry_data2 == telemetry_data3);
@@ -100,12 +86,7 @@ fn basic() {
     // Wait the cache period and check cache is not used
     sleep(Duration::from_secs(3));
 
-    let telemetry_data4 = node_client
-        .telemetry_subsystem()
-        .test_handles()
-        .telemetry
-        .get_telemetry(&channel.peer_addr())
-        .unwrap();
+    let telemetry_data4 = telemetry.get_telemetry(&channel.peer_addr()).unwrap();
 
     assert_ne!(telemetry_data, telemetry_data4);
 }
@@ -128,24 +109,19 @@ fn disconnected() {
         .clone();
 
     // Ensure telemetry is available before disconnecting
+    let telemetry = node_client
+        .telemetry_subsystem()
+        .test_handles()
+        .telemetry();
+
     assert_timely(Duration::from_secs(5), || {
-        node_client
-            .telemetry_subsystem()
-            .test_handles()
-            .telemetry
-            .get_telemetry(&channel.peer_addr())
-            .is_some()
+        telemetry.get_telemetry(&channel.peer_addr()).is_some()
     });
     system.stop_node(node_server);
 
     // Ensure telemetry from disconnected peer is removed
     assert_timely(Duration::from_secs(5), || {
-        node_client
-            .telemetry_subsystem()
-            .test_handles()
-            .telemetry
-            .get_telemetry(&channel.peer_addr())
-            .is_none()
+        telemetry.get_telemetry(&channel.peer_addr()).is_none()
     });
 }
 
@@ -157,7 +133,7 @@ fn mismatched_node_id() {
     let telemetry = node
         .telemetry_subsystem()
         .test_handles()
-        .telemetry
+        .telemetry()
         .local_telemetry();
 
     let message = Message::TelemetryAck(TelemetryAck(Some(telemetry)));
@@ -189,7 +165,7 @@ fn no_peers() {
     let responses = node
         .telemetry_subsystem()
         .test_handles()
-        .telemetry
+        .telemetry()
         .get_all_telemetries();
     assert_eq!(responses.len(), 0);
 }
@@ -199,13 +175,12 @@ fn invalid_endpoint() {
     let mut system = System::new();
     let node = system.make_node();
     let endpoint: SocketAddrV6 = "[::ffff:240.0.0.0]:12345".parse().unwrap();
-    assert!(
-        node.telemetry_subsystem()
-            .test_handles()
-            .telemetry
-            .get_telemetry(&endpoint)
-            .is_none()
-    );
+    assert!(node
+        .telemetry_subsystem()
+        .test_handles()
+        .telemetry()
+        .get_telemetry(&endpoint)
+        .is_none());
 }
 
 #[test]

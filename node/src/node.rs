@@ -325,17 +325,17 @@ impl Node {
             };
             ConsensusSubsystem::new(wiring, context)
         };
-        let bootstrap_wiring = BootstrapWiring {
-            bootstrapper: composed.bootstrapper.clone(),
-            bootstrap_server: composed.bootstrap_server.clone(),
-            work_factory: composed.work_factory.clone(),
-        };
+        let bootstrap_wiring = BootstrapWiring::new(
+            composed.bootstrapper.clone(),
+            composed.bootstrap_server.clone(),
+            composed.work_factory.clone(),
+        );
         let bootstrap_subsystem =
             BootstrapSubsystem::new(bootstrap_wiring, composed.config.enable_bootstrap_responder);
-        let telemetry_wiring = TelemetryWiring {
-            telemetry: composed.telemetry.clone(),
-            tcp_listener: composed.tcp_listener.clone(),
-        };
+        let telemetry_wiring = TelemetryWiring::new(
+            composed.telemetry.clone(),
+            composed.tcp_listener.clone(),
+        );
         let telemetry_subsystem = TelemetrySubsystem::new(telemetry_wiring);
         let ticker_subsystem = TickerSubsystem::new(composed.ticker_services);
         let handles = ProductionHandles::new(composed.ledger.clone());
