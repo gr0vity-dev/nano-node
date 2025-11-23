@@ -2,7 +2,9 @@
 use std::time::Duration;
 
 use rsnano_nullable_clock::Timestamp;
-use rsnano_utils::ticker::{Tickable, TickerPool};
+#[cfg(any(test, feature = "test_support"))]
+use rsnano_utils::ticker::TickerPool;
+use rsnano_utils::ticker::{Tickable, TickerScheduleData};
 
 use crate::services::TickerServices;
 
@@ -15,10 +17,21 @@ pub struct TickerSchedule {
     pub last_started: Option<Timestamp>,
 }
 
+impl From<TickerScheduleData> for TickerSchedule {
+    fn from(data: TickerScheduleData) -> Self {
+        Self {
+            type_name: data.type_name,
+            interval: data.interval,
+            last_started: data.last_started,
+        }
+    }
+}
+
 pub struct TickerSubsystem {
     ticker_services: TickerServices,
 }
 
+#[cfg(any(test, feature = "test_support"))]
 pub struct TickerTestHandles<'a> {
     pub ticker_pool: &'a TickerPool,
 }
@@ -36,6 +49,11 @@ impl TickerSubsystem {
         self.ticker_services.schedule_snapshot()
     }
 
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
+    #[deprecated(
+        note = "Use ticker diagnostics via interval_for/schedule_snapshot instead of raw pool"
+    )]
     pub fn ticker_pool(&self) -> &TickerPool {
         self.ticker_services.ticker_pool()
     }
@@ -45,6 +63,8 @@ impl TickerSubsystem {
     /// This method exposes internal subsystem components for testing.
     /// It is marked hidden and should be avoided in new tests.
     /// Phase 5 will introduce behavioral test helpers to replace this pattern.
+    #[cfg(any(test, feature = "test_support"))]
+    #[allow(deprecated)]
     #[doc(hidden)]
     pub fn test_handles(&self) -> TickerTestHandles<'_> {
         TickerTestHandles {

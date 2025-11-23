@@ -25,5 +25,7 @@ pub(crate) use network::NetworkWiring;
 #[cfg(any(test, feature = "test_support"))]
 pub use telemetry::TelemetryTestHandles;
 pub use telemetry::{TelemetrySubsystem, TelemetryWiring};
-pub use ticker::{TickerSubsystem, TickerTestHandles};
+pub use ticker::TickerSubsystem;
+#[cfg(any(test, feature = "test_support"))]
+pub use ticker::TickerTestHandles;
 pub use wallet::WalletSubsystem;

@@ -1,5 +1,5 @@
 use std::{
-    any::TypeId,
+    any::{TypeId, type_name},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -13,9 +13,22 @@ use crate::{
     thread_pool::ThreadPool,
 };
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct TickerScheduleData {
+    pub type_name: String,
+    pub interval: Duration,
+    pub last_started: Option<Timestamp>,
+}
+
+struct TickerMetadata {
+    type_id: TypeId,
+    data: TickerScheduleData,
+}
+
 pub struct TickerPool {
     thread_factory: Arc<ThreadFactory>,
-    tickers: Mutex<Vec<TickerState>>,
+    tickers: Arc<Mutex<Vec<TickerState>>>,
+    ticker_metadata: Arc<Mutex<Vec<TickerMetadata>>>,
     cancel_token: CancellationToken,
     main_thread: Option<JoinHandle>,
     workers: Arc<ThreadPool>,
@@ -39,7 +52,8 @@ impl TickerPool {
     ) -> Self {
         Self {
             thread_factory,
-            tickers: Mutex::new(Default::default()),
+            tickers: Arc::new(Mutex::new(Default::default())),
+            ticker_metadata: Arc::new(Mutex::new(Default::default())),
             cancel_token,
             main_thread: None,
             workers,
@@ -55,14 +69,23 @@ impl TickerPool {
             .lock()
             .unwrap()
             .push(TickerState::new(ticker, interval));
+        self.ticker_metadata.lock().unwrap().push(TickerMetadata {
+            type_id: TypeId::of::<T>(),
+            data: TickerScheduleData {
+                type_name: type_name::<T>().to_string(),
+                interval,
+                last_started: None,
+            },
+        });
     }
 
     pub fn start(&mut self) {
-        let mut tickers_copy = Vec::new();
-        std::mem::swap(&mut tickers_copy, self.tickers.lock().unwrap().as_mut());
+        let tickers = self.tickers.clone();
+        let metadata = self.ticker_metadata.clone();
 
         let mut ticker_loop = TickerLoop::new(
-            tickers_copy,
+            tickers,
+            metadata,
             self.cancel_token.clone(),
             self.clock.clone(),
             self.workers.clone(),
@@ -80,6 +103,30 @@ impl TickerPool {
         }
     }
 
+    pub fn interval_for<T: Tickable + 'static>(&self) -> Option<Duration> {
+        let type_id = TypeId::of::<T>();
+        self.ticker_metadata
+            .lock()
+            .unwrap()
+            .iter()
+            .find_map(|metadata| {
+                if metadata.type_id == type_id {
+                    Some(metadata.data.interval)
+                } else {
+                    None
+                }
+            })
+    }
+
+    pub fn schedule_snapshot(&self) -> Vec<TickerScheduleData> {
+        self.ticker_metadata
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|metadata| metadata.data.clone())
+            .collect()
+    }
+
     pub fn get<T: Tickable + 'static>(&self) -> Option<Duration> {
         self.tickers.lock().unwrap().iter().find_map(|s| {
             if s.ticker_type == TypeId::of::<T>() {
@@ -93,6 +140,7 @@ impl TickerPool {
 
 struct TickerLoop {
     tickers: Arc<Mutex<Vec<TickerState>>>,
+    metadata: Arc<Mutex<Vec<TickerMetadata>>>,
     cancel_token: CancellationToken,
     clock: Arc<SteadyClock>,
     workers: Arc<ThreadPool>,
@@ -100,15 +148,15 @@ struct TickerLoop {
 
 impl TickerLoop {
     fn new(
-        tickers: Vec<TickerState>,
+        tickers: Arc<Mutex<Vec<TickerState>>>,
+        metadata: Arc<Mutex<Vec<TickerMetadata>>>,
         cancel_token: CancellationToken,
         clock: Arc<SteadyClock>,
         workers: Arc<ThreadPool>,
     ) -> Self {
-        let tickers = Arc::new(Mutex::new(tickers));
-
         Self {
             tickers,
+            metadata,
             cancel_token,
             clock,
             workers,
@@ -139,7 +187,9 @@ impl TickerLoop {
             .collect::<Vec<_>>();
 
         for mut t in to_start {
-            t.last_started = Some(now);
+            let last_started = Some(now);
+            t.last_started = last_started;
+            self.update_last_started(t.ticker_type, last_started);
 
             let tickers2 = self.tickers.clone();
             let cancel2 = self.cancel_token.clone();
@@ -147,6 +197,18 @@ impl TickerLoop {
                 t.ticker.tick(&cancel2);
                 tickers2.lock().unwrap().push(t);
             });
+        }
+    }
+
+    fn update_last_started(&self, type_id: TypeId, last_started: Option<Timestamp>) {
+        for metadata in self
+            .metadata
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .filter(|m| m.type_id == type_id)
+        {
+            metadata.data.last_started = last_started;
         }
     }
 }
@@ -231,8 +293,20 @@ mod tests {
         let cancel_token = CancellationToken::new_null();
         let clock = Arc::new(SteadyClock::new_null());
         let workers = Arc::new(ThreadPool::new_null());
-        let tickers = vec![TickerState::new(ticker, Duration::from_secs(60))];
-        let mut ticker_loop = TickerLoop::new(tickers, cancel_token, clock, workers.clone());
+        let tickers = Arc::new(Mutex::new(vec![TickerState::new(
+            ticker,
+            Duration::from_secs(60),
+        )]));
+        let metadata = Arc::new(Mutex::new(vec![TickerMetadata {
+            type_id: TypeId::of::<TestTicker>(),
+            data: TickerScheduleData {
+                type_name: type_name::<TestTicker>().to_string(),
+                interval: Duration::from_secs(60),
+                last_started: None,
+            },
+        }]));
+        let mut ticker_loop =
+            TickerLoop::new(tickers, metadata, cancel_token, clock, workers.clone());
 
         let now = Timestamp::new_test_instance();
         ticker_loop.run_one(now);

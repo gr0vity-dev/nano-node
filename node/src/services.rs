@@ -57,15 +57,22 @@ impl TickerServices {
     }
 
     pub fn interval_for<T: Tickable + 'static>(&self) -> Option<Duration> {
-        let _ = &self.ticker_pool;
-        None
+        self.ticker_pool.interval_for::<T>()
     }
 
     pub fn schedule_snapshot(&self) -> Vec<TickerSchedule> {
-        let _ = &self.ticker_pool;
-        Vec::new()
+        self.ticker_pool
+            .schedule_snapshot()
+            .into_iter()
+            .map(TickerSchedule::from)
+            .collect()
     }
 
+    #[cfg(any(test, feature = "test_support"))]
+    #[doc(hidden)]
+    #[deprecated(
+        note = "Use ticker diagnostics via interval_for/schedule_snapshot instead of raw pool"
+    )]
     pub fn ticker_pool(&self) -> &TickerPool {
         &self.ticker_pool
     }
