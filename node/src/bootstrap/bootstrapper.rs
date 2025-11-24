@@ -23,8 +23,9 @@ use super::{
     state::{BootstrapLogic, CandidateAccountsConfig},
 };
 use crate::{
-    block_processing::{BlockProcessorQueue, ProcessedResult},
+    block_processing::ProcessedResult,
     bootstrap::state::{PriorityUpResult, bootstrap_logic::ProcessError},
+    services::block_submitter::BlockSubmitter,
     transport::MessageSender,
 };
 
@@ -101,7 +102,7 @@ struct Threads {
 
 impl Bootstrapper {
     pub(crate) fn new(
-        block_processor_queue: Arc<BlockProcessorQueue>,
+        block_submitter: Arc<BlockSubmitter>,
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
         network: Arc<RwLock<Network>>,
@@ -116,7 +117,7 @@ impl Bootstrapper {
         let mut response_handler = ResponseProcessor::new(
             state.clone(),
             stats.clone(),
-            block_processor_queue.clone(),
+            block_submitter.clone(),
             ledger.clone(),
         );
         response_handler.set_max_pending_frontiers(config.max_pending_frontier_responses);
@@ -126,7 +127,7 @@ impl Bootstrapper {
             ledger.clone(),
             stats.clone(),
             clock.clone(),
-            block_processor_queue.clone(),
+            block_submitter.clone(),
         );
 
         let requesters = Requesters::new(
@@ -138,7 +139,7 @@ impl Bootstrapper {
             state_changed.clone(),
             clock.clone(),
             ledger.clone(),
-            block_processor_queue,
+            block_submitter.clone(),
             network,
         );
 
@@ -156,16 +157,16 @@ impl Bootstrapper {
     }
 
     pub fn new_null() -> Self {
-        let block_processor_queue = Arc::new(BlockProcessorQueue::default());
         let ledger = Arc::new(Ledger::new_null());
         let stats = Arc::new(Stats::default());
+        let block_submitter = Arc::new(BlockSubmitter::new_null());
         let network = Arc::new(RwLock::new(Network::new_test_instance()));
         let message_sender = MessageSender::new_null();
         let config = BootstrapConfig::default();
         let clock = Arc::new(SteadyClock::new_null());
 
         Self::new(
-            block_processor_queue,
+            block_submitter,
             ledger,
             stats,
             network,

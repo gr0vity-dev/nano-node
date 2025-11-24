@@ -2,7 +2,7 @@ use anyhow::{anyhow, bail};
 
 use rsnano_ledger::{BlockError, LedgerSet};
 use rsnano_network::ChannelId;
-use rsnano_node::block_processing::{BlockContext, BlockSource};
+use rsnano_node::block_processing::BlockSource;
 use rsnano_rpc_messages::{BlockSubTypeDto, HashRpcMessage, ProcessArgs, StartedResponse};
 use rsnano_types::{Block, BlockBase, BlockType};
 
@@ -59,14 +59,14 @@ impl RpcCommandHandler {
             }
         }
 
-        if !self.node.network_params.work.validate_entry_block(&block) {
-            bail!("Block work is less than threshold");
-        }
-
         if !is_async {
             let hash = block.hash();
-            let result = self.node.process_local(block.clone());
-            match result {
+            let result = self
+                .node
+                .block_submitter
+                .submit_local(block.clone())
+                .map_err(anyhow::Error::from)?;
+            match result.status {
                 Ok(()) => Ok(serde_json::to_value(HashRpcMessage::new(hash))?),
                 Err(BlockError::GapPrevious) => Err(anyhow!("Gap previous block")),
                 Err(BlockError::BadSignature) => Err(anyhow!("Bad signature")),
@@ -79,11 +79,14 @@ impl RpcCommandHandler {
                             .write()
                             .unwrap()
                             .erase(&block.qualified_root());
-                        self.node.block_processor_queue.push(BlockContext::new(
-                            block,
-                            BlockSource::Forced,
-                            ChannelId::LOOPBACK,
-                        ));
+                        self.node
+                            .block_submitter
+                            .submit_without_work_validation(
+                                block,
+                                BlockSource::Forced,
+                                ChannelId::LOOPBACK,
+                            )
+                            .map_err(anyhow::Error::from)?;
                         Ok(serde_json::to_value(HashRpcMessage::new(hash))?)
                     } else {
                         Err(anyhow!("Fork"))
@@ -108,11 +111,11 @@ impl RpcCommandHandler {
                 Err(BlockError::Conflict) => Err(anyhow!("Conflict while processing block")),
             }
         } else if block.block_type() == BlockType::State {
-            self.node.block_processor_queue.push(BlockContext::new(
+            let _ = self.node.block_submitter.submit_with_source(
                 block,
                 BlockSource::Local,
                 ChannelId::LOOPBACK,
-            ));
+            );
             Ok(serde_json::to_value(StartedResponse::new(true))?)
         } else {
             Err(anyhow!("Must be a state block"))

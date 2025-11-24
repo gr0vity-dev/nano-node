@@ -9,7 +9,7 @@ use rsnano_types::{
     Signature, StateBlockArgs, Vote, VoteError, VoteSource,
 };
 
-use rsnano_node::block_processing::{BlockContext, BlockSource};
+use rsnano_node::block_processing::BlockSource;
 use test_helpers::{System, assert_timely_eq2, assert_timely2, start_elections};
 
 mod votes {
@@ -101,11 +101,14 @@ fn epoch_open_pending() {
     // New block to process epoch open
     node1.process(send1);
 
-    node1.block_processor_queue.push(BlockContext::new(
-        epoch_open.clone().into(),
-        BlockSource::Live,
-        ChannelId::LOOPBACK,
-    ));
+    node1
+        .block_submitter
+        .submit_without_work_validation(
+            epoch_open.clone().into(),
+            BlockSource::Live,
+            ChannelId::LOOPBACK,
+        )
+        .unwrap();
 
     assert_timely2(|| node1.block_exists(&epoch_open.hash()));
 }
@@ -189,24 +192,25 @@ fn unchecked_epoch() {
     let open1 = lattice.account(&destination).receive(&send1);
     let epoch1 = lattice.account(&destination).epoch1();
 
-    node1.block_processor_queue.push(BlockContext::new(
-        epoch1.clone().into(),
-        BlockSource::Live,
-        ChannelId::LOOPBACK,
-    ));
+    node1
+        .block_submitter
+        .submit_without_work_validation(
+            epoch1.clone().into(),
+            BlockSource::Live,
+            ChannelId::LOOPBACK,
+        )
+        .unwrap();
 
     // Waits for the epoch1 block to pass through block_processor and unchecked.put queues
     assert_timely_eq2(|| node1.unchecked.lock().unwrap().len(), 1);
-    node1.block_processor_queue.push(BlockContext::new(
-        send1.into(),
-        BlockSource::Live,
-        ChannelId::LOOPBACK,
-    ));
-    node1.block_processor_queue.push(BlockContext::new(
-        open1.into(),
-        BlockSource::Live,
-        ChannelId::LOOPBACK,
-    ));
+    node1
+        .block_submitter
+        .submit_without_work_validation(send1.into(), BlockSource::Live, ChannelId::LOOPBACK)
+        .unwrap();
+    node1
+        .block_submitter
+        .submit_without_work_validation(open1.into(), BlockSource::Live, ChannelId::LOOPBACK)
+        .unwrap();
     assert_timely2(|| node1.ledger.any().block_exists(&epoch1.hash()));
 
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
@@ -255,29 +259,33 @@ fn unchecked_epoch_invalid() {
     }
     .into();
 
-    node1.block_processor_queue.push(BlockContext::new(
-        epoch1.clone().into(),
-        BlockSource::Live,
-        ChannelId::LOOPBACK,
-    ));
-    node1.block_processor_queue.push(BlockContext::new(
-        epoch2.clone().into(),
-        BlockSource::Live,
-        ChannelId::LOOPBACK,
-    ));
+    node1
+        .block_submitter
+        .submit_without_work_validation(
+            epoch1.clone().into(),
+            BlockSource::Live,
+            ChannelId::LOOPBACK,
+        )
+        .unwrap();
+    node1
+        .block_submitter
+        .submit_without_work_validation(
+            epoch2.clone().into(),
+            BlockSource::Live,
+            ChannelId::LOOPBACK,
+        )
+        .unwrap();
 
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
     assert_timely_eq2(|| node1.unchecked.lock().unwrap().len(), 2);
-    node1.block_processor_queue.push(BlockContext::new(
-        send1.into(),
-        BlockSource::Live,
-        ChannelId::LOOPBACK,
-    ));
-    node1.block_processor_queue.push(BlockContext::new(
-        open1.into(),
-        BlockSource::Live,
-        ChannelId::LOOPBACK,
-    ));
+    node1
+        .block_submitter
+        .submit_without_work_validation(send1.into(), BlockSource::Live, ChannelId::LOOPBACK)
+        .unwrap();
+    node1
+        .block_submitter
+        .submit_without_work_validation(open1.into(), BlockSource::Live, ChannelId::LOOPBACK)
+        .unwrap();
 
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
     assert_timely2(|| node1.ledger.any().block_exists(&epoch2.hash()));
@@ -307,25 +315,26 @@ fn unchecked_open() {
     open2.set_signature(Signature::from_bytes([1; 64]));
 
     // Insert open2 in to the queue before open1
-    node1.block_processor_queue.push(BlockContext::new(
-        open2.into(),
-        BlockSource::Live,
-        ChannelId::LOOPBACK,
-    ));
-    node1.block_processor_queue.push(BlockContext::new(
-        open1.clone().into(),
-        BlockSource::Live,
-        ChannelId::LOOPBACK,
-    ));
+    node1
+        .block_submitter
+        .submit_without_work_validation(open2.into(), BlockSource::Live, ChannelId::LOOPBACK)
+        .unwrap();
+    node1
+        .block_submitter
+        .submit_without_work_validation(
+            open1.clone().into(),
+            BlockSource::Live,
+            ChannelId::LOOPBACK,
+        )
+        .unwrap();
 
     // Waits for the last blocks to pass through block_processor and unchecked.put queues
     assert_timely_eq2(|| node1.unchecked.lock().unwrap().len(), 1);
     // When open1 existists in unchecked, we know open2 has been processed.
-    node1.block_processor_queue.push(BlockContext::new(
-        send1.into(),
-        BlockSource::Live,
-        ChannelId::LOOPBACK,
-    ));
+    node1
+        .block_submitter
+        .submit_without_work_validation(send1.into(), BlockSource::Live, ChannelId::LOOPBACK)
+        .unwrap();
     // Waits for the send1 block to pass through block_processor and unchecked.put queues
     assert_timely2(|| node1.block_exists(&open1.hash()));
     assert_eq!(node1.unchecked.lock().unwrap().len(), 0);
@@ -342,16 +351,18 @@ fn unchecked_receive() {
     let send2 = lattice.genesis().send(&destination, Amount::nano(1000));
     let open1 = lattice.account(&destination).receive(&send1);
     let receive1 = lattice.account(&destination).receive(&send2);
-    node1.block_processor_queue.push(BlockContext::new(
-        send1.into(),
-        BlockSource::Live,
-        ChannelId::LOOPBACK,
-    ));
-    node1.block_processor_queue.push(BlockContext::new(
-        receive1.clone().into(),
-        BlockSource::Live,
-        ChannelId::LOOPBACK,
-    ));
+    node1
+        .block_submitter
+        .submit_without_work_validation(send1.into(), BlockSource::Live, ChannelId::LOOPBACK)
+        .unwrap();
+    node1
+        .block_submitter
+        .submit_without_work_validation(
+            receive1.clone().into(),
+            BlockSource::Live,
+            ChannelId::LOOPBACK,
+        )
+        .unwrap();
     let check_block_is_listed =
         |hash: &BlockHash| node1.unchecked.lock().unwrap().contains_dependency(*hash);
     // Previous block for receive1 is unknown, signature cannot be validated
@@ -369,11 +380,14 @@ fn unchecked_receive() {
     );
 
     // Waits for the open1 block to pass through block_processor and unchecked.put queues
-    node1.block_processor_queue.push(BlockContext::new(
-        open1.clone().into(),
-        BlockSource::Live,
-        ChannelId::LOOPBACK,
-    ));
+    node1
+        .block_submitter
+        .submit_without_work_validation(
+            open1.clone().into(),
+            BlockSource::Live,
+            ChannelId::LOOPBACK,
+        )
+        .unwrap();
     assert_timely2(|| check_block_is_listed(&receive1.source_or_link()));
     // Previous block for receive1 is known, signature was validated
     assert_eq!(
@@ -385,11 +399,14 @@ fn unchecked_receive() {
             .count(),
         1
     );
-    node1.block_processor_queue.push(BlockContext::new(
-        send2.clone().into(),
-        BlockSource::Live,
-        ChannelId::LOOPBACK,
-    ));
+    node1
+        .block_submitter
+        .submit_without_work_validation(
+            send2.clone().into(),
+            BlockSource::Live,
+            ChannelId::LOOPBACK,
+        )
+        .unwrap();
     assert_timely2(|| node1.block_exists(&receive1.hash()));
     assert_eq!(node1.unchecked.lock().unwrap().len(), 0);
 }

@@ -16,8 +16,8 @@ use super::{
     send_queries_promise::SendQueriesPromise,
 };
 use crate::{
-    block_processing::BlockProcessorQueue,
     bootstrap::{AscPullQuerySpec, BootstrapConfig, BootstrapPromise, state::BootstrapLogic},
+    services::block_submitter::BlockSubmitter,
     transport::MessageSender,
 };
 use rsnano_nullable_random::NullableRngFactory;
@@ -33,7 +33,7 @@ pub(crate) struct Requesters {
     clock: Arc<SteadyClock>,
     threads: Mutex<Option<RequesterThreads>>,
     ledger: Arc<Ledger>,
-    block_processor_queue: Arc<BlockProcessorQueue>,
+    block_submitter: Arc<BlockSubmitter>,
     network: Arc<RwLock<Network>>,
     stats_sources: Mutex<Vec<Arc<dyn StatsSource + Send + Sync>>>,
 }
@@ -48,7 +48,7 @@ impl Requesters {
         state_changed: Arc<Condvar>,
         clock: Arc<SteadyClock>,
         ledger: Arc<Ledger>,
-        block_processor_queue: Arc<BlockProcessorQueue>,
+        block_submitter: Arc<BlockSubmitter>,
         network: Arc<RwLock<Network>>,
     ) -> Self {
         Self {
@@ -60,7 +60,7 @@ impl Requesters {
             state_changed,
             clock,
             ledger,
-            block_processor_queue,
+            block_submitter,
             network,
             threads: Mutex::new(None),
             stats_sources: Mutex::new(Vec::new()),
@@ -98,7 +98,7 @@ impl Requesters {
 
         let priorities = if self.config.enable_priorities {
             let mut requester = PriorityRequester::new(
-                self.block_processor_queue.clone(),
+                self.block_submitter.clone(),
                 channel_waiter.clone(),
                 self.ledger.clone(),
                 &self.config,

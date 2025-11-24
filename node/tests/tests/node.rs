@@ -13,14 +13,17 @@ use rsnano_ledger::{
 use rsnano_messages::{ConfirmAck, Message, Publish};
 use rsnano_network::{ChannelId, TrafficType};
 use rsnano_node::{
-    block_processing::{BacklogScanConfig, BlockContext, BlockSource, BoundedBacklogConfig},
-    config::{NodeConfig, NodeFlags},
+    NodeBuilder,
+    block_processing::{BacklogScanConfig, BlockSource, BoundedBacklogConfig},
+    config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{AecEvent, FilteredVote, ReceivedVote, election::VoteType},
+    services::block_submitter::BlockSubmissionError,
+    unique_path,
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, DifficultyV1, PrivateKey, PublicKey, Root,
-    Signature, StateBlockArgs, UnixMillisTimestamp, Vote, VoteSource, WorkRequest,
+    Account, Amount, Block, BlockHash, DEV_GENESIS_KEY, DifficultyV1, Networks, PrivateKey,
+    PublicKey, Root, Signature, StateBlockArgs, UnixMillisTimestamp, Vote, VoteSource, WorkRequest,
 };
 use rsnano_utils::{
     stats::{DetailType, Direction, StatType},
@@ -50,11 +53,9 @@ fn rollback_gap_source() {
     node.process_local(fork1a.clone()).unwrap();
 
     assert!(!node.block_exists(&send2.hash()));
-    node.block_processor_queue.push(BlockContext::new(
-        fork1b.clone(),
-        BlockSource::Forced,
-        ChannelId::LOOPBACK,
-    ));
+    node.block_submitter
+        .submit_without_work_validation(fork1b.clone(), BlockSource::Forced, ChannelId::LOOPBACK)
+        .unwrap();
 
     assert_timely2(|| node.block(&fork1a.hash()).is_none());
 
@@ -72,11 +73,9 @@ fn rollback_gap_source() {
     assert_timely2(|| node.block_exists(&fork1a.hash()));
 
     node.process_local(send2.clone()).unwrap();
-    node.block_processor_queue.push(BlockContext::new(
-        fork1b.clone(),
-        BlockSource::Forced,
-        ChannelId::LOOPBACK,
-    ));
+    node.block_submitter
+        .submit_without_work_validation(fork1b.clone(), BlockSource::Forced, ChannelId::LOOPBACK)
+        .unwrap();
 
     assert_timely_eq2(
         || {
@@ -2227,21 +2226,25 @@ fn block_confirm() {
     let send1 = lattice.genesis().send(&key, Amount::nano(1000));
     let hash1 = send1.hash();
 
-    assert_eq!(
-        node1.block_processor_queue.push(BlockContext::new(
-            send1.clone().into(),
-            BlockSource::Live,
-            ChannelId::LOOPBACK
-        )),
-        true
+    assert!(
+        node1
+            .block_submitter
+            .submit_without_work_validation(
+                send1.clone().into(),
+                BlockSource::Live,
+                ChannelId::LOOPBACK
+            )
+            .is_ok()
     );
-    assert_eq!(
-        node2.block_processor_queue.push(BlockContext::new(
-            send1.clone().into(),
-            BlockSource::Live,
-            ChannelId::LOOPBACK,
-        )),
-        true
+    assert!(
+        node2
+            .block_submitter
+            .submit_without_work_validation(
+                send1.clone().into(),
+                BlockSource::Live,
+                ChannelId::LOOPBACK,
+            )
+            .is_ok()
     );
 
     assert_timely2(|| {
@@ -2533,4 +2536,36 @@ fn backlog_scan_election_activation() {
     node.process(send);
 
     assert_timely_eq2(|| node.active.read().unwrap().len(), 1);
+}
+
+#[test]
+fn block_submitter_resolves_and_rejects_after_stop() {
+    let network_params = NetworkParams::new(Networks::NanoDevNetwork);
+    let config = System::default_config();
+
+    let mut node = NodeBuilder::new(network_params.network.current_network)
+        .data_path(unique_path().unwrap())
+        .config(config)
+        .network_params(network_params)
+        .finish()
+        .unwrap();
+
+    node.start();
+
+    let mut lattice = UnsavedBlockLatticeBuilder::new();
+    let send = lattice.genesis().send(&*DEV_GENESIS_KEY, 1);
+
+    let result = node
+        .block_submitter
+        .submit_local(send.clone())
+        .expect("block should process through submitter");
+
+    assert!(result.status.is_ok());
+
+    node.stop();
+
+    let err = node.block_submitter.submit_local(send).unwrap_err();
+    assert_eq!(err, BlockSubmissionError::NodeStopped);
+
+    std::fs::remove_dir_all(&node.data_path).unwrap();
 }

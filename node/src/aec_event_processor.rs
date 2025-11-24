@@ -1,16 +1,14 @@
 use std::sync::{Arc, Mutex, RwLock, mpsc::SyncSender};
 
-use tracing::debug;
+use tracing::{debug, warn};
 
 use rsnano_messages::NetworkFilter;
-use rsnano_network::ChannelId;
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::{Block, VoteError, VoteSource};
 use rsnano_utils::stats::{Sample, Stats};
 
 use crate::{
     NodeEvent,
-    block_processing::{BlockContext, BlockProcessorQueue, BlockSource},
     cementation::ConfirmingSet,
     consensus::{
         ActiveElectionsContainer, AecCooldownReason, AecEvent, AecForkInserter,
@@ -20,6 +18,7 @@ use crate::{
     },
     recently_cemented_inserter::RecentlyCementedInserter,
     representatives::{OnlineReps, RepCrawler},
+    services::block_submitter::BlockSubmitter,
     utils::BackpressureEventProcessor,
 };
 
@@ -38,7 +37,7 @@ pub(crate) struct AecEventProcessor {
     pub(crate) bootstrap_election_activator: BootstrapElectionActivator,
     pub(crate) recently_cemented_inserter: RecentlyCementedInserter,
     pub(crate) vote_rebroadcast_queue: Arc<VoteRebroadcastQueue>,
-    pub(crate) block_processor_queue: Arc<BlockProcessorQueue>,
+    pub(crate) block_submitter: Arc<BlockSubmitter>,
     pub(crate) confirming_set: Arc<ConfirmingSet>,
     pub(crate) online_reps: Arc<Mutex<OnlineReps>>,
     pub(crate) active_elections: Arc<RwLock<ActiveElectionsContainer>>,
@@ -125,11 +124,10 @@ impl BackpressureEventProcessor<AecEvent> for AecEventProcessor {
                     .remove_local_votes(&previous_winner, &new_winner.qualified_root());
 
                 // Roll back the previous winner and add the new winner to the ledger
-                self.block_processor_queue.push(BlockContext::new(
-                    new_winner.clone(),
-                    BlockSource::Forced,
-                    ChannelId::LOOPBACK,
-                ));
+                let new_winner_hash = new_winner.hash();
+                if let Err(err) = self.block_submitter.submit_forced(new_winner) {
+                    warn!(%new_winner_hash, ?err, "failed to submit new election winner for processing");
+                }
             }
             AecEvent::VoteProcessed(vote, voter_weight, results) => {
                 // Cache the votes that didn't match any election

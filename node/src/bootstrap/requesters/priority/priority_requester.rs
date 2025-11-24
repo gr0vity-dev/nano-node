@@ -12,16 +12,17 @@ use super::{
     query_factory::QueryFactory,
 };
 use crate::{
-    block_processing::{BlockProcessorQueue, BlockSource},
+    block_processing::BlockSource,
     bootstrap::{
         AscPullQuerySpec, BootstrapConfig, BootstrapPromise, PollResult, PromiseContext,
         requesters::channel_waiter::{ChannelWaiter, ChannelWaiterStats},
     },
+    services::block_submitter::BlockSubmitter,
 };
 
 pub(crate) struct PriorityRequester {
     state: PriorityState,
-    block_processor_queue: Arc<BlockProcessorQueue>,
+    block_submitter: Arc<BlockSubmitter>,
     channel_waiter: ChannelWaiter,
     pub block_processor_threshold: usize,
     query_factory: QueryFactory,
@@ -30,7 +31,7 @@ pub(crate) struct PriorityRequester {
 
 impl PriorityRequester {
     pub(crate) fn new(
-        block_processor_queue: Arc<BlockProcessorQueue>,
+        block_submitter: Arc<BlockSubmitter>,
         channel_waiter: ChannelWaiter,
         ledger: Arc<Ledger>,
         config: &BootstrapConfig,
@@ -45,7 +46,7 @@ impl PriorityRequester {
 
         Self {
             state: PriorityState::Initial,
-            block_processor_queue,
+            block_submitter,
             stats,
             channel_waiter,
             query_factory,
@@ -58,8 +59,7 @@ impl PriorityRequester {
     }
 
     fn block_processor_free(&self) -> bool {
-        self.block_processor_queue.queue_len(BlockSource::Bootstrap)
-            < self.block_processor_threshold
+        self.block_submitter.queue_len(BlockSource::Bootstrap) < self.block_processor_threshold
     }
 }
 
@@ -154,15 +154,13 @@ impl StatsSource for PriorityRequesterStats {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex, RwLock};
-
     use rsnano_ledger::Ledger;
     use rsnano_network::{Network, token_bucket::TokenBucket};
     use rsnano_types::Account;
+    use std::sync::{Arc, Mutex, RwLock};
 
     use super::PriorityRequester;
     use crate::{
-        block_processing::BlockProcessorQueue,
         bootstrap::{
             BootstrapConfig, PollResult, progress_state,
             requesters::{
@@ -170,6 +168,7 @@ mod tests {
             },
             state::BootstrapLogic,
         },
+        services::block_submitter::BlockSubmitter,
     };
 
     #[test]
@@ -224,15 +223,14 @@ mod tests {
     }
 
     fn create_requester() -> (PriorityRequester, Arc<RwLock<Network>>) {
-        let block_processor_queue = Arc::new(BlockProcessorQueue::default());
+        let block_submitter = Arc::new(BlockSubmitter::new_null());
         let network = Arc::new(RwLock::new(Network::new_test_instance()));
         let rate_limiter = Arc::new(Mutex::new(TokenBucket::new(1024)));
         let channel_waiter = ChannelWaiter::new(network.clone(), rate_limiter, 1024);
         let ledger = Arc::new(Ledger::new_null());
         let config = BootstrapConfig::default();
 
-        let requester =
-            PriorityRequester::new(block_processor_queue, channel_waiter, ledger, &config);
+        let requester = PriorityRequester::new(block_submitter, channel_waiter, ledger, &config);
 
         (requester, network)
     }

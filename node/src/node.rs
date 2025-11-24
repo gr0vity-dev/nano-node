@@ -50,8 +50,8 @@ use crate::{
     NodeCallbacks, OnlineWeightSampler,
     aec_event_processor::AecEventProcessor,
     block_processing::{
-        BacklogScan, BacklogWaiter, BlockContext, BlockProcessor, BlockProcessorQueue, BlockSource,
-        BoundedBacklog, BoundedBacklogPlugin, LocalBlockBroadcaster, LocalBlockBroadcasterExt,
+        BacklogScan, BacklogWaiter, BlockProcessor, BlockProcessorQueue, BoundedBacklog,
+        BoundedBacklogPlugin, LocalBlockBroadcaster, LocalBlockBroadcasterExt,
         LocalBlockBroadcasterPlugin, ProcessQueueConfig, ProcessedResult, UncheckedBlockReenqueuer,
         UncheckedMap,
     },
@@ -81,6 +81,7 @@ use crate::{
     representatives::{
         OnlineReps, OnlineRepsCleanup, OnlineWeightCalculation, RepCrawler, RepCrawlerExt,
     },
+    services::block_submitter::BlockSubmitter,
     telemetry::{
         TelementryConfig, TelementryExt, Telemetry, TelemetryFactory, rsnano_build_info,
         rsnano_version_string,
@@ -125,7 +126,7 @@ pub struct Node {
     pub confirming_set: Arc<ConfirmingSet>,
     pub vote_cache: Arc<Mutex<VoteCache>>,
     pub block_processor: Arc<BlockProcessor>,
-    pub block_processor_queue: Arc<BlockProcessorQueue>,
+    pub block_submitter: Arc<BlockSubmitter>,
     pub wallets: Arc<Wallets>,
     pub vote_generators: Arc<VoteGenerators>,
     pub active: Arc<RwLock<ActiveElectionsContainer>>,
@@ -143,7 +144,7 @@ pub struct Node {
     network_threads: Arc<Mutex<NetworkThreads>>,
     pub peer_connector: Arc<PeerConnector>,
     pub inbound_message_queue: Arc<InboundMessageQueue>,
-    stopped: AtomicBool,
+    stopped: Arc<AtomicBool>,
     pub network_filter: Arc<NetworkFilter>,
     pub message_sender: Arc<Mutex<MessageSender>>, // TODO remove this. It is needed right now
     pub message_flooder: Arc<Mutex<MessageFlooder>>, // TODO remove this. It is needed right now
@@ -493,7 +494,14 @@ impl Node {
         )));
 
         let block_processor_config = ProcessQueueConfig::from(global_config);
+        let stopped = Arc::new(AtomicBool::new(false));
         let block_processor_queue = Arc::new(BlockProcessorQueue::new(block_processor_config));
+        let block_submitter = Arc::new(BlockSubmitter::new(
+            block_processor_queue.clone(),
+            stats.clone(),
+            stopped.clone(),
+            network_params.work.clone(),
+        ));
 
         let unchecked_reenqueuer = UncheckedBlockReenqueuer::new(
             unchecked.clone(),
@@ -828,7 +836,7 @@ impl Node {
         ledger_event_processor_plugins.push(track_conf_times);
 
         let bootstrapper = Arc::new(Bootstrapper::new(
-            block_processor_queue.clone(),
+            block_submitter.clone(),
             ledger.clone(),
             stats.clone(),
             network.clone(),
@@ -971,14 +979,13 @@ impl Node {
             stats.clone(),
             network.clone(),
             network_filter.clone(),
-            block_processor_queue.clone(),
+            block_submitter.clone(),
             wallet_reps.clone(),
             request_aggregator.clone(),
             vote_processor_queue.clone(),
             telemetry.clone(),
             bootstrap_server.clone(),
             bootstrapper.clone(),
-            network_params.work.clone(),
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots.clone(),
         ));
@@ -1256,7 +1263,7 @@ impl Node {
             vote_cache: vote_cache.clone(),
             vote_rebroadcast_queue: vote_rebroadcast_queue.clone(),
             vote_processor: vote_processor.clone(),
-            block_processor_queue: block_processor_queue.clone(),
+            block_submitter: block_submitter.clone(),
             confirming_set: confirming_set.clone(),
             online_reps: online_reps.clone(),
             active_elections: active_elections.clone(),
@@ -1372,7 +1379,7 @@ impl Node {
             confirming_set,
             vote_cache,
             block_processor,
-            block_processor_queue,
+            block_submitter,
             wallets,
             vote_generators,
             active: active_elections,
@@ -1393,7 +1400,7 @@ impl Node {
             message_flooder,
             network_filter,
             keepalive_publisher,
-            stopped: AtomicBool::new(false),
+            stopped: stopped.clone(),
             start_stop_listener: OutputListenerMt::new(),
             vote_rebroadcaster,
             tokio_runner,
@@ -1420,10 +1427,10 @@ impl Node {
     }
 
     pub fn process_local(&self, block: Block) -> Result<(), BlockError> {
-        self.block_processor_queue
-            .push_blocking(Arc::new(block), BlockSource::Local)
-            .map_err(|_| BlockError::BadSignature)?
-            .map(|_| {})
+        match self.block_submitter.submit_local(block) {
+            Ok(result) => result.status,
+            Err(err) => Err(err.into()),
+        }
     }
 
     pub fn try_process(&self, block: Block) -> Result<SavedBlock, BlockError> {
@@ -1465,11 +1472,10 @@ impl Node {
     }
 
     pub fn process_active(&self, block: Block) {
-        self.block_processor_queue.push(BlockContext::new(
-            block,
-            BlockSource::Live,
-            ChannelId::LOOPBACK,
-        ));
+        let hash = block.hash();
+        if let Err(err) = self.block_submitter.submit_live(block, ChannelId::LOOPBACK) {
+            warn!(%hash, ?err, "failed to submit block for active processing");
+        }
     }
 
     pub fn process_local_multi(&self, blocks: &[Block]) {

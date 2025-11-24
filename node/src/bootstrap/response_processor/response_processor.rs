@@ -9,24 +9,24 @@ use rsnano_utils::stats::Stats;
 
 use super::super::state::BootstrapLogic;
 use crate::{
-    block_processing::{BlockContext, BlockProcessorQueue, BlockSource},
     bootstrap::{
         response_processor::frontier_check_pool::FrontierCheckPool,
         state::bootstrap_logic::{ProcessError, ProcessInfo},
     },
+    services::block_submitter::BlockSubmitter,
 };
 
 pub(crate) struct ResponseProcessor {
     logic: Arc<Mutex<BootstrapLogic>>,
     frontier_check_pool: FrontierCheckPool,
-    block_queue: Arc<BlockProcessorQueue>,
+    block_submitter: Arc<BlockSubmitter>,
 }
 
 impl ResponseProcessor {
     pub(crate) fn new(
         logic: Arc<Mutex<BootstrapLogic>>,
         stats: Arc<Stats>,
-        block_queue: Arc<BlockProcessorQueue>,
+        block_submitter: Arc<BlockSubmitter>,
         ledger: Arc<Ledger>,
     ) -> Self {
         let frontier_check_pool = FrontierCheckPool::new(stats.clone(), ledger, logic.clone());
@@ -34,7 +34,7 @@ impl ResponseProcessor {
         Self {
             logic,
             frontier_check_pool,
-            block_queue,
+            block_submitter,
         }
     }
 
@@ -65,21 +65,21 @@ impl ResponseProcessor {
 
             trace!(%block_hash, query_id, "Process block");
 
-            let inserted = self.block_queue.push(BlockContext::new(
-                block.clone(),
-                BlockSource::Bootstrap,
+            match self
+                .block_submitter
                 // TODO use real channel id
-                ChannelId::LOOPBACK,
-            ));
-
-            if inserted {
-                logic
-                    .block_ack_processor
-                    .block_queue
-                    .enqueued_for_processing(&block_hash);
-            } else {
-                // block processor queue is full!
-                break;
+                .submit_bootstrap(block.clone(), ChannelId::LOOPBACK)
+            {
+                Ok(_) => {
+                    logic
+                        .block_ack_processor
+                        .block_queue
+                        .enqueued_for_processing(&block_hash);
+                }
+                Err(err) => {
+                    trace!(%block_hash, query_id, ?err, "failed to enqueue bootstrap block");
+                    break;
+                }
             }
         }
     }

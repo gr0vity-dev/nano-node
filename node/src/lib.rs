@@ -20,6 +20,7 @@ mod node_id_key_file;
 mod node_monitor;
 mod recently_cemented_inserter;
 pub mod representatives;
+pub mod services;
 pub mod telemetry;
 pub mod tokio_runner;
 pub mod transport;

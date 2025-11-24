@@ -3,20 +3,20 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-use tracing::trace;
+use tracing::{trace, warn};
 
 use rsnano_messages::{Message, NetworkFilter};
 use rsnano_network::{Channel, Network};
 use rsnano_types::VoteSource;
 use rsnano_utils::stats::{DetailType, Direction, StatType, Stats};
-use rsnano_work::WorkThresholds;
 
 #[cfg(feature = "ledger_snapshots")]
 use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
-    block_processing::{BlockContext, BlockProcessorQueue, BlockSource},
+    block_processing::BlockSource,
     bootstrap::{BootstrapServer, Bootstrapper},
     consensus::{AggregatorRequest, RequestAggregator, VoteProcessorQueue},
+    services::block_submitter::BlockSubmitter,
     telemetry::Telemetry,
     wallets::WalletRepresentatives,
 };
@@ -26,14 +26,13 @@ pub struct NetworkMessageProcessor {
     stats: Arc<Stats>,
     network_filter: Arc<NetworkFilter>,
     network: Arc<RwLock<Network>>,
-    block_processor_queue: Arc<BlockProcessorQueue>,
+    block_submitter: Arc<BlockSubmitter>,
     wallet_reps: Arc<Mutex<WalletRepresentatives>>,
     request_aggregator: Arc<RequestAggregator>,
     vote_processor_queue: Arc<VoteProcessorQueue>,
     telemetry: Arc<Telemetry>,
     bootstrap_server: Arc<BootstrapServer>,
     bootstrapper: Arc<Bootstrapper>,
-    work_thresholds: WorkThresholds,
     #[cfg(feature = "ledger_snapshots")]
     ledger_snapshots: Arc<LedgerSnapshots>,
 }
@@ -43,28 +42,26 @@ impl NetworkMessageProcessor {
         stats: Arc<Stats>,
         network: Arc<RwLock<Network>>,
         network_filter: Arc<NetworkFilter>,
-        block_processor_queue: Arc<BlockProcessorQueue>,
+        block_submitter: Arc<BlockSubmitter>,
         wallet_reps: Arc<Mutex<WalletRepresentatives>>,
         request_aggregator: Arc<RequestAggregator>,
         vote_processor_queue: Arc<VoteProcessorQueue>,
         telemetry: Arc<Telemetry>,
         bootstrap_server: Arc<BootstrapServer>,
         bootstrapper: Arc<Bootstrapper>,
-        work_thresholds: WorkThresholds,
         #[cfg(feature = "ledger_snapshots")] ledger_snapshots: Arc<LedgerSnapshots>,
     ) -> Self {
         Self {
             stats,
             network,
             network_filter,
-            block_processor_queue,
+            block_submitter,
             wallet_reps,
             request_aggregator,
             vote_processor_queue,
             telemetry,
             bootstrap_server,
             bootstrapper,
-            work_thresholds,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots,
         }
@@ -100,38 +97,36 @@ impl NetworkMessageProcessor {
                 }
             }
             Message::Publish(publish) => {
-                let mut ok = true;
+                let digest = publish.digest;
 
-                if !self.work_thresholds.validate_entry_block(&publish.block) {
-                    self.stats
-                        .inc(StatType::BlockProcessor, DetailType::InsufficientWork);
-                    ok = false;
-                }
+                // Put blocks that are being initially broadcasted in a separate queue, so that they won't have to compete with rebroadcasted blocks
+                // Both queues have the same priority and size, so the potential for exploiting this is limited
+                let source = if publish.is_originator {
+                    BlockSource::LiveOriginator
+                } else {
+                    BlockSource::Live
+                };
 
-                if ok {
-                    // Put blocks that are being initially broadcasted in a separate queue, so that they won't have to compete with rebroadcasted blocks
-                    // Both queues have the same priority and size, so the potential for exploiting this is limited
-                    let source = if publish.is_originator {
-                        BlockSource::LiveOriginator
-                    } else {
-                        BlockSource::Live
-                    };
+                let block_hash = publish.block.hash();
+                trace!(block_hash = ?block_hash, channel_id = ?channel.channel_id(), "Received publish");
 
-                    trace!(block_hash = ?publish.block.hash(), channel_id = ?channel.channel_id(), "Received publish");
+                let result = match source {
+                    BlockSource::LiveOriginator => self
+                        .block_submitter
+                        .submit_live_originator(publish.block, channel.channel_id()),
+                    _ => self
+                        .block_submitter
+                        .submit_live(publish.block, channel.channel_id()),
+                };
 
-                    ok = self.block_processor_queue.push(BlockContext::new(
-                        publish.block,
-                        source,
-                        channel.channel_id(),
-                    ));
-                }
-
-                if !ok {
+                if let Err(err) = result {
                     // The message couldn't be handled. We have to remove it from the duplicate
                     // filter, so that it can be retransmitted and handled later
-                    self.network_filter.clear(publish.digest);
+                    self.network_filter.clear(digest);
                     self.stats
                         .inc_dir(StatType::Drop, DetailType::Publish, Direction::In);
+
+                    warn!(block_hash = ?block_hash, channel_id = ?channel.channel_id(), ?err, "failed to submit publish for processing");
                 }
             }
             Message::ConfirmReq(req) => {
@@ -216,6 +211,13 @@ impl NetworkMessageProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // use std::sync::{Arc, Mutex, RwLock, atomic::AtomicBool};
+
+    // use crate::{
+    //     block_processing::ProcessQueueConfig,
+    //     services::block_submitter::BlockSubmitter,
+    // };
+    // use rsnano_work::WorkThresholds;
 
     #[test]
     fn preproposal_is_received() {
@@ -272,17 +274,16 @@ mod tests {
         ledger_snapshots: LedgerSnapshots,
     ) -> NetworkMessageProcessor {
         NetworkMessageProcessor::new(
-            Stats::default().into(),
-            RwLock::new(Network::new_test_instance()).into(),
-            NetworkFilter::default().into(),
-            BlockProcessorQueue::new_null().into(),
-            Mutex::new(WalletRepresentatives::new_null()).into(),
-            RequestAggregator::new_null().into(),
-            VoteProcessorQueue::new_null().into(),
-            Telemetry::new_null().into(),
-            BootstrapServer::new_null().into(),
-            Bootstrapper::new_null().into(),
-            WorkThresholds::new_stub(),
+            Arc::new(Stats::default()),
+            Arc::new(RwLock::new(Network::new_test_instance())),
+            Arc::new(NetworkFilter::default()),
+            Arc::new(BlockSubmitter::new_null()),
+            Arc::new(Mutex::new(WalletRepresentatives::new_null())),
+            Arc::new(RequestAggregator::new_null()),
+            Arc::new(VoteProcessorQueue::new_null()),
+            Arc::new(Telemetry::new_null()),
+            Arc::new(BootstrapServer::new_null()),
+            Arc::new(Bootstrapper::new_null()),
             ledger_snapshots.into(),
         )
     }
