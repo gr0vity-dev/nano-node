@@ -36,6 +36,10 @@ pub mod working_path;
 pub use handles::*;
 pub use node::*;
 pub use node_builder::*;
+pub use subsystems::consensus::{
+    ActiveElectionView, RequestAggregatorInfo, VoteByAccountView, VoteCacheEntryView,
+    VoteCacheView, VoteCacheVoterView,
+};
 pub use representatives::OnlineWeightSampler;
 pub use services::*;
 pub use working_path::*;

@@ -7,7 +7,8 @@ use rsnano_ledger::{
 use rsnano_node::{
     bootstrap::BootstrapConfig,
     config::{NodeConfig, NodeFlags},
-    consensus::{ActiveElectionView, FilteredVote, ReceivedVote, VoteCacheView},
+    consensus::{FilteredVote, ReceivedVote},
+    ActiveElectionView, VoteCacheView,
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
@@ -281,7 +282,7 @@ fn fork_replacement_tally() {
         active_view(&node1, &send_last.qualified_root())
             .votes_by_account
             .iter()
-            .any(|v| v.account == DEV_GENESIS_PUB_KEY)
+            .any(|v| v.account == *DEV_GENESIS_PUB_KEY)
     });
 }
 
