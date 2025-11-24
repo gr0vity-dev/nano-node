@@ -390,24 +390,9 @@ fn inactive_votes_cache_fork() {
     let send1 = lattice1.genesis().send(&key, 100);
     let send2 = lattice2.genesis().send(&key, 200);
 
-    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]));
-    node.consensus_subsystem()
-        .test_handles()
-        .vote_processor_queue
-        .enqueue(vote, None, VoteSource::Live, None);
-
-    assert_timely_eq(
-        Duration::from_secs(5),
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .vote_cache
-                .lock()
-                .unwrap()
-                .size()
-        },
-        1,
-    );
+    let vote = Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]);
+    inject_vote(&node, vote, VoteSource::Live);
+    assert_timely_eq2(|| vote_cache_size(&node), 1);
 
     node.process_active(send2.clone());
 
@@ -439,86 +424,36 @@ fn inactive_votes_cache_existing_vote() {
         node.ledger_query_services()
             .ledger_arc()
             .weight(&key.public_key())
-            > node
-                .consensus_subsystem()
-                .test_handles()
-                .online_reps
-                .lock()
-                .unwrap()
-                .minimum_principal_weight()
+            > min_principal_weight(&node)
     );
 
     // Insert vote
-    let vote1 = Arc::new(Vote::new(
-        &key,
-        UnixMillisTimestamp::ZERO,
-        0,
-        vec![send.hash()],
-    ));
-    node.consensus_subsystem()
-        .test_handles()
-        .vote_processor_queue
-        .enqueue(vote1.clone(), None, VoteSource::Live, None);
+    let vote1 = Vote::new(&key, UnixMillisTimestamp::ZERO, 0, vec![send.hash()]);
+    inject_vote(&node, vote1.clone(), VoteSource::Live);
 
-    assert_timely_eq2(
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .active
-                .read()
-                .unwrap()
-                .election_for_block(&send.hash())
-                .unwrap()
-                .vote_count()
-        },
-        1,
-    );
+    assert_timely_eq2(|| active_view(&node, &send.qualified_root()).vote_count, 1);
 
     assert_timely_eq2(|| node.get_stat("election", "vote", Direction::In), 1);
 
-    let last_vote1 = node
-        .consensus_subsystem()
-        .test_handles()
-        .active
-        .read()
-        .unwrap()
-        .election_for_block(&send.hash())
-        .unwrap()
-        .votes()
-        .get(&key.public_key())
-        .unwrap()
-        .clone();
+    let last_vote1 = active_view(&node, &send.qualified_root())
+        .votes_by_account
+        .into_iter()
+        .find(|v| v.account == key.public_key())
+        .unwrap();
 
     assert_eq!(send.hash(), last_vote1.hash);
 
     // Attempt to change vote with inactive_votes_cache
-    node.consensus_subsystem()
-        .test_handles()
-        .vote_cache
-        .lock()
-        .unwrap()
-        .insert(&vote1, rep_weight, &HashMap::new());
-
-    let cached = node
-        .consensus_subsystem()
-        .test_handles()
-        .vote_cache
-        .lock()
-        .unwrap()
-        .find(&send.hash());
-    assert_eq!(cached.len(), 1);
-    let _ = node
-        .consensus_subsystem()
-        .test_handles()
-        .vote_processor
-        .vote_blocking(&ReceivedVote::new(cached[0].clone(), VoteSource::Live, None).into());
+    let _ = process_vote_blocking(&node, vote1.clone(), VoteSource::Live);
 
     // Check that election data is not changed
-    let consensus_services = node.consensus_subsystem().test_handles();
-    let active = consensus_services.active.read().unwrap();
-    let election = active.election_for_block(&send.hash()).unwrap();
-    assert_eq!(election.vote_count(), 1);
-    let last_vote2 = election.votes().get(&key.public_key()).unwrap().clone();
+    let election = active_view(&node, &send.qualified_root());
+    assert_eq!(election.vote_count, 1);
+    let last_vote2 = election
+        .votes_by_account
+        .into_iter()
+        .find(|v| v.account == key.public_key())
+        .unwrap();
     assert_eq!(send.hash(), last_vote2.hash);
     assert_eq!(0, node.get_stat("election_vote", "cache", Direction::In));
 }
@@ -541,62 +476,21 @@ fn inactive_votes_cache_multiple_votes() {
     node.process(open.clone());
 
     // Process votes
-    let vote1 = Arc::new(Vote::new(
-        &key,
-        UnixMillisTimestamp::ZERO,
-        0,
-        vec![send1.hash()],
-    ));
-    node.consensus_subsystem()
-        .test_handles()
-        .vote_processor_queue
-        .enqueue(vote1, None, VoteSource::Live, None);
+    let vote1 = Vote::new(&key, UnixMillisTimestamp::ZERO, 0, vec![send1.hash()]);
+    inject_vote(&node, vote1, VoteSource::Live);
 
-    let vote2 = Arc::new(Vote::new(
-        &DEV_GENESIS_KEY,
-        UnixMillisTimestamp::ZERO,
-        0,
-        vec![send1.hash()],
-    ));
-    node.consensus_subsystem()
-        .test_handles()
-        .vote_processor_queue
-        .enqueue(vote2, None, VoteSource::Live, None);
+    let vote2 = Vote::new(&DEV_GENESIS_KEY, UnixMillisTimestamp::ZERO, 0, vec![send1.hash()]);
+    inject_vote(&node, vote2, VoteSource::Live);
 
     assert_timely_eq(
         Duration::from_secs(5),
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .vote_cache
-                .lock()
-                .unwrap()
-                .find(&send1.hash())
-                .len()
-        },
+        || vote_cache_votes_for(&node, &send1.hash()),
         2,
     );
-    assert_eq!(
-        1,
-        node.consensus_subsystem()
-            .test_handles()
-            .vote_cache
-            .lock()
-            .unwrap()
-            .size()
-    );
+    assert_eq!(1, vote_cache_size(&node));
     start_election(&node, &send1.hash());
     assert_timely_eq2(
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .active
-                .read()
-                .unwrap()
-                .election_for_block(&send1.hash())
-                .unwrap()
-                .vote_count()
-        },
+        || active_view(&node, &send1.qualified_root()).vote_count,
         2,
     );
     assert_timely_eq2(|| node.get_stat("election_vote", "cache", Direction::In), 2);
