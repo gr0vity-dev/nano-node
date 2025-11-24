@@ -106,9 +106,11 @@ pub struct VoteByAccountView {
 #[derive(Clone)]
 pub struct ActiveElectionView {
     pub has_max_blocks: bool,
+    pub block_count: usize,
     pub vote_count: usize,
     pub is_confirmed: bool,
     pub winner_hash: BlockHash,
+    pub candidate_hashes: Vec<BlockHash>,
     pub votes_by_account: Vec<VoteByAccountView>,
 }
 
@@ -400,9 +402,15 @@ impl ConsensusSubsystem {
 
                 ActiveElectionView {
                     has_max_blocks: election.has_max_blocks(),
+                    block_count: election.block_count(),
                     vote_count: election.vote_count(),
                     is_confirmed: election.is_confirmed(),
                     winner_hash: election.winner().hash(),
+                    candidate_hashes: election
+                        .candidate_blocks()
+                        .keys()
+                        .cloned()
+                        .collect(),
                     votes_by_account,
                 }
             })

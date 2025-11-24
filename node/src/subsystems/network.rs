@@ -290,6 +290,11 @@ impl NetworkSubsystem {
         }
     }
 
+    #[cfg(any(test, feature = "test_support"))]
+    pub fn clear_filter(&self) {
+        self.network_filter.clear_all();
+    }
+
     /// Access to inbound queue for transport-level dispatchers.
     #[cfg(any(test, feature = "test_support"))]
     pub fn inbound_message_queue(&self) -> Arc<InboundMessageQueue> {

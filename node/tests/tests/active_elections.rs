@@ -7,7 +7,7 @@ use rsnano_ledger::{
 use rsnano_node::{
     bootstrap::BootstrapConfig,
     config::{NodeConfig, NodeFlags},
-    consensus::{FilteredVote, ReceivedVote},
+    consensus::{ActiveElectionView, FilteredVote, ReceivedVote, VoteCacheView},
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
@@ -19,6 +19,82 @@ use test_helpers::{
     assert_timely2, process_open_block, process_send_block, setup_independent_blocks,
     start_election, start_elections,
 };
+
+fn min_principal_weight(node: &rsnano_node::Node) -> Amount {
+    node.consensus_subsystem()
+        .online_reps_snapshot()
+        .minimum_principal_weight
+}
+
+fn active_view(node: &rsnano_node::Node, root: &rsnano_types::QualifiedRoot) -> ActiveElectionView {
+    node.consensus_subsystem()
+        .active_election_snapshot(root.clone())
+        .expect("active election missing")
+}
+
+fn election_has_max_blocks(node: &rsnano_node::Node, root: &rsnano_types::QualifiedRoot) -> bool {
+    active_view(node, root).has_max_blocks
+}
+
+fn election_vote_count(node: &rsnano_node::Node, root: &rsnano_types::QualifiedRoot) -> usize {
+    active_view(node, root).vote_count
+}
+
+fn election_contains_block(
+    node: &rsnano_node::Node,
+    root: &rsnano_types::QualifiedRoot,
+    hash: &rsnano_types::BlockHash,
+) -> bool {
+    active_view(node, root)
+        .candidate_hashes
+        .iter()
+        .any(|h| h == hash)
+}
+
+fn vote_cache_snapshot(node: &rsnano_node::Node) -> VoteCacheView {
+    node.consensus_subsystem().vote_cache_snapshot()
+}
+
+fn vote_cache_votes_for(node: &rsnano_node::Node, hash: &rsnano_types::BlockHash) -> usize {
+    vote_cache_snapshot(node)
+        .entries
+        .iter()
+        .find(|e| &e.hash == hash)
+        .map(|e| e.voters.len())
+        .unwrap_or(0)
+}
+
+fn vote_cache_size(node: &rsnano_node::Node) -> usize {
+    vote_cache_snapshot(node).size
+}
+
+fn inject_vote(
+    node: &rsnano_node::Node,
+    vote: rsnano_types::Vote,
+    source: rsnano_types::VoteSource,
+) {
+    node.consensus_subsystem()
+        .inject_vote(vote, source, None)
+        .unwrap();
+}
+
+fn process_vote_blocking(
+    node: &rsnano_node::Node,
+    vote: rsnano_types::Vote,
+    source: rsnano_types::VoteSource,
+) -> Result<(), rsnano_types::VoteError> {
+    node.consensus_subsystem()
+        .process_vote_blocking(vote, source, None)
+}
+
+fn broadcast_block_initial(node: &rsnano_node::Node, block: &rsnano_types::Block) {
+    node.consensus_subsystem()
+        .broadcast_block_initial(Arc::new(block.clone()));
+}
+
+fn clear_filter(node: &rsnano_node::Node) {
+    node.network_subsystem().clear_filter();
+}
 
 /// What this test is doing:
 /// Create 20 representatives with minimum principal weight each
@@ -41,13 +117,7 @@ fn fork_replacement_tally() {
     let keys: Vec<_> = std::iter::repeat_with(|| PrivateKey::new())
         .take(REPS_COUNT)
         .collect();
-    let min_pr_weight = node1
-        .consensus_subsystem()
-        .test_handles()
-        .online_reps
-        .lock()
-        .unwrap()
-        .minimum_principal_weight();
+    let min_pr_weight = min_principal_weight(&node1);
     let mut lattice = UnsavedBlockLatticeBuilder::new();
 
     // Create 20 representatives & confirm blocks
@@ -91,28 +161,14 @@ fn fork_replacement_tally() {
     for i in 0..REPS_COUNT {
         let mut fork_l = fork_lattice.clone();
         let fork = fork_l.genesis().send(&key, Amount::raw(1 + i as u128));
-        let vote = Arc::new(Vote::new(
+        let vote = Vote::new(
             &keys[i],
             UnixMillisTimestamp::ZERO,
             0,
             vec![fork.hash()],
-        ));
-        node1
-            .consensus_subsystem()
-            .test_handles()
-            .vote_processor_queue
-            .enqueue(vote, None, VoteSource::Live, None);
-        assert_timely2(|| {
-            node1
-                .consensus_subsystem()
-                .test_handles()
-                .vote_cache
-                .lock()
-                .unwrap()
-                .find(&fork.hash())
-                .len()
-                > 0
-        });
+        );
+        inject_vote(&node1, vote, VoteSource::Live);
+        assert_timely2(|| vote_cache_votes_for(&node1, &fork.hash()) > 0);
         node1.process_active(fork);
     }
 
@@ -120,14 +176,14 @@ fn fork_replacement_tally() {
     // it also checks that there are 10 votes in the election
     let count_rep_votes_in_election = || {
         // Check that only max weight blocks remains (and start winner)
-        let consensus_services = node1.consensus_subsystem().test_handles();
-        let active = consensus_services.active.read().unwrap();
-        let election = active
-            .election_for_root(&send_last.qualified_root())
-            .unwrap();
+        let election = active_view(&node1, &send_last.qualified_root());
         let mut vote_count = 0;
         for i in 0..REPS_COUNT {
-            if election.votes().contains_key(&keys[i].public_key()) {
+            if election
+                .votes_by_account
+                .iter()
+                .any(|v| v.account == keys[i].public_key())
+            {
                 vote_count += 1;
             }
         }
@@ -138,33 +194,15 @@ fn fork_replacement_tally() {
     // it is only 9, because the intital block of the election does not get replaced
     assert_timely_eq2(|| count_rep_votes_in_election(), 9);
 
-    assert!(
-        node1
-            .consensus_subsystem()
-            .test_handles()
-            .active
-            .read()
-            .unwrap()
-            .election_for_root(&send_last.qualified_root())
-            .unwrap()
-            .has_max_blocks()
-    );
+    assert!(election_has_max_blocks(&node1, &send_last.qualified_root()));
 
     // Process correct block
     let node2 = system
         .build_node()
         .config(System::default_config_without_backlog_scan())
         .finish();
-    node1
-        .network_subsystem()
-        .test_handles()
-        .network_filter
-        .clear_all();
-    node2
-        .consensus_subsystem()
-        .test_handles()
-        .local_block_broadcaster
-        .flood_block_initial(send_last.clone());
+    clear_filter(&node1);
+    broadcast_block_initial(&node2, &send_last);
     assert_timely2(|| {
         node1.ledger_query_services().stats.count(
             StatType::Message,
@@ -174,28 +212,11 @@ fn fork_replacement_tally() {
     });
 
     assert_timely2(|| {
-        node1
-            .consensus_subsystem()
-            .test_handles()
-            .active
-            .read()
-            .unwrap()
-            .election_for_root(&send_last.qualified_root())
-            .unwrap()
-            .has_max_blocks()
+        election_has_max_blocks(&node1, &send_last.qualified_root())
     });
 
-    let blocks1 = node1
-        .consensus_subsystem()
-        .test_handles()
-        .active
-        .read()
-        .unwrap()
-        .election_for_root(&send_last.qualified_root())
-        .unwrap()
-        .candidate_blocks()
-        .clone();
-    assert!(!blocks1.contains_key(&send_last.hash()));
+    let blocks1 = active_view(&node1, &send_last.qualified_root()).candidate_hashes;
+    assert!(!blocks1.contains(&send_last.hash()));
 
     // Process vote for correct block & replace existing lowest tally block
     let vote = Arc::new(Vote::new(
@@ -254,29 +275,13 @@ fn fork_replacement_tally() {
             .contains_block(&send_last.hash())
     };
     assert_timely2(|| find_send_last_block());
-    assert!(
-        node1
-            .consensus_subsystem()
-            .test_handles()
-            .active
-            .read()
-            .unwrap()
-            .election_for_root(&send_last.qualified_root())
-            .unwrap()
-            .has_max_blocks()
-    );
+    assert!(election_has_max_blocks(&node1, &send_last.qualified_root()));
 
     assert_timely2(|| {
-        node1
-            .consensus_subsystem()
-            .test_handles()
-            .active
-            .read()
-            .unwrap()
-            .election_for_root(&send_last.qualified_root())
-            .unwrap()
-            .votes()
-            .contains_key(&DEV_GENESIS_PUB_KEY)
+        active_view(&node1, &send_last.qualified_root())
+            .votes_by_account
+            .iter()
+            .any(|v| v.account == DEV_GENESIS_PUB_KEY)
     });
 }
 
@@ -287,22 +292,9 @@ fn inactive_votes_cache_basic() {
     let key = PrivateKey::new();
     let mut lattice = UnsavedBlockLatticeBuilder::new();
     let send = lattice.genesis().send(&key, Amount::raw(100));
-    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![send.hash()]));
-    node.consensus_subsystem()
-        .test_handles()
-        .vote_processor_queue
-        .enqueue(vote, None, VoteSource::Live, None);
-    assert_timely_eq2(
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .vote_cache
-                .lock()
-                .unwrap()
-                .size()
-        },
-        1,
-    );
+    let vote = Vote::new_final(&DEV_GENESIS_KEY, vec![send.hash()]);
+    inject_vote(&node, vote, VoteSource::Live);
+    assert_timely_eq2(|| vote_cache_size(&node), 1);
     node.process_active(send.clone());
     assert_timely2(|| node.block_confirmed(&send.hash()));
     assert_timely_eq2(|| node.get_stat("election_vote", "cache", Direction::In), 1);
