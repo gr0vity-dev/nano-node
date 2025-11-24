@@ -12,10 +12,10 @@ use rsnano_network::ChannelId;
 #[cfg(any(test, feature = "test_support"))]
 use rsnano_nullable_clock::Timestamp;
 use rsnano_output_tracker::OutputListenerMt;
-use rsnano_types::{
-    Account, Amount, Block, BlockHash, Networks, NodeId, PrivateKey, QualifiedRoot, Root,
-    SavedBlock, Vote, VoteError, WorkNonce, WorkRequest,
-};
+use rsnano_types::{Account, Amount, Block, BlockHash, Networks, NodeId, PrivateKey, QualifiedRoot,
+                   SavedBlock, Vote, VoteError};
+#[cfg(any(test, feature = "test_support"))]
+use rsnano_types::{Root, WorkNonce, WorkRequest};
 #[cfg(any(test, feature = "test_support"))]
 use rsnano_utils::stats::{DetailType, StatType};
 use rsnano_utils::{

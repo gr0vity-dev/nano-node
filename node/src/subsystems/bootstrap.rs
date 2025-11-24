@@ -7,11 +7,7 @@ use crate::{
 };
 
 use super::lifecycle::Lifecycle;
-use rsnano_types::Peer;
-#[cfg(not(any(test, feature = "test_support")))]
-use rsnano_types::Root;
-#[cfg(any(test, feature = "test_support"))]
-use rsnano_types::{Root, WorkNonce, WorkRequest};
+use rsnano_types::{Peer, Root, WorkNonce, WorkRequest};
 
 /// Construction-only bundle of bootstrap collaborators used to wire up the
 /// `BootstrapSubsystem`. This is purely for composition; do not store it on
@@ -107,8 +103,6 @@ impl BootstrapSubsystem {
         self.work_factory.work_generation_enabled()
     }
 
-    #[cfg(any(test, feature = "test_support"))]
-    #[doc(hidden)]
     pub fn generate_work(&self, request: WorkRequest) -> Option<WorkNonce> {
         self.work_factory.generate_work(request)
     }

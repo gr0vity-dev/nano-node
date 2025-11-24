@@ -14,7 +14,7 @@ use rsnano_ledger::{AnySet, Ledger, LedgerSet};
 use rsnano_messages::{ConfirmReq, Message};
 use rsnano_network::{Channel, ChannelId, Network, TrafficType};
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
-use rsnano_types::{Account, BlockHash, Root, Vote, VoteSource};
+use rsnano_types::{Account, BlockHash, PublicKey, Root, Vote, VoteSource};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{DetailType, Direction, Sample, StatType, Stats},
@@ -107,6 +107,20 @@ impl RepCrawler {
         let handle = self.thread.lock().unwrap().take();
         if let Some(handle) = handle {
             handle.join().unwrap();
+        }
+    }
+
+    pub fn register_online_rep(&self, rep_account: PublicKey, channel_id: ChannelId) -> bool {
+        let maybe_channel = self.network.read().unwrap().get(channel_id).cloned();
+        if let Some(channel) = maybe_channel {
+            let _ = self.online_reps.lock().unwrap().vote_observed_directly(
+                rep_account,
+                channel,
+                self.steady_clock.now(),
+            );
+            true
+        } else {
+            false
         }
     }
 

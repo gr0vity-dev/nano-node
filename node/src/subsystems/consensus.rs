@@ -24,7 +24,6 @@ use crate::{
     representatives::{OnlineRepInfo, OnlineReps, PeeredRepInfo, RepCrawler, RepCrawlerExt},
 };
 use rsnano_ledger::BlockError;
-#[cfg(any(test, feature = "test_support"))]
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_output_tracker::OutputTrackerMt;
@@ -379,6 +378,10 @@ impl ConsensusSubsystem {
     pub fn broadcast_block_initial(&self, block: Arc<Block>) {
         self.local_block_broadcaster
             .flood_block_initial((*block).clone());
+    }
+
+    pub fn register_online_rep(&self, account: PublicKey, channel_id: ChannelId) -> bool {
+        self.rep_crawler.register_online_rep(account, channel_id)
     }
 
     pub fn active_election_snapshot(

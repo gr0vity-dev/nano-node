@@ -263,14 +263,10 @@ impl WalletServices {
         self.wallets.deterministic_index_get(wallet_id)
     }
 
-    #[cfg(any(test, feature = "test_support"))]
-    #[doc(hidden)]
     pub fn fetch(&self, wallet_id: &WalletId, account: &PublicKey) -> Result<RawKey, WalletsError> {
         self.wallets.fetch(wallet_id, account)
     }
 
-    #[cfg(any(test, feature = "test_support"))]
-    #[doc(hidden)]
     pub fn account_private_key(
         &self,
         wallet_id: &WalletId,
@@ -320,14 +316,10 @@ impl WalletServices {
         self.wallets.remove_key(wallet_id, account)
     }
 
-    #[cfg(any(test, feature = "test_support"))]
-    #[doc(hidden)]
     pub fn wallet_seed(&self, wallet_id: WalletId) -> Result<RawKey, WalletsError> {
         self.wallets.get_seed(wallet_id)
     }
 
-    #[cfg(any(test, feature = "test_support"))]
-    #[doc(hidden)]
     pub fn change_wallet_seed(
         &self,
         wallet_id: WalletId,

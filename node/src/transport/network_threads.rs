@@ -122,9 +122,18 @@ impl NetworkThreads {
         }
     }
     pub fn stop(&mut self) {
-        *self.stopped.1.lock().unwrap() = true;
+        let mut stopped = match self.stopped.1.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *stopped = true;
         self.stopped.0.notify_all();
-        self.network.write().unwrap().stop();
+
+        let mut net = match self.network.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        net.stop();
         if let Some(t) = self.keepalive_thread.take() {
             t.join().unwrap();
         }
@@ -139,9 +148,14 @@ impl NetworkThreads {
 
 impl Drop for NetworkThreads {
     fn drop(&mut self) {
-        // All threads must be stopped before this destructor
-        debug_assert!(self.cleanup_thread.is_none());
-        debug_assert!(self.keepalive_thread.is_none());
+        // Ensure background threads are stopped when dropping; callers should
+        // normally invoke `stop` explicitly, but this is a final safety net.
+        if self.cleanup_thread.is_some()
+            || self.keepalive_thread.is_some()
+            || self.reachout_thread.is_some()
+        {
+            self.stop();
+        }
     }
 }
 
@@ -156,7 +170,10 @@ struct CleanupLoop {
 
 impl CleanupLoop {
     fn run(&self) {
-        let mut stopped = self.stopped.1.lock().unwrap();
+        let mut stopped = match self.stopped.1.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
         while !*stopped {
             let timeout = if self.network_params.network.is_dev_network() {
                 Duration::from_secs(1)
@@ -179,7 +196,10 @@ impl CleanupLoop {
 
             self.network_filter.update(timeout.as_secs());
 
-            stopped = self.stopped.1.lock().unwrap();
+            stopped = match self.stopped.1.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
         }
     }
 }

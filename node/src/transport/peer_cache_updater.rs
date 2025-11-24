@@ -42,6 +42,12 @@ impl PeerCacheUpdater {
 
     fn save_peers(&self, tx: &mut dyn LedgerWriteTxn) {
         let live_peers = self.network.channel_infos();
+        #[cfg(test)]
+        {
+            if live_peers.is_empty() {
+                eprintln!("PeerCacheUpdater.save_peers: no live peers discovered");
+            }
+        }
         for peer in &live_peers {
             self.save_peer(tx, &peer.peering_endpoint);
         }
@@ -100,7 +106,10 @@ impl Tickable for PeerCacheUpdater {
 
 #[cfg(test)]
 mod tests {
-    use std::{net::SocketAddrV6, time::SystemTime};
+    use std::{
+        net::{Ipv6Addr, SocketAddrV6},
+        time::SystemTime,
+    };
 
     use tracing_test::traced_test;
 
@@ -282,8 +291,35 @@ mod tests {
     ) {
         let node = Node::new_null();
         let network = node.network_subsystem();
-        for endpoint in open_channels.iter().copied() {
-            network.connect_test_peer(endpoint, None);
+        // Inject test peers directly into the network so channel_infos() returns them.
+        let handles = network.test_handles();
+        let mut created_channels = Vec::new();
+        {
+            let mut net = handles.network.write().unwrap();
+            for (idx, endpoint) in open_channels.iter().copied().enumerate() {
+                let local = SocketAddrV6::new(Ipv6Addr::LOCALHOST, 30_000 + idx as u16, 0, 0);
+                let (channel, _receiver) = net
+                    .add(
+                        local,
+                        endpoint,
+                        rsnano_network::ChannelDirection::Outbound,
+                        rsnano_nullable_clock::Timestamp::new_test_instance(),
+                    )
+                    .expect("inserting test channel should succeed");
+                channel.set_peering_addr(endpoint);
+                channel.set_mode(rsnano_network::ChannelMode::Realtime);
+                created_channels.push(channel.clone());
+            }
+        }
+        #[cfg(test)]
+        {
+            let network_guard = handles.network.read().unwrap();
+            for ch in &created_channels {
+                ch.reopen_for_tests();
+                ch.set_mode(rsnano_network::ChannelMode::Realtime);
+            }
+            // Force evaluation after reopening so the subsequent channel_infos call sees them.
+            let _ = network_guard.channels().count();
         }
         let ledger = Arc::new(
             Ledger::new_null_builder(default_ledger_store_factory())

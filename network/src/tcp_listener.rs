@@ -97,16 +97,43 @@ impl TcpListenerExt for Arc<TcpListener> {
         let self_l = Arc::clone(self);
         self.tokio.spawn(async move {
             let port = self_l.port.load(Ordering::SeqCst);
-            let Ok(listener) = tokio::net::TcpListener::bind(SocketAddr::new(
+            let listener = match tokio::net::TcpListener::bind(SocketAddr::new(
                 IpAddr::V6(Ipv6Addr::UNSPECIFIED),
                 port,
             ))
             .await
-            else {
-                self_l.data.lock().unwrap().started = true;
-                self_l.started.notify_all();
-                error!("Error while binding for incoming connections on: {}", port);
-                return;
+            {
+                Ok(listener) => listener,
+                Err(bind_err) => {
+                    error!(
+                        "Error binding for incoming connections on {}: {:?}; retrying with OS port",
+                        port, bind_err
+                    );
+                    match tokio::net::TcpListener::bind(SocketAddr::new(
+                        IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+                        0,
+                    ))
+                    .await
+                    {
+                        Ok(listener) => {
+                            let actual_port = listener
+                                .local_addr()
+                                .map(|addr| addr.port())
+                                .unwrap_or_default();
+                            self_l.port.store(actual_port, Ordering::SeqCst);
+                            listener
+                        }
+                        Err(fallback_err) => {
+                            self_l.data.lock().unwrap().started = true;
+                            self_l.started.notify_all();
+                            error!(
+                                "Failed to bind tcp listener on fallback port: {:?}",
+                                fallback_err
+                            );
+                            return;
+                        }
+                    }
+                }
             };
 
             let addr = listener

@@ -11,7 +11,8 @@ use rsnano_messages::{Message, NetworkFilter};
 #[cfg(any(test, feature = "test_support"))]
 use rsnano_network::Channel;
 use rsnano_network::{
-    ChannelDirection, ChannelId, ChannelMode, Network, PeerConnector, TcpListener, TcpListenerExt,
+    ChannelDirection, ChannelId, ChannelMode, Network, NetworkError, PeerConnector, TcpListener,
+    TcpListenerExt,
 };
 use rsnano_network_protocol::InboundMessageQueue;
 use rsnano_nullable_clock::{SteadyClock, Timestamp};
@@ -254,20 +255,39 @@ impl NetworkSubsystem {
     pub fn connect_test_peer(&self, endpoint: SocketAddrV6, node_id: Option<NodeId>) -> ChannelId {
         let local = self.tcp_listener.local_address();
         let now = self.steady_clock.now();
-        let (channel, _) = self
-            .network
-            .write()
-            .unwrap()
-            .add(local, endpoint, ChannelDirection::Outbound, now)
-            .expect("test peer connection should succeed");
-        channel.set_mode(ChannelMode::Realtime);
-        #[cfg(any(test, feature = "test_support"))]
-        channel.reopen_for_tests();
-        self.network
-            .write()
-            .unwrap()
-            .upgrade_to_realtime_connection(channel.channel_id(), node_id.unwrap_or_default());
-        channel.channel_id()
+        let mut network = self.network.write().unwrap();
+        match network.add(local, endpoint, ChannelDirection::Outbound, now) {
+            Ok((channel, _)) => {
+                channel.set_mode(ChannelMode::Realtime);
+                #[cfg(any(test, feature = "test_support"))]
+                channel.reopen_for_tests();
+                network.upgrade_to_realtime_connection(
+                    channel.channel_id(),
+                    node_id.unwrap_or_default(),
+                );
+                channel.channel_id()
+            }
+            Err(NetworkError::DuplicateConnection) => {
+                let existing = network
+                    .find_realtime_channel_by_remote_addr(&endpoint)
+                    .cloned()
+                    .or_else(|| network.find_realtime_channel_by_peering_addr(&endpoint).cloned());
+
+                if let Some(channel) = existing {
+                    if let Some(id) = node_id {
+                        channel.set_node_id(id);
+                    }
+                    network.upgrade_to_realtime_connection(
+                        channel.channel_id(),
+                        node_id.unwrap_or_default(),
+                    );
+                    channel.channel_id()
+                } else {
+                    panic!("duplicate test peer connection but channel not found");
+                }
+            }
+            Err(e) => panic!("test peer connection failed: {e}"),
+        }
     }
 
     pub fn set_channel_node_id(&self, channel_id: ChannelId, node_id: NodeId) {

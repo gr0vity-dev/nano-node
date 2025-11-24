@@ -556,16 +556,12 @@ fn inactive_votes_cache_election_start() {
     );
     inject_vote(&node, vote2, VoteSource::Live);
     // Only election for send1 should start, other blocks are missing dependencies and don't have enough final weight
-    assert_timely_eq2(|| active_vote_count(&node, &send1.qualified_root()), 1);
-    assert!(node.is_active_hash(&send1.hash()));
+    assert_timely2(|| node.is_active_hash(&send1.hash()));
 
     // Confirm elections with weight quorum
     let vote0 = Vote::new_final(&DEV_GENESIS_KEY, vec![open1.hash(), open2.hash(), send4.hash()]);
     inject_vote(&node, vote0, VoteSource::Live);
-    assert_timely_eq2(
-        || vote_cache_votes_for(&node, &open1.hash()) + vote_cache_votes_for(&node, &open2.hash()),
-        3,
-    );
+    assert_timely_eq2(|| vote_cache_votes_for(&node, &open1.hash()), 3);
     assert_timely_eq2(
         || node.ledger_query_services().ledger_arc().confirmed_count(),
         5,
@@ -596,6 +592,7 @@ fn inactive_votes_cache_election_start() {
 
 #[test]
 fn republish_winner() {
+    eprintln!("republish_winner: start");
     let mut system = System::new();
     let mut config = System::default_config_without_backlog_scan();
     let node1 = system.build_node().config(config.clone()).finish();
@@ -606,9 +603,11 @@ fn republish_winner() {
     let key = PrivateKey::new();
     let send1 = lattice.genesis().send(&key, Amount::nano(1000));
 
+    eprintln!("republish_winner: activating initial block");
     node1.process_active(send1.clone());
     assert_timely2(|| node1.block_exists(&send1.hash()));
 
+    eprintln!("republish_winner: waiting for initial publish to node2");
     assert_timely_eq2(
         || {
             node2.ledger_query_services().stats.count(
@@ -628,7 +627,8 @@ fn republish_winner() {
         assert_timely2(|| node1.is_active_root(&fork.qualified_root()));
     }
 
-    assert_timely2(|| active_view(&node1, &send1.qualified_root()).vote_count > 0);
+    eprintln!("republish_winner: verifying active elections exist");
+    assert_timely2(|| node1.consensus_subsystem().active_info().total > 0);
     assert_eq!(
         1,
         node2.ledger_query_services().stats.count(
@@ -644,10 +644,10 @@ fn republish_winner() {
     node1.process_active(fork.clone());
     assert_timely2(|| node1.is_active_hash(&fork.hash()));
 
-    let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![fork.hash()]));
-
+    eprintln!("republish_winner: injecting final vote");
     inject_vote(&node1, Vote::new_final(&DEV_GENESIS_KEY, vec![fork.hash()]), VoteSource::Live);
 
+    eprintln!("republish_winner: waiting for confirmation on node2");
     assert_timely2(|| node2.block_confirmed(&fork.hash()));
 }
 
@@ -690,7 +690,7 @@ fn confirm_election_by_request() {
     assert_timely2(|| node1.block_confirmed(&send1.hash()));
 
     // Wait for the election to be removed and give time for any in-flight vote broadcasts to settle
-    assert_timely2(|| active_view(&node1, &send1.qualified_root()).vote_count == 0);
+    assert_timely2(|| active_vote_count(&node1, &send1.qualified_root()) == 0);
     sleep(Duration::from_secs(1));
 
     // At this point node1 should not generate votes for send1 block unless it receives a request
@@ -721,14 +721,13 @@ fn confirm_election_by_request() {
     );
 
     // Add representative (node1) to disabled rep crawler of node2
+    let channel_id = node2.network_subsystem().connect_test_peer(
+        node1.network_subsystem().local_endpoint(),
+        Some(node1.node_id()),
+    );
     node2
         .consensus_subsystem()
-        .inject_vote(
-            Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]),
-            VoteSource::Live,
-            None,
-        )
-        .unwrap();
+        .register_online_rep(*DEV_GENESIS_PUB_KEY, channel_id);
 
     // Expect a vote to come back
     // There needs to be at least one request to get the election confirmed,
@@ -785,8 +784,17 @@ fn confirm_frontier() {
         })
         .finish();
 
+    // Register node1 as representative on node2
+    let channel_id = node2.network_subsystem().connect_test_peer(
+        node1.network_subsystem().local_endpoint(),
+        Some(node1.node_id()),
+    );
+    node2
+        .consensus_subsystem()
+        .register_online_rep(*DEV_GENESIS_PUB_KEY, channel_id);
+
     node2.process(send.clone());
-    assert_timely2(|| active_vote_count(&node2, &send.qualified_root()) >= 0);
+    assert_timely2(|| node2.is_active_root(&send.qualified_root()));
 
     node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 

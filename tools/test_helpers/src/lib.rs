@@ -6,7 +6,7 @@ use std::{
 };
 
 use rsnano_ledger::{DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY};
-use rsnano_network::{Channel, TcpListener};
+use rsnano_network::{Channel, TcpListener, TcpListenerExt};
 use rsnano_node::{
     Node, NodeBuilder, NodeEvent,
     block_processing::BacklogScanConfig,
@@ -371,8 +371,15 @@ pub fn init_tracing() {
 }
 
 fn wait_for_listener(listener: &Arc<TcpListener>) -> SocketAddrV6 {
+    if listener.local_address().port() == 0 {
+        listener.start();
+    }
+    let initial_addr = listener.local_address();
+    if initial_addr.port() == 0 {
+        eprintln!("wait_for_listener: listener not yet bound (addr={initial_addr})");
+    }
     assert_timely_msg(
-        Duration::from_secs(1),
+        Duration::from_secs(5),
         || listener.local_address().port() != 0,
         "tcp listener not started",
     );
