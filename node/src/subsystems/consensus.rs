@@ -1,9 +1,11 @@
 //! ConsensusSubsystem coordinates election scheduling, vote processing, and confirmation. Production APIs expose lifecycle and aggregate info; raw internals are available only via test handles.
 use std::{
+    net::SocketAddrV6,
     sync::{Arc, Mutex, RwLock},
     time::Duration,
 };
 
+use anyhow::Result;
 use crate::{
     block_processing::{
         BlockContext, BlockProcessor, BlockProcessorQueue, BlockSource, BoundedBacklog,
@@ -14,9 +16,10 @@ use crate::{
     config::{NetworkParams, NodeConfig, NodeFlags},
     consensus::{
         ActiveElectionsContainer, ActiveElectionsInfo, AecTicker, AecVoter, CurrentRepTiers,
-        LocalVoteHistory, RepTier, RequestAggregator, VoteCache, VoteCacheProcessor,
-        VoteGenerationEvent, VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
-        VoteRebroadcaster, WinnerBlockBroadcaster, election_schedulers::ElectionSchedulers,
+        FilteredVote, LocalVoteHistory, ReceivedVote, RepTier, RequestAggregator, VoteCache,
+        VoteCacheProcessor, VoteGenerationEvent, VoteGenerators, VoteProcessor, VoteProcessorExt,
+        VoteProcessorQueue, VoteRebroadcaster, WinnerBlockBroadcaster,
+        election_schedulers::ElectionSchedulers,
     },
     representatives::{OnlineRepInfo, OnlineReps, PeeredRepInfo, RepCrawler, RepCrawlerExt},
 };
@@ -27,6 +30,7 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_output_tracker::OutputTrackerMt;
 use rsnano_types::{
     Amount, Block, BlockHash, PublicKey, QualifiedRoot, Root, SavedBlock, UnixMillisTimestamp, Vote,
+    VoteError, VoteSource,
 };
 use rsnano_utils::fair_queue::FairQueueInfo;
 use rsnano_utils::ticker::TimerThread;
@@ -339,6 +343,40 @@ impl ConsensusSubsystem {
             is_empty: self.request_aggregator.is_empty(),
             queue_len: self.request_aggregator.len(),
         }
+    }
+
+    pub fn inject_vote(
+        &self,
+        vote: Vote,
+        source: VoteSource,
+        endpoint: Option<SocketAddrV6>,
+    ) -> Result<()> {
+        let _ = endpoint;
+        let queued = self
+            .vote_processor_queue
+            .enqueue(Arc::new(vote), None, source, None);
+        if queued {
+            Ok(())
+        } else {
+            Err(anyhow!("vote queue overfilled"))
+        }
+    }
+
+    pub fn process_vote_blocking(
+        &self,
+        vote: Vote,
+        source: VoteSource,
+        endpoint: Option<SocketAddrV6>,
+    ) -> Result<(), VoteError> {
+        let _ = endpoint;
+        let received = ReceivedVote::new(Arc::new(vote), source, None);
+        let filtered: FilteredVote = received.into();
+        self.vote_processor.vote_blocking(&filtered)
+    }
+
+    pub fn broadcast_block_initial(&self, block: Arc<Block>) {
+        self.local_block_broadcaster
+            .flood_block_initial((*block).clone());
     }
 
     pub fn active_election_snapshot(
