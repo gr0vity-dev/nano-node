@@ -127,6 +127,11 @@ impl VoteCache {
             .unwrap_or_default()
     }
 
+    /// Returns a read-only iterator over cached entries for diagnostics.
+    pub fn entries(&self) -> impl Iterator<Item = &CacheEntry> {
+        self.cache.iter()
+    }
+
     /// Removes an entry associated with block hash, does nothing if entry does not exist
     /// return true if hash existed and was erased, false otherwise
     pub fn erase(&mut self, hash: &BlockHash) -> bool {

@@ -25,7 +25,9 @@ use rsnano_ledger::BlockError;
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_output_tracker::OutputTrackerMt;
-use rsnano_types::{Amount, Block, BlockHash, QualifiedRoot, Root, SavedBlock, Vote};
+use rsnano_types::{
+    Amount, Block, BlockHash, PublicKey, QualifiedRoot, Root, SavedBlock, UnixMillisTimestamp, Vote,
+};
 use rsnano_utils::fair_queue::FairQueueInfo;
 use rsnano_utils::ticker::TimerThread;
 
@@ -85,6 +87,48 @@ pub struct OnlineRepsSnapshot {
 pub struct RequestAggregatorInfo {
     pub is_empty: bool,
     pub queue_len: usize,
+}
+
+#[derive(Clone)]
+pub struct VoteByAccountView {
+    pub account: PublicKey,
+    pub hash: BlockHash,
+    pub weight: Amount,
+    pub vote_created: UnixMillisTimestamp,
+    pub vote_received: Timestamp,
+    pub is_final: bool,
+}
+
+#[derive(Clone)]
+pub struct ActiveElectionView {
+    pub has_max_blocks: bool,
+    pub vote_count: usize,
+    pub is_confirmed: bool,
+    pub winner_hash: BlockHash,
+    pub votes_by_account: Vec<VoteByAccountView>,
+}
+
+#[derive(Clone)]
+pub struct VoteCacheVoterView {
+    pub representative: PublicKey,
+    pub weight: Amount,
+    pub timestamp: UnixMillisTimestamp,
+    pub is_final: bool,
+    pub vote_hashes: Vec<BlockHash>,
+}
+
+#[derive(Clone)]
+pub struct VoteCacheEntryView {
+    pub hash: BlockHash,
+    pub tally: Amount,
+    pub final_tally: Amount,
+    pub voters: Vec<VoteCacheVoterView>,
+}
+
+#[derive(Clone)]
+pub struct VoteCacheView {
+    pub size: usize,
+    pub entries: Vec<VoteCacheEntryView>,
 }
 
 #[derive(Clone)]
@@ -294,6 +338,68 @@ impl ConsensusSubsystem {
         RequestAggregatorInfo {
             is_empty: self.request_aggregator.is_empty(),
             queue_len: self.request_aggregator.len(),
+        }
+    }
+
+    pub fn active_election_snapshot(
+        &self,
+        root: QualifiedRoot,
+    ) -> Option<ActiveElectionView> {
+        self.with_active(|active| {
+            active.election_for_root(&root).map(|election| {
+                let votes_by_account = election
+                    .votes()
+                    .values()
+                    .map(|summary| VoteByAccountView {
+                        account: summary.voter,
+                        hash: summary.hash,
+                        weight: summary.weight,
+                        vote_created: summary.vote_created,
+                        vote_received: summary.vote_received,
+                        is_final: summary.is_final_vote(),
+                    })
+                    .collect();
+
+                ActiveElectionView {
+                    has_max_blocks: election.has_max_blocks(),
+                    vote_count: election.vote_count(),
+                    is_confirmed: election.is_confirmed(),
+                    winner_hash: election.winner().hash(),
+                    votes_by_account,
+                }
+            })
+        })
+    }
+
+    pub fn vote_cache_snapshot(&self) -> VoteCacheView {
+        let cache = self.vote_cache.lock().unwrap();
+        let entries = cache
+            .entries()
+            .map(|entry| {
+                let voters = entry
+                    .voters
+                    .iter_unordered()
+                    .map(|voter| VoteCacheVoterView {
+                        representative: voter.representative,
+                        weight: voter.weight,
+                        timestamp: voter.vote.timestamp(),
+                        is_final: voter.vote.is_final(),
+                        vote_hashes: voter.vote.hashes.clone(),
+                    })
+                    .collect();
+
+                VoteCacheEntryView {
+                    hash: entry.hash,
+                    tally: entry.tally(),
+                    final_tally: entry.final_tally(),
+                    voters,
+                }
+            })
+            .collect();
+
+        VoteCacheView {
+            size: cache.size(),
+            entries,
         }
     }
 
