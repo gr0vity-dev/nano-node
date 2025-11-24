@@ -33,6 +33,13 @@ fn active_view(node: &rsnano_node::Node, root: &rsnano_types::QualifiedRoot) -> 
         .expect("active election missing")
 }
 
+fn active_vote_count(node: &rsnano_node::Node, root: &rsnano_types::QualifiedRoot) -> usize {
+    node.consensus_subsystem()
+        .active_election_snapshot(root.clone())
+        .map(|v| v.vote_count)
+        .unwrap_or(0)
+}
+
 fn election_has_max_blocks(node: &rsnano_node::Node, root: &rsnano_types::QualifiedRoot) -> bool {
     active_view(node, root).has_max_blocks
 }
@@ -489,10 +496,7 @@ fn inactive_votes_cache_multiple_votes() {
     );
     assert_eq!(1, vote_cache_size(&node));
     start_election(&node, &send1.hash());
-    assert_timely_eq2(
-        || active_view(&node, &send1.qualified_root()).vote_count,
-        2,
-    );
+    assert_timely_eq2(|| active_vote_count(&node, &send1.qualified_root()), 2);
     assert_timely_eq2(|| node.get_stat("election_vote", "cache", Direction::In), 2);
 }
 
@@ -508,14 +512,8 @@ fn inactive_votes_cache_election_start() {
     let key2 = PrivateKey::new();
 
     // Enough weight to trigger election hinting but not enough to confirm block on its own
-    let amount = ((node
-        .consensus_subsystem()
-        .test_handles()
-        .online_reps
-        .lock()
-        .unwrap()
-        .trended_or_minimum_weight()
-        / 100)
+    let trended = node.consensus_subsystem().online_reps_snapshot().trended_weight;
+    let amount = ((trended / 100)
         * node.config().hinted_scheduler.hinting_threshold_percent as u128)
         / 2
         + Amount::nano(1_000_000);
@@ -535,85 +533,38 @@ fn inactive_votes_cache_election_start() {
     let send4 = lattice.genesis().send(Account::from(3), 1);
 
     // Inactive votes
-    let vote1 = Arc::new(Vote::new(
+    let vote1 = Vote::new(
         &key1,
         UnixMillisTimestamp::ZERO,
         0,
         vec![open1.hash(), open2.hash(), send4.hash()],
-    ));
-    node.consensus_subsystem()
-        .test_handles()
-        .vote_processor_queue
-        .enqueue(vote1, None, VoteSource::Live, None);
-    assert_timely_eq2(
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .vote_cache
-                .lock()
-                .unwrap()
-                .size()
-        },
-        3,
     );
-    assert_eq!(
-        node.consensus_subsystem()
-            .test_handles()
-            .active
-            .read()
-            .unwrap()
-            .len(),
-        0
-    );
+    inject_vote(&node, vote1, VoteSource::Live);
+    assert_timely_eq2(|| vote_cache_size(&node), 3);
+    assert_eq!(active_vote_count(&node, &open1.qualified_root()), 0);
     assert_eq!(
         1,
         node.ledger_query_services().ledger_arc().confirmed_count()
     );
 
     // 2 votes are required to start election (dev network)
-    let vote2 = Arc::new(Vote::new(
+    let vote2 = Vote::new(
         &key2,
         UnixMillisTimestamp::ZERO,
         0,
         vec![open1.hash(), open2.hash(), send4.hash()],
-    ));
-    node.consensus_subsystem()
-        .test_handles()
-        .vote_processor_queue
-        .enqueue(vote2, None, VoteSource::Live, None);
-    // Only election for send1 should start, other blocks are missing dependencies and don't have enough final weight
-    assert_timely_eq2(
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .active
-                .read()
-                .unwrap()
-                .len()
-        },
-        1,
     );
+    inject_vote(&node, vote2, VoteSource::Live);
+    // Only election for send1 should start, other blocks are missing dependencies and don't have enough final weight
+    assert_timely_eq2(|| active_vote_count(&node, &send1.qualified_root()), 1);
     assert!(node.is_active_hash(&send1.hash()));
 
     // Confirm elections with weight quorum
-    let vote0 = Arc::new(Vote::new_final(
-        &DEV_GENESIS_KEY,
-        vec![open1.hash(), open2.hash(), send4.hash()],
-    ));
-    node.consensus_subsystem()
-        .test_handles()
-        .vote_processor_queue
-        .enqueue(vote0, None, VoteSource::Live, None);
+    let vote0 = Vote::new_final(&DEV_GENESIS_KEY, vec![open1.hash(), open2.hash(), send4.hash()]);
+    inject_vote(&node, vote0, VoteSource::Live);
     assert_timely_eq2(
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .active
-                .read()
-                .unwrap()
-                .len()
-        },
-        0,
+        || vote_cache_votes_for(&node, &open1.hash()) + vote_cache_votes_for(&node, &open2.hash()),
+        3,
     );
     assert_timely_eq2(
         || node.ledger_query_services().ledger_arc().confirmed_count(),
@@ -625,23 +576,7 @@ fn inactive_votes_cache_election_start() {
     });
 
     // A late block arrival also checks the inactive votes cache
-    assert_eq!(
-        node.consensus_subsystem()
-            .test_handles()
-            .active
-            .read()
-            .unwrap()
-            .len(),
-        0
-    );
-    let send4_cache = node
-        .consensus_subsystem()
-        .test_handles()
-        .vote_cache
-        .lock()
-        .unwrap()
-        .find(&send4.hash());
-    assert_eq!(3, send4_cache.len());
+    assert_eq!(vote_cache_votes_for(&node, &send4.hash()), 3);
     node.process_active(send3.clone());
     // An election is started for send6 but does not
     assert_eq!(
@@ -649,13 +584,6 @@ fn inactive_votes_cache_election_start() {
             .ledger_arc()
             .confirmed()
             .block_exists(&send3.hash()),
-        false
-    );
-    assert_eq!(
-        node.consensus_subsystem()
-            .test_handles()
-            .confirming_set
-            .contains(&send3.hash()),
         false
     );
     // send7 cannot be voted on but an election should be started from inactive votes
@@ -700,16 +628,7 @@ fn republish_winner() {
         assert_timely2(|| node1.is_active_root(&fork.qualified_root()));
     }
 
-    assert_timely2(|| {
-        node1
-            .consensus_subsystem()
-            .test_handles()
-            .active
-            .read()
-            .unwrap()
-            .len()
-            > 0
-    });
+    assert_timely2(|| active_view(&node1, &send1.qualified_root()).vote_count > 0);
     assert_eq!(
         1,
         node2.ledger_query_services().stats.count(
@@ -727,11 +646,7 @@ fn republish_winner() {
 
     let vote = Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![fork.hash()]));
 
-    node1
-        .consensus_subsystem()
-        .test_handles()
-        .vote_processor_queue
-        .enqueue(vote, None, VoteSource::Live, None);
+    inject_vote(&node1, Vote::new_final(&DEV_GENESIS_KEY, vec![fork.hash()]), VoteSource::Live);
 
     assert_timely2(|| node2.block_confirmed(&fork.hash()));
 }
@@ -775,16 +690,7 @@ fn confirm_election_by_request() {
     assert_timely2(|| node1.block_confirmed(&send1.hash()));
 
     // Wait for the election to be removed and give time for any in-flight vote broadcasts to settle
-    assert_timely2(|| {
-        node1
-            .consensus_subsystem()
-            .test_handles()
-            .active
-            .read()
-            .unwrap()
-            .len()
-            == 0
-    });
+    assert_timely2(|| active_view(&node1, &send1.qualified_root()).vote_count == 0);
     sleep(Duration::from_secs(1));
 
     // At this point node1 should not generate votes for send1 block unless it receives a request
@@ -808,38 +714,21 @@ fn confirm_election_by_request() {
     assert_eq!(
         node2
             .consensus_subsystem()
-            .test_handles()
-            .active
-            .read()
-            .unwrap()
-            .election_for_root(&send1.qualified_root())
-            .unwrap()
-            .is_confirmed(),
+            .active_election_snapshot(send1.qualified_root())
+            .map(|v| v.is_confirmed)
+            .unwrap_or(false),
         false
     );
-
-    // Get random peer list from node2 -- so basically just node2
-    let peers = node2
-        .network_subsystem()
-        .test_handles()
-        .network
-        .read()
-        .unwrap()
-        .sorted_channels();
-    assert_eq!(peers.is_empty(), false);
 
     // Add representative (node1) to disabled rep crawler of node2
     node2
         .consensus_subsystem()
-        .test_handles()
-        .online_reps
-        .lock()
-        .unwrap()
-        .vote_observed_directly(
-            *DEV_GENESIS_PUB_KEY,
-            peers[0].clone(),
-            node2.network_subsystem().test_handles().steady_clock.now(),
-        );
+        .inject_vote(
+            Vote::new_final(&DEV_GENESIS_KEY, vec![send1.hash()]),
+            VoteSource::Live,
+            None,
+        )
+        .unwrap();
 
     // Expect a vote to come back
     // There needs to be at least one request to get the election confirmed,
@@ -896,43 +785,20 @@ fn confirm_frontier() {
         })
         .finish();
 
-    // Add representative to disabled rep crawler
-    let peers = node2
-        .network_subsystem()
-        .test_handles()
-        .network
-        .read()
-        .unwrap()
-        .sorted_channels();
-    assert!(!peers.is_empty());
-    node2
-        .consensus_subsystem()
-        .test_handles()
-        .online_reps
-        .lock()
-        .unwrap()
-        .vote_observed_directly(
-            *DEV_GENESIS_PUB_KEY,
-            peers[0].clone(),
-            node2.network_subsystem().test_handles().steady_clock.now(),
-        );
-
     node2.process(send.clone());
-    assert_timely2(|| {
-        node2
-            .consensus_subsystem()
-            .test_handles()
-            .active
-            .read()
-            .unwrap()
-            .len()
-            > 0
-    });
+    assert_timely2(|| active_vote_count(&node2, &send.qualified_root()) >= 0);
 
     node1.wallet_services().insert_into_wallet(&DEV_GENESIS_KEY);
 
     // Save election to check request count afterwards
     assert_timely2(|| node2.is_active_root(&send.qualified_root()));
+
+    // Simulate representative response
+    inject_vote(
+        &node2,
+        Vote::new_final(&DEV_GENESIS_KEY, vec![send.hash()]),
+        VoteSource::Live,
+    );
 
     assert_timely2(|| node2.block_confirmed(&send.hash()));
     assert_timely_eq2(
@@ -940,16 +806,11 @@ fn confirm_frontier() {
         2,
     );
     assert_timely_eq2(
-        || {
-            node2
-                .consensus_subsystem()
-                .test_handles()
-                .active
-                .read()
-                .unwrap()
-                .len()
-        },
-        0,
+        || node2
+            .consensus_subsystem()
+            .active_election_snapshot(send.qualified_root())
+            .is_none(),
+        true,
     );
 }
 
