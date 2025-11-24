@@ -1,6 +1,5 @@
 use std::{
     net::{Ipv6Addr, SocketAddrV6},
-    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -35,6 +34,20 @@ fn enqueue_confirm_req(node: &Node, roots_hashes: Vec<(BlockHash, Root)>) {
     }
 }
 
+fn aggregator_empty(node: &Node) -> bool {
+    node.consensus_subsystem()
+        .request_aggregator_info()
+        .is_empty
+}
+
+fn vote_history_ids(node: &Node, root: &Root, hash: &BlockHash) -> Vec<usize> {
+    node.consensus_subsystem()
+        .vote_history_snapshot(root, hash, false)
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect()
+}
+
 #[test]
 fn one() {
     let mut system = System::new();
@@ -64,12 +77,7 @@ fn one() {
     enqueue_confirm_req(&node, vec![(send1.hash(), send1.root())]);
     assert_timely_msg(
         Duration::from_secs(3),
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .request_aggregator
-                .is_empty()
-        },
+        || aggregator_empty(&node),
         "aggregator not empty",
     );
     assert_timely_eq(
@@ -95,12 +103,7 @@ fn one() {
     enqueue_confirm_req(&node, vec![(send1.hash(), send1.root())]);
     assert_timely_msg(
         Duration::from_secs(3),
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .request_aggregator
-                .is_empty()
-        },
+        || aggregator_empty(&node),
         "aggregator not empty",
     );
     assert_timely_msg(
@@ -120,12 +123,7 @@ fn one() {
     enqueue_confirm_req(&node, vec![(send1.hash(), send1.root())]);
     assert_timely_msg(
         Duration::from_secs(3),
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .request_aggregator
-                .is_empty()
-        },
+        || aggregator_empty(&node),
         "aggregator not empty",
     );
     assert_timely_eq(
@@ -241,12 +239,7 @@ fn one_update() {
     );
     assert_timely_msg(
         Duration::from_secs(3),
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .request_aggregator
-                .is_empty()
-        },
+        || aggregator_empty(&node),
         "aggregator empty",
     );
     assert_timely_eq(
@@ -361,12 +354,7 @@ fn two() {
     );
     assert_timely_msg(
         Duration::from_secs(3),
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .request_aggregator
-                .is_empty()
-        },
+        || aggregator_empty(&node),
         "aggregator empty",
     );
     // The same request should now send the cached vote
@@ -376,12 +364,7 @@ fn two() {
     );
     assert_timely_msg(
         Duration::from_secs(3),
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .request_aggregator
-                .is_empty()
-        },
+        || aggregator_empty(&node),
         "aggregator empty",
     );
     assert_timely_eq(
@@ -448,16 +431,11 @@ fn two() {
         0,
     );
     // Make sure the cached vote is for both hashes
-    let vote_history = node
-        .consensus_subsystem()
-        .test_handles()
-        .vote_history
-        .clone();
-    let vote1 = vote_history.votes(&send2.root(), &send2.hash(), false);
-    let vote2 = vote_history.votes(&receive1.root(), &receive1.hash(), false);
+    let vote1 = vote_history_ids(&node, &send2.root(), &send2.hash());
+    let vote2 = vote_history_ids(&node, &receive1.root(), &receive1.hash());
     assert_eq!(vote1.len(), 1);
     assert_eq!(vote2.len(), 1);
-    assert!(Arc::ptr_eq(&vote1[0], &vote2[0]));
+    assert_eq!(vote1[0], vote2[0]);
 }
 
 #[test]
@@ -514,10 +492,7 @@ fn split() {
         2,
     );
     assert!(
-        node.consensus_subsystem()
-            .test_handles()
-            .request_aggregator
-            .is_empty()
+        aggregator_empty(&node)
     );
     // Two requests were accepted, resulting in two votes (255 + 1 hashes)
     assert_timely_eq(
@@ -669,12 +644,7 @@ fn cannot_vote() {
 
     assert_timely_msg(
         Duration::from_secs(3),
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .request_aggregator
-                .is_empty()
-        },
+        || aggregator_empty(&node),
         "aggregator empty",
     );
     assert_timely_eq(
@@ -728,10 +698,7 @@ fn cannot_vote() {
     );
 
     // With an ongoing election
-    node.consensus_subsystem()
-        .test_handles()
-        .election_schedulers
-        .add_manual(send2.clone());
+    node.consensus_subsystem().push_manual(send2.clone());
     assert_timely2(|| node.is_active_root(&send2.qualified_root()));
 
     enqueue_confirm_req(
@@ -739,12 +706,7 @@ fn cannot_vote() {
         vec![(1.into(), send2.root()), (send2.hash(), send2.root())],
     );
 
-    assert_timely2(|| {
-        node.consensus_subsystem()
-            .test_handles()
-            .request_aggregator
-            .is_empty()
-    });
+    assert_timely2(|| aggregator_empty(&node));
     assert_timely_eq(
         Duration::from_secs(3),
         || {
@@ -805,12 +767,7 @@ fn cannot_vote() {
 
     assert_timely_msg(
         Duration::from_secs(3),
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .request_aggregator
-                .is_empty()
-        },
+        || aggregator_empty(&node),
         "aggregator empty",
     );
 
@@ -859,11 +816,7 @@ fn forked_open() {
     node.process(open0.clone());
     node.confirm(open0.hash());
 
-    let vote_tracker = node
-        .consensus_subsystem()
-        .test_handles()
-        .vote_generators
-        .track();
+    let vote_tracker = node.consensus_subsystem().track_vote_generation();
 
     // Request vote for the wrong fork
     enqueue_confirm_req(&node, vec![(open1.hash(), open1.root())]);
@@ -911,11 +864,7 @@ fn epoch_conflict() {
     node.confirm(change.hash());
     assert_timely2(|| node.block_confirmed(&change.hash()));
 
-    let vote_tracker = node
-        .consensus_subsystem()
-        .test_handles()
-        .vote_generators
-        .track();
+    let vote_tracker = node.consensus_subsystem().track_vote_generation();
 
     // Request vote for conflicting epoch block
     let request_roots = vec![(epoch_open.hash(), epoch_open.root())];
@@ -963,11 +912,7 @@ fn cemented_no_spacing() {
     node.process_multi(&[send1.clone(), send2.clone(), send3.clone()]);
     node.confirm_multi(&[send1.clone(), send2.clone(), send3.clone()]);
 
-    let vote_tracker = node
-        .consensus_subsystem()
-        .test_handles()
-        .vote_generators
-        .track();
+    let vote_tracker = node.consensus_subsystem().track_vote_generation();
     // Request votes for blocks at different positions in the chain
     enqueue_confirm_req(
         &node,

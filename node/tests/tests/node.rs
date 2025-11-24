@@ -1713,19 +1713,13 @@ fn online_reps_rep_crawler() {
 
     // After inserting to rep crawler
     node.consensus_subsystem()
-        .test_handles()
-        .rep_crawler
-        .force_process_vote(vote, channel_id);
+        .process_rep_crawler_vote(vote, channel_id);
 
     assert_timely_eq2(
-        || {
-            node.consensus_subsystem()
-                .test_handles()
-                .online_reps
-                .lock()
-                .unwrap()
-                .online_weight()
-        },
+        || node
+            .consensus_subsystem()
+            .online_reps_snapshot()
+            .online_weight,
         Amount::MAX,
     );
 }

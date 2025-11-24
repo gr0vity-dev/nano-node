@@ -15,14 +15,17 @@ use crate::{
     consensus::{
         ActiveElectionsContainer, ActiveElectionsInfo, AecTicker, AecVoter, CurrentRepTiers,
         LocalVoteHistory, RepTier, RequestAggregator, VoteCache, VoteCacheProcessor,
-        VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue, VoteRebroadcaster,
-        WinnerBlockBroadcaster, election_schedulers::ElectionSchedulers,
+        VoteGenerationEvent, VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
+        VoteRebroadcaster, WinnerBlockBroadcaster, election_schedulers::ElectionSchedulers,
     },
     representatives::{OnlineRepInfo, OnlineReps, PeeredRepInfo, RepCrawler, RepCrawlerExt},
 };
 use rsnano_ledger::BlockError;
+#[cfg(any(test, feature = "test_support"))]
+use rsnano_network::ChannelId;
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{Amount, Block, BlockHash, QualifiedRoot, SavedBlock};
+use rsnano_output_tracker::OutputTrackerMt;
+use rsnano_types::{Amount, Block, BlockHash, QualifiedRoot, Root, SavedBlock, Vote};
 use rsnano_utils::fair_queue::FairQueueInfo;
 use rsnano_utils::ticker::TimerThread;
 
@@ -76,6 +79,18 @@ pub struct OnlineRepsSnapshot {
     pub minimum_principal_weight: Amount,
     pub peered_reps: Vec<PeeredRepInfo>,
     pub online_reps: Vec<OnlineRepInfo>,
+}
+
+#[derive(Clone)]
+pub struct RequestAggregatorInfo {
+    pub is_empty: bool,
+    pub queue_len: usize,
+}
+
+#[derive(Clone)]
+pub struct VoteHistoryEntry {
+    pub id: usize,
+    pub vote: Vote,
 }
 
 /// Facade over consensus internals (active elections, vote processor, schedulers).
@@ -273,6 +288,38 @@ impl ConsensusSubsystem {
             peered_reps: reps.peered_reps(),
             online_reps: reps.online_reps().collect(),
         }
+    }
+
+    pub fn request_aggregator_info(&self) -> RequestAggregatorInfo {
+        RequestAggregatorInfo {
+            is_empty: self.request_aggregator.is_empty(),
+            queue_len: self.request_aggregator.len(),
+        }
+    }
+
+    pub fn vote_history_snapshot(
+        &self,
+        root: &Root,
+        hash: &BlockHash,
+        is_final: bool,
+    ) -> Vec<VoteHistoryEntry> {
+        self.vote_history
+            .votes(root, hash, is_final)
+            .into_iter()
+            .map(|vote| VoteHistoryEntry {
+                id: Arc::as_ptr(&vote) as usize,
+                vote: (*vote).clone(),
+            })
+            .collect()
+    }
+
+    pub fn track_vote_generation(&self) -> Arc<OutputTrackerMt<VoteGenerationEvent>> {
+        self.vote_generators.track()
+    }
+
+    #[cfg(any(test, feature = "test_support"))]
+    pub fn process_rep_crawler_vote(&self, vote: Vote, channel_id: ChannelId) {
+        self.rep_crawler.force_process_vote(vote, channel_id);
     }
 
     #[cfg(any(test, feature = "test_support"))]
