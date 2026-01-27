@@ -29,6 +29,8 @@
 #include <boost/unordered_set.hpp>
 
 #include <random>
+#include <algorithm>
+#include <unordered_set>
 
 using namespace std::chrono_literals;
 
@@ -224,6 +226,80 @@ TEST (wallet, multithreaded_send_async)
 	{
 		i->join ();
 	}
+}
+
+TEST (wallet, auto_receive_many_accounts)
+{
+	nano::test::system system;
+	nano::node_config config = system.default_config ();
+	config.enable_voting = true;
+	config.backlog_scan.enable = false;
+	nano::node_flags flags;
+	auto & node (*system.add_node (config, flags));
+	auto wallet = system.wallet (0);
+
+	wallet->insert_adhoc (nano::dev::genesis_key.prv);
+
+	size_t account_count = 100000;
+	if (auto count_env = std::getenv ("SLOW_TEST_WALLET_ACCOUNT_COUNT"))
+	{
+		account_count = boost::lexical_cast<size_t> (count_env);
+	}
+	size_t send_count = 100;
+	if (auto send_env = std::getenv ("SLOW_TEST_WALLET_SEND_COUNT"))
+	{
+		send_count = boost::lexical_cast<size_t> (send_env);
+	}
+
+	std::vector<nano::account> accounts;
+	accounts.reserve (account_count);
+	for (size_t i = 0; i < account_count; ++i)
+	{
+		accounts.push_back (wallet->deterministic_insert (false));
+	}
+
+	std::unordered_set<size_t> recipient_indexes;
+	recipient_indexes.reserve (send_count);
+	std::mt19937_64 rng{ 1 };
+	std::uniform_int_distribution<size_t> dist (0, accounts.size () - 1);
+	while (recipient_indexes.size () < send_count)
+	{
+		recipient_indexes.insert (dist (rng));
+	}
+
+	std::vector<nano::account> recipients;
+	recipients.reserve (send_count);
+	for (auto index : recipient_indexes)
+	{
+		recipients.push_back (accounts[index]);
+	}
+
+	auto amount = node.config.receive_minimum.number ();
+	std::vector<nano::block_hash> send_hashes;
+	send_hashes.reserve (send_count);
+	auto start = std::chrono::steady_clock::now ();
+	for (auto const & account : recipients)
+	{
+		auto block = wallet->send_action (nano::dev::genesis_key.pub, account, amount);
+		ASSERT_NE (nullptr, block);
+		send_hashes.push_back (block->hash ());
+	}
+	for (auto const & hash : send_hashes)
+	{
+		nano::test::confirm (node.ledger, hash);
+	}
+	ASSERT_TRUE (nano::test::confirmed (node, send_hashes));
+
+	node.wallets.search_receivable_all ();
+
+	ASSERT_TIMELY (120s, std::all_of (recipients.begin (), recipients.end (), [&node, amount] (auto const & account) {
+		return node.balance (account) == amount;
+	}));
+
+	auto end = std::chrono::steady_clock::now ();
+	auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds> (end - start).count ();
+	std::cout << "auto_receive_many_accounts accounts=" << account_count << " sends=" << send_count
+			  << " duration_ms=" << elapsed_ms << std::endl;
 }
 
 TEST (store, load)
