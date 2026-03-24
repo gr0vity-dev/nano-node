@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ops::Deref};
 
-use rsnano_types::{Amount, BlockHash, VoteError, VoteSource};
+use rsnano_types::{BlockHash, VoteError};
 
 use super::{
     ApplyVoteArgs, VoteApplicationEvent,
@@ -8,7 +8,10 @@ use super::{
     root_container::{Entry, RootContainer},
     stats::VoteCounter,
 };
-use crate::consensus::election::{ConfirmationType, Election, VoteSummary};
+use crate::consensus::election::{
+    ConfirmationType, Election, ElectionVoteTransition, VoteRegistrationDecision,
+    decide_vote_registration,
+};
 
 pub(super) struct ApplyVoteHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
@@ -83,29 +86,25 @@ struct ApplyVoteToElectionHelper<'a> {
 
 impl<'a> ApplyVoteToElectionHelper<'a> {
     pub fn apply_vote(&mut self) -> ApplyVoteToElectionResult {
-        if self.election.is_confirmed() {
+        let rep_weight = self.args.rep_weights.weight(&self.args.vote.voter);
+        let cooldown = self.args.quorum_specs.cooldown_time(rep_weight);
+        let last_vote = self.election.votes().get(&self.args.vote.voter);
+
+        let decision = decide_vote_registration(
+            self.election.is_confirmed(),
+            last_vote,
+            self.args.vote,
+            self.args.vote.source,
+            self.block_hash,
+            cooldown,
+            self.args.now,
+        );
+
+        if let VoteRegistrationDecision::Reject(err) = decision {
             return ApplyVoteToElectionResult {
-                vote_result: Err(VoteError::Late),
+                vote_result: Err(err),
                 events: Vec::new(),
             };
-        }
-
-        let rep_weight = self.args.rep_weights.weight(&self.args.vote.voter);
-
-        if let Some(last_vote) = self.election.votes().get(&self.args.vote.voter) {
-            if let Err(err) = last_vote.ensure_no_replay(self.args.vote, self.block_hash) {
-                return ApplyVoteToElectionResult {
-                    vote_result: Err(err),
-                    events: Vec::new(),
-                };
-            }
-
-            if self.should_cool_down(last_vote, rep_weight) {
-                return ApplyVoteToElectionResult {
-                    vote_result: Err(VoteError::Ignored),
-                    events: Vec::new(),
-                };
-            }
         }
 
         let events = self.add_vote();
@@ -113,20 +112,6 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             vote_result: Ok(()),
             events,
         }
-    }
-
-    fn should_cool_down(&self, last_vote: &VoteSummary, rep_weight: Amount) -> bool {
-        if self.args.vote.source == VoteSource::Cache {
-            // Only cooldown live votes
-            return false;
-        }
-
-        if last_vote.has_switched_to_final_vote(self.args.vote) {
-            return false;
-        }
-
-        let cooldown = self.args.quorum_specs.cooldown_time(rep_weight);
-        last_vote.vote_received.elapsed(self.args.now) < cooldown
     }
 
     fn add_vote(&mut self) -> Vec<VoteApplicationEvent> {
@@ -141,15 +126,18 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     }
 
     pub fn confirm_if_quorum(&mut self) -> Vec<VoteApplicationEvent> {
-        let old_winner = self.election.winner().hash();
+        let before = self.election.vote_state_snapshot();
         let mut events = Vec::new();
 
         self.election
             .update_tallies(self.args.rep_weights, self.args.quorum_specs.quorum_delta);
 
-        self.add_winner_changed_event(old_winner, &mut events);
+        let transition =
+            ElectionVoteTransition::between(before, self.election.vote_state_snapshot());
 
-        if self.election.is_final() && self.election.is_confirmed() {
+        self.add_winner_changed_event(transition, &mut events);
+
+        if transition.newly_confirmed {
             self.election_got_confirmed(&mut events);
         }
         events
@@ -157,11 +145,10 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
 
     fn add_winner_changed_event(
         &mut self,
-        old_winner: BlockHash,
+        transition: ElectionVoteTransition,
         events: &mut Vec<VoteApplicationEvent>,
     ) {
-        let winner_changed = self.election.winner().hash() != old_winner;
-        if winner_changed {
+        if let Some((old_winner, _)) = transition.winner_changed {
             events.push(VoteApplicationEvent::WinnerChanged(
                 old_winner,
                 self.election.winner().deref().clone(),
@@ -200,8 +187,8 @@ mod tests {
     use rsnano_ledger::RepWeights;
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{
-        Block, BlockPriority, PrivateKey, QualifiedRoot, SavedBlock, StateBlockArgs,
-        UnixMillisTimestamp, Vote,
+        Amount, Block, BlockPriority, PrivateKey, QualifiedRoot, SavedBlock, StateBlockArgs,
+        UnixMillisTimestamp, Vote, VoteSource,
     };
     use std::time::Duration;
 

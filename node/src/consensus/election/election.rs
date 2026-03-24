@@ -9,7 +9,7 @@ use strum_macros::{EnumCount, EnumIter};
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
     Account, Amount, Block, BlockHash, MaybeSavedBlock, PublicKey, QualifiedRoot, SavedBlock,
-    UnixMillisTimestamp, Vote, VoteError,
+    UnixMillisTimestamp, Vote, VoteError, VoteSource,
 };
 use rsnano_utils::stats::DetailType;
 
@@ -458,6 +458,75 @@ impl Election {
             votes,
         }
     }
+
+    pub fn vote_state_snapshot(&self) -> ElectionVoteStateSnapshot {
+        ElectionVoteStateSnapshot {
+            winner: self.winner.hash(),
+            is_confirmed: self.is_confirmed(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ElectionVoteStateSnapshot {
+    pub winner: BlockHash,
+    pub is_confirmed: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ElectionVoteTransition {
+    pub winner_changed: Option<(BlockHash, BlockHash)>,
+    pub newly_confirmed: bool,
+}
+
+impl ElectionVoteTransition {
+    pub fn between(
+        before: ElectionVoteStateSnapshot,
+        after: ElectionVoteStateSnapshot,
+    ) -> ElectionVoteTransition {
+        ElectionVoteTransition {
+            winner_changed: (before.winner != after.winner)
+                .then_some((before.winner, after.winner)),
+            newly_confirmed: !before.is_confirmed && after.is_confirmed,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VoteRegistrationDecision {
+    Register,
+    Reject(VoteError),
+}
+
+pub fn decide_vote_registration(
+    election_is_confirmed: bool,
+    last_vote: Option<&VoteSummary>,
+    new_vote: &Vote,
+    vote_source: VoteSource,
+    block_hash: &BlockHash,
+    cooldown: Duration,
+    now: Timestamp,
+) -> VoteRegistrationDecision {
+    if election_is_confirmed {
+        return VoteRegistrationDecision::Reject(VoteError::Late);
+    }
+
+    let Some(last_vote) = last_vote else {
+        return VoteRegistrationDecision::Register;
+    };
+
+    if let Err(err) = last_vote.ensure_no_replay(new_vote, block_hash) {
+        return VoteRegistrationDecision::Reject(err);
+    }
+
+    if vote_source != VoteSource::Cache
+        && !last_vote.has_switched_to_final_vote(new_vote)
+        && last_vote.vote_received.elapsed(now) < cooldown
+    {
+        return VoteRegistrationDecision::Reject(VoteError::Ignored);
+    }
+
+    VoteRegistrationDecision::Register
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -505,6 +574,127 @@ impl VoteSummary {
 
     pub fn has_switched_to_final_vote(&self, new_vote: &Vote) -> bool {
         new_vote.is_final() && self.vote_created < new_vote.timestamp()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsnano_types::PrivateKey;
+
+    #[test]
+    fn vote_registration_rejects_replay() {
+        let voter = PrivateKey::from(1).public_key();
+        let last_vote = VoteSummary::new(
+            voter,
+            BlockHash::from(7),
+            UnixMillisTimestamp::new(2000),
+            Timestamp::new_test_instance(),
+        );
+        let new_vote = Vote::new(
+            &PrivateKey::from(1),
+            UnixMillisTimestamp::new(1000),
+            0,
+            vec![BlockHash::from(5)],
+        );
+
+        let decision = decide_vote_registration(
+            false,
+            Some(&last_vote),
+            &new_vote,
+            VoteSource::Live,
+            &BlockHash::from(5),
+            Duration::from_secs(15),
+            Timestamp::new_test_instance(),
+        );
+
+        assert_eq!(
+            decision,
+            VoteRegistrationDecision::Reject(VoteError::Replay)
+        );
+    }
+
+    #[test]
+    fn vote_registration_rejects_live_vote_in_cooldown() {
+        let key = PrivateKey::from(1);
+        let now = Timestamp::new_test_instance();
+        let last_vote = VoteSummary::new(
+            key.public_key(),
+            BlockHash::from(5),
+            UnixMillisTimestamp::new(1000),
+            now - Duration::from_millis(500),
+        );
+        let new_vote = Vote::new(
+            &key,
+            UnixMillisTimestamp::new(2000),
+            0,
+            vec![BlockHash::from(5)],
+        );
+
+        let decision = decide_vote_registration(
+            false,
+            Some(&last_vote),
+            &new_vote,
+            VoteSource::Live,
+            &BlockHash::from(5),
+            Duration::from_secs(15),
+            now,
+        );
+
+        assert_eq!(
+            decision,
+            VoteRegistrationDecision::Reject(VoteError::Ignored)
+        );
+    }
+
+    #[test]
+    fn vote_registration_allows_cache_vote_during_cooldown() {
+        let key = PrivateKey::from(1);
+        let now = Timestamp::new_test_instance();
+        let last_vote = VoteSummary::new(
+            key.public_key(),
+            BlockHash::from(5),
+            UnixMillisTimestamp::new(1000),
+            now - Duration::from_millis(500),
+        );
+        let new_vote = Vote::new(
+            &key,
+            UnixMillisTimestamp::new(2000),
+            0,
+            vec![BlockHash::from(5)],
+        );
+
+        let decision = decide_vote_registration(
+            false,
+            Some(&last_vote),
+            &new_vote,
+            VoteSource::Cache,
+            &BlockHash::from(5),
+            Duration::from_secs(15),
+            now,
+        );
+
+        assert_eq!(decision, VoteRegistrationDecision::Register);
+    }
+
+    #[test]
+    fn vote_transition_detects_winner_change_and_confirmation() {
+        let transition = ElectionVoteTransition::between(
+            ElectionVoteStateSnapshot {
+                winner: BlockHash::from(1),
+                is_confirmed: false,
+            },
+            ElectionVoteStateSnapshot {
+                winner: BlockHash::from(2),
+                is_confirmed: true,
+            },
+        );
+
+        assert_eq!(
+            transition.winner_changed,
+            Some((BlockHash::from(1), BlockHash::from(2)))
+        );
+        assert!(transition.newly_confirmed);
     }
 }
 
