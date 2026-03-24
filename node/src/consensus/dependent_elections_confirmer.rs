@@ -56,8 +56,8 @@ impl DependentElectionsConfirmer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::AecInsertRequest;
     use crate::consensus::AecEvent;
+    use crate::consensus::AecInsertRequest;
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{BlockPriority, SavedBlock};
     use rsnano_utils::sync::backpressure_channel::channel;

@@ -213,7 +213,11 @@ impl ActiveElectionsContainer {
         self.max_elections as i64 - current_size
     }
 
-    pub fn set_cooldown(&mut self, cool_down: bool, reason: AecCooldownReason) -> AecContainerChange<()> {
+    pub fn set_cooldown(
+        &mut self,
+        cool_down: bool,
+        reason: AecCooldownReason,
+    ) -> AecContainerChange<()> {
         let result = self.cooldown.set_cooldown(cool_down, reason);
         if result == CooldownResult::Recovered {
             AecContainerChange::with_events((), vec![AecEvent::Recovered])
@@ -394,14 +398,21 @@ impl ActiveElectionsContainer {
         result
     }
 
-    pub fn force_confirm(&mut self, block_hash: &BlockHash, now: Timestamp) -> AecContainerChange<()> {
+    pub fn force_confirm(
+        &mut self,
+        block_hash: &BlockHash,
+        now: Timestamp,
+    ) -> AecContainerChange<()> {
         let Some(election) = self.roots.election_for_block_mut(block_hash) else {
             panic!("Force confirm failed, because no active election was found");
         };
         if election.force_confirm() {
             let confirmed_election =
                 election.into_confirmed_election(now, ConfirmationType::ActiveConfirmedQuorum);
-            AecContainerChange::with_events((), vec![AecEvent::ElectionConfirmed(confirmed_election)])
+            AecContainerChange::with_events(
+                (),
+                vec![AecEvent::ElectionConfirmed(confirmed_election)],
+            )
         } else {
             AecContainerChange::new(())
         }

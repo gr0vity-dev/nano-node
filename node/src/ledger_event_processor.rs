@@ -181,7 +181,9 @@ mod tests {
         processor.active_elections = active_elections;
         processor.publisher = AecEventPublisher::new(aec_sender);
 
-        processor.process(LedgerPipelineEvent::ConfirmingSet(ConfirmingSetEvent::Recovered));
+        processor.process(LedgerPipelineEvent::ConfirmingSet(
+            ConfirmingSetEvent::Recovered,
+        ));
 
         assert!(matches!(aec_receiver.try_recv(), Ok(AecEvent::Recovered)));
     }

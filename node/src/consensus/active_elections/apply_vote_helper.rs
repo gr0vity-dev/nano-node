@@ -332,10 +332,7 @@ mod tests {
 
         assert_eq!(result.vote_result, Ok(()));
         assert_eq!(result.events.len(), 1);
-        assert!(matches!(
-            result.events[0],
-            AecEvent::ElectionConfirmed(_)
-        ));
+        assert!(matches!(result.events[0], AecEvent::ElectionConfirmed(_)));
     }
 
     // Test helpers:

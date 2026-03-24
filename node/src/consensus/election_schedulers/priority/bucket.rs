@@ -1,12 +1,12 @@
 use std::sync::atomic::Ordering;
 
-use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{BlockHash, BlockPriority, SavedBlock};
 use super::{
     bucket_stats::BucketStats,
     ordered_blocks::{BlockEntry, OrderedBlocks},
 };
 use crate::consensus::{ActiveElectionsContainer, AecEvent, AecInsertError, AecInsertRequest};
+use rsnano_nullable_clock::Timestamp;
+use rsnano_types::{BlockHash, BlockPriority, SavedBlock};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PriorityBucketConfig {
