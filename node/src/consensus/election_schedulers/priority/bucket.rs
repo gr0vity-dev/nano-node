@@ -2,12 +2,11 @@ use std::sync::atomic::Ordering;
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{BlockHash, BlockPriority, SavedBlock};
-
 use super::{
     bucket_stats::BucketStats,
     ordered_blocks::{BlockEntry, OrderedBlocks},
 };
-use crate::consensus::{ActiveElectionsContainer, AecInsertError, AecInsertRequest};
+use crate::consensus::{ActiveElectionsContainer, AecEvent, AecInsertError, AecInsertRequest};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PriorityBucketConfig {
@@ -116,34 +115,37 @@ impl Bucket {
         aec: &mut ActiveElectionsContainer,
         now: Timestamp,
         stats: &BucketStats,
-    ) {
+    ) -> Vec<AecEvent> {
         if !self.available(aec) {
-            return;
+            return Vec::new();
         }
 
         let Some(top) = self.block_queue.pop_highest_prio() else {
-            return; // Not activated;
+            return Vec::new(); // Not activated;
         };
 
         let block = top.block;
         let priority = top.priority;
         let root = block.qualified_root();
+        let mut events = Vec::new();
 
         if aec.find_bucket(&root) == Some(self.bucket_id) {
             stats
                 .activate_failed_duplicate
                 .fetch_add(1, Ordering::Relaxed);
-            return;
+            return events;
         }
 
         if aec.bucket_len(self.bucket_id) >= self.config.reserved_elections {
             // TODO aec.replace(old, new);
-            aec.erase_lowest_prio_election(self.bucket_id);
+            let result = aec.erase_lowest_prio_election(self.bucket_id);
+            events.extend(result.events);
             stats.replaced.fetch_add(1, Ordering::Relaxed);
         }
 
         match aec.insert(AecInsertRequest::new_priority(block, priority), now) {
-            Ok(_) => {
+            Ok(result) => {
+                events.extend(result.events);
                 stats.activate_success.fetch_add(1, Ordering::Relaxed);
             }
             Err(AecInsertError::RecentlyConfirmed) => {
@@ -158,6 +160,8 @@ impl Bucket {
             }
             Err(AecInsertError::Stopped) => {}
         }
+
+        events
     }
 }
 

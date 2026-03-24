@@ -20,7 +20,7 @@ use super::{
     prio_bucket_index,
 };
 use crate::consensus::{
-    ActiveElectionsContainer,
+    ActiveElectionsContainer, AecEventPublisher,
     election_schedulers::priority::{BucketInsertError, Eviction},
 };
 
@@ -33,6 +33,7 @@ pub struct PriorityScheduler {
     bucket_stats: BucketStats,
     clock: Arc<SteadyClock>,
     aec: Arc<RwLock<ActiveElectionsContainer>>,
+    publisher: AecEventPublisher,
     activate_successors_listener: OutputListenerMt<SavedBlock>,
     activations_per_bucket: Vec<AtomicU64>,
 }
@@ -43,6 +44,7 @@ impl PriorityScheduler {
         stats: Arc<Stats>,
         active_elections: Arc<RwLock<ActiveElectionsContainer>>,
         clock: Arc<SteadyClock>,
+        publisher: AecEventPublisher,
     ) -> Self {
         let mut buckets = Vec::with_capacity(prio_bucket_count());
         let mut activations_per_bucket = Vec::with_capacity(prio_bucket_count());
@@ -60,6 +62,7 @@ impl PriorityScheduler {
             bucket_stats: BucketStats::default(),
             clock,
             aec: active_elections,
+            publisher,
             activate_successors_listener: Default::default(),
             activations_per_bucket,
         }
@@ -225,9 +228,13 @@ impl PriorityScheduler {
 
         while inserted {
             inserted = false;
+            let mut events = Vec::new();
             for bucket in buckets.iter_mut().rev() {
-                bucket.activate(&mut aec, now, &self.bucket_stats);
+                events.extend(bucket.activate(&mut aec, now, &self.bucket_stats));
             }
+            drop(aec);
+            self.publisher.publish_all(events);
+            aec = self.aec.write().unwrap();
         }
     }
 
@@ -355,6 +362,12 @@ mod tests {
         let stats = Arc::new(Stats::default());
         let active_elections = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
         let clock = Arc::new(SteadyClock::new_null());
-        PriorityScheduler::new(config, stats, active_elections, clock)
+        PriorityScheduler::new(
+            config,
+            stats,
+            active_elections,
+            clock,
+            AecEventPublisher::null(),
+        )
     }
 }

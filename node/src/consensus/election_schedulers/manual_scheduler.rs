@@ -13,7 +13,9 @@ use rsnano_utils::{
     stats::{DetailType, StatType, Stats},
 };
 
-use crate::consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior};
+use crate::consensus::{
+    ActiveElectionsContainer, AecEventPublisher, AecInsertRequest, election::ElectionBehavior,
+};
 
 pub struct ManualScheduler {
     thread: Mutex<Option<JoinHandle<()>>>,
@@ -23,14 +25,16 @@ pub struct ManualScheduler {
     active_elections: Arc<RwLock<ActiveElectionsContainer>>,
     clock: Arc<SteadyClock>,
     ledger: Arc<Ledger>,
+    publisher: AecEventPublisher,
 }
 
 impl ManualScheduler {
-    pub fn new(
+    pub(crate) fn new(
         stats: Arc<Stats>,
         active_elections: Arc<RwLock<ActiveElectionsContainer>>,
         clock: Arc<SteadyClock>,
         ledger: Arc<Ledger>,
+        publisher: AecEventPublisher,
     ) -> Self {
         Self {
             thread: Mutex::new(None),
@@ -39,6 +43,7 @@ impl ManualScheduler {
             active_elections,
             clock,
             ledger,
+            publisher,
             mutex: Mutex::new(ManualSchedulerImpl {
                 queue: Default::default(),
                 stopped: false,
@@ -99,13 +104,17 @@ impl ManualScheduler {
 
                     let now = self.clock.now();
 
-                    let mut aec = self.active_elections.write().unwrap();
-                    if aec
-                        .insert(AecInsertRequest::new_manual(block, priority), now)
-                        .is_ok()
-                    {
-                        aec.transition_active(&hash);
-                    }
+                    let events = {
+                        let mut aec = self.active_elections.write().unwrap();
+                        match aec.insert(AecInsertRequest::new_manual(block, priority), now) {
+                            Ok(result) => {
+                                aec.transition_active(&hash);
+                                result.events
+                            }
+                            Err(_) => Vec::new(),
+                        }
+                    };
+                    self.publisher.publish_all(events);
                 } else {
                     drop(guard);
                 }

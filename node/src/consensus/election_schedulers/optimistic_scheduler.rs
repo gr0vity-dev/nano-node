@@ -21,7 +21,9 @@ use rsnano_utils::{
 use crate::{
     cementation::ConfirmingSet,
     config::NetworkConstants,
-    consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior},
+    consensus::{
+        ActiveElectionsContainer, AecEventPublisher, AecInsertRequest, election::ElectionBehavior,
+    },
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -64,11 +66,12 @@ pub struct OptimisticScheduler {
     ledger: Arc<Ledger>,
     confirming_set: Arc<ConfirmingSet>,
     clock: Arc<SteadyClock>,
+    publisher: AecEventPublisher,
     pub max_elections: usize,
 }
 
 impl OptimisticScheduler {
-    pub fn new(
+    pub(crate) fn new(
         config: OptimisticSchedulerConfig,
         stats: Arc<Stats>,
         active_elections: Arc<RwLock<ActiveElectionsContainer>>,
@@ -76,6 +79,7 @@ impl OptimisticScheduler {
         ledger: Arc<Ledger>,
         confirming_set: Arc<ConfirmingSet>,
         clock: Arc<SteadyClock>,
+        publisher: AecEventPublisher,
     ) -> Self {
         let max_elections =
             active_elections.read().unwrap().max_len() * config.optimistic_limit_percentage / 100;
@@ -92,6 +96,7 @@ impl OptimisticScheduler {
             ledger,
             confirming_set,
             clock,
+            publisher,
             max_elections,
         }
     }
@@ -236,12 +241,15 @@ impl OptimisticScheduler {
                 // We check for AEC vacancy inside our predicate
                 let now = self.clock.now();
                 let priority = any.block_priority(&block);
-                let inserted = self
+                let result = self
                     .active_elections
                     .write()
                     .unwrap()
-                    .insert(AecInsertRequest::new_optimistic(block, priority), now)
-                    .is_ok();
+                    .insert(AecInsertRequest::new_optimistic(block, priority), now);
+                let inserted = result.is_ok();
+                if let Ok(result) = result {
+                    self.publisher.publish_all(result.events);
+                }
 
                 if inserted {
                     self.stats

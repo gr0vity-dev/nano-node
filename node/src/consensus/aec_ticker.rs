@@ -6,23 +6,26 @@ use std::{
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 
-use super::ActiveElectionsContainer;
+use super::{ActiveElectionsContainer, AecEventPublisher};
 
 /// Every 300ms tries to transitions election state and send votes + blocks
 pub struct AecTicker {
     active_elections: Arc<RwLock<ActiveElectionsContainer>>,
     clock: Arc<SteadyClock>,
+    publisher: AecEventPublisher,
     plugins: Vec<Box<dyn AecTickerPlugin>>,
 }
 
 impl AecTicker {
-    pub fn new(
+    pub(crate) fn new(
         active_elections: Arc<RwLock<ActiveElectionsContainer>>,
         clock: Arc<SteadyClock>,
+        publisher: AecEventPublisher,
     ) -> Self {
         Self {
             active_elections,
             clock,
+            publisher,
             plugins: Vec::new(),
         }
     }
@@ -31,6 +34,7 @@ impl AecTicker {
         Self {
             active_elections: Arc::new(RwLock::new(ActiveElectionsContainer::default())),
             clock: Arc::new(SteadyClock::new_null()),
+            publisher: AecEventPublisher::null(),
             plugins: Vec::new(),
         }
     }
@@ -56,7 +60,9 @@ impl Tickable for AecTicker {
     fn tick(&mut self, _cancel_token: &CancellationToken) {
         {
             let mut aec = self.active_elections.write().unwrap();
-            aec.transition_time(self.clock.now());
+            let events = aec.transition_time(self.clock.now());
+            drop(aec);
+            self.publisher.publish_all(events);
         }
 
         for plugin in &mut self.plugins {

@@ -35,6 +35,7 @@ impl Default for ActiveElectionsConfig {
     }
 }
 
+#[derive(Clone)]
 pub enum AecEvent {
     ElectionStarted(BlockHash, QualifiedRoot),
     ElectionConfirmed(ConfirmedElection),
@@ -56,10 +57,22 @@ pub enum AecEvent {
     Recovered,
 }
 
-#[derive(Clone, Debug)]
-pub enum VoteApplicationEvent {
-    WinnerChanged(BlockHash, Block),
-    ElectionConfirmed(ConfirmedElection),
+pub struct AecContainerChange<T> {
+    pub value: T,
+    pub events: Vec<AecEvent>,
+}
+
+impl<T> AecContainerChange<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            value,
+            events: Vec::new(),
+        }
+    }
+
+    pub fn with_events(value: T, events: Vec<AecEvent>) -> Self {
+        Self { value, events }
+    }
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]

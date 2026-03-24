@@ -1,4 +1,5 @@
 mod active_elections;
+mod aec_event_publisher;
 mod aec_fork_inserter;
 mod aec_ticker;
 mod bootstrap_election_activator;
@@ -28,6 +29,7 @@ mod vote_rebroadcast;
 mod winner_block_broadcaster;
 
 pub use active_elections::*;
+pub(crate) use aec_event_publisher::*;
 pub(crate) use aec_fork_inserter::*;
 pub(crate) use aec_ticker::*;
 pub(crate) use bootstrap_election_activator::*;

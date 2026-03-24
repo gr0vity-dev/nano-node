@@ -20,9 +20,10 @@ use rsnano_types::{
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{Stats, StatsCollection, StatsSource},
+    sync::backpressure_channel::{self, Sender},
 };
 
-use super::{ActiveElectionsContainer, VoteCache};
+use super::{ActiveElectionsContainer, AecEvent, AecEventPublisher, VoteCache};
 use crate::{
     cementation::ConfirmingSet,
     config::{NetworkConstants, NodeConfig},
@@ -52,7 +53,10 @@ impl ElectionSchedulers {
         confirming_set: Arc<ConfirmingSet>,
         online_reps: Arc<Mutex<OnlineReps>>,
         clock: Arc<SteadyClock>,
+        aec_sender: Sender<AecEvent>,
     ) -> Self {
+        let publisher = AecEventPublisher::new(aec_sender);
+
         let hinted = Arc::new(HintedScheduler::new(
             config.hinted_scheduler.clone(),
             active_elections.clone(),
@@ -62,6 +66,7 @@ impl ElectionSchedulers {
             confirming_set.clone(),
             online_reps.clone(),
             clock.clone(),
+            publisher.clone(),
         ));
 
         let manual = Arc::new(ManualScheduler::new(
@@ -69,6 +74,7 @@ impl ElectionSchedulers {
             active_elections.clone(),
             clock.clone(),
             ledger.clone(),
+            publisher.clone(),
         ));
 
         let optimistic = Arc::new(OptimisticScheduler::new(
@@ -79,6 +85,7 @@ impl ElectionSchedulers {
             ledger.clone(),
             confirming_set.clone(),
             clock.clone(),
+            publisher.clone(),
         ));
 
         let priority = Arc::new(PriorityScheduler::new(
@@ -86,6 +93,7 @@ impl ElectionSchedulers {
             stats.clone(),
             active_elections.clone(),
             clock,
+            publisher,
         ));
 
         Self {
@@ -113,6 +121,7 @@ impl ElectionSchedulers {
         let confirming_set = Arc::new(ConfirmingSet::new_null());
         let online_reps = Arc::new(Mutex::new(OnlineReps::new_test_instance()));
         let clock = Arc::new(SteadyClock::new_null());
+        let (aec_sender, _aec_rx) = backpressure_channel::channel(1);
 
         Self::new(
             config,
@@ -124,6 +133,7 @@ impl ElectionSchedulers {
             confirming_set,
             online_reps,
             clock,
+            aec_sender,
         )
     }
 

@@ -8,7 +8,6 @@ use rsnano_types::{Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBloc
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
-    sync::backpressure_channel::Sender,
 };
 
 use crate::{
@@ -23,8 +22,8 @@ use crate::{
 };
 
 use super::{
-    ActiveElectionsConfig, ActiveElectionsInfo, AecEvent, AecInsertError, AecInsertRequest, Entry,
-    RootContainer,
+    ActiveElectionsConfig, ActiveElectionsInfo, AecContainerChange, AecEvent, AecInsertError,
+    AecInsertRequest, Entry, RootContainer,
     apply_vote_helper::{ApplyVoteHelper, ApplyVoteResult},
     cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
     recently_confirmed_cache::RecentlyConfirmedCache,
@@ -33,7 +32,6 @@ use super::{
 
 pub struct ActiveElectionsContainer {
     roots: RootContainer,
-    observer: Option<Sender<AecEvent>>,
     stopped: bool,
     count_by_behavior: [usize; ElectionBehavior::COUNT],
     base_latency: Duration,
@@ -47,7 +45,6 @@ impl ActiveElectionsContainer {
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
             roots: RootContainer::default(),
-            observer: None,
             stopped: false,
             count_by_behavior: Default::default(),
             base_latency,
@@ -56,10 +53,6 @@ impl ActiveElectionsContainer {
             max_elections: config.max_elections,
             stats: Default::default(),
         }
-    }
-
-    pub fn set_observer(&mut self, observer: Sender<AecEvent>) {
-        self.observer = Some(observer);
     }
 
     pub fn max_len(&self) -> usize {
@@ -98,16 +91,16 @@ impl ActiveElectionsContainer {
         &mut self,
         request: AecInsertRequest,
         now: Timestamp,
-    ) -> Result<(), AecInsertError> {
+    ) -> Result<AecContainerChange<()>, AecInsertError> {
         self.ensure_not_stopped()?;
         self.ensure_not_recently_confirmed(&request)?;
 
         if self.try_upgrade_priority_election(&request)? {
-            return Ok(());
+            return Ok(AecContainerChange::new(()));
         }
 
-        self.insert_new_election(request, now);
-        Ok(())
+        let event = self.insert_new_election(request, now);
+        Ok(AecContainerChange::with_events((), vec![event]))
     }
 
     pub fn set_last_voted(
@@ -159,7 +152,7 @@ impl ActiveElectionsContainer {
         }
     }
 
-    fn insert_new_election(&mut self, request: AecInsertRequest, now: Timestamp) {
+    fn insert_new_election(&mut self, request: AecInsertRequest, now: Timestamp) -> AecEvent {
         let root = request.block.qualified_root();
         let hash = request.block.hash();
         let election = Election::new(request.block, request.behavior, self.base_latency, now);
@@ -172,28 +165,29 @@ impl ActiveElectionsContainer {
 
         *self.count_by_behavior_mut(request.behavior) += 1;
         self.stats.started(request.behavior);
-        self.notify(AecEvent::ElectionStarted(hash, root));
+        AecEvent::ElectionStarted(hash, root)
     }
 
-    pub fn try_add_fork(&mut self, fork: &Block, fork_tally: Amount) -> bool {
+    pub fn try_add_fork(&mut self, fork: &Block, fork_tally: Amount) -> AecContainerChange<bool> {
         let Some(entry) = self.roots.get_mut(&fork.qualified_root()) else {
-            return false;
+            return AecContainerChange::new(false);
         };
 
         let result = entry.election.try_add_fork(fork, fork_tally);
+        let mut events = Vec::new();
         let added = match result {
             AddForkResult::Added => {
-                self.notify(AecEvent::BlockAddedToElection(fork.hash()));
+                events.push(AecEvent::BlockAddedToElection(fork.hash()));
                 true
             }
             AddForkResult::Replaced(removed) => {
                 self.roots.vote_router.disconnect(&removed.hash());
-                self.notify(AecEvent::BlockDiscarded(removed.into()));
-                self.notify(AecEvent::BlockAddedToElection(fork.hash()));
+                events.push(AecEvent::BlockDiscarded(removed.into()));
+                events.push(AecEvent::BlockAddedToElection(fork.hash()));
                 true
             }
             AddForkResult::TallyTooLow => {
-                self.notify(AecEvent::BlockDiscarded(fork.clone()));
+                events.push(AecEvent::BlockDiscarded(fork.clone()));
                 false
             }
             AddForkResult::Duplicate | AddForkResult::ElectionEnded => false,
@@ -206,7 +200,7 @@ impl ActiveElectionsContainer {
             self.stats.conflicts += 1;
         }
 
-        added
+        AecContainerChange::with_events(added, events)
     }
 
     /// How many election slots are available
@@ -219,16 +213,16 @@ impl ActiveElectionsContainer {
         self.max_elections as i64 - current_size
     }
 
-    pub fn set_cooldown(&mut self, cool_down: bool, reason: AecCooldownReason) {
+    pub fn set_cooldown(&mut self, cool_down: bool, reason: AecCooldownReason) -> AecContainerChange<()> {
         let result = self.cooldown.set_cooldown(cool_down, reason);
         if result == CooldownResult::Recovered {
-            self.notify(AecEvent::Recovered);
+            AecContainerChange::with_events((), vec![AecEvent::Recovered])
+        } else {
+            AecContainerChange::new(())
         }
     }
 
     pub fn stop(&mut self) {
-        // destroy send queue so that the receiver thread will be stopped too
-        drop(self.observer.take());
         self.stopped = true;
         self.roots.clear();
     }
@@ -250,12 +244,12 @@ impl ActiveElectionsContainer {
     }
 
     /// Returns the current active elections after transitioning
-    pub fn transition_time(&mut self, now: Timestamp) {
+    pub fn transition_time(&mut self, now: Timestamp) -> Vec<AecEvent> {
         self.stats.ticked += 1;
         for entry in self.roots.iter_mut() {
             entry.election.transition_time(now);
         }
-        self.erase_ended_elections();
+        self.erase_ended_elections()
     }
 
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<&Election> {
@@ -287,37 +281,38 @@ impl ActiveElectionsContainer {
         }
     }
 
-    pub fn erase_ended_elections(&mut self) {
+    pub fn erase_ended_elections(&mut self) -> Vec<AecEvent> {
         let removed = self.roots.drain_filter(|i| i.election.state().has_ended());
+        let mut events = Vec::new();
 
         for entry in removed {
-            self.cleanup_election(entry);
+            events.push(self.cleanup_election(entry));
         }
+        events
     }
 
-    pub fn erase(&mut self, root: &QualifiedRoot) -> bool {
+    pub fn erase(&mut self, root: &QualifiedRoot) -> AecContainerChange<bool> {
         let Some(entry) = self.roots.erase(root) else {
-            return false;
+            return AecContainerChange::new(false);
         };
-        self.cleanup_election(entry);
-        true
+        AecContainerChange::with_events(true, vec![self.cleanup_election(entry)])
     }
 
-    pub fn erase_lowest_prio_election(&mut self, bucket_id: usize) {
+    pub fn erase_lowest_prio_election(&mut self, bucket_id: usize) -> AecContainerChange<bool> {
         let Some((root, _)) = self.lowest_priority(bucket_id) else {
-            return;
+            return AecContainerChange::new(false);
         };
-        self.erase(&root);
+        self.erase(&root)
     }
 
-    fn cleanup_election(&mut self, entry: Entry) {
+    fn cleanup_election(&mut self, entry: Entry) -> AecEvent {
         let election = &entry.election;
 
         // Keep track of election count by election type
         *self.count_by_behavior_mut(election.behavior()) -= 1;
 
         self.stats.stopped(&entry.election);
-        self.notify(AecEvent::ElectionEnded(entry.election));
+        AecEvent::ElectionEnded(entry.election)
     }
 
     /// Dependent elections are implicitly confirmed when their block is confirmed
@@ -325,13 +320,15 @@ impl ActiveElectionsContainer {
         &mut self,
         confirmed: Vec<(SavedBlock, Option<ConfirmedElection>)>,
         now: Timestamp,
-    ) {
+    ) -> AecContainerChange<()> {
+        let mut events = Vec::new();
         for (confirmed_block, source_election) in confirmed {
             let confirmed_election =
                 self.confirm_dependent_election(&confirmed_block, source_election, now);
 
-            self.block_confirmed(confirmed_block, confirmed_election);
+            events.push(self.block_confirmed(confirmed_block, confirmed_election));
         }
+        AecContainerChange::with_events((), events)
     }
 
     fn confirm_dependent_election(
@@ -371,9 +368,9 @@ impl ActiveElectionsContainer {
         }
     }
 
-    fn block_confirmed(&mut self, block: SavedBlock, election: ConfirmedElection) {
+    fn block_confirmed(&mut self, block: SavedBlock, election: ConfirmedElection) -> AecEvent {
         self.stats.block_confirmations[election.confirmation_type as usize] += 1;
-        self.notify(AecEvent::BlockConfirmed(block, election));
+        AecEvent::BlockConfirmed(block, election)
     }
 
     pub fn remove_recently_confirmed(&mut self, block_hash: &BlockHash) {
@@ -388,20 +385,25 @@ impl ActiveElectionsContainer {
             roots: &mut self.roots,
         };
         let mut result = apply_helper.apply_vote();
+        let mut cleanup_events = Vec::with_capacity(result.confirmed.len());
         for entry in result.confirmed.drain(..) {
-            self.cleanup_election(entry);
+            cleanup_events.push(self.cleanup_election(entry));
         }
+        cleanup_events.extend(result.events);
+        result.events = cleanup_events;
         result
     }
 
-    pub fn force_confirm(&mut self, block_hash: &BlockHash, now: Timestamp) {
+    pub fn force_confirm(&mut self, block_hash: &BlockHash, now: Timestamp) -> AecContainerChange<()> {
         let Some(election) = self.roots.election_for_block_mut(block_hash) else {
             panic!("Force confirm failed, because no active election was found");
         };
         if election.force_confirm() {
             let confirmed_election =
                 election.into_confirmed_election(now, ConfirmationType::ActiveConfirmedQuorum);
-            self.notify(AecEvent::ElectionConfirmed(confirmed_election));
+            AecContainerChange::with_events((), vec![AecEvent::ElectionConfirmed(confirmed_election)])
+        } else {
+            AecContainerChange::new(())
         }
     }
 
@@ -432,16 +434,6 @@ impl ActiveElectionsContainer {
             priority: self.count_by_behavior(ElectionBehavior::Priority),
             hinted: self.count_by_behavior(ElectionBehavior::Hinted),
             optimistic: self.count_by_behavior(ElectionBehavior::Optimistic),
-        }
-    }
-
-    pub fn simulate_event(&self, event: AecEvent) {
-        self.notify(event);
-    }
-
-    fn notify(&self, event: AecEvent) {
-        if let Some(sender) = &self.observer {
-            sender.send(event).unwrap()
         }
     }
 }
@@ -498,10 +490,8 @@ pub struct ApplyVoteArgs<'a> {
 mod tests {
     use super::*;
     use crate::consensus::ReceivedVote;
-    use crate::consensus::VoteApplicationEvent;
     use rsnano_types::{BlockPriority, PrivateKey, TimePriority, Vote, VoteSource};
-    use rsnano_utils::sync::backpressure_channel::channel;
-    use std::{sync::Arc, sync::mpsc::TryRecvError};
+    use std::sync::Arc;
 
     #[test]
     fn empty() {
@@ -557,29 +547,33 @@ mod tests {
         });
 
         assert_eq!(result.per_block.get(&block_hash), Some(&Ok(())));
-        assert_eq!(result.events.len(), 1);
+        assert!(matches!(
+            result.events.as_slice(),
+            [AecEvent::ElectionEnded(_), AecEvent::ElectionConfirmed(_)]
+        ));
 
         assert!(container.election_for_block(&block_hash).is_none());
     }
 
     #[test]
-    fn apply_vote_returns_events_without_notifying_observer() {
+    fn apply_vote_returns_confirmation_and_cleanup_events() {
         let mut container = ActiveElectionsContainer::default();
-        let (tx, rx) = channel(8);
-        container.set_observer(tx);
 
         let block = SavedBlock::new_test_instance();
         let block_hash = block.hash();
         let now = Timestamp::new_test_instance();
 
-        container
+        let insert_result = container
             .insert(
                 AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
                 now,
             )
             .unwrap();
 
-        assert!(matches!(rx.try_recv(), Ok(AecEvent::ElectionStarted(_, _))));
+        assert!(matches!(
+            insert_result.events.as_slice(),
+            [AecEvent::ElectionStarted(_, _)]
+        ));
 
         let rep_key = PrivateKey::from(1);
         let received_vote = test_final_vote(&rep_key, block_hash);
@@ -595,10 +589,8 @@ mod tests {
 
         assert!(matches!(
             result.events.as_slice(),
-            [VoteApplicationEvent::ElectionConfirmed(_)]
+            [AecEvent::ElectionEnded(_), AecEvent::ElectionConfirmed(_)]
         ));
-        assert!(matches!(rx.try_recv(), Ok(AecEvent::ElectionEnded(_))));
-        assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)));
     }
 
     #[test]

@@ -76,6 +76,7 @@ fn codes() {
             .write()
             .unwrap()
             .erase(&blocks[0].qualified_root())
+            .value
     );
 
     assert_eq!(
@@ -85,7 +86,7 @@ fn codes() {
 }
 
 #[test]
-fn vote_processor_emits_election_confirmed_before_vote_processed() {
+fn vote_processor_emits_cleanup_and_confirmation_before_vote_processed() {
     let mut system = System::new();
     let node = system.make_node();
     let blocks = setup_chain(&node, 1, &DEV_GENESIS_KEY, false);
@@ -104,6 +105,7 @@ fn vote_processor_emits_election_confirmed_before_vote_processed() {
 
     assert_eq!(node.vote_processor.vote_blocking(&vote), Ok(()));
 
+    assert!(matches!(rx.try_recv(), Ok(AecEvent::ElectionEnded(_))));
     assert!(matches!(rx.try_recv(), Ok(AecEvent::ElectionConfirmed(_))));
     assert!(matches!(
         rx.try_recv(),

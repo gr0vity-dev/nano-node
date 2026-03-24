@@ -65,9 +65,10 @@ use crate::{
     cementation::{ConfirmingSet, TrackConfirmationTimes},
     config::{GlobalConfig, NetworkParams, NodeConfig, NodeFlags},
     consensus::{
-        ActiveElectionsContainer, AecForkInserter, AecTicker, AecVoter, BootstrapElectionActivator,
-        BootstrapStaleElections, ConfirmReqSender, ConfirmationSolicitorPlugin, CpsLimiter,
-        CurrentRepTiers, DependentElectionsConfirmer, ForkCache, ForkCacheUpdater,
+        ActiveElectionsContainer, AecEventPublisher, AecForkInserter, AecTicker, AecVoter,
+        BootstrapElectionActivator, BootstrapStaleElections, ConfirmReqSender,
+        ConfirmationSolicitorPlugin, CpsLimiter, CurrentRepTiers, DependentElectionsConfirmer,
+        ForkCache, ForkCacheUpdater,
         LocalVoteHistory, LocalVotesRemover, RepTiersCalculator, RequestAggregator,
         RequestAggregatorCleanup, VoteApplier, VoteBroadcaster, VoteCache, VoteCacheProcessor,
         VoteGenerators, VoteProcessor, VoteProcessorExt, VoteProcessorQueue,
@@ -134,6 +135,7 @@ pub struct Node {
     pub vote_generators: Arc<VoteGenerators>,
     pub active: Arc<RwLock<ActiveElectionsContainer>>,
     pub vote_application: Arc<VoteApplier>,
+    aec_event_publisher: AecEventPublisher,
     pub vote_processor: Arc<VoteProcessor>,
     vote_cache_processor: Arc<VoteCacheProcessor>,
     pub rep_crawler: Arc<RepCrawler>,
@@ -623,12 +625,13 @@ impl Node {
 
         let (aec_tx, aec_rx) = backpressure_channel::channel(1024 * 5);
         let aec_rx2 = aec_tx.clone();
+        let aec_publisher = AecEventPublisher::new(aec_tx.clone());
         event_queues_info.add_leaf("aec", move || aec_rx2.len());
 
-        let mut active_elections =
-            ActiveElectionsContainer::new(config.active_elections.clone(), base_latency);
-        active_elections.set_observer(aec_tx.clone());
-        let active_elections = Arc::new(RwLock::new(active_elections));
+        let active_elections = Arc::new(RwLock::new(ActiveElectionsContainer::new(
+            config.active_elections.clone(),
+            base_latency,
+        )));
 
         let block_rate_calculator = BlockRateCalculator::new(steady_clock.clone(), ledger.clone());
         let block_rates = block_rate_calculator.rates().clone();
@@ -690,6 +693,7 @@ impl Node {
             confirming_set.clone(),
             online_reps.clone(),
             steady_clock.clone(),
+            aec_tx.clone(),
         ));
         ledger_event_handlers.add_mut(ElectionSchedulersPlugin::new(election_schedulers.clone()));
 
@@ -845,7 +849,11 @@ impl Node {
         ));
         bootstrapper.initialize(&network_params.ledger.genesis_account);
 
-        let mut aec_ticker = AecTicker::new(active_elections.clone(), steady_clock.clone());
+        let mut aec_ticker = AecTicker::new(
+            active_elections.clone(),
+            steady_clock.clone(),
+            aec_publisher.clone(),
+        );
 
         aec_ticker.add_plugin(ConfirmationSolicitorPlugin {
             message_flooder: message_flooder.clone(),
@@ -1215,6 +1223,7 @@ impl Node {
             fork_cache: fork_cache.clone(),
             active_elections: active_elections.clone(),
             vote_cache: vote_cache.clone(),
+            publisher: aec_publisher.clone(),
         });
 
         let aec_voter = AecVoter::new(
@@ -1262,6 +1271,7 @@ impl Node {
             aec_fork_inserter,
             stats: stats.clone(),
             winner_block_broadcaster: winner_block_broadcaster.clone(),
+            publisher: aec_publisher.clone(),
         };
 
         spawn_backpressure_processor("AEC ev proc", aec_rx, aec_event_processor);
@@ -1270,6 +1280,7 @@ impl Node {
             confirming_set: confirming_set.clone(),
             active_elections: active_elections.clone(),
             clock: steady_clock.clone(),
+            publisher: aec_publisher.clone(),
         };
 
         let fork_cache_updater = ForkCacheUpdater::new(fork_cache.clone());
@@ -1288,6 +1299,7 @@ impl Node {
             election_schedulers: election_schedulers.clone(),
             plugins: ledger_event_handlers,
             backpressure_plugins: backpressure_handlers,
+            publisher: aec_publisher.clone(),
         };
 
         spawn_backpressure_processor("Nano ev proc", ledger_rx, ledger_event_processor);
@@ -1369,6 +1381,7 @@ impl Node {
             vote_generators,
             active: active_elections,
             vote_application,
+            aec_event_publisher: aec_publisher,
             vote_processor,
             vote_cache_processor,
             rep_crawler,
@@ -1549,10 +1562,12 @@ impl Node {
             self.network_params.network.current_network,
             NetworkType::NanoDevNetwork
         );
-        self.active
+        let result = self
+            .active
             .write()
             .unwrap()
             .force_confirm(hash, self.steady_clock.now());
+        self.aec_event_publisher.publish_all(result.events);
     }
 
     pub fn get_stat(&self, stat: &'static str, detail: &'static str, dir: Direction) -> u64 {
@@ -1810,10 +1825,8 @@ mod tests {
         let election = ConfirmedElection::new_test_instance();
         let winner_hash = election.winner.hash();
 
-        node.active
-            .write()
-            .unwrap()
-            .simulate_event(AecEvent::ElectionConfirmed(election));
+        node.aec_event_publisher
+            .publish(AecEvent::ElectionConfirmed(election));
 
         let output = broadcast_tracker.wait_output().unwrap();
         assert_eq!(output, vec![winner_hash]);

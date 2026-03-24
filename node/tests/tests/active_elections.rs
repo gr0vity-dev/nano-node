@@ -6,11 +6,12 @@ use rsnano_ledger::{
     test_helpers::UnsavedBlockLatticeBuilder,
 };
 use rsnano_node::{
+    NodeEvent,
     bootstrap::BootstrapConfig,
     config::{NodeConfig, NodeFlags},
     consensus::{
         ActiveElectionsContainer, AecEvent, AecInsertRequest, ApplyVoteArgs, FilteredVote,
-        ReceivedVote, VoteApplicationEvent, election::ElectionBehavior,
+        ReceivedVote, election::ElectionBehavior,
     },
 };
 use rsnano_nullable_clock::Timestamp;
@@ -20,13 +21,18 @@ use rsnano_types::{
     Vote, VoteError, VoteSource,
 };
 use rsnano_utils::stats::{DetailType, Direction, StatType};
-use rsnano_utils::sync::backpressure_channel::channel;
-use std::sync::mpsc::TryRecvError;
+use std::sync::mpsc::{Receiver, sync_channel};
 use test_helpers::{
     System, assert_always_eq, assert_never, assert_timely_eq, assert_timely_eq2, assert_timely2,
     process_open_block, process_send_block, setup_independent_blocks, start_election,
     start_elections,
 };
+
+fn drain_node_events(receiver: &Receiver<NodeEvent>, mut f: impl FnMut(NodeEvent)) {
+    while let Ok(event) = receiver.try_recv() {
+        f(event);
+    }
+}
 
 /// What this test is doing:
 /// Create 20 representatives with minimum principal weight each
@@ -254,16 +260,14 @@ fn inactive_votes_cache_basic() {
 }
 
 #[test]
-fn apply_vote_returns_events_without_emitting_aec_vote_events_from_container() {
+fn apply_vote_returns_confirmation_and_cleanup_events_from_container() {
     let mut container = ActiveElectionsContainer::default();
-    let (tx, rx) = channel(8);
-    container.set_observer(tx);
 
     let block = SavedBlock::new_test_instance();
     let block_hash = block.hash();
     let now = Timestamp::new_test_instance();
 
-    container
+    let insert_result = container
         .insert(
             AecInsertRequest {
                 block,
@@ -274,7 +278,10 @@ fn apply_vote_returns_events_without_emitting_aec_vote_events_from_container() {
         )
         .unwrap();
 
-    assert!(matches!(rx.try_recv(), Ok(AecEvent::ElectionStarted(_, _))));
+    assert!(matches!(
+        insert_result.events.as_slice(),
+        [AecEvent::ElectionStarted(_, _)]
+    ));
 
     let rep_key = PrivateKey::from(42);
     let vote: FilteredVote = ReceivedVote::new(
@@ -297,10 +304,126 @@ fn apply_vote_returns_events_without_emitting_aec_vote_events_from_container() {
     assert_eq!(result.per_block.get(&block_hash), Some(&Ok(())));
     assert!(matches!(
         result.events.as_slice(),
-        [VoteApplicationEvent::ElectionConfirmed(_)]
+        [AecEvent::ElectionEnded(_), AecEvent::ElectionConfirmed(_)]
     ));
-    assert!(matches!(rx.try_recv(), Ok(AecEvent::ElectionEnded(_))));
-    assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)));
+}
+
+#[test]
+fn scheduler_activation_publishes_election_started_once() {
+    let mut system = System::new();
+    let (tx, rx) = sync_channel(32);
+    let node = system
+        .build_node()
+        .config(System::default_config_without_backlog_scan())
+        .event_sink(tx)
+        .finish();
+    let block = setup_independent_blocks(&node, 1, &DEV_GENESIS_KEY)[0].clone();
+    let hash = block.hash();
+    let mut started = 0;
+
+    node.process_active(block.into());
+
+    assert_timely2(|| {
+        drain_node_events(&rx, |event| {
+            if let NodeEvent::ElectionStarted(event_hash) = event
+                && event_hash == hash
+            {
+                started += 1;
+            }
+        });
+        started == 1
+    });
+    assert_never(Duration::from_millis(500), || {
+        drain_node_events(&rx, |event| {
+            if let NodeEvent::ElectionStarted(event_hash) = event
+                && event_hash == hash
+            {
+                started += 1;
+            }
+        });
+        started > 1
+    });
+}
+
+#[test]
+fn force_confirm_publishes_block_confirmed_once() {
+    let mut system = System::new();
+    let (tx, rx) = sync_channel(32);
+    let node = system
+        .build_node()
+        .config(System::default_config_without_backlog_scan())
+        .event_sink(tx)
+        .finish();
+    let block = setup_independent_blocks(&node, 1, &DEV_GENESIS_KEY)[0].clone();
+    let hash = block.hash();
+    let mut confirmations = 0;
+
+    start_election(&node, &hash);
+    drain_node_events(&rx, |_| {});
+
+    node.force_confirm(&hash);
+
+    assert_timely2(|| {
+        drain_node_events(&rx, |event| {
+            if let NodeEvent::BlockConfirmed(block, _) = event
+                && block.hash() == hash
+            {
+                confirmations += 1;
+            }
+        });
+        confirmations == 1
+    });
+    assert_never(Duration::from_millis(500), || {
+        drain_node_events(&rx, |event| {
+            if let NodeEvent::BlockConfirmed(block, _) = event
+                && block.hash() == hash
+            {
+                confirmations += 1;
+            }
+        });
+        confirmations > 1
+    });
+}
+
+#[test]
+fn ticker_cleanup_publishes_election_stopped_once() {
+    let mut system = System::new();
+    let (tx, rx) = sync_channel(32);
+    let node = system
+        .build_node()
+        .config(System::default_config_without_backlog_scan())
+        .event_sink(tx)
+        .finish();
+    let block = setup_independent_blocks(&node, 1, &DEV_GENESIS_KEY)[0].clone();
+    let hash = block.hash();
+    let root = block.qualified_root();
+    let mut stopped = 0;
+
+    start_election(&node, &hash);
+    drain_node_events(&rx, |_| {});
+
+    node.active.write().unwrap().cancel(&root);
+
+    assert_timely2(|| {
+        drain_node_events(&rx, |event| {
+            if let NodeEvent::ElectionStopped(event_hash) = event
+                && event_hash == hash
+            {
+                stopped += 1;
+            }
+        });
+        stopped == 1
+    });
+    assert_never(Duration::from_millis(500), || {
+        drain_node_events(&rx, |event| {
+            if let NodeEvent::ElectionStopped(event_hash) = event
+                && event_hash == hash
+            {
+                stopped += 1;
+            }
+        });
+        stopped > 1
+    });
 }
 
 // This test case confirms that a non final vote cannot cause an election to become confirmed

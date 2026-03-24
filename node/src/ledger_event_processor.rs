@@ -12,8 +12,9 @@ use crate::{
     bootstrap::Bootstrapper,
     cementation::{ConfirmingSet, ConfirmingSetEvent},
     consensus::{
-        ActiveElectionsContainer, AecCooldownReason, DependentElectionsConfirmer, ForkCache,
-        ForkCacheUpdater, LocalVoteHistory, election_schedulers::ElectionSchedulers,
+        ActiveElectionsContainer, AecCooldownReason, AecEvent, AecEventPublisher,
+        DependentElectionsConfirmer, ForkCache, ForkCacheUpdater, LocalVoteHistory,
+        election_schedulers::ElectionSchedulers,
     },
     utils::BackpressureEventProcessor,
 };
@@ -33,6 +34,7 @@ pub(crate) struct LedgerEventProcessor {
     pub(crate) ledger: Arc<Ledger>,
     pub(crate) plugins: EventHandlerRegistry<LedgerPipelineEvent>,
     pub(crate) backpressure_plugins: BackpressureHandlerRegistry,
+    pub(crate) publisher: AecEventPublisher,
 }
 
 impl LedgerEventProcessor {
@@ -52,6 +54,7 @@ impl LedgerEventProcessor {
             ledger: Ledger::new_null().into(),
             plugins: EventHandlerRegistry::default(),
             backpressure_plugins: BackpressureHandlerRegistry::default(),
+            publisher: AecEventPublisher::null(),
         }
     }
 }
@@ -93,14 +96,17 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                 LedgerEvent::BlocksRolledBack(rolled_back) => {
                     {
                         let mut aec = self.active_elections.write().unwrap();
+                        let mut events = Vec::new();
                         for result in rolled_back.iter() {
                             for block in &result.rolled_back {
                                 // Stop all rolled back elections except initial
                                 if block.qualified_root() != result.target_root {
-                                    aec.erase(&block.qualified_root());
+                                    events.extend(aec.erase(&block.qualified_root()).events);
                                 }
                             }
                         }
+                        drop(aec);
+                        self.publish_aec_events(events);
                     }
 
                     self.vote_history.erase_batch(rolled_back.roots());
@@ -119,16 +125,20 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                         .remove_recently_confirmed(&hash);
                 }
                 ConfirmingSetEvent::NearFull => {
-                    self.active_elections
+                    let result = self
+                        .active_elections
                         .write()
                         .unwrap()
                         .set_cooldown(true, AecCooldownReason::ConfirmingSetFull);
+                    self.publish_aec_events(result.events);
                 }
                 ConfirmingSetEvent::Recovered => {
-                    self.active_elections
+                    let result = self
+                        .active_elections
                         .write()
                         .unwrap()
                         .set_cooldown(false, AecCooldownReason::ConfirmingSetFull);
+                    self.publish_aec_events(result.events);
                 }
             },
             LedgerPipelineEvent::UnconfirmedFound(unconfirmed) => {
@@ -143,5 +153,36 @@ impl BackpressureEventProcessor<LedgerPipelineEvent> for LedgerEventProcessor {
                 }
             }
         }
+    }
+}
+
+impl LedgerEventProcessor {
+    fn publish_aec_events(&self, events: Vec<AecEvent>) {
+        self.publisher.publish_all(events);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsnano_utils::sync::backpressure_channel::channel;
+
+    #[test]
+    fn recovered_publishes_returned_aec_event() {
+        let (aec_sender, aec_receiver) = channel(8);
+        let active_elections = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+
+        active_elections
+            .write()
+            .unwrap()
+            .set_cooldown(true, AecCooldownReason::ConfirmingSetFull);
+
+        let mut processor = LedgerEventProcessor::new_null();
+        processor.active_elections = active_elections;
+        processor.publisher = AecEventPublisher::new(aec_sender);
+
+        processor.process(LedgerPipelineEvent::ConfirmingSet(ConfirmingSetEvent::Recovered));
+
+        assert!(matches!(aec_receiver.try_recv(), Ok(AecEvent::Recovered)));
     }
 }

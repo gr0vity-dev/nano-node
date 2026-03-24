@@ -14,7 +14,7 @@ use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     cementation::ConfirmingSet,
     consensus::{
-        ActiveElectionsContainer, AecCooldownReason, AecEvent, AecForkInserter,
+        ActiveElectionsContainer, AecCooldownReason, AecEvent, AecEventPublisher, AecForkInserter,
         BootstrapElectionActivator, LocalVotesRemover, ReceivedVote, VoteCache, VoteCacheProcessor,
         VoteProcessor, VoteRebroadcastQueue, WinnerBlockBroadcaster, aggregate_vote_results,
         election_schedulers::ElectionSchedulers,
@@ -45,22 +45,27 @@ pub(crate) struct AecEventProcessor {
     pub(crate) stats: Arc<Stats>,
     pub(crate) aec_fork_inserter: Arc<AecForkInserter>,
     pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
+    pub(crate) publisher: AecEventPublisher,
 }
 
 impl BackpressureEventProcessor<AecEvent> for AecEventProcessor {
     fn cool_down(&mut self) {
-        self.active_elections
+        let result = self
+            .active_elections
             .write()
             .unwrap()
             .set_cooldown(true, AecCooldownReason::AecEventQueueFull);
+        self.publish_events(result.events);
         self.vote_processor.cool_down();
     }
 
     fn recovered(&mut self) {
-        self.active_elections
+        let result = self
+            .active_elections
             .write()
             .unwrap()
             .set_cooldown(false, AecCooldownReason::AecEventQueueFull);
+        self.publish_events(result.events);
         self.vote_processor.recovered();
     }
 
@@ -156,6 +161,10 @@ impl BackpressureEventProcessor<AecEvent> for AecEventProcessor {
 }
 
 impl AecEventProcessor {
+    fn publish_events(&self, events: Vec<AecEvent>) {
+        self.publisher.publish_all(events);
+    }
+
     fn clear_network_filter(&mut self, block: &Block) {
         let mut buffer = Vec::new();
         block

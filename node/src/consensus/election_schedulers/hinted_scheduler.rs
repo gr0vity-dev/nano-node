@@ -21,7 +21,9 @@ use rsnano_utils::{
 use super::VoteCache;
 use crate::{
     cementation::ConfirmingSet,
-    consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior},
+    consensus::{
+        ActiveElectionsContainer, AecEventPublisher, AecInsertRequest, election::ElectionBehavior,
+    },
     representatives::OnlineReps,
 };
 
@@ -72,12 +74,13 @@ pub struct HintedScheduler {
     stopped: AtomicBool,
     stopped_mutex: Mutex<()>,
     cooldowns: Mutex<OrderedCooldowns>,
+    publisher: AecEventPublisher,
     pub max_elections: usize,
     notification_threshold: usize,
 }
 
 impl HintedScheduler {
-    pub fn new(
+    pub(crate) fn new(
         config: HintedSchedulerConfig,
         active_elections: Arc<RwLock<ActiveElectionsContainer>>,
         ledger: Arc<Ledger>,
@@ -86,6 +89,7 @@ impl HintedScheduler {
         confirming_set: Arc<ConfirmingSet>,
         online_reps: Arc<Mutex<OnlineReps>>,
         clock: Arc<SteadyClock>,
+        publisher: AecEventPublisher,
     ) -> Self {
         let max_elections =
             active_elections.read().unwrap().max_len() * config.hinted_limit_percentage / 100;
@@ -107,6 +111,7 @@ impl HintedScheduler {
             stopped: AtomicBool::new(false),
             stopped_mutex: Mutex::new(()),
             cooldowns: Mutex::new(OrderedCooldowns::new()),
+            publisher,
             max_elections,
             notification_threshold,
         }
@@ -206,12 +211,15 @@ impl HintedScheduler {
                 // Try to insert it into AEC as hinted election
                 let now = self.clock.now();
                 let priority = any.block_priority(&block);
-                let inserted = self
+                let result = self
                     .active_elections
                     .write()
                     .unwrap()
-                    .insert(AecInsertRequest::new_hinted(block, priority), now)
-                    .is_ok();
+                    .insert(AecInsertRequest::new_hinted(block, priority), now);
+                let inserted = result.is_ok();
+                if let Ok(result) = result {
+                    self.publisher.publish_all(result.events);
+                }
 
                 self.stats.inc(
                     StatType::Hinting,

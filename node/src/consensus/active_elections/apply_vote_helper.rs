@@ -3,7 +3,7 @@ use std::{collections::HashMap, ops::Deref};
 use rsnano_types::{BlockHash, VoteError};
 
 use super::{
-    ApplyVoteArgs, VoteApplicationEvent,
+    AecEvent, ApplyVoteArgs,
     recently_confirmed_cache::RecentlyConfirmedCache,
     root_container::{Entry, RootContainer},
     stats::VoteCounter,
@@ -68,12 +68,12 @@ impl<'a> ApplyVoteHelper<'a> {
 pub struct ApplyVoteResult {
     pub per_block: HashMap<BlockHash, Result<(), VoteError>>,
     pub(crate) confirmed: Vec<Entry>,
-    pub events: Vec<VoteApplicationEvent>,
+    pub events: Vec<AecEvent>,
 }
 
 pub(crate) struct ApplyVoteToElectionResult {
     pub vote_result: Result<(), VoteError>,
-    pub events: Vec<VoteApplicationEvent>,
+    pub events: Vec<AecEvent>,
 }
 
 struct ApplyVoteToElectionHelper<'a> {
@@ -114,7 +114,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
         }
     }
 
-    fn add_vote(&mut self) -> Vec<VoteApplicationEvent> {
+    fn add_vote(&mut self) -> Vec<AecEvent> {
         self.election.add_vote(
             self.args.vote.voter,
             *self.block_hash,
@@ -125,7 +125,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
         self.confirm_if_quorum()
     }
 
-    pub fn confirm_if_quorum(&mut self) -> Vec<VoteApplicationEvent> {
+    pub fn confirm_if_quorum(&mut self) -> Vec<AecEvent> {
         let before = self.election.vote_state_snapshot();
         let mut events = Vec::new();
 
@@ -146,24 +146,24 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     fn add_winner_changed_event(
         &mut self,
         transition: ElectionVoteTransition,
-        events: &mut Vec<VoteApplicationEvent>,
+        events: &mut Vec<AecEvent>,
     ) {
         if let Some((old_winner, _)) = transition.winner_changed {
-            events.push(VoteApplicationEvent::WinnerChanged(
+            events.push(AecEvent::WinnerChanged(
                 old_winner,
                 self.election.winner().deref().clone(),
             ));
         }
     }
 
-    fn election_got_confirmed(&mut self, events: &mut Vec<VoteApplicationEvent>) {
+    fn election_got_confirmed(&mut self, events: &mut Vec<AecEvent>) {
         self.insert_recently_confirmed();
 
         let confirmed_election = self
             .election
             .into_confirmed_election(self.args.now, ConfirmationType::ActiveConfirmedQuorum);
 
-        events.push(VoteApplicationEvent::ElectionConfirmed(confirmed_election));
+        events.push(AecEvent::ElectionConfirmed(confirmed_election));
     }
 
     fn insert_recently_confirmed(&mut self) {
@@ -314,7 +314,7 @@ mod tests {
 
         assert_eq!(fixture.election.winner().hash(), fork.hash());
         assert_eq!(result.events.len(), 1);
-        let VoteApplicationEvent::WinnerChanged(old_winner, new_winner) = &result.events[0] else {
+        let AecEvent::WinnerChanged(old_winner, new_winner) = &result.events[0] else {
             panic!("not a winner changed event");
         };
         assert_eq!(old_winner, &block.hash());
@@ -334,7 +334,7 @@ mod tests {
         assert_eq!(result.events.len(), 1);
         assert!(matches!(
             result.events[0],
-            VoteApplicationEvent::ElectionConfirmed(_)
+            AecEvent::ElectionConfirmed(_)
         ));
     }
 

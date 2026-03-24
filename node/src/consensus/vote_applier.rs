@@ -9,7 +9,7 @@ use rsnano_ledger::RepWeightCache;
 use rsnano_types::{Amount, BlockHash, VoteError};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
-use super::{ActiveElectionsContainer, AecEvent, FilteredVote, ReceivedVote, VoteApplicationEvent};
+use super::{ActiveElectionsContainer, AecEvent, FilteredVote, ReceivedVote};
 use crate::{consensus::ApplyVoteArgs, representatives::OnlineReps};
 
 /// Applies a vote to an election
@@ -95,23 +95,16 @@ impl VoteApplier {
             })
         };
 
-        self.notify_vote_application_events(&results.events);
+        self.publish_events(results.events);
         self.notify_vote_processed(vote, voter_weight, &results.per_block);
         results.per_block
     }
 
-    fn notify_vote_application_events(&self, events: &[VoteApplicationEvent]) {
+    fn publish_events(&self, events: Vec<AecEvent>) {
+        let senders = self.event_senders.read().unwrap();
         for event in events {
-            for sender in self.event_senders.read().unwrap().iter() {
-                let event = match event {
-                    VoteApplicationEvent::WinnerChanged(old_winner, new_winner) => {
-                        AecEvent::WinnerChanged(*old_winner, new_winner.clone())
-                    }
-                    VoteApplicationEvent::ElectionConfirmed(election) => {
-                        AecEvent::ElectionConfirmed(election.clone())
-                    }
-                };
-                let _ = sender.send(event);
+            for sender in senders.iter() {
+                let _ = sender.send(event.clone());
             }
         }
     }
@@ -236,6 +229,7 @@ mod tests {
         let results = vote_applier.vote(&vote.into());
 
         assert_eq!(results.get(&block_hash), Some(&Ok(())));
+        assert!(matches!(rx.try_recv(), Ok(AecEvent::ElectionEnded(_))));
         assert!(matches!(rx.try_recv(), Ok(AecEvent::ElectionConfirmed(_))));
         assert!(matches!(
             rx.try_recv(),
