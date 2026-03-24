@@ -8,3 +8,13 @@ cargo
 .cache/
 config-node.toml.sample
 config-rpc.toml.sample
+
+.agents
+.braid
+goals.*.md
+.cursor/
+.debug/
+.gemini/
+.policy/
+run_tests.sh
+AGENTS.md
