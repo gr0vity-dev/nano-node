@@ -93,7 +93,7 @@ fn vote_processor_emits_election_confirmed_before_vote_processed() {
     assert_timely2(|| node.is_active_root(&blocks[0].qualified_root()));
 
     let (tx, rx) = channel(8);
-    node.vote_processor.add_observer(tx);
+    node.vote_application.add_event_sink(tx);
 
     let vote: FilteredVote = ReceivedVote::new(
         Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![blocks[0].hash()])),

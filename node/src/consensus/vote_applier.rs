@@ -13,7 +13,7 @@ use super::{ActiveElectionsContainer, AecEvent, FilteredVote, ReceivedVote, Vote
 use crate::{consensus::ApplyVoteArgs, representatives::OnlineReps};
 
 /// Applies a vote to an election
-pub(crate) struct VoteApplier {
+pub struct VoteApplier {
     active_elections: Arc<RwLock<ActiveElectionsContainer>>,
     event_senders: RwLock<Vec<Sender<AecEvent>>>,
     online_reps: Arc<Mutex<OnlineReps>>,

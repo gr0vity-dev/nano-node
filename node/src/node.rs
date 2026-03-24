@@ -133,6 +133,7 @@ pub struct Node {
     pub wallets: Arc<Wallets>,
     pub vote_generators: Arc<VoteGenerators>,
     pub active: Arc<RwLock<ActiveElectionsContainer>>,
+    pub vote_application: Arc<VoteApplier>,
     pub vote_processor: Arc<VoteProcessor>,
     vote_cache_processor: Arc<VoteCacheProcessor>,
     pub rep_crawler: Arc<RepCrawler>,
@@ -643,18 +644,18 @@ impl Node {
             CpsLimiter::unlimited()
         };
 
-        let vote_application = VoteApplier::new(
+        let vote_application = Arc::new(VoteApplier::new(
             active_elections.clone(),
             online_reps.clone(),
             steady_clock.clone(),
             rep_weights.clone(),
             current_network == NetworkType::NanoDevNetwork,
-        );
+        ));
         vote_application.add_event_sink(aec_tx.clone());
 
         let vote_processor = Arc::new(VoteProcessor::new(
             vote_processor_queue.clone(),
-            vote_application,
+            vote_application.clone(),
             stats.clone(),
         ));
 
@@ -1367,6 +1368,7 @@ impl Node {
             wallets,
             vote_generators,
             active: active_elections,
+            vote_application,
             vote_processor,
             vote_cache_processor,
             rep_crawler,
