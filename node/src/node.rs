@@ -643,17 +643,18 @@ impl Node {
             CpsLimiter::unlimited()
         };
 
-        let vote_applier = VoteApplier::new(
+        let vote_application = VoteApplier::new(
             active_elections.clone(),
             online_reps.clone(),
             steady_clock.clone(),
             rep_weights.clone(),
             current_network == NetworkType::NanoDevNetwork,
         );
+        vote_application.add_event_sink(aec_tx.clone());
 
         let vote_processor = Arc::new(VoteProcessor::new(
             vote_processor_queue.clone(),
-            vote_applier,
+            vote_application,
             stats.clone(),
         ));
 
@@ -1289,8 +1290,6 @@ impl Node {
         };
 
         spawn_backpressure_processor("Nano ev proc", ledger_rx, ledger_event_processor);
-
-        vote_processor.add_observer(aec_tx);
 
         stats_collector.add_source(stats.clone());
         stats_collector.add_source(online_reps.clone());

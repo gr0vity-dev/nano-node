@@ -160,6 +160,38 @@ fn vote_by_hash_bundle() {
 }
 
 #[test]
+fn node_event_vote_processed_uses_application_event_path() {
+    let mut system = System::new();
+    let (tx, rx) = std::sync::mpsc::sync_channel(8);
+    let node = system.build_node().event_sink(tx).finish();
+
+    let vote: FilteredVote = ReceivedVote::new(
+        Arc::new(Vote::new(
+            &DEV_GENESIS_KEY,
+            Vote::TIMESTAMP_MIN,
+            0,
+            vec![*DEV_GENESIS_HASH],
+        )),
+        VoteSource::Live,
+        None,
+    )
+    .into();
+
+    assert_eq!(
+        node.vote_processor.vote_blocking(&vote),
+        Err(rsnano_types::VoteError::Indeterminate)
+    );
+
+    let event = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let rsnano_node::NodeEvent::VoteProcessed(processed_vote, result) = event else {
+        panic!("expected vote processed event");
+    };
+
+    assert_eq!(processed_vote.hashes, vote.hashes);
+    assert_eq!(result, Err(rsnano_types::VoteError::Indeterminate));
+}
+
+#[test]
 fn confirm_quorum() {
     let mut system = System::new();
     let node1 = system.make_node();

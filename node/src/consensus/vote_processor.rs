@@ -48,7 +48,7 @@ pub type VoteProcessedCallback2 =
 pub struct VoteProcessor {
     threads: Mutex<Vec<JoinHandle<()>>>,
     queue: Arc<VoteProcessorQueue>,
-    vote_applier: VoteApplier,
+    vote_application: VoteApplier,
     stats: Arc<Stats>,
     pub total_processed: AtomicU64,
     cool_down: AtomicBool,
@@ -57,12 +57,12 @@ pub struct VoteProcessor {
 impl VoteProcessor {
     pub(crate) fn new(
         queue: Arc<VoteProcessorQueue>,
-        vote_applier: VoteApplier,
+        vote_application: VoteApplier,
         stats: Arc<Stats>,
     ) -> Self {
         Self {
             queue,
-            vote_applier,
+            vote_application,
             stats,
             threads: Mutex::new(Vec::new()),
             total_processed: AtomicU64::new(0),
@@ -71,7 +71,7 @@ impl VoteProcessor {
     }
 
     pub fn add_observer(&self, sink: Sender<AecEvent>) {
-        self.vote_applier.add_event_sink(sink);
+        self.vote_application.add_event_sink(sink);
     }
 
     pub fn cool_down(&self) {
@@ -83,7 +83,7 @@ impl VoteProcessor {
     }
 
     pub fn stop(&self) {
-        self.vote_applier.stop();
+        self.vote_application.stop();
         self.queue.stop();
 
         let mut handles = Vec::new();
@@ -141,7 +141,7 @@ impl VoteProcessor {
     pub fn vote_blocking(&self, vote: &FilteredVote) -> Result<(), VoteError> {
         let mut result = Err(VoteError::Invalid);
         if vote.validate().is_ok() {
-            let vote_results = self.vote_applier.vote(vote);
+            let vote_results = self.vote_application.vote(vote);
             result = aggregate_vote_results(&vote_results);
         }
 
