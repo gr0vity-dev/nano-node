@@ -114,11 +114,12 @@ pub fn reserved_address(endpoint: &SocketAddrV6, allow_local_peers: bool) -> boo
         return true;
     }
 
-    if !allow_local_peers && (ip >= RFC1918_1_MIN && ip <= RFC1918_1_MAX)
-        || (ip >= RFC1918_2_MIN && ip <= RFC1918_2_MAX)
-        || (ip >= RFC1918_3_MIN && ip <= RFC1918_3_MAX)
-        || (ip >= RFC6598_MIN && ip <= RFC6598_MAX)
-        || (ip >= RFC4193_MIN && ip <= RFC4193_MAX)
+    if !allow_local_peers
+        && ((ip >= RFC1918_1_MIN && ip <= RFC1918_1_MAX)
+            || (ip >= RFC1918_2_MIN && ip <= RFC1918_2_MAX)
+            || (ip >= RFC1918_3_MIN && ip <= RFC1918_3_MAX)
+            || (ip >= RFC6598_MIN && ip <= RFC6598_MAX)
+            || (ip >= RFC4193_MIN && ip <= RFC4193_MAX))
     {
         return true;
     }

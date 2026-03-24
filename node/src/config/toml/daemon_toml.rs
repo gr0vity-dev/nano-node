@@ -68,7 +68,10 @@ impl From<&DaemonConfig> for OpenclToml {
 #[cfg(test)]
 mod tests {
     use crate::config::{DaemonConfig, DaemonToml};
+    use rsnano_network::{ChannelDirection, Network, NetworkError};
+    use rsnano_nullable_clock::Timestamp;
     use rsnano_types::NetworkType;
+    use std::net::{Ipv4Addr, SocketAddrV6};
 
     static CUSTOM_TOML_STR: &str = r#"[node]
         allow_local_peers = false
@@ -833,6 +836,47 @@ mod tests {
         let default_daemon_config = create_default_daemon_config();
 
         assert_eq!(&deserialized_daemon_config, &default_daemon_config);
+    }
+
+    #[test]
+    fn allow_local_peers_true_allows_private_test_network_peer() {
+        let daemon_toml: DaemonToml = toml::from_str("[node]\nallow_local_peers = true\n")
+            .expect("Failed to deserialize TOML");
+        let mut config = DaemonConfig::new2(NetworkType::NanoTestNetwork, 8);
+        config.merge_toml(&daemon_toml);
+
+        let mut network = Network::new(config.node.network.clone());
+        let peer = SocketAddrV6::new(Ipv4Addr::new(172, 30, 0, 3).to_ipv6_mapped(), 17075, 0, 0);
+
+        let result = network.validate_new_connection(
+            &peer,
+            ChannelDirection::Inbound,
+            Timestamp::new_test_instance(),
+        );
+
+        assert!(
+            result.is_ok(),
+            "expected private peer to be allowed, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn allow_local_peers_false_rejects_private_test_network_peer() {
+        let daemon_toml: DaemonToml = toml::from_str("[node]\nallow_local_peers = false\n")
+            .expect("Failed to deserialize TOML");
+        let mut config = DaemonConfig::new2(NetworkType::NanoTestNetwork, 8);
+        config.merge_toml(&daemon_toml);
+
+        let mut network = Network::new(config.node.network.clone());
+        let peer = SocketAddrV6::new(Ipv4Addr::new(172, 30, 0, 3).to_ipv6_mapped(), 17075, 0, 0);
+
+        let result = network.validate_new_connection(
+            &peer,
+            ChannelDirection::Inbound,
+            Timestamp::new_test_instance(),
+        );
+
+        assert!(matches!(result, Err(NetworkError::InvalidIp)));
     }
 
     fn create_default_daemon_config() -> DaemonConfig {
