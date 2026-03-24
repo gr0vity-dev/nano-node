@@ -1,4 +1,13 @@
-use std::{collections::HashMap, sync::Arc, thread::sleep, time::Duration, usize};
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    thread::{sleep, spawn},
+    time::Duration,
+    usize,
+};
 
 use rsnano_ledger::RepWeights;
 use rsnano_ledger::{
@@ -28,10 +37,20 @@ use test_helpers::{
     start_elections,
 };
 
-fn drain_node_events(receiver: &Receiver<NodeEvent>, mut f: impl FnMut(NodeEvent)) {
-    while let Ok(event) = receiver.try_recv() {
-        f(event);
-    }
+fn spawn_node_event_counter(
+    receiver: Receiver<NodeEvent>,
+    predicate: impl Fn(&NodeEvent) -> bool + Send + 'static,
+) -> Arc<AtomicUsize> {
+    let count = Arc::new(AtomicUsize::new(0));
+    let counter = count.clone();
+    spawn(move || {
+        while let Ok(event) = receiver.recv() {
+            if predicate(&event) {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    });
+    count
 }
 
 /// What this test is doing:
@@ -319,29 +338,16 @@ fn scheduler_activation_publishes_election_started_once() {
         .finish();
     let block = setup_independent_blocks(&node, 1, &DEV_GENESIS_KEY)[0].clone();
     let hash = block.hash();
-    let mut started = 0;
+    let started = spawn_node_event_counter(
+        rx,
+        move |event| matches!(event, NodeEvent::ElectionStarted(event_hash) if *event_hash == hash),
+    );
 
-    node.process_active(block.into());
+    node.election_schedulers.add_manual(block.into());
 
-    assert_timely2(|| {
-        drain_node_events(&rx, |event| {
-            if let NodeEvent::ElectionStarted(event_hash) = event
-                && event_hash == hash
-            {
-                started += 1;
-            }
-        });
-        started == 1
-    });
+    assert_timely2(|| started.load(Ordering::SeqCst) == 1);
     assert_never(Duration::from_millis(500), || {
-        drain_node_events(&rx, |event| {
-            if let NodeEvent::ElectionStarted(event_hash) = event
-                && event_hash == hash
-            {
-                started += 1;
-            }
-        });
-        started > 1
+        started.load(Ordering::SeqCst) > 1
     });
 }
 
@@ -356,32 +362,18 @@ fn force_confirm_publishes_block_confirmed_once() {
         .finish();
     let block = setup_independent_blocks(&node, 1, &DEV_GENESIS_KEY)[0].clone();
     let hash = block.hash();
-    let mut confirmations = 0;
+    let confirmations = spawn_node_event_counter(
+        rx,
+        move |event| matches!(event, NodeEvent::BlockConfirmed(block, _) if block.hash() == hash),
+    );
 
     start_election(&node, &hash);
-    drain_node_events(&rx, |_| {});
 
     node.force_confirm(&hash);
 
-    assert_timely2(|| {
-        drain_node_events(&rx, |event| {
-            if let NodeEvent::BlockConfirmed(block, _) = event
-                && block.hash() == hash
-            {
-                confirmations += 1;
-            }
-        });
-        confirmations == 1
-    });
+    assert_timely2(|| confirmations.load(Ordering::SeqCst) == 1);
     assert_never(Duration::from_millis(500), || {
-        drain_node_events(&rx, |event| {
-            if let NodeEvent::BlockConfirmed(block, _) = event
-                && block.hash() == hash
-            {
-                confirmations += 1;
-            }
-        });
-        confirmations > 1
+        confirmations.load(Ordering::SeqCst) > 1
     });
 }
 
@@ -397,32 +389,18 @@ fn ticker_cleanup_publishes_election_stopped_once() {
     let block = setup_independent_blocks(&node, 1, &DEV_GENESIS_KEY)[0].clone();
     let hash = block.hash();
     let root = block.qualified_root();
-    let mut stopped = 0;
+    let stopped = spawn_node_event_counter(
+        rx,
+        move |event| matches!(event, NodeEvent::ElectionStopped(event_hash) if *event_hash == hash),
+    );
 
     start_election(&node, &hash);
-    drain_node_events(&rx, |_| {});
 
     node.active.write().unwrap().cancel(&root);
 
-    assert_timely2(|| {
-        drain_node_events(&rx, |event| {
-            if let NodeEvent::ElectionStopped(event_hash) = event
-                && event_hash == hash
-            {
-                stopped += 1;
-            }
-        });
-        stopped == 1
-    });
+    assert_timely2(|| stopped.load(Ordering::SeqCst) == 1);
     assert_never(Duration::from_millis(500), || {
-        drain_node_events(&rx, |event| {
-            if let NodeEvent::ElectionStopped(event_hash) = event
-                && event_hash == hash
-            {
-                stopped += 1;
-            }
-        });
-        stopped > 1
+        stopped.load(Ordering::SeqCst) > 1
     });
 }
 
@@ -1057,7 +1035,7 @@ fn dropped_cleanup() {
     assert!(node.is_active_root(&qual_root));
 
     // Now simulate dropping the election
-    node.active.write().unwrap().erase(&qual_root);
+    node.erase_election(&qual_root);
     // An election was recently dropped
     assert_timely_eq2(
         || node.get_stat("active_elections_dropped", "manual", Direction::In),
@@ -1073,7 +1051,7 @@ fn dropped_cleanup() {
     start_election(&node, &hash);
     node.force_confirm(&hash);
     assert_timely2(|| node.ledger.confirmed().block_exists(&hash));
-    node.active.write().unwrap().erase(&qual_root);
+    node.erase_election(&qual_root);
 
     // The filter should not have been cleared
     assert!(node.network_filter.apply(&block_bytes).1);

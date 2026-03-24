@@ -99,8 +99,9 @@ fn stopped_election() {
         let publish1 = Message::Publish(Publish::new_forward(send1.clone()));
         node1.inbound_message_queue.put(publish1, channel1);
         assert_timely2(|| node1.is_active_root(&send1.qualified_root()));
-        let active = node1.active.clone();
-        spawn_blocking(move || active.write().unwrap().erase(&send1.qualified_root()))
+        let node = node1.clone();
+        let root = send1.qualified_root();
+        spawn_blocking(move || node.erase_election(&root))
             .await
             .unwrap();
 

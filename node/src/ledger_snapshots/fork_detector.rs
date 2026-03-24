@@ -1,5 +1,6 @@
 use crate::{
-    block_processing::LedgerPipelineEvent, consensus::ActiveElectionsContainer,
+    block_processing::LedgerPipelineEvent,
+    consensus::{ActiveElectionsContainer, AecEventPublisher},
     ledger_snapshots::LedgerSnapshots,
 };
 use rsnano_ledger::LedgerEvent;
@@ -11,6 +12,7 @@ pub(crate) struct ForkDetector {
     ledger: Arc<Ledger>,
     ledger_snapshots: Arc<LedgerSnapshots>,
     active_election_container: Arc<RwLock<ActiveElectionsContainer>>,
+    publisher: AecEventPublisher,
 }
 
 impl ForkDetector {
@@ -18,11 +20,13 @@ impl ForkDetector {
         ledger: Arc<Ledger>,
         ledger_snapshots: Arc<LedgerSnapshots>,
         active_election_container: Arc<RwLock<ActiveElectionsContainer>>,
+        publisher: AecEventPublisher,
     ) -> Self {
         Self {
             ledger,
             ledger_snapshots,
             active_election_container,
+            publisher,
         }
     }
 }
@@ -38,7 +42,8 @@ impl EventHandlerMut<LedgerPipelineEvent> for ForkDetector {
                     self.ledger
                         .mark_fork(&root, self.ledger_snapshots.get_current_snapshot_number());
 
-                    self.active_election_container.write().unwrap().erase(&root);
+                    let result = self.active_election_container.write().unwrap().erase(&root);
+                    self.publisher.publish_all(result.events);
                 }
             }
         }
@@ -50,7 +55,10 @@ mod tests {
     use crate::{
         block_processing::LedgerPipelineEvent,
         block_processing::{BlockSource, ProcessedResult},
-        consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior},
+        consensus::{
+            ActiveElectionsContainer, AecEventPublisher, AecInsertRequest,
+            election::ElectionBehavior,
+        },
         ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector},
     };
     use rsnano_ledger::LedgerEvent;
@@ -70,6 +78,7 @@ mod tests {
             ledger.clone(),
             ledger_snapshots.into(),
             RwLock::new(active_election_container).into(),
+            AecEventPublisher::null(),
         );
         let block = Block::new_test_instance();
         let root = block.qualified_root();
@@ -104,6 +113,7 @@ mod tests {
             ledger.clone(),
             ledger_snapshots.into(),
             RwLock::new(active_election_container).into(),
+            AecEventPublisher::null(),
         );
         let block1 = Block::new_test_instance_with_key(1);
         let block2 = Block::new_test_instance_with_key(2);
@@ -154,6 +164,7 @@ mod tests {
             ledger.clone(),
             ledger_snapshots.into(),
             RwLock::new(active_election_container).into(),
+            AecEventPublisher::null(),
         );
         let block = Block::new_test_instance();
         let root = block.qualified_root();
@@ -198,6 +209,7 @@ mod tests {
             ledger.clone(),
             ledger_snapshots.into(),
             RwLock::new(container).into(),
+            AecEventPublisher::null(),
         );
 
         let processed_results = ProcessedResult {

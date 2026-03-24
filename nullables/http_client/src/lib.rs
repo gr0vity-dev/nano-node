@@ -254,16 +254,14 @@ impl From<JsonResponse> for Response {
 mod tests {
     use super::*;
     use reqwest::StatusCode;
-    use rsnano_nullable_tcp::get_available_port;
 
     #[tokio::test]
     async fn make_real_request() {
-        let port = get_available_port();
-        let _server = test_http_server::start(("0.0.0.0", port)).await;
+        let server = test_http_server::start().await;
 
         let client = HttpClient::new();
         let result = client
-            .post_json(format!("http://127.0.0.1:{}", port), &vec!["hello"])
+            .post_json(server.url(), &vec!["hello"])
             .await
             .unwrap();
         assert_eq!(result.status(), StatusCode::OK);
@@ -289,13 +287,10 @@ mod tests {
 
     #[tokio::test]
     async fn error_for_status() {
-        let port = get_available_port();
-        let _server = test_http_server::start(("0.0.0.0", port)).await;
+        let server = test_http_server::start().await;
 
         let client = HttpClient::new();
-        let url: Url = format!("http://127.0.0.1:{}/not-found", port)
-            .parse()
-            .unwrap();
+        let url: Url = format!("{}/not-found", server.url()).parse().unwrap();
         let result = client.post_json(url.clone(), &vec!["hello"]).await.unwrap();
         assert_eq!(result.status(), StatusCode::NOT_FOUND);
         match result.error_for_status() {
@@ -303,9 +298,7 @@ mod tests {
             Err(e) => {
                 assert_eq!(
                     e.to_string(),
-                    format!(
-                        "HTTP status client error (404 Not Found) for url (http://127.0.0.1:{port}/not-found)"
-                    )
+                    format!("HTTP status client error (404 Not Found) for url ({url})")
                 );
             }
         }
@@ -378,42 +371,50 @@ mod tests {
 
     mod test_http_server {
         use axum::{Json, Router, routing::post};
-        use tokio::{
-            net::{TcpListener, ToSocketAddrs},
-            sync::oneshot,
-        };
+        use tokio::{net::TcpListener, sync::oneshot};
         use tokio_util::sync::CancellationToken;
 
-        pub(crate) struct DropGuard {
+        use crate::Url;
+
+        pub(crate) struct TestServer {
+            url: Url,
             cancel_token: CancellationToken,
         }
 
-        impl Drop for DropGuard {
+        impl TestServer {
+            pub(crate) fn url(&self) -> Url {
+                self.url.clone()
+            }
+        }
+
+        impl Drop for TestServer {
             fn drop(&mut self) {
                 self.cancel_token.cancel();
             }
         }
 
-        pub(crate) async fn start(addr: impl ToSocketAddrs + Send + 'static) -> DropGuard {
-            let guard = DropGuard {
+        pub(crate) async fn start() -> TestServer {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let server = TestServer {
+                url: format!("http://{addr}").parse().unwrap(),
                 cancel_token: CancellationToken::new(),
             };
-            let cancel_token = guard.cancel_token.clone();
+            let cancel_token = server.cancel_token.clone();
             let (tx_ready, rx_ready) = oneshot::channel::<()>();
 
-            tokio::spawn(async move { run_server(addr, cancel_token, tx_ready).await });
+            tokio::spawn(async move { run_server(listener, cancel_token, tx_ready).await });
 
             rx_ready.await.unwrap();
 
-            guard
+            server
         }
 
         async fn run_server(
-            addr: impl ToSocketAddrs,
+            listener: TcpListener,
             cancel_token: CancellationToken,
             tx_ready: oneshot::Sender<()>,
         ) {
-            let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
             tx_ready.send(()).unwrap();
             tokio::select! {
                 _ = serve(listener) => { },

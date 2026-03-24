@@ -1247,6 +1247,7 @@ impl Node {
                 ledger.clone(),
                 ledger_snapshots.clone(),
                 active_elections.clone(),
+                aec_publisher.clone(),
             ));
         }
 
@@ -1567,6 +1568,12 @@ impl Node {
             .unwrap()
             .force_confirm(hash, self.steady_clock.now());
         self.aec_event_publisher.publish_all(result.events);
+    }
+
+    pub fn erase_election(&self, root: &QualifiedRoot) -> bool {
+        let result = self.active.write().unwrap().erase(root);
+        self.aec_event_publisher.publish_all(result.events);
+        result.value
     }
 
     pub fn get_stat(&self, stat: &'static str, detail: &'static str, dir: Direction) -> u64 {
