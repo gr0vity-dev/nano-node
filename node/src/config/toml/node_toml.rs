@@ -74,6 +74,7 @@ impl NodeConfig {
     pub fn merge_toml(&mut self, toml: &NodeToml) {
         if let Some(allow_local_peers) = toml.allow_local_peers {
             self.allow_local_peers = allow_local_peers;
+            self.network.allow_local_peers = allow_local_peers;
         }
         if let Some(background_threads) = toml.background_threads {
             self.background_threads = background_threads;

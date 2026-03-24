@@ -290,6 +290,14 @@ mod tests {
             deserialized.node.allow_local_peers,
             default_cfg.node.allow_local_peers
         );
+        assert_eq!(
+            deserialized.node.network.allow_local_peers,
+            deserialized.node.allow_local_peers
+        );
+        assert_eq!(
+            default_cfg.node.network.allow_local_peers,
+            default_cfg.node.allow_local_peers
+        );
         assert_ne!(
             deserialized.node.network.limiter.generic_limit,
             default_cfg.node.network.limiter.generic_limit

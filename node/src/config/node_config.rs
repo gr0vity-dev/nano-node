@@ -185,6 +185,9 @@ impl NodeConfig {
 
         let block_processor_cfg = ProcessQueueConfig::default();
 
+        let allow_local_peers =
+            !(network_params.network.is_live_network() || network_params.network.is_test_network());
+
         Self {
             enable_opencl: false,
             enable_voting,
@@ -211,8 +214,7 @@ impl NodeConfig {
             signature_checker_threads: (parallelism / 2) as u32,
             bootstrap_initiator_threads: 1,
             bootstrap_serving_threads: 1,
-            allow_local_peers: !(network_params.network.is_live_network()
-                || network_params.network.is_test_network()), // disable by default for live network
+            allow_local_peers, // disable by default for live and test networks
             vote_minimum: Amount::nano(1000),
             vote_generator_delay: Duration::from_millis(100),
             unchecked_cutoff_time_s: 4 * 60 * 60, // 4 hours
@@ -270,6 +272,7 @@ impl NodeConfig {
             network_duplicate_filter_size: 1024 * 1024,
             network_duplicate_filter_cutoff: 60,
             network: NetworkConfig {
+                allow_local_peers,
                 listening_port: peering_port.unwrap_or_default(),
                 ..NetworkConfig::default_for(network)
             },
