@@ -9,7 +9,7 @@ use rsnano_ledger::RepWeightCache;
 use rsnano_types::{Amount, BlockHash, VoteError};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
-use super::{ActiveElectionsContainer, AecEvent, FilteredVote, ReceivedVote};
+use super::{ActiveElectionsContainer, AecEvent, FilteredVote, ReceivedVote, VoteApplicationEvent};
 use crate::{consensus::ApplyVoteArgs, representatives::OnlineReps};
 
 /// Applies a vote to an election
@@ -95,8 +95,25 @@ impl VoteApplier {
             })
         };
 
-        self.notify_vote_processed(vote, voter_weight, &results);
-        results
+        self.notify_vote_application_events(&results.events);
+        self.notify_vote_processed(vote, voter_weight, &results.per_block);
+        results.per_block
+    }
+
+    fn notify_vote_application_events(&self, events: &[VoteApplicationEvent]) {
+        for event in events {
+            for sender in self.event_senders.read().unwrap().iter() {
+                let event = match event {
+                    VoteApplicationEvent::WinnerChanged(old_winner, new_winner) => {
+                        AecEvent::WinnerChanged(*old_winner, new_winner.clone())
+                    }
+                    VoteApplicationEvent::ElectionConfirmed(election) => {
+                        AecEvent::ElectionConfirmed(election.clone())
+                    }
+                };
+                let _ = sender.send(event);
+            }
+        }
     }
 
     fn notify_vote_processed(
@@ -122,6 +139,8 @@ mod tests {
     use rsnano_types::{
         BlockPriority, PrivateKey, SavedBlock, UnixMillisTimestamp, Vote, VoteSource,
     };
+    use rsnano_utils::sync::backpressure_channel::channel;
+    use std::sync::mpsc::TryRecvError;
 
     #[test]
     fn update_online_weight_before_quorum_checks() {
@@ -177,5 +196,51 @@ mod tests {
         // No quorum, because the vote of our rep has to be added to the online
         // weight before the quorum is checked!
         assert_eq!(election.has_quorum(), false);
+    }
+
+    #[test]
+    fn emits_vote_application_events_from_service() {
+        let block = SavedBlock::new_test_instance();
+        let block_hash = block.hash();
+        let rep_key = PrivateKey::from(1);
+
+        let rep_weights = Arc::new(RepWeightCache::default());
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+
+        let aec = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let online_reps = Arc::new(Mutex::new(
+            OnlineReps::builder()
+                .rep_weights(rep_weights.clone())
+                .finish(),
+        ));
+        let clock = Arc::new(SteadyClock::new_null());
+
+        aec.write()
+            .unwrap()
+            .insert(
+                AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+                clock.now(),
+            )
+            .unwrap();
+
+        let vote_applier = VoteApplier::new(aec, online_reps, clock, rep_weights, false);
+        let (tx, rx) = channel(8);
+        vote_applier.add_event_sink(tx);
+
+        let vote = ReceivedVote::new(
+            Vote::new_final(&rep_key, vec![block_hash]).into(),
+            VoteSource::Live,
+            None,
+        );
+
+        let results = vote_applier.vote(&vote.into());
+
+        assert_eq!(results.get(&block_hash), Some(&Ok(())));
+        assert!(matches!(rx.try_recv(), Ok(AecEvent::ElectionConfirmed(_))));
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(AecEvent::VoteProcessed(_, _, _))
+        ));
+        assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)));
     }
 }

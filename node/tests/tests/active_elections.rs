@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc, thread::sleep, time::Duration, usize};
 
+use rsnano_ledger::RepWeights;
 use rsnano_ledger::{
     BlockError, DEV_GENESIS_ACCOUNT, DEV_GENESIS_PUB_KEY, LedgerSet,
     test_helpers::UnsavedBlockLatticeBuilder,
@@ -7,13 +8,20 @@ use rsnano_ledger::{
 use rsnano_node::{
     bootstrap::BootstrapConfig,
     config::{NodeConfig, NodeFlags},
-    consensus::{FilteredVote, ReceivedVote},
+    consensus::{
+        ActiveElectionsContainer, AecEvent, AecInsertRequest, ApplyVoteArgs, FilteredVote,
+        ReceivedVote, VoteApplicationEvent, election::ElectionBehavior,
+    },
 };
+use rsnano_nullable_clock::Timestamp;
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
-    Account, Amount, DEV_GENESIS_KEY, PrivateKey, UnixMillisTimestamp, Vote, VoteError, VoteSource,
+    Account, Amount, BlockPriority, DEV_GENESIS_KEY, PrivateKey, SavedBlock, UnixMillisTimestamp,
+    Vote, VoteError, VoteSource,
 };
 use rsnano_utils::stats::{DetailType, Direction, StatType};
+use rsnano_utils::sync::backpressure_channel::channel;
+use std::sync::mpsc::TryRecvError;
 use test_helpers::{
     System, assert_always_eq, assert_never, assert_timely_eq, assert_timely_eq2, assert_timely2,
     process_open_block, process_send_block, setup_independent_blocks, start_election,
@@ -243,6 +251,56 @@ fn inactive_votes_cache_basic() {
     node.process_active(send.clone());
     assert_timely2(|| node.block_confirmed(&send.hash()));
     assert_timely_eq2(|| node.get_stat("election_vote", "cache", Direction::In), 1);
+}
+
+#[test]
+fn apply_vote_returns_events_without_emitting_aec_vote_events_from_container() {
+    let mut container = ActiveElectionsContainer::default();
+    let (tx, rx) = channel(8);
+    container.set_observer(tx);
+
+    let block = SavedBlock::new_test_instance();
+    let block_hash = block.hash();
+    let now = Timestamp::new_test_instance();
+
+    container
+        .insert(
+            AecInsertRequest {
+                block,
+                behavior: ElectionBehavior::Priority,
+                priority: BlockPriority::new_test_instance(),
+            },
+            now,
+        )
+        .unwrap();
+
+    assert!(matches!(rx.try_recv(), Ok(AecEvent::ElectionStarted(_, _))));
+
+    let rep_key = PrivateKey::from(42);
+    let vote: FilteredVote = ReceivedVote::new(
+        Vote::new_final(&rep_key, vec![block_hash]).into(),
+        VoteSource::Live,
+        None,
+    )
+    .into();
+
+    let mut rep_weights = RepWeights::default();
+    rep_weights.put(rep_key.public_key(), Amount::MAX);
+
+    let result = container.apply_vote(ApplyVoteArgs {
+        vote: &vote,
+        rep_weights: &rep_weights,
+        quorum_specs: &rsnano_node::representatives::QuorumSpecs::new_test_instance(),
+        now,
+    });
+
+    assert_eq!(result.per_block.get(&block_hash), Some(&Ok(())));
+    assert!(matches!(
+        result.events.as_slice(),
+        [VoteApplicationEvent::ElectionConfirmed(_)]
+    ));
+    assert!(matches!(rx.try_recv(), Ok(AecEvent::ElectionEnded(_))));
+    assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)));
 }
 
 // This test case confirms that a non final vote cannot cause an election to become confirmed

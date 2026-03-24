@@ -4,11 +4,12 @@ use std::{
 };
 
 use rsnano_ledger::{DEV_GENESIS_ACCOUNT, DEV_GENESIS_HASH, DEV_GENESIS_PUB_KEY};
-use rsnano_node::consensus::{FilteredVote, ReceivedVote, RepTier};
+use rsnano_node::consensus::{AecEvent, FilteredVote, ReceivedVote, RepTier};
 use rsnano_types::{
     Amount, DEV_GENESIS_KEY, PrivateKey, Signature, Vote, VoteError, VoteSource, VoteTimestamp,
 };
 use rsnano_utils::stats::{DetailType, Direction, StatType};
+use rsnano_utils::sync::backpressure_channel::channel;
 use test_helpers::{
     System, assert_always_eq, assert_timely_eq2, assert_timely2, setup_chain, start_election,
 };
@@ -81,6 +82,33 @@ fn codes() {
         Err(VoteError::Indeterminate),
         node.vote_processor.vote_blocking(&vote)
     );
+}
+
+#[test]
+fn vote_processor_emits_election_confirmed_before_vote_processed() {
+    let mut system = System::new();
+    let node = system.make_node();
+    let blocks = setup_chain(&node, 1, &DEV_GENESIS_KEY, false);
+    start_election(&node, &blocks[0].hash());
+    assert_timely2(|| node.is_active_root(&blocks[0].qualified_root()));
+
+    let (tx, rx) = channel(8);
+    node.vote_processor.add_observer(tx);
+
+    let vote: FilteredVote = ReceivedVote::new(
+        Arc::new(Vote::new_final(&DEV_GENESIS_KEY, vec![blocks[0].hash()])),
+        VoteSource::Live,
+        None,
+    )
+    .into();
+
+    assert_eq!(node.vote_processor.vote_blocking(&vote), Ok(()));
+
+    assert!(matches!(rx.try_recv(), Ok(AecEvent::ElectionConfirmed(_))));
+    assert!(matches!(
+        rx.try_recv(),
+        Ok(AecEvent::VoteProcessed(_, _, _))
+    ));
 }
 
 #[test]

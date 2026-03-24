@@ -1,12 +1,10 @@
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use strum::EnumCount;
 
 use rsnano_ledger::RepWeights;
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{
-    Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, TimePriority, VoteError,
-};
+use rsnano_types::{Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, TimePriority};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
@@ -27,7 +25,7 @@ use crate::{
 use super::{
     ActiveElectionsConfig, ActiveElectionsInfo, AecEvent, AecInsertError, AecInsertRequest, Entry,
     RootContainer,
-    apply_vote_helper::ApplyVoteHelper,
+    apply_vote_helper::{ApplyVoteHelper, ApplyVoteResult},
     cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
     recently_confirmed_cache::RecentlyConfirmedCache,
     stats::AecStats,
@@ -382,22 +380,18 @@ impl ActiveElectionsContainer {
         self.recently_confirmed.erase(block_hash);
     }
 
-    pub fn apply_vote<'a>(
-        &mut self,
-        args: ApplyVoteArgs<'a>,
-    ) -> HashMap<BlockHash, Result<(), VoteError>> {
+    pub fn apply_vote<'a>(&mut self, args: ApplyVoteArgs<'a>) -> ApplyVoteResult {
         let mut apply_helper = ApplyVoteHelper {
             args: &args,
             recently_confirmed: &mut self.recently_confirmed,
             vote_counter: &mut self.stats.vote_counter,
-            observer: &self.observer,
             roots: &mut self.roots,
         };
-        let result = apply_helper.apply_vote();
-        for entry in result.confirmed {
+        let mut result = apply_helper.apply_vote();
+        for entry in result.confirmed.drain(..) {
             self.cleanup_election(entry);
         }
-        result.per_block
+        result
     }
 
     pub fn force_confirm(&mut self, block_hash: &BlockHash, now: Timestamp) {
@@ -504,8 +498,10 @@ pub struct ApplyVoteArgs<'a> {
 mod tests {
     use super::*;
     use crate::consensus::ReceivedVote;
+    use crate::consensus::VoteApplicationEvent;
     use rsnano_types::{BlockPriority, PrivateKey, TimePriority, Vote, VoteSource};
-    use std::sync::Arc;
+    use rsnano_utils::sync::backpressure_channel::channel;
+    use std::{sync::Arc, sync::mpsc::TryRecvError};
 
     #[test]
     fn empty() {
@@ -560,9 +556,49 @@ mod tests {
             now,
         });
 
-        assert_eq!(result.get(&block_hash), Some(&Ok(())));
+        assert_eq!(result.per_block.get(&block_hash), Some(&Ok(())));
+        assert_eq!(result.events.len(), 1);
 
         assert!(container.election_for_block(&block_hash).is_none());
+    }
+
+    #[test]
+    fn apply_vote_returns_events_without_notifying_observer() {
+        let mut container = ActiveElectionsContainer::default();
+        let (tx, rx) = channel(8);
+        container.set_observer(tx);
+
+        let block = SavedBlock::new_test_instance();
+        let block_hash = block.hash();
+        let now = Timestamp::new_test_instance();
+
+        container
+            .insert(
+                AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
+                now,
+            )
+            .unwrap();
+
+        assert!(matches!(rx.try_recv(), Ok(AecEvent::ElectionStarted(_, _))));
+
+        let rep_key = PrivateKey::from(1);
+        let received_vote = test_final_vote(&rep_key, block_hash);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+
+        let result = container.apply_vote(ApplyVoteArgs {
+            vote: &received_vote.into(),
+            rep_weights: &rep_weights,
+            quorum_specs: &QuorumSpecs::new_test_instance(),
+            now,
+        });
+
+        assert!(matches!(
+            result.events.as_slice(),
+            [VoteApplicationEvent::ElectionConfirmed(_)]
+        ));
+        assert!(matches!(rx.try_recv(), Ok(AecEvent::ElectionEnded(_))));
+        assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)));
     }
 
     #[test]

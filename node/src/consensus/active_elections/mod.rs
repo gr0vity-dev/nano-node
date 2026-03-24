@@ -56,6 +56,12 @@ pub enum AecEvent {
     Recovered,
 }
 
+#[derive(Clone, Debug)]
+pub enum VoteApplicationEvent {
+    WinnerChanged(BlockHash, Block),
+    ElectionConfirmed(ConfirmedElection),
+}
+
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum AecInsertError {
     Stopped,
