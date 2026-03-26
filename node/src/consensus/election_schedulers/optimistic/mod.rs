@@ -198,9 +198,9 @@ mod tests {
                 .wait(|l| l.stop()) // stop after one wait call
                 .finish();
 
-        let aec = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let aec_service = Arc::new(AecService::new_null());
         let ledger = Arc::new(Ledger::new_null());
-        let scheduler = make_scheduler_with(logic, aec.clone(), ledger.clone());
+        let scheduler = make_scheduler_with(logic, aec_service.clone(), ledger.clone());
 
         let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
         for _ in 0..TEST_GAP_THRESHOLD {
@@ -215,10 +215,7 @@ mod tests {
 
         scheduler.run_loop();
 
-        let optimistic_count = aec
-            .read()
-            .unwrap()
-            .count_by_behavior(ElectionBehavior::Optimistic);
+        let optimistic_count = aec_service.count_by_behavior(ElectionBehavior::Optimistic);
 
         assert_eq!(optimistic_count, 1, "should schedule the election");
         assert_eq!(
