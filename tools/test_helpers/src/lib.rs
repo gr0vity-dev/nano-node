@@ -168,22 +168,8 @@ impl System {
     }
 
     fn stop(&mut self) {
-        for mut node in self.nodes.drain(..) {
-            let exclusive_node;
-            let start = Instant::now();
-            loop {
-                let n = Arc::get_mut(&mut node);
-                if let Some(n) = n {
-                    exclusive_node = n;
-                    break;
-                }
-                if start.elapsed() > Duration::from_secs(5) {
-                    panic!("Could not get exclusive access to node!")
-                }
-                std::thread::yield_now();
-            }
-            exclusive_node.stop();
-            std::fs::remove_dir_all(&node.data_path).expect("Could not delete node data dir");
+        for node in self.nodes.drain(..) {
+            Self::shutdown_node(node);
         }
     }
 
@@ -194,8 +180,26 @@ impl System {
             .position(|n| Arc::ptr_eq(n, &node))
             .unwrap();
         drop(node);
-        let mut node = self.nodes.remove(index);
-        Arc::get_mut(&mut node).unwrap().stop();
+        let node = self.nodes.remove(index);
+        Self::shutdown_node(node);
+    }
+
+    fn shutdown_node(mut node: Arc<Node>) {
+        let data_path = node.data_path.clone();
+        let start = Instant::now();
+        loop {
+            let n = Arc::get_mut(&mut node);
+            if let Some(n) = n {
+                n.stop();
+                break;
+            }
+            if start.elapsed() > Duration::from_secs(5) {
+                panic!("Could not get exclusive access to node!")
+            }
+            std::thread::yield_now();
+        }
+        drop(node);
+        std::fs::remove_dir_all(&data_path).expect("Could not delete node data dir");
     }
 }
 
@@ -616,6 +620,39 @@ pub fn setup_rpc_client_and_server(node: Arc<Node>, enable_control: bool) -> Rpc
         client: rpc_client,
         tx_stop: Some(tx_stop2),
         rx_closed: Some(rx_closed),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stop_node_removes_data_path() {
+        let mut system = System::new();
+        let node = system.make_node();
+        let data_path = node.data_path.clone();
+
+        assert!(data_path.exists());
+
+        system.stop_node(node);
+
+        assert!(!data_path.exists());
+    }
+
+    #[test]
+    fn dropping_system_removes_node_data_paths() {
+        let data_path = {
+            let mut system = System::new();
+            let node = system.make_node();
+            let data_path = node.data_path.clone();
+
+            assert!(data_path.exists());
+
+            data_path
+        };
+
+        assert!(!data_path.exists());
     }
 }
 
