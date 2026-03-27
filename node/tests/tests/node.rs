@@ -2492,8 +2492,6 @@ pub fn optimistic_scheduler_activate_one() {
 
     assert_eq!(
         node.active
-            .read()
-            .unwrap()
             .election_for_root(&block.qualified_root())
             .unwrap()
             .behavior(),
