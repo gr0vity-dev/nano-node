@@ -560,7 +560,7 @@ fn bootstrap_server_stop_waits_for_response_callback_completion() {
 fn bootstrap_server_stop_waits_for_response_publish_completion() {
     let callback = Arc::new(BlockingCallback::new());
     let callback_l = callback.clone();
-    let (node, data_path) = make_node_with_callbacks(
+    let fixture = CallbackNode::new(
         NodeCallbacks::builder()
             .on_publish(move |_channel_id, message| {
                 if matches!(message, Message::AscPullAck(_)) {
@@ -569,16 +569,17 @@ fn bootstrap_server_stop_waits_for_response_publish_completion() {
             })
             .finish(),
     );
+    let node = &fixture.node;
 
-    let chains = setup_chains(&node, 1, 16, &DEV_GENESIS_KEY, true);
+    let chains = setup_chains(node, 1, 16, &DEV_GENESIS_KEY, true);
     let bootstrap_server = Arc::downgrade(&node.bootstrap_server);
-    let channel_weaks = enqueue_block_requests(&node, &chains);
+    let channel_weaks = enqueue_block_requests(node, &chains);
 
     assert_timely_eq2(|| callback.entered(), 1);
 
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     let stopper = thread::spawn(move || {
-        shutdown_node(node, data_path);
+        fixture.shutdown();
         tx.send(()).unwrap();
     });
 
@@ -652,19 +653,34 @@ fn all_channels_dropped(channels: &[Weak<rsnano_network::Channel>]) -> bool {
     channels.iter().all(|channel| channel.upgrade().is_none())
 }
 
-fn make_node_with_callbacks(callbacks: NodeCallbacks) -> (Arc<Node>, PathBuf) {
-    let data_path = unique_path().expect("Could not get a unique path");
-    let network = NetworkType::NanoDevNetwork;
-    let mut node = NodeBuilder::new(network)
-        .data_path(data_path.clone())
-        .config(System::default_config())
-        .network_params(NetworkParams::new(network))
-        .callbacks(callbacks)
-        .finish()
-        .unwrap();
-    node.wallets.create(WalletId::random());
-    node.start();
-    (Arc::new(node), data_path)
+struct CallbackNode {
+    node: Arc<Node>,
+    data_path: PathBuf,
+}
+
+impl CallbackNode {
+    fn new(callbacks: NodeCallbacks) -> Self {
+        let data_path = unique_path().expect("Could not get a unique path");
+        let network = NetworkType::NanoDevNetwork;
+        let mut node = NodeBuilder::new(network)
+            .data_path(data_path.clone())
+            .config(System::default_config())
+            .network_params(NetworkParams::new(network))
+            .callbacks(callbacks)
+            .finish()
+            .unwrap();
+        node.wallets.create(WalletId::random());
+        node.start();
+
+        Self {
+            node: Arc::new(node),
+            data_path,
+        }
+    }
+
+    fn shutdown(self) {
+        shutdown_node(self.node, self.data_path);
+    }
 }
 
 fn shutdown_node(mut node: Arc<Node>, data_path: PathBuf) {
