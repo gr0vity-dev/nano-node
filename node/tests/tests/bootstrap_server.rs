@@ -614,6 +614,7 @@ fn bootstrap_server_shutdown_does_not_wait_for_inbound_callback_completion() {
     let keepalive_publisher = Arc::downgrade(&fixture.node.keepalive_publisher);
     let peer_connector = Arc::downgrade(&fixture.node.peer_connector);
     let tcp_listener = Arc::downgrade(&fixture.node.tcp_listener);
+    let telemetry = Arc::downgrade(&fixture.node.telemetry);
     let request = block_request(chains[0].0, 0);
     let channel = make_fake_channel(&fixture.node);
     let channel_weak = Arc::downgrade(&channel);
@@ -645,6 +646,7 @@ fn bootstrap_server_shutdown_does_not_wait_for_inbound_callback_completion() {
     assert_eq!(keepalive_publisher.upgrade().is_none(), true);
     assert_eq!(peer_connector.upgrade().is_none(), true);
     assert_eq!(tcp_listener.upgrade().is_none(), true);
+    assert_eq!(telemetry.upgrade().is_none(), true);
 
     callback.release();
 
