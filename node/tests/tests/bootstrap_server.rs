@@ -595,6 +595,53 @@ fn bootstrap_server_stop_waits_for_response_publish_completion() {
     assert_timely_eq2(|| all_channels_dropped(&channel_weaks), true);
 }
 
+#[test]
+fn bootstrap_server_shutdown_does_not_wait_for_inbound_callback_completion() {
+    let callback = Arc::new(BlockingCallback::new());
+    let callback_l = callback.clone();
+    let fixture = CallbackNode::new(
+        NodeCallbacks::builder()
+            .on_inbound(move |_channel_id, message| {
+                if matches!(message, Message::AscPullReq(_)) {
+                    callback_l.wait_until_released();
+                }
+            })
+            .finish(),
+    );
+    let node = &fixture.node;
+
+    let chains = setup_chains(node, 1, 16, &DEV_GENESIS_KEY, true);
+    let bootstrap_server = Arc::downgrade(&node.bootstrap_server);
+    let request = block_request(chains[0].0, 0);
+    let channel = make_fake_channel(node);
+    let channel_weak = Arc::downgrade(&channel);
+    let inbound_queue = node.inbound_message_queue.clone();
+
+    let enqueue = thread::spawn(move || {
+        inbound_queue.put(request, channel);
+    });
+
+    assert_timely_eq2(|| callback.entered(), 1);
+
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let stopper = thread::spawn(move || {
+        fixture.shutdown();
+        tx.send(()).unwrap();
+    });
+
+    assert_timely_eq2(|| rx.recv_timeout(Duration::from_secs(5)).is_ok(), true);
+    assert_eq!(callback.exited(), 0);
+
+    callback.release();
+
+    enqueue.join().unwrap();
+    stopper.join().unwrap();
+
+    assert_timely_eq2(|| callback.exited(), 1);
+    assert_timely_eq2(|| bootstrap_server.upgrade().is_none(), true);
+    assert_timely_eq2(|| channel_weak.upgrade().is_none(), true);
+}
+
 struct ResponseHelper {
     responses: Arc<Mutex<Vec<AscPullAck>>>,
 }
@@ -647,6 +694,17 @@ fn enqueue_block_requests(
     }
 
     channels
+}
+
+fn block_request(account: Account, id: u64) -> Message {
+    Message::AscPullReq(AscPullReq {
+        id,
+        req_type: AscPullReqType::Blocks(BlocksReqPayload {
+            start_type: HashType::Account,
+            start: account.into(),
+            count: BootstrapServer::MAX_BLOCKS as u8,
+        }),
+    })
 }
 
 fn all_channels_dropped(channels: &[Weak<rsnano_network::Channel>]) -> bool {
