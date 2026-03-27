@@ -633,6 +633,7 @@ fn bootstrap_server_shutdown_does_not_wait_for_inbound_callback_completion() {
     assert_eq!(callback.exited(), 0);
     assert_eq!(inbound_queue.size(), 0);
     assert_eq!(sent_bootstrap_response(&send_tracker.output()), true);
+    assert_eq!(channel_weak.upgrade().unwrap().queue_len(), 0);
 
     callback.release();
 
