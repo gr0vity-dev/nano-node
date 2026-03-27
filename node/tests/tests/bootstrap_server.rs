@@ -17,6 +17,7 @@ use rsnano_node::{
 };
 use rsnano_types::{
     Account, Block, BlockHash, DEV_GENESIS_KEY, HashOrAccount, NetworkType, SavedBlock, WalletId,
+    WorkRequest,
 };
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{
@@ -720,6 +721,54 @@ fn bootstrap_server_shutdown_stops_runtime_tasks_before_inbound_release() {
     assert_timely_eq2(|| callback.exited(), 1);
 }
 
+#[test]
+fn bootstrap_server_shutdown_stops_work_factory_before_inbound_release() {
+    let callback = Arc::new(BlockingCallback::new());
+    let callback_l = callback.clone();
+    let fixture = CallbackNode::new(
+        NodeCallbacks::builder()
+            .on_inbound(move |_channel_id, message| {
+                if matches!(message, Message::AscPullReq(_)) {
+                    callback_l.wait_until_released();
+                }
+            })
+            .finish(),
+    );
+    let work_factory = fixture.node.work_factory.clone();
+
+    let chains = setup_chains(&fixture.node, 1, 16, &DEV_GENESIS_KEY, true);
+    let request = block_request(chains[0].0, 0);
+    let channel = make_fake_channel(&fixture.node);
+    let inbound_queue = fixture.node.inbound_message_queue.clone();
+
+    let enqueue = thread::spawn(move || {
+        inbound_queue.put(request, channel);
+    });
+
+    assert_timely_eq2(|| callback.entered(), 1);
+
+    let (shutdown_tx, shutdown_rx) = std::sync::mpsc::sync_channel(1);
+    let stopper = thread::spawn(move || {
+        fixture.shutdown();
+        shutdown_tx.send(()).unwrap();
+    });
+
+    assert_timely_eq2(|| shutdown_rx.recv_timeout(Duration::from_secs(5)).is_ok(), true);
+    assert_eq!(callback.exited(), 0);
+
+    let work_request = WorkRequest::new_test_instance();
+    let (request_async, done) = work_request.into_async();
+    work_factory.generate_work_async(request_async);
+
+    assert_eq!(done.wait(), None);
+
+    callback.release();
+
+    enqueue.join().unwrap();
+    stopper.join().unwrap();
+    assert_timely_eq2(|| callback.exited(), 1);
+}
+
 struct ResponseHelper {
     responses: Arc<Mutex<Vec<AscPullAck>>>,
 }
@@ -810,11 +859,15 @@ struct CallbackNode {
 
 impl CallbackNode {
     fn new(callbacks: NodeCallbacks) -> Self {
+        Self::new_with_config(callbacks, System::default_config())
+    }
+
+    fn new_with_config(callbacks: NodeCallbacks, config: rsnano_node::config::NodeConfig) -> Self {
         let data_path = unique_path().expect("Could not get a unique path");
         let network = NetworkType::NanoDevNetwork;
         let mut node = NodeBuilder::new(network)
             .data_path(data_path.clone())
-            .config(System::default_config())
+            .config(config)
             .network_params(NetworkParams::new(network))
             .callbacks(callbacks)
             .finish()
