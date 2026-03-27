@@ -513,6 +513,42 @@ fn bootstrap_server_shutdown_releases_owned_channels() {
     assert_timely_eq2(|| all_channels_dropped(&channel_weaks), true);
 }
 
+#[test]
+fn bootstrap_server_stop_waits_for_response_callback_completion() {
+    let mut system = System::new();
+    let node = system.make_node();
+
+    let callback = Arc::new(BlockingResponseCallback::new());
+    let callback_l = callback.clone();
+    node.bootstrap_server
+        .set_response_callback(Box::new(move |_response, _channel| {
+            callback_l.wait_until_released();
+        }));
+
+    let chains = setup_chains(&node, 1, 16, &DEV_GENESIS_KEY, true);
+    let bootstrap_server = Arc::downgrade(&node.bootstrap_server);
+    let channel_weaks = enqueue_block_requests(&node, &chains);
+
+    assert_timely_eq2(|| callback.entered(), 1);
+
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let stopper = std::thread::spawn(move || {
+        system.stop_node(node);
+        tx.send(()).unwrap();
+    });
+
+    assert_eq!(rx.recv_timeout(Duration::from_millis(200)).is_err(), true);
+
+    callback.release();
+
+    assert_timely_eq2(|| callback.exited(), 1);
+    assert_timely_eq2(|| rx.recv_timeout(Duration::from_secs(5)).is_ok(), true);
+    stopper.join().unwrap();
+
+    assert_timely_eq2(|| bootstrap_server.upgrade().is_none(), true);
+    assert_timely_eq2(|| all_channels_dropped(&channel_weaks), true);
+}
+
 struct ResponseHelper {
     responses: Arc<Mutex<Vec<AscPullAck>>>,
 }
@@ -569,6 +605,54 @@ fn enqueue_block_requests(
 
 fn all_channels_dropped(channels: &[Weak<rsnano_network::Channel>]) -> bool {
     channels.iter().all(|channel| channel.upgrade().is_none())
+}
+
+struct BlockingResponseCallback {
+    state: Mutex<BlockingResponseCallbackState>,
+    condition: std::sync::Condvar,
+}
+
+#[derive(Default)]
+struct BlockingResponseCallbackState {
+    entered: usize,
+    exited: usize,
+    released: bool,
+}
+
+impl BlockingResponseCallback {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(BlockingResponseCallbackState::default()),
+            condition: std::sync::Condvar::new(),
+        }
+    }
+
+    fn wait_until_released(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.entered += 1;
+        self.condition.notify_all();
+
+        while !state.released {
+            state = self.condition.wait(state).unwrap();
+        }
+
+        state.exited += 1;
+        self.condition.notify_all();
+    }
+
+    fn entered(&self) -> usize {
+        self.state.lock().unwrap().entered
+    }
+
+    fn exited(&self) -> usize {
+        self.state.lock().unwrap().exited
+    }
+
+    fn release(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.released = true;
+        self.condition.notify_all();
+    }
 }
 
 /// Checks if both lists contain the same blocks, with `blocks_b`
