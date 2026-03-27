@@ -29,10 +29,12 @@ use super::{
     cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
     recently_confirmed_cache::RecentlyConfirmedCache,
     stats::AecStats,
+    vote_router::VoteRouter,
 };
 
 pub struct ActiveElectionsContainer {
     roots: RootContainer,
+    vote_router: VoteRouter,
     stopped: bool,
     count_by_behavior: [usize; ElectionBehavior::COUNT],
     base_latency: Duration,
@@ -46,6 +48,7 @@ impl ActiveElectionsContainer {
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
             roots: RootContainer::default(),
+            vote_router: VoteRouter::default(),
             stopped: false,
             count_by_behavior: Default::default(),
             base_latency,
@@ -213,6 +216,7 @@ impl ActiveElectionsContainer {
             election,
             priority: request.priority,
         });
+        self.vote_router.connect(hash, root.clone());
 
         *self.count_by_behavior_mut(request.behavior) += 1;
         self.stats.started(request.behavior);
@@ -262,7 +266,7 @@ impl ActiveElectionsContainer {
                 true
             }
             AddForkResult::Replaced(removed) => {
-                self.roots.vote_router.disconnect(&removed.hash());
+                self.vote_router.disconnect(&removed.hash());
                 facts.push(AecFact::BlockDiscarded(removed.into()));
                 facts.push(AecFact::BlockAddedToElection(fork.hash()));
                 true
@@ -275,9 +279,7 @@ impl ActiveElectionsContainer {
         };
 
         if added {
-            self.roots
-                .vote_router
-                .connect(fork.hash(), fork.qualified_root());
+            self.vote_router.connect(fork.hash(), fork.qualified_root());
             self.stats.conflicts += 1;
         }
 
@@ -306,6 +308,7 @@ impl ActiveElectionsContainer {
     pub fn stop(&mut self) {
         self.stopped = true;
         self.roots.clear();
+        self.vote_router.clear();
     }
 
     pub fn is_active_root(&self, root: &QualifiedRoot) -> bool {
@@ -313,7 +316,7 @@ impl ActiveElectionsContainer {
     }
 
     pub fn is_active_hash(&self, block_hash: &BlockHash) -> bool {
-        self.roots.vote_router.is_active(block_hash)
+        self.vote_router.is_active(block_hash)
     }
 
     pub fn was_recently_confirmed(&self, block_hash: &BlockHash) -> bool {
@@ -338,11 +341,15 @@ impl ActiveElectionsContainer {
     }
 
     pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<&Election> {
-        self.roots.election_for_block(block_hash)
+        let root = self.vote_router.qualified_root(block_hash)?;
+        self.roots.election_for_root(root)
     }
 
     pub fn transition_active(&mut self, block_hash: &BlockHash) -> bool {
-        let Some(election) = self.roots.election_for_block_mut(block_hash) else {
+        let Some(root) = self.vote_router.qualified_root(block_hash).cloned() else {
+            return false;
+        };
+        let Some(election) = self.roots.election_for_root_mut(&root) else {
             return false;
         };
         election.transition_active();
@@ -367,6 +374,7 @@ impl ActiveElectionsContainer {
         let mut facts = AecFacts::new();
 
         for entry in removed {
+            self.vote_router.disconnect_election(&entry.election);
             facts.push(self.cleanup_election(entry));
         }
         facts
@@ -376,6 +384,7 @@ impl ActiveElectionsContainer {
         let Some(entry) = self.roots.erase(root) else {
             return None;
         };
+        self.vote_router.disconnect_election(&entry.election);
         Some(self.cleanup_election(entry).into())
     }
 
@@ -391,6 +400,7 @@ impl ActiveElectionsContainer {
         let Some(erased) = self.roots.erase(root) else {
             return Err(AecInsertError::Duplicate);
         };
+        self.vote_router.disconnect_election(&erased.election);
 
         let mut facts = AecFacts::from(self.cleanup_election(erased));
         facts.extend(self.insert_new_election(request, now));
@@ -475,17 +485,22 @@ impl ActiveElectionsContainer {
             recently_confirmed: &mut self.recently_confirmed,
             vote_counter: &mut self.stats.vote_counter,
             roots: &mut self.roots,
+            vote_router: &self.vote_router,
         };
         let mut result = apply_helper.apply_vote();
         for entry in std::mem::take(&mut result.confirmed) {
+            self.vote_router.disconnect_election(&entry.election);
             result.facts.push(self.cleanup_election(entry));
         }
         result
     }
 
     pub(crate) fn force_confirm(&mut self, block_hash: &BlockHash, now: Timestamp) -> AecFacts {
-        let Some(election) = self.roots.election_for_block_mut(block_hash) else {
+        let Some(root) = self.vote_router.qualified_root(block_hash).cloned() else {
             panic!("Force confirm failed, because no active election was found");
+        };
+        let Some(election) = self.roots.election_for_root_mut(&root) else {
+            panic!("Vote router points to missing election");
         };
         if election.force_confirm() {
             let confirmed_election =
@@ -563,7 +578,7 @@ impl ContainerInfoProvider for ActiveElectionsContainer {
                 "recently_confirmed",
                 self.recently_confirmed.container_info(),
             )
-            .node("vote_router", self.roots.vote_router.container_info())
+            .node("vote_router", self.vote_router.container_info())
             .finish()
     }
 }

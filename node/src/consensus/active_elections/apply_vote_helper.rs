@@ -7,6 +7,7 @@ use super::{
     recently_confirmed_cache::RecentlyConfirmedCache,
     root_container::{Entry, RootContainer},
     stats::VoteCounter,
+    vote_router::VoteRouter,
 };
 use crate::consensus::election::{ConfirmationType, Election, VoteSummary};
 
@@ -15,6 +16,7 @@ pub(super) struct ApplyVoteHelper<'a> {
     pub recently_confirmed: &'a mut RecentlyConfirmedCache,
     pub vote_counter: &'a mut VoteCounter,
     pub roots: &'a mut RootContainer,
+    pub vote_router: &'a VoteRouter,
 }
 
 impl<'a> ApplyVoteHelper<'a> {
@@ -26,7 +28,18 @@ impl<'a> ApplyVoteHelper<'a> {
                 continue;
             }
 
-            if let Some(election) = self.roots.election_for_block_mut(block_hash) {
+            let Some(root) = self.vote_router.qualified_root(block_hash).cloned() else {
+                if self.recently_confirmed.hash_exists(block_hash) {
+                    result.per_block.insert(*block_hash, Err(VoteError::Late));
+                } else {
+                    result
+                        .per_block
+                        .insert(*block_hash, Err(VoteError::Indeterminate));
+                }
+                continue;
+            };
+
+            if let Some(election) = self.roots.election_for_root_mut(&root) {
                 {
                     let mut apply_to_election = ApplyVoteToElectionHelper {
                         args: self.args,
@@ -47,12 +60,6 @@ impl<'a> ApplyVoteHelper<'a> {
                         result.confirmed.push(entry);
                     }
                 }
-            } else if self.recently_confirmed.hash_exists(block_hash) {
-                result.per_block.insert(*block_hash, Err(VoteError::Late));
-            } else {
-                result
-                    .per_block
-                    .insert(*block_hash, Err(VoteError::Indeterminate));
             }
         }
 
@@ -338,6 +345,7 @@ mod tests {
         root: QualifiedRoot,
         block_hash: BlockHash,
         roots: RootContainer,
+        vote_router: VoteRouter,
         recently_confirmed: RecentlyConfirmedCache,
         rep_weights: RepWeights,
     }
@@ -351,6 +359,7 @@ mod tests {
                 root,
                 block_hash,
                 roots: RootContainer::default(),
+                vote_router: VoteRouter::default(),
                 recently_confirmed: RecentlyConfirmedCache::default(),
                 rep_weights: RepWeights::default(),
             }
@@ -363,6 +372,7 @@ mod tests {
                 election,
                 priority: BlockPriority::new_test_instance(),
             });
+            self.vote_router.connect(self.block_hash, self.root.clone());
         }
 
         fn add_recently_confirmed(&mut self) {
@@ -398,6 +408,7 @@ mod tests {
                 recently_confirmed: &mut self.recently_confirmed,
                 vote_counter: &mut vote_counter,
                 roots: &mut self.roots,
+                vote_router: &self.vote_router,
             };
 
             let result = helper.apply_vote();
