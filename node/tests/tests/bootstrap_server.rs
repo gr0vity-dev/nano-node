@@ -1,6 +1,8 @@
 use std::{
     collections::{HashMap, VecDeque},
+    path::PathBuf,
     sync::{Arc, Mutex, Weak},
+    thread,
     time::Duration,
 };
 
@@ -9,8 +11,13 @@ use rsnano_messages::{
     AccountInfoReqPayload, AscPullAck, AscPullAckType, AscPullReq, AscPullReqType,
     BlocksReqPayload, FrontiersReqPayload, HashType, Message,
 };
-use rsnano_node::{Node, bootstrap::BootstrapServer};
-use rsnano_types::{Account, Block, BlockHash, DEV_GENESIS_KEY, HashOrAccount, SavedBlock};
+use rsnano_node::{
+    Node, NodeBuilder, NodeCallbacks, bootstrap::BootstrapServer, config::NetworkParams,
+    unique_path,
+};
+use rsnano_types::{
+    Account, Block, BlockHash, DEV_GENESIS_KEY, HashOrAccount, NetworkType, SavedBlock, WalletId,
+};
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{
     System, assert_always_eq, assert_timely_eq, assert_timely_eq2, make_fake_channel, setup_chains,
@@ -518,7 +525,7 @@ fn bootstrap_server_stop_waits_for_response_callback_completion() {
     let mut system = System::new();
     let node = system.make_node();
 
-    let callback = Arc::new(BlockingResponseCallback::new());
+    let callback = Arc::new(BlockingCallback::new());
     let callback_l = callback.clone();
     node.bootstrap_server
         .set_response_callback(Box::new(move |_response, _channel| {
@@ -534,6 +541,44 @@ fn bootstrap_server_stop_waits_for_response_callback_completion() {
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     let stopper = std::thread::spawn(move || {
         system.stop_node(node);
+        tx.send(()).unwrap();
+    });
+
+    assert_eq!(rx.recv_timeout(Duration::from_millis(200)).is_err(), true);
+
+    callback.release();
+
+    assert_timely_eq2(|| callback.exited(), 1);
+    assert_timely_eq2(|| rx.recv_timeout(Duration::from_secs(5)).is_ok(), true);
+    stopper.join().unwrap();
+
+    assert_timely_eq2(|| bootstrap_server.upgrade().is_none(), true);
+    assert_timely_eq2(|| all_channels_dropped(&channel_weaks), true);
+}
+
+#[test]
+fn bootstrap_server_stop_waits_for_response_publish_completion() {
+    let callback = Arc::new(BlockingCallback::new());
+    let callback_l = callback.clone();
+    let (node, data_path) = make_node_with_callbacks(
+        NodeCallbacks::builder()
+            .on_publish(move |_channel_id, message| {
+                if matches!(message, Message::AscPullAck(_)) {
+                    callback_l.wait_until_released();
+                }
+            })
+            .finish(),
+    );
+
+    let chains = setup_chains(&node, 1, 16, &DEV_GENESIS_KEY, true);
+    let bootstrap_server = Arc::downgrade(&node.bootstrap_server);
+    let channel_weaks = enqueue_block_requests(&node, &chains);
+
+    assert_timely_eq2(|| callback.entered(), 1);
+
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let stopper = thread::spawn(move || {
+        shutdown_node(node, data_path);
         tx.send(()).unwrap();
     });
 
@@ -607,22 +652,54 @@ fn all_channels_dropped(channels: &[Weak<rsnano_network::Channel>]) -> bool {
     channels.iter().all(|channel| channel.upgrade().is_none())
 }
 
-struct BlockingResponseCallback {
-    state: Mutex<BlockingResponseCallbackState>,
+fn make_node_with_callbacks(callbacks: NodeCallbacks) -> (Arc<Node>, PathBuf) {
+    let data_path = unique_path().expect("Could not get a unique path");
+    let network = NetworkType::NanoDevNetwork;
+    let mut node = NodeBuilder::new(network)
+        .data_path(data_path.clone())
+        .config(System::default_config())
+        .network_params(NetworkParams::new(network))
+        .callbacks(callbacks)
+        .finish()
+        .unwrap();
+    node.wallets.create(WalletId::random());
+    node.start();
+    (Arc::new(node), data_path)
+}
+
+fn shutdown_node(mut node: Arc<Node>, data_path: PathBuf) {
+    let start = std::time::Instant::now();
+    loop {
+        let n = Arc::get_mut(&mut node);
+        if let Some(n) = n {
+            n.stop();
+            break;
+        }
+        if start.elapsed() > Duration::from_secs(5) {
+            panic!("Could not get exclusive access to node!");
+        }
+        std::thread::yield_now();
+    }
+    drop(node);
+    std::fs::remove_dir_all(&data_path).expect("Could not delete node data dir");
+}
+
+struct BlockingCallback {
+    state: Mutex<BlockingCallbackState>,
     condition: std::sync::Condvar,
 }
 
 #[derive(Default)]
-struct BlockingResponseCallbackState {
+struct BlockingCallbackState {
     entered: usize,
     exited: usize,
     released: bool,
 }
 
-impl BlockingResponseCallback {
+impl BlockingCallback {
     fn new() -> Self {
         Self {
-            state: Mutex::new(BlockingResponseCallbackState::default()),
+            state: Mutex::new(BlockingCallbackState::default()),
             condition: std::sync::Condvar::new(),
         }
     }
