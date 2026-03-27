@@ -13,7 +13,7 @@ use rsnano_messages::{
 };
 use rsnano_node::{
     Node, NodeBuilder, NodeCallbacks, bootstrap::BootstrapServer, config::NetworkParams,
-    unique_path,
+    transport::SendEvent, unique_path,
 };
 use rsnano_types::{
     Account, Block, BlockHash, DEV_GENESIS_KEY, HashOrAccount, NetworkType, SavedBlock, WalletId,
@@ -608,17 +608,17 @@ fn bootstrap_server_shutdown_does_not_wait_for_inbound_callback_completion() {
             })
             .finish(),
     );
-    let node = &fixture.node;
-
-    let chains = setup_chains(node, 1, 16, &DEV_GENESIS_KEY, true);
-    let bootstrap_server = Arc::downgrade(&node.bootstrap_server);
+    let chains = setup_chains(&fixture.node, 1, 16, &DEV_GENESIS_KEY, true);
+    let bootstrap_server = Arc::downgrade(&fixture.node.bootstrap_server);
     let request = block_request(chains[0].0, 0);
-    let channel = make_fake_channel(node);
+    let channel = make_fake_channel(&fixture.node);
     let channel_weak = Arc::downgrade(&channel);
-    let inbound_queue = node.inbound_message_queue.clone();
+    let inbound_queue = fixture.node.inbound_message_queue.clone();
+    let send_tracker = fixture.node.message_sender.lock().unwrap().track();
+    let inbound_queue_l = inbound_queue.clone();
 
     let enqueue = thread::spawn(move || {
-        inbound_queue.put(request, channel);
+        inbound_queue_l.put(request, channel);
     });
 
     assert_timely_eq2(|| callback.entered(), 1);
@@ -631,6 +631,8 @@ fn bootstrap_server_shutdown_does_not_wait_for_inbound_callback_completion() {
 
     assert_timely_eq2(|| rx.recv_timeout(Duration::from_secs(5)).is_ok(), true);
     assert_eq!(callback.exited(), 0);
+    assert_eq!(inbound_queue.size(), 0);
+    assert_eq!(sent_bootstrap_response(&send_tracker.output()), true);
 
     callback.release();
 
@@ -705,6 +707,12 @@ fn block_request(account: Account, id: u64) -> Message {
             count: BootstrapServer::MAX_BLOCKS as u8,
         }),
     })
+}
+
+fn sent_bootstrap_response(events: &[SendEvent]) -> bool {
+    events
+        .iter()
+        .any(|event| matches!(event.message, Message::AscPullAck(_)))
 }
 
 fn all_channels_dropped(channels: &[Weak<rsnano_network::Channel>]) -> bool {
