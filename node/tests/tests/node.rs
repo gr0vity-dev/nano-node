@@ -18,7 +18,10 @@ use rsnano_node::{
     NodeEvent,
     block_processing::{BlockContext, BoundedBacklogConfig},
     config::{NodeConfig, NodeFlags},
-    consensus::{FilteredVote, ReceivedVote, election::{ElectionBehavior, VoteType}},
+    consensus::{
+        FilteredVote, ReceivedVote,
+        election::{ElectionBehavior, VoteType},
+    },
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{

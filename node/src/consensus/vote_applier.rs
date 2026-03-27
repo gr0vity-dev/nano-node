@@ -50,7 +50,12 @@ mod tests {
         let priority = BlockPriority::new_test_instance();
         service
             .activate_for_test(
-                AecActivateRequest::priority(block, priority, prio_bucket_index(priority.balance), 1),
+                AecActivateRequest::priority(
+                    block,
+                    priority,
+                    prio_bucket_index(priority.balance),
+                    1,
+                ),
                 clock.now(),
             )
             .unwrap();

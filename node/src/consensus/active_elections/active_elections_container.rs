@@ -5,8 +5,7 @@ use strum::EnumCount;
 use rsnano_ledger::RepWeights;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
-    Amount, Block, BlockHash, BlockPriority, PublicKey, QualifiedRoot, Root, SavedBlock,
-    VoteSource,
+    Amount, Block, BlockHash, BlockPriority, PublicKey, QualifiedRoot, Root, SavedBlock, VoteSource,
 };
 use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
@@ -23,8 +22,8 @@ use crate::{
 };
 
 use super::{
-    ActiveElectionsInfo, AecActivateRequest, AecFact, AecFacts, AecInsertError,
-    AecInsertRequest, Entry, RootContainer,
+    ActiveElectionsInfo, AecActivateRequest, AecFact, AecFacts, AecInsertError, AecInsertRequest,
+    Entry, RootContainer,
     apply_vote_helper::{ApplyVoteHelper, ApplyVoteResult},
 };
 
@@ -109,22 +108,7 @@ impl AecMutationResult {
 
     pub(crate) fn merge(&mut self, other: Self) {
         self.facts.extend(other.facts);
-        for (i, count) in other.delta.behavior_counts.into_iter().enumerate() {
-            self.delta.behavior_counts[i] += count;
-        }
-        for (i, count) in other.delta.started_behaviors.into_iter().enumerate() {
-            self.delta.started_behaviors[i] += count;
-        }
-        self.delta.stopped_elections.extend(other.delta.stopped_elections);
-        self.delta.recently_confirmed.extend(other.delta.recently_confirmed);
-        for (i, count) in other.delta.vote_counts.into_iter().enumerate() {
-            self.delta.vote_counts[i] += count;
-        }
-        self.delta.ticked += other.delta.ticked;
-        self.delta.conflicts += other.delta.conflicts;
-        for (i, count) in other.delta.block_confirmations.into_iter().enumerate() {
-            self.delta.block_confirmations[i] += count;
-        }
+        self.delta.merge(other.delta);
     }
 }
 
@@ -264,7 +248,11 @@ impl ActiveElectionsContainer {
         }
     }
 
-    fn insert_new_election(&mut self, request: AecInsertRequest, now: Timestamp) -> AecMutationResult {
+    fn insert_new_election(
+        &mut self,
+        request: AecInsertRequest,
+        now: Timestamp,
+    ) -> AecMutationResult {
         let root = request.block.qualified_root();
         let hash = request.block.hash();
         let election = Election::new(request.block, request.behavior, self.base_latency, now);
@@ -294,7 +282,8 @@ impl ActiveElectionsContainer {
         vacancy: i64,
     ) -> Result<AecMutationResult, AecInsertError> {
         let candidate_root = block.qualified_root();
-        let state = self.priority_bucket_state(bucket_index, &candidate_root, is_cooling_down, vacancy);
+        let state =
+            self.priority_bucket_state(bucket_index, &candidate_root, is_cooling_down, vacancy);
         let request = AecInsertRequest {
             block,
             behavior: ElectionBehavior::Priority,
@@ -315,7 +304,11 @@ impl ActiveElectionsContainer {
         }
     }
 
-    pub(crate) fn try_add_fork(&mut self, fork: &Block, fork_tally: Amount) -> (bool, AecMutationResult) {
+    pub(crate) fn try_add_fork(
+        &mut self,
+        fork: &Block,
+        fork_tally: Amount,
+    ) -> (bool, AecMutationResult) {
         let Some(entry) = self.roots.get_mut(&fork.qualified_root()) else {
             return (false, AecMutationResult::default());
         };
@@ -324,13 +317,17 @@ impl ActiveElectionsContainer {
         let mut mutation = AecMutationResult::default();
         let added = match result {
             AddForkResult::Added => {
-                mutation.facts.push(AecFact::BlockAddedToElection(fork.hash()));
+                mutation
+                    .facts
+                    .push(AecFact::BlockAddedToElection(fork.hash()));
                 true
             }
             AddForkResult::Replaced(removed) => {
                 mutation.delta.disconnect_hash(removed.hash());
                 mutation.facts.push(AecFact::BlockDiscarded(removed.into()));
-                mutation.facts.push(AecFact::BlockAddedToElection(fork.hash()));
+                mutation
+                    .facts
+                    .push(AecFact::BlockAddedToElection(fork.hash()));
                 true
             }
             AddForkResult::TallyTooLow => {
@@ -341,9 +338,7 @@ impl ActiveElectionsContainer {
         };
 
         if added {
-            mutation
-                .delta
-                .connect(fork.hash(), fork.qualified_root());
+            mutation.delta.connect(fork.hash(), fork.qualified_root());
             mutation.delta.conflicts += 1;
         }
 
@@ -409,7 +404,8 @@ impl ActiveElectionsContainer {
         let Some(entry) = self.roots.erase(root) else {
             return None;
         };
-        let mut result = AecMutationResult::from_fact(AecFact::ElectionEnded(entry.election.clone()));
+        let mut result =
+            AecMutationResult::from_fact(AecFact::ElectionEnded(entry.election.clone()));
         result.delta.election_stopped(&entry.election);
         result.delta.disconnect_election(&entry.election);
         Some(result)
@@ -425,7 +421,8 @@ impl ActiveElectionsContainer {
             return Err(AecInsertError::Duplicate);
         };
 
-        let mut result = AecMutationResult::from_fact(AecFact::ElectionEnded(erased.election.clone()));
+        let mut result =
+            AecMutationResult::from_fact(AecFact::ElectionEnded(erased.election.clone()));
         result.delta.election_stopped(&erased.election);
         result.delta.disconnect_election(&erased.election);
         result.merge(self.insert_new_election(request, now));
@@ -618,7 +615,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(container.len(), 1);
-        assert!(matches!(facts.facts.as_slice(), [AecFact::ElectionStarted(_, _)]));
+        assert!(matches!(
+            facts.facts.as_slice(),
+            [AecFact::ElectionStarted(_, _)]
+        ));
     }
 
     #[test]
@@ -763,7 +763,10 @@ mod tests {
 
         assert_eq!(facts.facts.len(), 0);
         assert_eq!(
-            container.election_for_root(&block.qualified_root()).unwrap().behavior(),
+            container
+                .election_for_root(&block.qualified_root())
+                .unwrap()
+                .behavior(),
             ElectionBehavior::Priority
         );
     }

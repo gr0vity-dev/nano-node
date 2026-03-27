@@ -24,11 +24,7 @@ use rsnano_utils::{
 };
 
 use super::{AecService, VoteCache};
-use crate::{
-    cementation::ConfirmingSet,
-    config::NodeConfig,
-    representatives::OnlineReps,
-};
+use crate::{cementation::ConfirmingSet, config::NodeConfig, representatives::OnlineReps};
 use priority::{PriorityScheduler, PrioritySchedulerExt};
 
 pub struct ElectionSchedulers {

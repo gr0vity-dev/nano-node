@@ -82,10 +82,7 @@ pub(crate) trait AecTickerPlugin: Send + 'static {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::{
-        AecActivateRequest,
-        election_schedulers::priority::prio_bucket_index,
-    };
+    use crate::consensus::{AecActivateRequest, election_schedulers::priority::prio_bucket_index};
     use rsnano_types::{BlockPriority, SavedBlock};
     use std::sync::atomic::{AtomicBool, Ordering};
 

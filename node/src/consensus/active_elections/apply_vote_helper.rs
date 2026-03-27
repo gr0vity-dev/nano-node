@@ -161,9 +161,10 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     }
 
     fn insert_recently_confirmed(&mut self) {
-        self.delta
-            .recently_confirmed
-            .push((self.election.qualified_root().clone(), self.election.winner().hash()));
+        self.delta.recently_confirmed.push((
+            self.election.qualified_root().clone(),
+            self.election.winner().hash(),
+        ));
     }
 
     fn take_facts(&mut self) -> AecFacts {
@@ -405,7 +406,8 @@ mod tests {
                 now: Timestamp::new_test_instance(),
             };
 
-            let was_recently_confirmed = |hash: &BlockHash| self.recently_confirmed.hash_exists(hash);
+            let was_recently_confirmed =
+                |hash: &BlockHash| self.recently_confirmed.hash_exists(hash);
             let mut helper = ApplyVoteHelper {
                 args: &args,
                 was_recently_confirmed: &was_recently_confirmed,

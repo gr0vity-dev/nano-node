@@ -153,9 +153,12 @@ mod election_scheduler {
         node.confirm(blocks[howmany_blocks - 1].hash());
 
         // Attempt to start priority election for second block
-        let _ = node
-            .active
-            .activate(AecActivateRequest::priority(block.clone(), BlockPriority::MIN, 0, 1));
+        let _ = node.active.activate(AecActivateRequest::priority(
+            block.clone(),
+            BlockPriority::MIN,
+            0,
+            1,
+        ));
 
         // Verify priority transition
         assert_eq!(
