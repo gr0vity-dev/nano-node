@@ -610,6 +610,7 @@ fn bootstrap_server_shutdown_does_not_wait_for_inbound_callback_completion() {
     );
     let chains = setup_chains(&fixture.node, 1, 16, &DEV_GENESIS_KEY, true);
     let bootstrap_server = Arc::downgrade(&fixture.node.bootstrap_server);
+    let message_sender = Arc::downgrade(&fixture.node.message_sender);
     let request = block_request(chains[0].0, 0);
     let channel = make_fake_channel(&fixture.node);
     let channel_weak = Arc::downgrade(&channel);
@@ -634,6 +635,8 @@ fn bootstrap_server_shutdown_does_not_wait_for_inbound_callback_completion() {
     assert_eq!(inbound_queue.size(), 0);
     assert_eq!(sent_bootstrap_response(&send_tracker.output()), true);
     assert_eq!(channel_weak.upgrade().unwrap().queue_len(), 0);
+    assert_eq!(bootstrap_server.upgrade().is_none(), true);
+    assert_eq!(message_sender.upgrade().is_none(), true);
 
     callback.release();
 
@@ -641,7 +644,6 @@ fn bootstrap_server_shutdown_does_not_wait_for_inbound_callback_completion() {
     stopper.join().unwrap();
 
     assert_timely_eq2(|| callback.exited(), 1);
-    assert_timely_eq2(|| bootstrap_server.upgrade().is_none(), true);
     assert_timely_eq2(|| channel_weak.upgrade().is_none(), true);
 }
 
