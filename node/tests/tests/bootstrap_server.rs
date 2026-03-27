@@ -1,7 +1,10 @@
 use std::{
     collections::{HashMap, VecDeque},
     path::PathBuf,
-    sync::{Arc, Mutex, Weak},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicUsize, Ordering},
+    },
     thread,
     time::Duration,
 };
@@ -769,6 +772,66 @@ fn bootstrap_server_shutdown_stops_work_factory_before_inbound_release() {
     assert_timely_eq2(|| callback.exited(), 1);
 }
 
+#[test]
+fn bootstrap_server_shutdown_stops_message_processing_before_inbound_release() {
+    let callback = Arc::new(BlockingCallback::new());
+    let callback_l = callback.clone();
+    let inbound_calls = Arc::new(AtomicUsize::new(0));
+    let inbound_calls_l = inbound_calls.clone();
+    let fixture = CallbackNode::new(
+        NodeCallbacks::builder()
+            .on_inbound(move |_channel_id, message| {
+                if matches!(message, Message::AscPullReq(_)) {
+                    let call_index = inbound_calls_l.fetch_add(1, Ordering::SeqCst);
+                    if call_index == 0 {
+                        callback_l.wait_until_released();
+                    }
+                }
+            })
+            .finish(),
+    );
+    let inbound_queue = fixture.node.inbound_message_queue.clone();
+    let send_tracker = fixture.node.message_sender.lock().unwrap().track();
+
+    let chains = setup_chains(&fixture.node, 1, 16, &DEV_GENESIS_KEY, true);
+    let first_request = block_request(chains[0].0, 0);
+    let second_request = block_request(chains[0].0, 1);
+    let first_channel = make_fake_channel(&fixture.node);
+    let second_channel = make_fake_channel(&fixture.node);
+    let inbound_queue_l = inbound_queue.clone();
+
+    let enqueue = thread::spawn(move || {
+        inbound_queue_l.put(first_request, first_channel);
+    });
+
+    assert_timely_eq2(|| callback.entered(), 1);
+
+    let (shutdown_tx, shutdown_rx) = std::sync::mpsc::sync_channel(1);
+    let stopper = thread::spawn(move || {
+        fixture.shutdown();
+        shutdown_tx.send(()).unwrap();
+    });
+
+    assert_timely_eq2(|| shutdown_rx.recv_timeout(Duration::from_secs(5)).is_ok(), true);
+    assert_eq!(callback.exited(), 0);
+
+    let sent_before = count_bootstrap_responses(&send_tracker.output());
+    assert_eq!(sent_before, 1);
+
+    assert_eq!(inbound_queue.put(second_request, second_channel), true);
+    assert_timely_eq2(|| inbound_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(inbound_queue.size(), 1);
+    assert_always_eq(Duration::from_millis(200), || {
+        count_bootstrap_responses(&send_tracker.output())
+    }, sent_before);
+
+    callback.release();
+
+    enqueue.join().unwrap();
+    stopper.join().unwrap();
+    assert_timely_eq2(|| callback.exited(), 1);
+}
+
 struct ResponseHelper {
     responses: Arc<Mutex<Vec<AscPullAck>>>,
 }
@@ -846,6 +909,13 @@ fn sent_bootstrap_response(events: &[SendEvent]) -> bool {
     events
         .iter()
         .any(|event| matches!(event.message, Message::AscPullAck(_)))
+}
+
+fn count_bootstrap_responses(events: &[SendEvent]) -> usize {
+    events
+        .iter()
+        .filter(|event| matches!(event.message, Message::AscPullAck(_)))
+        .count()
 }
 
 fn all_channels_dropped(channels: &[Weak<rsnano_network::Channel>]) -> bool {
