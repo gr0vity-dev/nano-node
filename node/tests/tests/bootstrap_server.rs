@@ -619,6 +619,7 @@ fn bootstrap_server_shutdown_does_not_wait_for_inbound_callback_completion() {
     let wallets = Arc::downgrade(&fixture.node.wallets);
     let ledger = Arc::downgrade(&fixture.node.ledger);
     let work_factory = Arc::downgrade(&fixture.node.work_factory);
+    let network = Arc::downgrade(&fixture.node.network);
     let request = block_request(chains[0].0, 0);
     let channel = make_fake_channel(&fixture.node);
     let channel_weak = Arc::downgrade(&channel);
@@ -655,6 +656,7 @@ fn bootstrap_server_shutdown_does_not_wait_for_inbound_callback_completion() {
     assert_eq!(wallets.upgrade().is_none(), true);
     assert_eq!(ledger.upgrade().is_none(), true);
     assert_eq!(work_factory.upgrade().is_none(), true);
+    assert_eq!(network.upgrade().is_none(), true);
 
     callback.release();
 
