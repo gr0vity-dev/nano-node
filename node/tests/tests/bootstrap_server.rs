@@ -669,8 +669,67 @@ fn bootstrap_server_shutdown_does_not_wait_for_inbound_callback_completion() {
     assert_timely_eq2(|| channel_weak.upgrade().is_none(), true);
 }
 
+#[test]
+fn bootstrap_server_shutdown_stops_runtime_tasks_before_inbound_release() {
+    let callback = Arc::new(BlockingCallback::new());
+    let callback_l = callback.clone();
+    let fixture = CallbackNode::new(
+        NodeCallbacks::builder()
+            .on_inbound(move |_channel_id, message| {
+                if matches!(message, Message::AscPullReq(_)) {
+                    callback_l.wait_until_released();
+                }
+            })
+            .finish(),
+    );
+
+    let (task_started_tx, task_started_rx) = std::sync::mpsc::sync_channel(1);
+    let (task_dropped_tx, task_dropped_rx) = std::sync::mpsc::sync_channel(1);
+    fixture.node.runtime.spawn(async move {
+        let _guard = DropNotifier(task_dropped_tx);
+        task_started_tx.send(()).unwrap();
+        std::future::pending::<()>().await;
+    });
+    assert_eq!(task_started_rx.recv_timeout(Duration::from_secs(5)).is_ok(), true);
+
+    let chains = setup_chains(&fixture.node, 1, 16, &DEV_GENESIS_KEY, true);
+    let request = block_request(chains[0].0, 0);
+    let channel = make_fake_channel(&fixture.node);
+    let inbound_queue = fixture.node.inbound_message_queue.clone();
+
+    let enqueue = thread::spawn(move || {
+        inbound_queue.put(request, channel);
+    });
+
+    assert_timely_eq2(|| callback.entered(), 1);
+
+    let (shutdown_tx, shutdown_rx) = std::sync::mpsc::sync_channel(1);
+    let stopper = thread::spawn(move || {
+        fixture.shutdown();
+        shutdown_tx.send(()).unwrap();
+    });
+
+    assert_timely_eq2(|| shutdown_rx.recv_timeout(Duration::from_secs(5)).is_ok(), true);
+    assert_eq!(callback.exited(), 0);
+    assert_eq!(task_dropped_rx.recv_timeout(Duration::from_secs(5)).is_ok(), true);
+
+    callback.release();
+
+    enqueue.join().unwrap();
+    stopper.join().unwrap();
+    assert_timely_eq2(|| callback.exited(), 1);
+}
+
 struct ResponseHelper {
     responses: Arc<Mutex<Vec<AscPullAck>>>,
+}
+
+struct DropNotifier(std::sync::mpsc::SyncSender<()>);
+
+impl Drop for DropNotifier {
+    fn drop(&mut self) {
+        self.0.send(()).unwrap();
+    }
 }
 
 impl ResponseHelper {
