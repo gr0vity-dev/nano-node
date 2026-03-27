@@ -21,6 +21,7 @@ use super::{
     cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
     recently_confirmed_cache::RecentlyConfirmedCache,
     stats::AecStats,
+    vote_router::VoteRouter,
 };
 
 use crate::{
@@ -35,7 +36,8 @@ use crate::{
 };
 
 pub struct AecService {
-    active: Arc<RwLock<ActiveElectionsContainer>>,
+    router: RwLock<VoteRouter>,
+    shards: Vec<RwLock<ActiveElectionsContainer>>,
     state: Mutex<AecGlobalState>,
     delivery: Arc<AecDelivery>,
     online_reps: Arc<Mutex<OnlineReps>>,
@@ -153,6 +155,7 @@ impl ContainerInfoProvider for AecGlobalState {
 
 impl AecService {
     const EVENT_QUEUE_SOFT_LIMIT: usize = 1024 * 5;
+    const SHARD_COUNT: usize = 8;
 
     pub fn new(
         config: ActiveElectionsConfig,
@@ -184,7 +187,10 @@ impl AecService {
         let delivery = Arc::new(AecDelivery::new(Self::EVENT_QUEUE_SOFT_LIMIT));
         (
             Self {
-                active: Arc::new(RwLock::new(ActiveElectionsContainer::new(base_latency))),
+                router: RwLock::new(VoteRouter::default()),
+                shards: (0..Self::SHARD_COUNT)
+                    .map(|_| RwLock::new(ActiveElectionsContainer::new(base_latency)))
+                    .collect(),
                 state: Mutex::new(AecGlobalState::new(config)),
                 delivery: delivery.clone(),
                 online_reps,
@@ -234,10 +240,11 @@ impl AecService {
 
     pub fn erase(&self, root: &QualifiedRoot) -> bool {
         let mut state = self.state.lock().unwrap();
-        let mut active = self.active.write().unwrap();
-        let result = active.erase(root);
+        let mut shard = self.shard_for_root(root).write().unwrap();
+        let result = shard.erase(root);
         let erased = result.is_some();
         if let Some(result) = result {
+            self.apply_router_delta(&result);
             state.apply(&result);
             self.publish_facts(result.facts);
         }
@@ -253,13 +260,13 @@ impl AecService {
     // traversal or runtime helpers.
     pub fn vacancy(&self) -> i64 {
         let state = self.state.lock().unwrap();
-        let total = self.active.read().unwrap().len();
+        let total = self.len();
         state.vacancy(total)
     }
 
     pub fn info(&self) -> crate::consensus::ActiveElectionsInfo {
         let state = self.state.lock().unwrap();
-        let total = self.active.read().unwrap().len();
+        let total = self.len();
         state.info(total)
     }
 
@@ -277,14 +284,16 @@ impl AecService {
         }
 
         let mut result = ConfirmationActiveInfo::default();
-        let active = self.active.read().unwrap();
-        for election in active.iter_round_robin() {
-            if election.is_confirmed() {
-                result.confirmed += 1;
-            } else {
-                result
-                    .unconfirmed_roots
-                    .push(election.qualified_root().clone());
+        for shard in &self.shards {
+            let shard = shard.read().unwrap();
+            for election in shard.iter_round_robin() {
+                if election.is_confirmed() {
+                    result.confirmed += 1;
+                } else {
+                    result
+                        .unconfirmed_roots
+                        .push(election.qualified_root().clone());
+                }
             }
         }
         result
@@ -295,31 +304,35 @@ impl AecService {
     }
 
     pub fn is_active_root(&self, root: &QualifiedRoot) -> bool {
-        self.active.read().unwrap().is_active_root(root)
+        self.shard_for_root(root).read().unwrap().is_active_root(root)
     }
 
     pub fn is_active_hash(&self, hash: &BlockHash) -> bool {
-        self.active.read().unwrap().is_active_hash(hash)
+        self.router.read().unwrap().is_active(hash)
     }
 
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<Election> {
-        self.active.read().unwrap().election_for_root(root).cloned()
-    }
-
-    pub fn election_for_block(&self, hash: &BlockHash) -> Option<Election> {
-        self.active
+        self.shard_for_root(root)
             .read()
             .unwrap()
-            .election_for_block(hash)
+            .election_for_root(root)
             .cloned()
     }
 
+    pub fn election_for_block(&self, hash: &BlockHash) -> Option<Election> {
+        let root = self.router.read().unwrap().qualified_root(hash).cloned()?;
+        self.election_for_root(&root)
+    }
+
     pub fn len(&self) -> usize {
-        self.active.read().unwrap().len()
+        self.shards
+            .iter()
+            .map(|shard| shard.read().unwrap().len())
+            .sum()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.active.read().unwrap().is_empty()
+        self.len() == 0
     }
 
     pub(crate) fn remove_recently_confirmed(&self, block_hash: &BlockHash) {
@@ -337,16 +350,26 @@ impl AecService {
         confirmed: Vec<(SavedBlock, Option<ConfirmedElection>)>,
     ) {
         let mut state = self.state.lock().unwrap();
-        let mut active = self.active.write().unwrap();
-        let result = active.confirm_dependent_elections(confirmed, self.clock.now());
+        let mut result = AecMutationResult::default();
+        for (confirmed_block, source_election) in confirmed {
+            let shard_result = self
+                .shard_for_root(&confirmed_block.qualified_root())
+                .write()
+                .unwrap()
+                .confirm_dependent_elections(vec![(confirmed_block, source_election)], self.clock.now());
+            result.merge(shard_result);
+        }
+        self.apply_router_delta(&result);
         state.apply(&result);
         self.publish_facts(result.facts);
     }
 
     pub(crate) fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {
         let mut state = self.state.lock().unwrap();
-        let mut active = self.active.write().unwrap();
-        let (added, result) = active.try_add_fork(fork, fork_tally);
+        let root = fork.qualified_root();
+        let mut shard = self.shard_for_root(&root).write().unwrap();
+        let (added, result) = shard.try_add_fork(fork, fork_tally);
+        self.apply_router_delta(&result);
         state.apply(&result);
         self.publish_facts(result.facts);
         added
@@ -354,14 +377,20 @@ impl AecService {
 
     pub(crate) fn transition_time(&self) {
         let mut state = self.state.lock().unwrap();
-        let mut active = self.active.write().unwrap();
-        let result = active.transition_time(self.clock.now());
+        let mut result = AecMutationResult::default();
+        for shard in &self.shards {
+            result.merge(shard.write().unwrap().transition_time(self.clock.now()));
+        }
+        self.apply_router_delta(&result);
         state.apply(&result);
         self.publish_facts(result.facts);
     }
 
     pub fn transition_active(&self, block_hash: &BlockHash) -> bool {
-        self.active.write().unwrap().transition_active(block_hash)
+        let Some(root) = self.router.read().unwrap().qualified_root(block_hash).cloned() else {
+            return false;
+        };
+        self.shard_for_root(&root).write().unwrap().transition_active(&root)
     }
 
     pub(crate) fn remove_votes(
@@ -370,7 +399,7 @@ impl AecService {
         voters: impl IntoIterator<Item = PublicKey>,
     ) {
         let voters = voters.into_iter().collect::<Vec<_>>();
-        self.active
+        self.shard_for_root(root)
             .write()
             .unwrap()
             .remove_votes(root, voters.iter());
@@ -378,20 +407,9 @@ impl AecService {
 
     pub fn activate(&self, request: AecActivateRequest) -> Result<(), AecInsertError> {
         let mut state = self.state.lock().unwrap();
-        let mut active = self.active.write().unwrap();
-        match &request {
-            AecActivateRequest::Manual { block, .. }
-            | AecActivateRequest::Hinted { block, .. }
-            | AecActivateRequest::Optimistic { block, .. }
-            | AecActivateRequest::Priority { block, .. } => state.ensure_can_insert(block)?,
-        }
-        let active_len = active.len();
-        let result = active.activate(
-            request,
-            self.clock.now(),
-            state.cooldown.is_cooling_down(),
-            state.vacancy(active_len),
-        )?;
+        let active_len = self.len();
+        let result = self.activate_with_state(&mut state, request, self.clock.now(), active_len)?;
+        self.apply_router_delta(&result);
         state.apply(&result);
         self.publish_facts(result.facts);
         Ok(())
@@ -403,13 +421,7 @@ impl AecService {
         candidate_root: &QualifiedRoot,
     ) -> PriorityBucketState {
         let state = self.state.lock().unwrap();
-        let active = self.active.read().unwrap();
-        active.priority_bucket_state(
-            bucket,
-            candidate_root,
-            state.cooldown.is_cooling_down(),
-            state.vacancy(active.len()),
-        )
+        self.global_priority_bucket_state(bucket, candidate_root, &state, self.len())
     }
 
     pub(in crate::consensus) fn next_vote_to_broadcast_for_voter(
@@ -418,10 +430,16 @@ impl AecService {
         vote_broadcast_interval: Duration,
         now: Timestamp,
     ) -> Option<(Root, BlockHash, VoteType)> {
-        self.active
-            .write()
-            .unwrap()
-            .next_vote_to_broadcast(bucket, vote_broadcast_interval, now)
+        for shard in &self.shards {
+            let next = shard
+                .write()
+                .unwrap()
+                .next_vote_to_broadcast(bucket, vote_broadcast_interval, now);
+            if next.is_some() {
+                return next;
+            }
+        }
+        None
     }
 
     pub fn clear_recently_confirmed(&self) {
@@ -430,30 +448,42 @@ impl AecService {
 
     pub fn force_confirm(&self, block_hash: &BlockHash) {
         let mut state = self.state.lock().unwrap();
-        let mut active = self.active.write().unwrap();
-        let result = active.force_confirm(block_hash, self.clock.now());
+        let root = self
+            .router
+            .read()
+            .unwrap()
+            .qualified_root(block_hash)
+            .cloned()
+            .expect("Force confirm failed, because no active election was found");
+        let mut shard = self.shard_for_root(&root).write().unwrap();
+        let result = shard.force_confirm(&root, self.clock.now());
         state.apply(&result);
         self.publish_facts(result.facts);
     }
 
     pub fn cancel(&self, root: &QualifiedRoot) {
-        self.active.write().unwrap().cancel(root);
+        self.shard_for_root(root).write().unwrap().cancel(root);
     }
 
     pub fn cancel_all(&self) {
-        self.active.write().unwrap().cancel_all();
+        for shard in &self.shards {
+            shard.write().unwrap().cancel_all();
+        }
     }
 
     pub fn stop(&self) {
         let mut state = self.state.lock().unwrap();
-        let mut active = self.active.write().unwrap();
-        for election in active.iter_round_robin() {
-            state.count_by_behavior[election.behavior() as usize] =
-                state.count_by_behavior[election.behavior() as usize].saturating_sub(1);
-            state.stats.stopped(election);
+        for shard in &self.shards {
+            let mut shard = shard.write().unwrap();
+            for election in shard.iter_round_robin() {
+                state.count_by_behavior[election.behavior() as usize] =
+                    state.count_by_behavior[election.behavior() as usize].saturating_sub(1);
+                state.stats.stopped(election);
+            }
+            shard.stop();
         }
         state.stopped = true;
-        active.stop();
+        self.router.write().unwrap().clear();
     }
 
     pub(crate) fn apply_vote(
@@ -473,9 +503,9 @@ impl AecService {
         }
 
         let is_active = {
-            let active = self.active.read().unwrap();
+            let active = self.router.read().unwrap();
             vote.filtered_blocks()
-                .any(|hash| active.is_active_hash(hash))
+                .any(|hash| active.is_active(hash))
         };
 
         let now = self.clock.now();
@@ -489,26 +519,55 @@ impl AecService {
 
         let per_block = {
             let mut state = self.state.lock().unwrap();
-            let mut active = self.active.write().unwrap();
             let rep_weights = self.rep_weights.read();
-            let was_recently_confirmed =
-                |hash: &BlockHash| state.recently_confirmed.hash_exists(hash);
-            let result = active.apply_vote(
-                ApplyVoteArgs {
-                    vote,
-                    rep_weights: &rep_weights,
-                    quorum_specs: &quorum_specs,
-                    now,
-                },
-                &was_recently_confirmed,
-            );
-            let mutation = AecMutationResult {
-                facts: result.facts,
-                delta: result.delta,
-            };
-            state.apply(&mutation);
-            self.publish_facts(mutation.facts);
-            result.per_block
+            let mut per_block = HashMap::new();
+            for block_hash in vote.filtered_blocks() {
+                if per_block.contains_key(block_hash) {
+                    continue;
+                }
+
+                let root = {
+                    let router = self.router.read().unwrap();
+                    router.qualified_root(block_hash).cloned()
+                };
+
+                let Some(root) = root else {
+                    let error = if state.recently_confirmed.hash_exists(block_hash) {
+                        VoteError::Late
+                    } else {
+                        VoteError::Indeterminate
+                    };
+                    per_block.insert(*block_hash, Err(error));
+                    continue;
+                };
+
+                let filtered_vote = FilteredVote::new(vote.vote.clone(), *block_hash);
+                let result = {
+                    let router = self.router.read().unwrap();
+                    let mut shard = self.shard_for_root(&root).write().unwrap();
+                    let was_recently_confirmed =
+                        |hash: &BlockHash| state.recently_confirmed.hash_exists(hash);
+                    shard.apply_vote(
+                        ApplyVoteArgs {
+                            vote: &filtered_vote,
+                            rep_weights: &rep_weights,
+                            quorum_specs: &quorum_specs,
+                            now,
+                        },
+                        &router,
+                        &was_recently_confirmed,
+                    )
+                };
+                let mutation = AecMutationResult {
+                    facts: result.facts,
+                    delta: result.delta,
+                };
+                self.apply_router_delta(&mutation);
+                state.apply(&mutation);
+                self.publish_facts(mutation.facts);
+                per_block.extend(result.per_block);
+            }
+            per_block
         };
         self.notify_vote_processed(vote.vote.clone(), voter_weight, &per_block);
         per_block
@@ -540,23 +599,164 @@ impl AecService {
         now: Timestamp,
     ) -> Result<(), AecInsertError> {
         let mut state = self.state.lock().unwrap();
-        let mut active = self.active.write().unwrap();
+        let active_len = self.len();
+        let result = self.activate_with_state(&mut state, request, now, active_len)?;
+        self.apply_router_delta(&result);
+        state.apply(&result);
+        self.publish_facts(result.facts);
+        Ok(())
+    }
+
+    fn shard_for_root(&self, root: &QualifiedRoot) -> &RwLock<ActiveElectionsContainer> {
+        &self.shards[self.shard_index(root)]
+    }
+
+    fn shard_index(&self, root: &QualifiedRoot) -> usize {
+        usize::from(root.to_bytes()[0]) % self.shards.len()
+    }
+
+    fn apply_router_delta(&self, result: &AecMutationResult) {
+        let mut router = self.router.write().unwrap();
+        for hash in &result.delta.route_removals {
+            router.disconnect(hash);
+        }
+        for (hash, root) in &result.delta.route_additions {
+            router.connect(*hash, root.clone());
+        }
+    }
+
+    fn activate_with_state(
+        &self,
+        state: &mut AecGlobalState,
+        request: AecActivateRequest,
+        now: Timestamp,
+        active_len: usize,
+    ) -> Result<AecMutationResult, AecInsertError> {
         match &request {
             AecActivateRequest::Manual { block, .. }
             | AecActivateRequest::Hinted { block, .. }
             | AecActivateRequest::Optimistic { block, .. }
             | AecActivateRequest::Priority { block, .. } => state.ensure_can_insert(block)?,
         }
-        let active_len = active.len();
-        let result = active.activate(
-            request,
-            now,
-            state.cooldown.is_cooling_down(),
-            state.vacancy(active_len),
-        )?;
-        state.apply(&result);
-        self.publish_facts(result.facts);
-        Ok(())
+
+        match request {
+            AecActivateRequest::Priority {
+                block,
+                priority,
+                bucket_index,
+                reserved_elections,
+            } => self.activate_priority(
+                block,
+                priority,
+                bucket_index,
+                reserved_elections,
+                now,
+                state,
+                active_len,
+            ),
+            request => {
+                let root = request.qualified_root();
+                self.shard_for_root(&root).write().unwrap().activate(
+                    request,
+                    now,
+                    state.cooldown.is_cooling_down(),
+                    state.vacancy(active_len),
+                )
+            }
+        }
+    }
+
+    fn activate_priority(
+        &self,
+        block: SavedBlock,
+        priority: rsnano_types::BlockPriority,
+        bucket_index: usize,
+        reserved_elections: usize,
+        now: Timestamp,
+        state: &AecGlobalState,
+        active_len: usize,
+    ) -> Result<AecMutationResult, AecInsertError> {
+        let candidate_root = block.qualified_root();
+        let bucket_state = self.global_priority_bucket_state(bucket_index, &candidate_root, state, active_len);
+        let request = AecActivateRequest::priority(block, priority, bucket_index, reserved_elections);
+
+        if bucket_state.contains_candidate {
+            return self.shard_for_root(&candidate_root).write().unwrap().activate(
+                request,
+                now,
+                state.cooldown.is_cooling_down(),
+                state.vacancy(active_len),
+            );
+        }
+
+        if bucket_state.active_len >= reserved_elections {
+            let Some((lowest_root, _)) = bucket_state.lowest else {
+                debug_assert!(false, "priority replacement requires a lowest election");
+                return Err(AecInsertError::Duplicate);
+            };
+            let request = request.into_insert_request();
+            let mut result = self
+                .shard_for_root(&lowest_root)
+                .write()
+                .unwrap()
+                .erase(&lowest_root)
+                .ok_or(AecInsertError::Duplicate)?;
+            let new_root = request.block.qualified_root();
+            let insert = self
+                .shard_for_root(&new_root)
+                .write()
+                .unwrap()
+                .insert(request, now)?;
+            result.merge(insert);
+            Ok(result)
+        } else {
+            self.shard_for_root(&candidate_root).write().unwrap().activate(
+                request,
+                now,
+                state.cooldown.is_cooling_down(),
+                state.vacancy(active_len),
+            )
+        }
+    }
+
+    fn global_priority_bucket_state(
+        &self,
+        bucket: usize,
+        candidate_root: &QualifiedRoot,
+        state: &AecGlobalState,
+        active_len: usize,
+    ) -> PriorityBucketState {
+        let mut result = PriorityBucketState {
+            active_len: 0,
+            contains_candidate: self.is_active_root(candidate_root),
+            lowest: None,
+            is_cooling_down: state.cooldown.is_cooling_down(),
+            vacancy: state.vacancy(active_len),
+        };
+
+        for shard in &self.shards {
+            let shard = shard.read().unwrap();
+            let shard_state = shard.priority_bucket_state(
+                bucket,
+                candidate_root,
+                result.is_cooling_down,
+                result.vacancy,
+            );
+            result.active_len += shard_state.active_len;
+            result.lowest = match (result.lowest.take(), shard_state.lowest) {
+                (None, other) => other,
+                (current @ Some(_), None) => current,
+                (Some((current_root, current_time)), Some((next_root, next_time))) => {
+                    if next_time < current_time {
+                        Some((next_root, next_time))
+                    } else {
+                        Some((current_root, current_time))
+                    }
+                }
+            };
+        }
+
+        result
     }
 }
 
@@ -569,20 +769,27 @@ impl StatsSource for AecService {
 impl ContainerInfoProvider for AecService {
     fn container_info(&self) -> ContainerInfo {
         let state = self.state.lock().unwrap();
-        let active = self.active.read().unwrap();
+        let active: usize = self
+            .shards
+            .iter()
+            .map(|shard| shard.read().unwrap().len())
+            .sum();
         ContainerInfo::builder()
             .node("global", state.container_info())
-            .node("active", active.container_info())
+            .leaf("active", active, 0)
+            .node("vote_router", self.router.read().unwrap().container_info())
             .finish()
     }
 }
 
 impl AecTickerRead for AecService {
     fn for_each_confirmation_solicitation_election(&self, action: &mut dyn FnMut(&Election)) {
-        let active = self.active.read().unwrap();
-        for election in active.iter_round_robin() {
-            if election.state() == ElectionState::Active {
-                action(election);
+        for shard in &self.shards {
+            let shard = shard.read().unwrap();
+            for election in shard.iter_round_robin() {
+                if election.state() == ElectionState::Active {
+                    action(election);
+                }
             }
         }
     }
@@ -593,10 +800,12 @@ impl AecTickerRead for AecService {
         stale_threshold: Duration,
         action: &mut dyn FnMut(&Election),
     ) {
-        let active = self.active.read().unwrap();
-        for election in active.iter_round_robin() {
-            if election.start().elapsed(now) >= stale_threshold {
-                action(election);
+        for shard in &self.shards {
+            let shard = shard.read().unwrap();
+            for election in shard.iter_round_robin() {
+                if election.start().elapsed(now) >= stale_threshold {
+                    action(election);
+                }
             }
         }
     }
@@ -712,6 +921,72 @@ mod tests {
         }
 
         assert!(observed_vote_processed);
+    }
+
+    #[test]
+    fn apply_vote_reports_every_hash_across_shards() {
+        let service = AecService::new_null();
+        let rep_key = PrivateKey::from(1);
+        service.rep_weights.put(rep_key.public_key(), Amount::MAX);
+
+        let block_a = SavedBlock::new_test_instance_with_key(1);
+        let block_b = block_in_different_shard(&service, &block_a);
+        let priority = BlockPriority::new_test_instance();
+        let bucket_index = prio_bucket_index(priority.balance);
+
+        service
+            .activate_for_test(
+                AecActivateRequest::priority(block_a.clone(), priority, bucket_index, 2),
+                service.clock.now(),
+            )
+            .unwrap();
+        service
+            .activate_for_test(
+                AecActivateRequest::priority(block_b.clone(), priority, bucket_index, 2),
+                service.clock.now(),
+            )
+            .unwrap();
+
+        let vote = ReceivedVote::new(
+            Vote::new(
+                &rep_key,
+                UnixMillisTimestamp::new(123),
+                0,
+                vec![block_a.hash(), block_b.hash()],
+            )
+            .into(),
+            VoteSource::Live,
+            None,
+        );
+
+        let results = service.apply_vote(&vote.into());
+
+        assert_eq!(results.get(&block_a.hash()), Some(&Ok(())));
+        assert_eq!(results.get(&block_b.hash()), Some(&Ok(())));
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn confirm_dependent_elections_emits_one_block_confirmed_fact_after_sharding() {
+        let (service, delivery) = AecService::new_null_with_delivery();
+        let block = SavedBlock::new_test_instance();
+
+        service.confirm_dependent_elections(vec![(block.clone(), None)]);
+
+        let mut confirmed = Vec::new();
+        while let Ok(fact) = delivery.try_recv() {
+            if let AecFact::BlockConfirmed(confirmed_block, election) = fact {
+                confirmed.push((confirmed_block, election.confirmation_type));
+            }
+        }
+
+        assert_eq!(
+            confirmed,
+            vec![(
+                block,
+                crate::consensus::election::ConfirmationType::InactiveConfirmationHeight,
+            )]
+        );
     }
 
     #[test]
@@ -849,5 +1124,17 @@ mod tests {
         fn process(&mut self, _event: AecFact) {
             self.log.lock().unwrap().push("processed");
         }
+    }
+
+    fn block_in_different_shard(service: &AecService, other: &SavedBlock) -> SavedBlock {
+        let other_shard = usize::from(other.qualified_root().to_bytes()[0]) % service.shards.len();
+        for key in 2..=64 {
+            let block = SavedBlock::new_test_instance_with_key(key);
+            let shard = usize::from(block.qualified_root().to_bytes()[0]) % service.shards.len();
+            if shard != other_shard {
+                return block;
+            }
+        }
+        panic!("expected test fixture blocks to span multiple shards");
     }
 }

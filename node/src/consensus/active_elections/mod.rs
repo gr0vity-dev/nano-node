@@ -178,12 +178,12 @@ impl AecActivateRequest {
         }
     }
 
-    fn block_hash(&self) -> BlockHash {
+    fn qualified_root(&self) -> QualifiedRoot {
         match self {
             Self::Manual { block, .. }
             | Self::Hinted { block, .. }
             | Self::Optimistic { block, .. }
-            | Self::Priority { block, .. } => block.hash(),
+            | Self::Priority { block, .. } => block.qualified_root(),
         }
     }
 
