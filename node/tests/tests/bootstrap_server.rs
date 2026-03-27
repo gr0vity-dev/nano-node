@@ -832,6 +832,62 @@ fn bootstrap_server_shutdown_stops_message_processing_before_inbound_release() {
     assert_timely_eq2(|| callback.exited(), 1);
 }
 
+#[test]
+fn bootstrap_server_shutdown_stops_responder_before_inbound_release() {
+    let callback = Arc::new(BlockingCallback::new());
+    let callback_l = callback.clone();
+    let fixture = CallbackNode::new(
+        NodeCallbacks::builder()
+            .on_inbound(move |_channel_id, message| {
+                if matches!(message, Message::AscPullReq(_)) {
+                    callback_l.wait_until_released();
+                }
+            })
+            .finish(),
+    );
+    let bootstrap_server = fixture.node.bootstrap_server.clone();
+    let send_tracker = fixture.node.message_sender.lock().unwrap().track();
+
+    let chains = setup_chains(&fixture.node, 1, 16, &DEV_GENESIS_KEY, true);
+    let first_request = block_request(chains[0].0, 0);
+    let second_request = block_request(chains[0].0, 1);
+    let first_channel = make_fake_channel(&fixture.node);
+    let second_channel = make_fake_channel(&fixture.node);
+    let inbound_queue = fixture.node.inbound_message_queue.clone();
+
+    let enqueue = thread::spawn(move || {
+        inbound_queue.put(first_request, first_channel);
+    });
+
+    assert_timely_eq2(|| callback.entered(), 1);
+
+    let (shutdown_tx, shutdown_rx) = std::sync::mpsc::sync_channel(1);
+    let stopper = thread::spawn(move || {
+        fixture.shutdown();
+        shutdown_tx.send(()).unwrap();
+    });
+
+    assert_timely_eq2(|| shutdown_rx.recv_timeout(Duration::from_secs(5)).is_ok(), true);
+    assert_eq!(callback.exited(), 0);
+
+    let sent_before = count_bootstrap_responses(&send_tracker.output());
+    assert_eq!(sent_before, 1);
+
+    let Message::AscPullReq(second_request) = second_request else {
+        panic!("wrong request type")
+    };
+    assert_eq!(bootstrap_server.enqueue(second_request, second_channel), false);
+    assert_always_eq(Duration::from_millis(200), || {
+        count_bootstrap_responses(&send_tracker.output())
+    }, sent_before);
+
+    callback.release();
+
+    enqueue.join().unwrap();
+    stopper.join().unwrap();
+    assert_timely_eq2(|| callback.exited(), 1);
+}
+
 struct ResponseHelper {
     responses: Arc<Mutex<Vec<AscPullAck>>>,
 }
