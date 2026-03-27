@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
     time::Duration,
 };
 
@@ -493,6 +493,26 @@ fn serve_frontiers_invalid_count() {
     );
 }
 
+#[test]
+fn bootstrap_server_shutdown_releases_owned_channels() {
+    let mut system = System::new();
+    let node = system.make_node();
+
+    let responses = ResponseHelper::new();
+    responses.connect(&node);
+
+    let chains = setup_chains(&node, 32, 16, &DEV_GENESIS_KEY, true);
+    let bootstrap_server = Arc::downgrade(&node.bootstrap_server);
+    let channel_weaks = enqueue_block_requests(&node, &chains);
+
+    assert_timely_eq(Duration::from_secs(15), || responses.len(), chains.len());
+
+    system.stop_node(node);
+
+    assert_timely_eq2(|| bootstrap_server.upgrade().is_none(), true);
+    assert_timely_eq2(|| all_channels_dropped(&channel_weaks), true);
+}
+
 struct ResponseHelper {
     responses: Arc<Mutex<Vec<AscPullAck>>>,
 }
@@ -519,6 +539,36 @@ impl ResponseHelper {
                 responses.lock().unwrap().push(response.clone());
             }));
     }
+}
+
+fn enqueue_block_requests(
+    node: &Node,
+    chains: &[(Account, Vec<SavedBlock>)],
+) -> Vec<Weak<rsnano_network::Channel>> {
+    let mut next_id = 0;
+    let mut channels = Vec::new();
+
+    for (account, _) in chains {
+        let request = Message::AscPullReq(AscPullReq {
+            id: next_id,
+            req_type: AscPullReqType::Blocks(BlocksReqPayload {
+                start_type: HashType::Account,
+                start: (*account).into(),
+                count: BootstrapServer::MAX_BLOCKS as u8,
+            }),
+        });
+        next_id += 1;
+
+        let channel = make_fake_channel(node);
+        node.inbound_message_queue.put(request, channel.clone());
+        channels.push(Arc::downgrade(&channel));
+    }
+
+    channels
+}
+
+fn all_channels_dropped(channels: &[Weak<rsnano_network::Channel>]) -> bool {
+    channels.iter().all(|channel| channel.upgrade().is_none())
 }
 
 /// Checks if both lists contain the same blocks, with `blocks_b`
