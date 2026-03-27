@@ -4,17 +4,15 @@ use rsnano_types::{Amount, BlockHash, VoteError, VoteSource};
 
 use super::{
     AecFact, AecFacts, ApplyVoteArgs,
-    recently_confirmed_cache::RecentlyConfirmedCache,
+    active_elections_container::AecContainerDelta,
     root_container::{Entry, RootContainer},
-    stats::VoteCounter,
     vote_router::VoteRouter,
 };
 use crate::consensus::election::{ConfirmationType, Election, VoteSummary};
 
 pub(super) struct ApplyVoteHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
-    pub recently_confirmed: &'a mut RecentlyConfirmedCache,
-    pub vote_counter: &'a mut VoteCounter,
+    pub was_recently_confirmed: &'a dyn Fn(&BlockHash) -> bool,
     pub roots: &'a mut RootContainer,
     pub vote_router: &'a VoteRouter,
 }
@@ -29,7 +27,7 @@ impl<'a> ApplyVoteHelper<'a> {
             }
 
             let Some(root) = self.vote_router.qualified_root(block_hash).cloned() else {
-                if self.recently_confirmed.hash_exists(block_hash) {
+                if (self.was_recently_confirmed)(block_hash) {
                     result.per_block.insert(*block_hash, Err(VoteError::Late));
                 } else {
                     result
@@ -43,14 +41,14 @@ impl<'a> ApplyVoteHelper<'a> {
                 {
                     let mut apply_to_election = ApplyVoteToElectionHelper {
                         args: self.args,
-                        recently_confirmed: self.recently_confirmed,
-                        vote_counter: self.vote_counter,
                         facts: AecFacts::new(),
+                        delta: AecContainerDelta::default(),
                         election,
                         block_hash,
                     };
                     let vote_result = apply_to_election.apply_vote();
                     result.facts.extend(apply_to_election.take_facts());
+                    result.delta.merge(apply_to_election.take_delta());
                     result.per_block.insert(*block_hash, vote_result);
                 }
 
@@ -72,13 +70,13 @@ pub(crate) struct ApplyVoteResult {
     pub per_block: HashMap<BlockHash, Result<(), VoteError>>,
     pub confirmed: Vec<Entry>,
     pub facts: AecFacts,
+    pub delta: AecContainerDelta,
 }
 
 struct ApplyVoteToElectionHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
-    pub recently_confirmed: &'a mut RecentlyConfirmedCache,
-    pub vote_counter: &'a mut VoteCounter,
     pub facts: AecFacts,
+    pub delta: AecContainerDelta,
     pub election: &'a mut Election,
     pub block_hash: &'a BlockHash,
 }
@@ -124,7 +122,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             self.args.vote.timestamp(),
             self.args.now,
         );
-        self.vote_counter.count(self.args.vote.source);
+        self.delta.vote_counts[self.args.vote.source as usize] += 1;
         self.confirm_if_quorum();
     }
 
@@ -163,14 +161,17 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     }
 
     fn insert_recently_confirmed(&mut self) {
-        self.recently_confirmed.put(
-            self.election.qualified_root().clone(),
-            self.election.winner().hash(),
-        );
+        self.delta
+            .recently_confirmed
+            .push((self.election.qualified_root().clone(), self.election.winner().hash()));
     }
 
     fn take_facts(&mut self) -> AecFacts {
         std::mem::take(&mut self.facts)
+    }
+
+    fn take_delta(&mut self) -> AecContainerDelta {
+        std::mem::take(&mut self.delta)
     }
 }
 
@@ -179,7 +180,10 @@ mod tests {
     use super::*;
     use crate::{
         consensus::{
-            FilteredVote, ReceivedVote, active_elections::root_container::Entry,
+            FilteredVote, ReceivedVote,
+            active_elections::{
+                recently_confirmed_cache::RecentlyConfirmedCache, root_container::Entry,
+            },
             election::ElectionBehavior,
         },
         representatives::QuorumSpecs,
@@ -401,12 +405,10 @@ mod tests {
                 now: Timestamp::new_test_instance(),
             };
 
-            let mut vote_counter = VoteCounter::default();
-
+            let was_recently_confirmed = |hash: &BlockHash| self.recently_confirmed.hash_exists(hash);
             let mut helper = ApplyVoteHelper {
                 args: &args,
-                recently_confirmed: &mut self.recently_confirmed,
-                vote_counter: &mut vote_counter,
+                was_recently_confirmed: &was_recently_confirmed,
                 roots: &mut self.roots,
                 vote_router: &self.vote_router,
             };
@@ -470,8 +472,6 @@ mod tests {
             let vote = vote.into();
 
             let quorum_specs = QuorumSpecs::new_test_instance();
-            let mut recently_confirmed = RecentlyConfirmedCache::default();
-            let mut vote_counter = VoteCounter::default();
             let mut helper = ApplyVoteToElectionHelper {
                 args: &ApplyVoteArgs {
                     vote: &vote,
@@ -479,9 +479,8 @@ mod tests {
                     quorum_specs: &quorum_specs,
                     now: Timestamp::new_test_instance(),
                 },
-                recently_confirmed: &mut recently_confirmed,
-                vote_counter: &mut vote_counter,
                 facts: AecFacts::new(),
+                delta: Default::default(),
                 election: &mut self.election,
                 block_hash: &vote.hashes[0],
             };

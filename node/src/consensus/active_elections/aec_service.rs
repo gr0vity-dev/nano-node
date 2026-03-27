@@ -13,13 +13,20 @@ use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
 };
+use strum::{EnumCount, IntoEnumIterator};
 
-use super::{AecDelivery, AecFacts};
+use super::{
+    AecDelivery, AecFacts,
+    active_elections_container::AecMutationResult,
+    cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
+    recently_confirmed_cache::RecentlyConfirmedCache,
+    stats::AecStats,
+};
 
 use crate::{
     consensus::{
-        ActiveElectionsConfig, ActiveElectionsContainer, AecActivateRequest, AecCooldownReason,
-        AecFact, AecInsertError, AecTickerRead, ApplyVoteArgs,
+        ActiveElectionsConfig, ActiveElectionsContainer, AecActivateRequest, AecFact,
+        AecInsertError, AecTickerRead, ApplyVoteArgs,
         ConfirmationActiveInfo, FilteredVote, ReceivedVote,
         election::{ConfirmedElection, Election, ElectionBehavior, ElectionState, VoteType},
         election_schedulers::priority::PriorityBucketState,
@@ -29,11 +36,119 @@ use crate::{
 
 pub struct AecService {
     active: Arc<RwLock<ActiveElectionsContainer>>,
+    state: Mutex<AecGlobalState>,
     delivery: Arc<AecDelivery>,
     online_reps: Arc<Mutex<OnlineReps>>,
     clock: Arc<SteadyClock>,
     rep_weights: Arc<RepWeightCache>,
     is_dev_network: bool,
+}
+
+struct AecGlobalState {
+    stopped: bool,
+    count_by_behavior: [usize; ElectionBehavior::COUNT],
+    recently_confirmed: RecentlyConfirmedCache,
+    cooldown: CooldownController,
+    max_elections: usize,
+    stats: AecStats,
+}
+
+impl AecGlobalState {
+    fn new(config: ActiveElectionsConfig) -> Self {
+        Self {
+            stopped: false,
+            count_by_behavior: Default::default(),
+            recently_confirmed: RecentlyConfirmedCache::new(config.confirmation_cache),
+            cooldown: CooldownController::default(),
+            max_elections: config.max_elections,
+            stats: Default::default(),
+        }
+    }
+
+    fn ensure_can_insert(&self, block: &SavedBlock) -> Result<(), AecInsertError> {
+        if self.stopped {
+            return Err(AecInsertError::Stopped);
+        }
+        if self.recently_confirmed.root_exists(&block.qualified_root()) {
+            return Err(AecInsertError::RecentlyConfirmed);
+        }
+        Ok(())
+    }
+
+    fn apply(&mut self, result: &AecMutationResult) {
+        for (i, delta) in result.delta.behavior_counts.iter().enumerate() {
+            self.count_by_behavior[i] = self.count_by_behavior[i].saturating_add_signed(*delta as isize);
+        }
+        for behavior in ElectionBehavior::iter() {
+            for _ in 0..result.delta.started_behaviors[behavior as usize] {
+                self.stats.started(behavior);
+            }
+        }
+        for election in &result.delta.stopped_elections {
+            self.stats.stopped(election);
+        }
+        for (root, hash) in &result.delta.recently_confirmed {
+            self.recently_confirmed.put(root.clone(), *hash);
+        }
+        self.stats.vote_counter.add_counts(result.delta.vote_counts);
+        self.stats.ticked += result.delta.ticked;
+        self.stats.conflicts += result.delta.conflicts;
+        for (i, count) in result.delta.block_confirmations.iter().enumerate() {
+            self.stats.block_confirmations[i] += count;
+        }
+    }
+
+    fn max_len(&self) -> usize {
+        self.max_elections
+    }
+
+    fn vacancy(&self, current_size: usize) -> i64 {
+        if self.cooldown.is_cooling_down() {
+            0
+        } else {
+            self.max_elections as i64 - current_size as i64
+        }
+    }
+
+    fn info(&self, total: usize) -> crate::consensus::ActiveElectionsInfo {
+        crate::consensus::ActiveElectionsInfo {
+            max_elections: self.max_elections,
+            total,
+            priority: self.count_by_behavior[ElectionBehavior::Priority as usize],
+            hinted: self.count_by_behavior[ElectionBehavior::Hinted as usize],
+            optimistic: self.count_by_behavior[ElectionBehavior::Optimistic as usize],
+        }
+    }
+}
+
+impl StatsSource for AecGlobalState {
+    fn collect_stats(&self, result: &mut StatsCollection) {
+        self.cooldown.collect_stats(result);
+        self.stats.collect_stats(result);
+    }
+}
+
+impl ContainerInfoProvider for AecGlobalState {
+    fn container_info(&self) -> ContainerInfo {
+        ContainerInfo::builder()
+            .leaf(
+                "normal",
+                self.count_by_behavior[ElectionBehavior::Priority as usize],
+                0,
+            )
+            .leaf(
+                "hinted".to_string(),
+                self.count_by_behavior[ElectionBehavior::Hinted as usize],
+                0,
+            )
+            .leaf(
+                "optimistic".to_string(),
+                self.count_by_behavior[ElectionBehavior::Optimistic as usize],
+                0,
+            )
+            .node("recently_confirmed", self.recently_confirmed.container_info())
+            .finish()
+    }
 }
 
 impl AecService {
@@ -69,10 +184,8 @@ impl AecService {
         let delivery = Arc::new(AecDelivery::new(Self::EVENT_QUEUE_SOFT_LIMIT));
         (
             Self {
-                active: Arc::new(RwLock::new(ActiveElectionsContainer::new(
-                    config,
-                    base_latency,
-                ))),
+                active: Arc::new(RwLock::new(ActiveElectionsContainer::new(base_latency))),
+                state: Mutex::new(AecGlobalState::new(config)),
                 delivery: delivery.clone(),
                 online_reps,
                 clock,
@@ -109,39 +222,53 @@ impl AecService {
     }
 
     pub(crate) fn set_cooldown(&self, cool_down: bool, reason: AecCooldownReason) {
-        let facts = self.active.write().unwrap().set_cooldown(cool_down, reason);
+        let mut state = self.state.lock().unwrap();
+        let result = state.cooldown.set_cooldown(cool_down, reason);
+        let facts = if result == CooldownResult::Recovered {
+            AecFact::Recovered.into()
+        } else {
+            AecFacts::new()
+        };
         self.publish_facts(facts);
     }
 
     pub fn erase(&self, root: &QualifiedRoot) -> bool {
-        let facts = self.active.write().unwrap().erase(root);
-        let erased = facts.is_some();
-        if let Some(facts) = facts {
-            self.publish_facts(facts);
+        let mut state = self.state.lock().unwrap();
+        let mut active = self.active.write().unwrap();
+        let result = active.erase(root);
+        let erased = result.is_some();
+        if let Some(result) = result {
+            state.apply(&result);
+            self.publish_facts(result.facts);
         }
         erased
     }
 
     pub fn max_len(&self) -> usize {
-        self.active.read().unwrap().max_len()
+        self.state.lock().unwrap().max_len()
     }
 
     // Shared AEC query surface used by production callers and tests.
     // These methods answer AEC-shaped questions without exposing caller-specific
     // traversal or runtime helpers.
     pub fn vacancy(&self) -> i64 {
-        self.active.read().unwrap().vacancy()
+        let state = self.state.lock().unwrap();
+        let total = self.active.read().unwrap().len();
+        state.vacancy(total)
     }
 
     pub fn info(&self) -> crate::consensus::ActiveElectionsInfo {
-        self.active.read().unwrap().info()
+        let state = self.state.lock().unwrap();
+        let total = self.active.read().unwrap().len();
+        state.info(total)
     }
 
     pub fn was_recently_confirmed(&self, block_hash: &BlockHash) -> bool {
-        self.active
-            .read()
+        self.state
+            .lock()
             .unwrap()
-            .was_recently_confirmed(block_hash)
+            .recently_confirmed
+            .hash_exists(block_hash)
     }
 
     pub fn confirmation_active(&self, announcements: u64) -> ConfirmationActiveInfo {
@@ -164,7 +291,7 @@ impl AecService {
     }
 
     pub fn count_by_behavior(&self, behavior: ElectionBehavior) -> usize {
-        self.active.read().unwrap().count_by_behavior(behavior)
+        self.state.lock().unwrap().count_by_behavior[behavior as usize]
     }
 
     pub fn is_active_root(&self, root: &QualifiedRoot) -> bool {
@@ -196,10 +323,11 @@ impl AecService {
     }
 
     pub(crate) fn remove_recently_confirmed(&self, block_hash: &BlockHash) {
-        self.active
-            .write()
+        self.state
+            .lock()
             .unwrap()
-            .remove_recently_confirmed(block_hash);
+            .recently_confirmed
+            .erase(block_hash);
     }
 
     // Shared AEC mutation surface. Caller-specific helpers below are temporary and
@@ -208,27 +336,28 @@ impl AecService {
         &self,
         confirmed: Vec<(SavedBlock, Option<ConfirmedElection>)>,
     ) {
-        let facts = self
-            .active
-            .write()
-            .unwrap()
-            .confirm_dependent_elections(confirmed, self.clock.now());
-        self.publish_facts(facts);
+        let mut state = self.state.lock().unwrap();
+        let mut active = self.active.write().unwrap();
+        let result = active.confirm_dependent_elections(confirmed, self.clock.now());
+        state.apply(&result);
+        self.publish_facts(result.facts);
     }
 
     pub(crate) fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {
-        let (added, facts) = self.active.write().unwrap().try_add_fork(fork, fork_tally);
-        self.publish_facts(facts);
+        let mut state = self.state.lock().unwrap();
+        let mut active = self.active.write().unwrap();
+        let (added, result) = active.try_add_fork(fork, fork_tally);
+        state.apply(&result);
+        self.publish_facts(result.facts);
         added
     }
 
     pub(crate) fn transition_time(&self) {
-        let facts = self
-            .active
-            .write()
-            .unwrap()
-            .transition_time(self.clock.now());
-        self.publish_facts(facts);
+        let mut state = self.state.lock().unwrap();
+        let mut active = self.active.write().unwrap();
+        let result = active.transition_time(self.clock.now());
+        state.apply(&result);
+        self.publish_facts(result.facts);
     }
 
     pub fn transition_active(&self, block_hash: &BlockHash) -> bool {
@@ -248,8 +377,23 @@ impl AecService {
     }
 
     pub fn activate(&self, request: AecActivateRequest) -> Result<(), AecInsertError> {
-        let facts = self.active.write().unwrap().activate(request, self.clock.now())?;
-        self.publish_facts(facts);
+        let mut state = self.state.lock().unwrap();
+        let mut active = self.active.write().unwrap();
+        match &request {
+            AecActivateRequest::Manual { block, .. }
+            | AecActivateRequest::Hinted { block, .. }
+            | AecActivateRequest::Optimistic { block, .. }
+            | AecActivateRequest::Priority { block, .. } => state.ensure_can_insert(block)?,
+        }
+        let active_len = active.len();
+        let result = active.activate(
+            request,
+            self.clock.now(),
+            state.cooldown.is_cooling_down(),
+            state.vacancy(active_len),
+        )?;
+        state.apply(&result);
+        self.publish_facts(result.facts);
         Ok(())
     }
 
@@ -258,10 +402,14 @@ impl AecService {
         bucket: usize,
         candidate_root: &QualifiedRoot,
     ) -> PriorityBucketState {
-        self.active
-            .read()
-            .unwrap()
-            .priority_bucket_state(bucket, candidate_root)
+        let state = self.state.lock().unwrap();
+        let active = self.active.read().unwrap();
+        active.priority_bucket_state(
+            bucket,
+            candidate_root,
+            state.cooldown.is_cooling_down(),
+            state.vacancy(active.len()),
+        )
     }
 
     pub(in crate::consensus) fn next_vote_to_broadcast_for_voter(
@@ -277,16 +425,15 @@ impl AecService {
     }
 
     pub fn clear_recently_confirmed(&self) {
-        self.active.write().unwrap().clear_recently_confirmed();
+        self.state.lock().unwrap().recently_confirmed.clear();
     }
 
     pub fn force_confirm(&self, block_hash: &BlockHash) {
-        let facts = self
-            .active
-            .write()
-            .unwrap()
-            .force_confirm(block_hash, self.clock.now());
-        self.publish_facts(facts);
+        let mut state = self.state.lock().unwrap();
+        let mut active = self.active.write().unwrap();
+        let result = active.force_confirm(block_hash, self.clock.now());
+        state.apply(&result);
+        self.publish_facts(result.facts);
     }
 
     pub fn cancel(&self, root: &QualifiedRoot) {
@@ -298,7 +445,15 @@ impl AecService {
     }
 
     pub fn stop(&self) {
-        self.active.write().unwrap().stop();
+        let mut state = self.state.lock().unwrap();
+        let mut active = self.active.write().unwrap();
+        for election in active.iter_round_robin() {
+            state.count_by_behavior[election.behavior() as usize] =
+                state.count_by_behavior[election.behavior() as usize].saturating_sub(1);
+            state.stats.stopped(election);
+        }
+        state.stopped = true;
+        active.stop();
     }
 
     pub(crate) fn apply_vote(
@@ -332,19 +487,29 @@ impl AecService {
             online.quorum_specs()
         };
 
-        let results = {
+        let per_block = {
+            let mut state = self.state.lock().unwrap();
             let mut active = self.active.write().unwrap();
             let rep_weights = self.rep_weights.read();
-            active.apply_vote(ApplyVoteArgs {
-                vote,
-                rep_weights: &rep_weights,
-                quorum_specs: &quorum_specs,
-                now,
-            })
+            let was_recently_confirmed =
+                |hash: &BlockHash| state.recently_confirmed.hash_exists(hash);
+            let result = active.apply_vote(
+                ApplyVoteArgs {
+                    vote,
+                    rep_weights: &rep_weights,
+                    quorum_specs: &quorum_specs,
+                    now,
+                },
+                &was_recently_confirmed,
+            );
+            let mutation = AecMutationResult {
+                facts: result.facts,
+                delta: result.delta,
+            };
+            state.apply(&mutation);
+            self.publish_facts(mutation.facts);
+            result.per_block
         };
-
-        let per_block = results.per_block;
-        self.publish_facts(results.facts);
         self.notify_vote_processed(vote.vote.clone(), voter_weight, &per_block);
         per_block
     }
@@ -374,21 +539,41 @@ impl AecService {
         request: AecActivateRequest,
         now: Timestamp,
     ) -> Result<(), AecInsertError> {
-        let facts = self.active.write().unwrap().activate(request, now)?;
-        self.publish_facts(facts);
+        let mut state = self.state.lock().unwrap();
+        let mut active = self.active.write().unwrap();
+        match &request {
+            AecActivateRequest::Manual { block, .. }
+            | AecActivateRequest::Hinted { block, .. }
+            | AecActivateRequest::Optimistic { block, .. }
+            | AecActivateRequest::Priority { block, .. } => state.ensure_can_insert(block)?,
+        }
+        let active_len = active.len();
+        let result = active.activate(
+            request,
+            now,
+            state.cooldown.is_cooling_down(),
+            state.vacancy(active_len),
+        )?;
+        state.apply(&result);
+        self.publish_facts(result.facts);
         Ok(())
     }
 }
 
 impl StatsSource for AecService {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        self.active.read().unwrap().collect_stats(result);
+        self.state.lock().unwrap().collect_stats(result);
     }
 }
 
 impl ContainerInfoProvider for AecService {
     fn container_info(&self) -> ContainerInfo {
-        self.active.read().unwrap().container_info()
+        let state = self.state.lock().unwrap();
+        let active = self.active.read().unwrap();
+        ContainerInfo::builder()
+            .node("global", state.container_info())
+            .node("active", active.container_info())
+            .finish()
     }
 }
 
@@ -562,6 +747,38 @@ mod tests {
 
         assert!(!service.is_active_root(&old_root));
         assert!(service.is_active_root(&new_root));
+    }
+
+    #[test]
+    fn force_confirm_updates_service_recently_confirmed_before_reactivation() {
+        let service = AecService::new_null();
+        let block = SavedBlock::new_test_instance();
+        let root = block.qualified_root();
+        let hash = block.hash();
+        let priority = BlockPriority::new_test_instance();
+        let bucket_index = prio_bucket_index(priority.balance);
+
+        service
+            .activate_for_test(
+                AecActivateRequest::priority(block.clone(), priority, bucket_index, 1),
+                service.clock.now(),
+            )
+            .unwrap();
+
+        service.force_confirm(&hash);
+
+        assert!(service.was_recently_confirmed(&hash));
+
+        assert!(service.erase(&root));
+
+        let result = service.activate(AecActivateRequest::priority(
+            block,
+            priority,
+            bucket_index,
+            1,
+        ));
+
+        assert_eq!(result, Err(AecInsertError::RecentlyConfirmed));
     }
 
     #[test]

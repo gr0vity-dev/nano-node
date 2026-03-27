@@ -20,9 +20,18 @@ impl VoteCounter {
         self.by_source[source as usize]
     }
 
+    #[allow(dead_code)]
     pub fn count(&mut self, source: VoteSource) {
         self.votes += 1;
         self.by_source[source as usize] += 1;
+    }
+
+    pub fn add_counts(&mut self, counts: [u64; VoteSource::COUNT]) {
+        for source in VoteSource::iter() {
+            let count = counts[source as usize];
+            self.votes += count;
+            self.by_source[source as usize] += count;
+        }
     }
 }
 
