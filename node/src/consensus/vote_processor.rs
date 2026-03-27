@@ -32,7 +32,7 @@ impl VoteProcessorConfig {
             max_pr_queue: 256,
             max_non_pr_queue: 32,
             pr_priority: 3,
-            threads: (parallelism / 2).clamp(1, 4),
+            threads: (parallelism / 2).clamp(1, AecService::SHARD_COUNT),
             batch_size: 1024,
             max_triggered: 16384,
         }
@@ -194,5 +194,20 @@ pub fn aggregate_vote_results(
         Err(VoteError::Late)
     } else {
         Err(VoteError::Indeterminate)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vote_processor_threads_scale_up_to_aec_shard_count() {
+        assert_eq!(VoteProcessorConfig::new(1).threads, 1);
+        assert_eq!(VoteProcessorConfig::new(8).threads, 4);
+        assert_eq!(
+            VoteProcessorConfig::new(AecService::SHARD_COUNT * 4).threads,
+            AecService::SHARD_COUNT
+        );
     }
 }

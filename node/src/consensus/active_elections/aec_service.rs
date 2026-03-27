@@ -159,7 +159,7 @@ impl ContainerInfoProvider for AecGlobalState {
 
 impl AecService {
     const EVENT_QUEUE_SOFT_LIMIT: usize = 1024 * 5;
-    const SHARD_COUNT: usize = 8;
+    pub(crate) const SHARD_COUNT: usize = 8;
 
     pub fn new(
         config: ActiveElectionsConfig,
