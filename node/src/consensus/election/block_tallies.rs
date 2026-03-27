@@ -61,6 +61,37 @@ impl BlockTallies {
         }
     }
 
+    pub fn add_amount(&mut self, hash: BlockHash, amount: Amount) {
+        if let Some((_, tally)) = self.tallies[..self.len]
+            .iter_mut()
+            .find(|(existing, _)| *existing == hash)
+        {
+            *tally += amount;
+        } else {
+            self.insert_unsorted(hash, amount);
+        }
+        self.sort_by_descending_tally();
+    }
+
+    pub fn subtract_amount(&mut self, hash: &BlockHash, amount: Amount) {
+        let Some(index) = self
+            .iter()
+            .enumerate()
+            .find_map(|(i, (existing, _))| if existing == hash { Some(i) } else { None })
+        else {
+            return;
+        };
+
+        let tally = &mut self.tallies[index].1;
+        *tally -= amount;
+        if tally.is_zero() {
+            self.tallies[index..].rotate_left(1);
+            self.len -= 1;
+        } else {
+            self.sort_by_descending_tally();
+        }
+    }
+
     pub fn check_quorum(&self, quorum_delta: Amount) -> bool {
         let mut it = self.tallies();
         let first = it.next().unwrap_or_default();
@@ -103,5 +134,16 @@ impl BlockTallies {
 
     fn sort_by_descending_tally(&mut self) {
         self.tallies[..self.len].sort_by(|(_, left), (_, right)| right.cmp(left));
+    }
+
+    pub fn retain_non_zero(&mut self) {
+        let mut next = 0;
+        for i in 0..self.len {
+            if !self.tallies[i].1.is_zero() {
+                self.tallies[next] = self.tallies[i];
+                next += 1;
+            }
+        }
+        self.len = next;
     }
 }

@@ -116,22 +116,20 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     }
 
     fn add_vote(&mut self) {
-        self.election.add_vote(
+        let old_winner = self.election.winner().hash();
+        self.election.apply_vote(
             self.args.vote.voter,
             *self.block_hash,
             self.args.vote.timestamp(),
             self.args.now,
+            self.args.rep_weights,
+            self.args.quorum_specs.quorum_delta,
         );
         self.delta.vote_counts[self.args.vote.source as usize] += 1;
-        self.confirm_if_quorum();
+        self.confirm_if_quorum(old_winner);
     }
 
-    pub fn confirm_if_quorum(&mut self) {
-        let old_winner = self.election.winner().hash();
-
-        self.election
-            .update_tallies(self.args.rep_weights, self.args.quorum_specs.quorum_delta);
-
+    pub fn confirm_if_quorum(&mut self, old_winner: BlockHash) {
         self.notify_winner_changed(old_winner);
 
         if self.election.is_final() && self.election.is_confirmed() {

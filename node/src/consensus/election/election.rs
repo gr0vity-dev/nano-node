@@ -169,6 +169,46 @@ impl Election {
         );
     }
 
+    pub fn apply_vote(
+        &mut self,
+        voter: PublicKey,
+        hash: BlockHash,
+        vote_created: UnixMillisTimestamp,
+        vote_received: Timestamp,
+        rep_weights: &HashMap<PublicKey, Amount>,
+        quorum_delta: Amount,
+    ) {
+        if self.state.has_ended() {
+            return;
+        }
+
+        self.refresh_vote_weights_incrementally(rep_weights);
+        let weight = rep_weights.get(&voter).copied().unwrap_or_default();
+
+        let old_vote = self.votes.insert(
+            voter,
+            VoteSummary {
+                voter,
+                hash,
+                vote_created,
+                vote_received,
+                weight,
+            },
+        );
+
+        self.apply_tally_delta(old_vote.as_ref(), hash, weight, vote_created);
+        self.prune_zero_tallies();
+
+        if let Some(new_winner) = self.check_new_winner(quorum_delta) {
+            tracing::warn!("Winner changed to {:?}!", new_winner);
+            self.change_winner_to(&new_winner);
+        }
+
+        self.update_winner_tally();
+        self.try_set_quorum(quorum_delta);
+        self.try_confirm(quorum_delta);
+    }
+
     pub fn voted(&mut self, vote_type: VoteType, timestamp: Timestamp) {
         match vote_type {
             VoteType::NonFinal => self.last_non_final_vote = Some(timestamp),
@@ -379,6 +419,53 @@ impl Election {
             .calculate(self.votes.values().filter(|v| v.is_final_vote()));
     }
 
+    fn refresh_vote_weights_incrementally(&mut self, rep_weights: &HashMap<PublicKey, Amount>) {
+        for vote in self.votes.values_mut() {
+            let new_weight = rep_weights.get(&vote.voter).copied().unwrap_or_default();
+            if new_weight == vote.weight {
+                continue;
+            }
+
+            self.tallies.subtract_amount(&vote.hash, vote.weight);
+            self.tallies.add_amount(vote.hash, new_weight);
+
+            if vote.is_final_vote() {
+                self.final_tallies.subtract_amount(&vote.hash, vote.weight);
+                self.final_tallies.add_amount(vote.hash, new_weight);
+            }
+
+            vote.weight = new_weight;
+        }
+        self.prune_zero_tallies();
+    }
+
+    fn apply_tally_delta(
+        &mut self,
+        old_vote: Option<&VoteSummary>,
+        new_hash: BlockHash,
+        new_weight: Amount,
+        new_vote_created: UnixMillisTimestamp,
+    ) {
+        if let Some(old_vote) = old_vote {
+            self.tallies
+                .subtract_amount(&old_vote.hash, old_vote.weight);
+            if old_vote.is_final_vote() {
+                self.final_tallies
+                    .subtract_amount(&old_vote.hash, old_vote.weight);
+            }
+        }
+
+        self.tallies.add_amount(new_hash, new_weight);
+        if new_vote_created == UnixMillisTimestamp::MAX {
+            self.final_tallies.add_amount(new_hash, new_weight);
+        }
+    }
+
+    fn prune_zero_tallies(&mut self) {
+        self.tallies.retain_non_zero();
+        self.final_tallies.retain_non_zero();
+    }
+
     fn check_new_winner(&self, quorum_delta: Amount) -> Option<BlockHash> {
         if self.tallies.sum() < quorum_delta {
             // The winner can only be changed after a super majority of votes has been observed!
@@ -417,7 +504,22 @@ impl Election {
     }
 
     pub fn remove_vote(&mut self, voter: &PublicKey) {
-        self.votes.remove(voter);
+        let Some(vote) = self.votes.remove(voter) else {
+            return;
+        };
+
+        self.tallies.subtract_amount(&vote.hash, vote.weight);
+        if vote.is_final_vote() {
+            self.final_tallies.subtract_amount(&vote.hash, vote.weight);
+        }
+        self.prune_zero_tallies();
+
+        if let Some(new_winner) = self.tallies.winner().map(|(hash, _)| *hash) {
+            if self.winner.hash() != new_winner {
+                self.change_winner_to(&new_winner);
+            }
+        }
+        self.update_winner_tally();
     }
 
     fn remove_block(&mut self, hash: &BlockHash) -> Option<MaybeSavedBlock> {
@@ -562,4 +664,212 @@ pub enum AddForkResult {
     TallyTooLow,
     Duplicate,
     ElectionEnded,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rsnano_nullable_clock::Timestamp;
+    use rsnano_types::{PrivateKey, SavedBlock, StateBlockArgs};
+
+    #[test]
+    fn incremental_vote_updates_match_full_recalculation() {
+        let mut fixture = ElectionFixture::new();
+        let rep1 = PrivateKey::from(11);
+        let rep2 = PrivateKey::from(22);
+        let rep3 = PrivateKey::from(33);
+        let rep4 = PrivateKey::from(44);
+        fixture.set_weight(rep1.public_key(), Amount::nano(30_000));
+        fixture.set_weight(rep2.public_key(), Amount::nano(40_000));
+        fixture.set_weight(rep3.public_key(), Amount::nano(50_000));
+        fixture.set_weight(rep4.public_key(), Amount::nano(80_000));
+
+        fixture.add_fork();
+
+        fixture.apply_and_compare(
+            rep1.public_key(),
+            fixture.winner_hash,
+            UnixMillisTimestamp::new(1_000),
+        );
+        fixture.apply_and_compare(
+            rep2.public_key(),
+            fixture.fork_hash,
+            UnixMillisTimestamp::new(2_000),
+        );
+        fixture.apply_and_compare(
+            rep3.public_key(),
+            fixture.fork_hash,
+            UnixMillisTimestamp::new(3_000),
+        );
+        fixture.apply_and_compare(
+            rep2.public_key(),
+            fixture.winner_hash,
+            UnixMillisTimestamp::new(4_000),
+        );
+        fixture.apply_and_compare(
+            rep4.public_key(),
+            fixture.fork_hash,
+            UnixMillisTimestamp::MAX,
+        );
+        fixture.apply_and_compare(
+            rep3.public_key(),
+            fixture.winner_hash,
+            UnixMillisTimestamp::MAX,
+        );
+    }
+
+    #[test]
+    fn removing_votes_keeps_incremental_tallies_consistent() {
+        let mut fixture = ElectionFixture::new();
+        let rep1 = PrivateKey::from(55);
+        let rep2 = PrivateKey::from(66);
+        fixture.set_weight(rep1.public_key(), Amount::nano(20_000));
+        fixture.set_weight(rep2.public_key(), Amount::nano(70_000));
+
+        fixture.add_fork();
+        fixture.apply_and_compare(
+            rep1.public_key(),
+            fixture.winner_hash,
+            UnixMillisTimestamp::new(1_000),
+        );
+        fixture.apply_and_compare(
+            rep2.public_key(),
+            fixture.fork_hash,
+            UnixMillisTimestamp::new(2_000),
+        );
+
+        fixture.incremental.remove_vote(&rep2.public_key());
+        fixture.full.remove_vote(&rep2.public_key());
+        fixture
+            .full
+            .update_tallies(&fixture.rep_weights, fixture.quorum_delta);
+
+        fixture.assert_matches();
+    }
+
+    #[test]
+    fn stale_rep_weights_are_refreshed_before_applying_another_vote() {
+        let mut fixture = ElectionFixture::new();
+        let rep1 = PrivateKey::from(77);
+        let rep2 = PrivateKey::from(88);
+        fixture.set_weight(rep1.public_key(), Amount::nano(20_000));
+        fixture.set_weight(rep2.public_key(), Amount::nano(10_000));
+        fixture.add_fork();
+
+        fixture.apply_and_compare(
+            rep1.public_key(),
+            fixture.winner_hash,
+            UnixMillisTimestamp::new(1_000),
+        );
+
+        fixture.set_weight(rep1.public_key(), Amount::nano(90_000));
+        fixture.set_weight(rep2.public_key(), Amount::nano(15_000));
+
+        fixture.apply_and_compare(
+            rep2.public_key(),
+            fixture.fork_hash,
+            UnixMillisTimestamp::new(2_000),
+        );
+
+        assert_eq!(fixture.incremental.winner().hash(), fixture.winner_hash);
+        assert_eq!(fixture.incremental.winner_tally(), Amount::nano(90_000));
+        assert!(fixture.incremental.has_quorum());
+    }
+
+    struct ElectionFixture {
+        incremental: Election,
+        full: Election,
+        rep_weights: HashMap<PublicKey, Amount>,
+        winner_hash: BlockHash,
+        fork_hash: BlockHash,
+        quorum_delta: Amount,
+        now: Timestamp,
+    }
+
+    impl ElectionFixture {
+        fn new() -> Self {
+            let now = Timestamp::new_test_instance();
+            let block = SavedBlock::new_test_instance();
+            let winner_hash = block.hash();
+            let election = Election::new(
+                block,
+                ElectionBehavior::Priority,
+                Duration::from_secs(1),
+                now,
+            );
+            Self {
+                incremental: election.clone(),
+                full: election,
+                rep_weights: HashMap::new(),
+                winner_hash,
+                fork_hash: BlockHash::ZERO,
+                quorum_delta: Amount::nano(60_000),
+                now,
+            }
+        }
+
+        fn set_weight(&mut self, rep: PublicKey, weight: Amount) {
+            self.rep_weights.insert(rep, weight);
+        }
+
+        fn add_fork(&mut self) {
+            let block: Block = StateBlockArgs {
+                representative: 777.into(),
+                ..StateBlockArgs::new_test_instance()
+            }
+            .into();
+            self.fork_hash = block.hash();
+            self.incremental.try_add_fork(&block, Amount::ZERO);
+            self.full.try_add_fork(&block, Amount::ZERO);
+        }
+
+        fn apply_and_compare(
+            &mut self,
+            voter: PublicKey,
+            hash: BlockHash,
+            created: UnixMillisTimestamp,
+        ) {
+            self.incremental.apply_vote(
+                voter,
+                hash,
+                created,
+                self.now,
+                &self.rep_weights,
+                self.quorum_delta,
+            );
+
+            self.full.add_vote(voter, hash, created, self.now);
+            self.full
+                .update_tallies(&self.rep_weights, self.quorum_delta);
+
+            self.assert_matches();
+        }
+
+        fn assert_matches(&self) {
+            assert_eq!(self.incremental.winner().hash(), self.full.winner().hash());
+            assert_eq!(self.incremental.winner_tally(), self.full.winner_tally());
+            assert_eq!(
+                self.incremental.winner_final_tally(),
+                self.full.winner_final_tally()
+            );
+            assert_eq!(self.incremental.has_quorum(), self.full.has_quorum());
+            assert_eq!(self.incremental.is_confirmed(), self.full.is_confirmed());
+            assert_eq!(
+                self.incremental
+                    .tallies()
+                    .iter()
+                    .copied()
+                    .collect::<Vec<_>>(),
+                self.full.tallies().iter().copied().collect::<Vec<_>>()
+            );
+            assert_eq!(
+                self.incremental
+                    .final_tallies
+                    .iter()
+                    .copied()
+                    .collect::<Vec<_>>(),
+                self.full.final_tallies.iter().copied().collect::<Vec<_>>()
+            );
+        }
+    }
 }
