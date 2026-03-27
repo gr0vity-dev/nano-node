@@ -608,6 +608,7 @@ fn bootstrap_server_shutdown_does_not_wait_for_inbound_callback_completion() {
             })
             .finish(),
     );
+    let data_path = fixture.data_path.clone();
     let chains = setup_chains(&fixture.node, 1, 16, &DEV_GENESIS_KEY, true);
     let bootstrap_server = Arc::downgrade(&fixture.node.bootstrap_server);
     let message_sender = Arc::downgrade(&fixture.node.message_sender);
@@ -657,6 +658,7 @@ fn bootstrap_server_shutdown_does_not_wait_for_inbound_callback_completion() {
     assert_eq!(ledger.upgrade().is_none(), true);
     assert_eq!(work_factory.upgrade().is_none(), true);
     assert_eq!(network.upgrade().is_none(), true);
+    assert_eq!(data_path.exists(), false);
 
     callback.release();
 
