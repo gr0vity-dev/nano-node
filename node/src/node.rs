@@ -1803,8 +1803,6 @@ mod tests {
         let winner_hash = election.winner.hash();
 
         node.active
-            .write()
-            .unwrap()
             .simulate_event(AecFact::ElectionConfirmed(election));
 
         let output = broadcast_tracker.wait_output().unwrap();

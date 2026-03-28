@@ -52,7 +52,7 @@ impl AecService {
         self.clock.now()
     }
 
-    pub fn set_observer(&self, observer: Sender<AecFact>) {
+    pub(crate) fn set_observer(&self, observer: Sender<AecFact>) {
         self.active.write().unwrap().set_observer(observer);
     }
 
@@ -216,6 +216,11 @@ impl AecService {
 
     pub fn stop(&self) {
         self.active.write().unwrap().stop();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn simulate_event(&self, event: AecFact) {
+        self.active.read().unwrap().simulate_event(event);
     }
 }
 
