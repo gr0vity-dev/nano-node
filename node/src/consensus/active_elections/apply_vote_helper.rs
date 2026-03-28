@@ -3,10 +3,7 @@ use std::ops::Deref;
 use rsnano_types::{Amount, BlockHash, QualifiedRoot, VoteError, VoteSource};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
-use super::{
-    AecFact, ApplyVoteArgs,
-    root_container::ElectionHandle,
-};
+use super::{AecFact, ApplyVoteArgs, root_container::ElectionHandle};
 use crate::consensus::election::{ConfirmationType, Election, VoteSummary};
 
 pub(super) struct ApplyVoteHelper<'a> {
@@ -15,11 +12,7 @@ pub(super) struct ApplyVoteHelper<'a> {
 }
 
 impl<'a> ApplyVoteHelper<'a> {
-    pub fn apply_vote(
-        &self,
-        handle: &ElectionHandle,
-        block_hash: &BlockHash,
-    ) -> ApplyVoteResult {
+    pub fn apply_vote(&self, handle: &ElectionHandle, block_hash: &BlockHash) -> ApplyVoteResult {
         let mut election = handle.lock();
         let mut apply_to_election = ApplyVoteToElectionHelper {
             args: self.args,
@@ -153,16 +146,14 @@ mod tests {
         consensus::{
             FilteredVote, ReceivedVote,
             active_elections::recently_confirmed_cache::RecentlyConfirmedCache,
-            active_elections::root_container::ElectionHandle,
-            election::ElectionBehavior,
+            active_elections::root_container::ElectionHandle, election::ElectionBehavior,
         },
         representatives::QuorumSpecs,
     };
     use rsnano_ledger::RepWeights;
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{
-        Block, PrivateKey, QualifiedRoot, SavedBlock, StateBlockArgs,
-        UnixMillisTimestamp, Vote,
+        Block, PrivateKey, QualifiedRoot, SavedBlock, StateBlockArgs, UnixMillisTimestamp, Vote,
     };
     use rsnano_utils::sync::backpressure_channel::channel;
     use std::time::Duration;
@@ -193,7 +184,10 @@ mod tests {
 
         let result = fixture.apply_vote(vec![fixture.block_hash]);
 
-        assert_eq!(result[0], (fixture.block_hash, Err(VoteError::Indeterminate)));
+        assert_eq!(
+            result[0],
+            (fixture.block_hash, Err(VoteError::Indeterminate))
+        );
     }
 
     #[test]

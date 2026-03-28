@@ -30,7 +30,7 @@ use super::{
     apply_vote_helper::ConfirmedElectionCleanup,
     cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
     recently_confirmed_cache::RecentlyConfirmedCache,
-    root_container::ElectionHandle,
+    root_container::{ElectionHandle, RootedElectionHandle},
     stats::AecStats,
 };
 
@@ -94,7 +94,17 @@ impl ActiveElectionsContainer {
     }
 
     pub fn iter_bucket(&self, bucket_id: usize) -> impl Iterator<Item = Election> {
-        self.roots.iter_bucket(bucket_id).map(|i| i.election.snapshot())
+        self.roots
+            .iter_bucket(bucket_id)
+            .map(|i| i.election.snapshot())
+    }
+
+    pub(super) fn snapshot_round_robin(&self) -> Vec<RootedElectionHandle> {
+        self.roots.round_robin_snapshot()
+    }
+
+    pub(super) fn snapshot_bucket(&self, bucket_id: usize) -> Vec<RootedElectionHandle> {
+        self.roots.bucket_snapshot(bucket_id)
     }
 
     pub fn insert(
@@ -261,6 +271,10 @@ impl ActiveElectionsContainer {
         self.erase_ended_elections();
     }
 
+    pub(super) fn count_tick(&mut self) {
+        self.stats.ticked += 1;
+    }
+
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<Election> {
         self.roots.election_for_root(root)
     }
@@ -384,8 +398,15 @@ impl ActiveElectionsContainer {
         self.recently_confirmed.erase(block_hash);
     }
 
-    pub(super) fn election_handle_for_block(&self, block_hash: &BlockHash) -> Option<ElectionHandle> {
+    pub(super) fn election_handle_for_block(
+        &self,
+        block_hash: &BlockHash,
+    ) -> Option<ElectionHandle> {
         self.roots.election_handle_for_block(block_hash)
+    }
+
+    pub(super) fn election_handle_for_root(&self, root: &QualifiedRoot) -> Option<ElectionHandle> {
+        self.roots.election_handle_for_root(root)
     }
 
     pub(super) fn vote_observer(&self) -> Option<Sender<AecFact>> {
@@ -398,12 +419,10 @@ impl ActiveElectionsContainer {
         }
     }
 
-    pub(super) fn cleanup_confirmed_elections(
-        &mut self,
-        confirmed: Vec<ConfirmedElectionCleanup>,
-    ) {
+    pub(super) fn cleanup_confirmed_elections(&mut self, confirmed: Vec<ConfirmedElectionCleanup>) {
         for cleanup in confirmed {
-            self.recently_confirmed.put(cleanup.root.clone(), cleanup.hash);
+            self.recently_confirmed
+                .put(cleanup.root.clone(), cleanup.hash);
             if let Some(entry) = self.roots.erase(&cleanup.root) {
                 self.cleanup_election(entry);
             }

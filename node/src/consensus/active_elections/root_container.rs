@@ -50,6 +50,8 @@ impl ElectionHandle {
     }
 }
 
+pub(super) type RootedElectionHandle = (QualifiedRoot, ElectionHandle);
+
 /// Ordered by descending time priority
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct BucketEntry {
@@ -140,9 +142,24 @@ impl RootContainer {
         self.get(root).map(|i| i.election.clone())
     }
 
-    pub(super) fn election_handle_for_block(&self, block_hash: &BlockHash) -> Option<ElectionHandle> {
+    pub(super) fn election_handle_for_block(
+        &self,
+        block_hash: &BlockHash,
+    ) -> Option<ElectionHandle> {
         let root = self.vote_router.qualified_root(block_hash)?;
         self.election_handle_for_root(root)
+    }
+
+    pub(super) fn round_robin_snapshot(&self) -> Vec<RootedElectionHandle> {
+        self.iter()
+            .map(|entry| (entry.root.clone(), entry.election.clone()))
+            .collect()
+    }
+
+    pub(super) fn bucket_snapshot(&self, bucket_id: usize) -> Vec<RootedElectionHandle> {
+        self.iter_bucket(bucket_id)
+            .map(|entry| (entry.root.clone(), entry.election.clone()))
+            .collect()
     }
 
     pub fn try_upgrade_to_priority_election(

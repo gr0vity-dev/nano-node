@@ -51,34 +51,26 @@ impl AecVoter {
 impl Tickable for AecVoter {
     fn tick(&mut self, cancel_token: &CancellationToken) {
         let now = self.clock.now();
-        let mut aec = self.aec.write();
         let mut voted = true;
         let mut vote_queue = Vec::new();
         while voted {
             voted = false;
             loop {
-                let vote_target = aec.iter_bucket(self.current_bucket).find_map(|election| {
-                    if election.can_vote(self.vote_broadcast_interval, now) {
-                        Some((
-                            election.qualified_root().clone(),
-                            election.vote_type(),
-                            election.winner().hash(),
-                        ))
-                    } else {
-                        None
-                    }
-                });
+                let vote_target = self.aec.next_vote_in_bucket(
+                    self.current_bucket,
+                    self.vote_broadcast_interval,
+                    now,
+                );
 
                 if let Some((root, vote_type, winner_hash)) = vote_target {
                     if vote_type == VoteType::NonFinal && !self.cps_limiter.try_vote(now) {
-                        drop(aec);
                         self.flush(&mut vote_queue);
                         return;
                     }
 
                     vote_queue.push((root.root, winner_hash, vote_type));
 
-                    aec.set_last_voted(&root, vote_type, now);
+                    self.aec.set_last_voted(&root, vote_type, now);
                     voted = true;
                 }
 
@@ -94,7 +86,6 @@ impl Tickable for AecVoter {
                 }
             }
         }
-        drop(aec);
         self.flush(&mut vote_queue);
     }
 }

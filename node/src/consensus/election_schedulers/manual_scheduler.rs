@@ -99,12 +99,12 @@ impl ManualScheduler {
 
                     let now = self.clock.now();
 
-                    let mut aec = self.active_elections.write();
-                    if aec
+                    if self
+                        .active_elections
                         .insert(AecInsertRequest::new_manual(block, priority), now)
                         .is_ok()
                     {
-                        aec.transition_active(&hash);
+                        self.active_elections.transition_active(&hash);
                     }
                 } else {
                     drop(guard);
