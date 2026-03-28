@@ -339,13 +339,7 @@ impl ActiveElectionsContainer {
     }
 
     fn cleanup_election(&mut self, entry: Entry) {
-        let election = entry.election.snapshot();
-
-        // Keep track of election count by election type
-        *self.count_by_behavior_mut(election.behavior()) -= 1;
-
-        self.stats.stopped(&election);
-        self.notify(AecFact::ElectionEnded(election));
+        self.cleanup_snapshot(entry.election.snapshot());
     }
 
     pub(super) fn block_confirmed(&mut self, block: SavedBlock, election: ConfirmedElection) {
@@ -379,10 +373,15 @@ impl ActiveElectionsContainer {
     }
 
     pub(super) fn cleanup_confirmed_election(&mut self, cleanup: ConfirmedElectionCleanup) {
+        let root = cleanup.election.qualified_root().clone();
         self.recently_confirmed
-            .put(cleanup.root.clone(), cleanup.hash);
-        if let Some(entry) = self.roots.erase(&cleanup.root) {
-            self.cleanup_election(entry);
+            .put(root.clone(), cleanup.election.winner().hash());
+        if self
+            .roots
+            .erase_with_known_election(&root, &cleanup.election)
+            .is_some()
+        {
+            self.cleanup_snapshot(cleanup.election);
         }
     }
 
@@ -436,6 +435,12 @@ impl ActiveElectionsContainer {
         if let Some(sender) = &self.observer {
             sender.send(event).unwrap()
         }
+    }
+
+    fn cleanup_snapshot(&mut self, election: Election) {
+        *self.count_by_behavior_mut(election.behavior()) -= 1;
+        self.stats.stopped(&election);
+        self.notify(AecFact::ElectionEnded(election));
     }
 }
 

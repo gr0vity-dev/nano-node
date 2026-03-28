@@ -251,6 +251,22 @@ impl RootContainer {
         erased
     }
 
+    pub fn erase_with_known_election(
+        &mut self,
+        root: &QualifiedRoot,
+        election: &Election,
+    ) -> Option<Entry> {
+        let erased = self.by_root.remove(root);
+        if let Some(entry) = &erased {
+            self.vote_router.disconnect_election(election);
+            self.buckets[entry.bucket()].remove(&BucketEntry {
+                root: entry.root.clone(),
+                priority: entry.priority,
+            });
+        }
+        erased
+    }
+
     pub fn clear(&mut self) {
         self.by_root.clear();
         for bucket in self.buckets.iter_mut() {

@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use rsnano_types::{Amount, BlockHash, QualifiedRoot, VoteError, VoteSource};
+use rsnano_types::{Amount, BlockHash, VoteError, VoteSource};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{AecFact, ApplyVoteArgs, root_container::ElectionHandle};
@@ -39,8 +39,7 @@ pub(super) struct ApplyVoteResult {
 }
 
 pub(super) struct ConfirmedElectionCleanup {
-    pub root: QualifiedRoot,
-    pub hash: BlockHash,
+    pub election: Election,
 }
 
 struct ApplyVoteToElectionHelper<'a> {
@@ -127,8 +126,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
 
         self.notify(AecFact::ElectionConfirmed(confirmed_election));
         self.confirmed = Some(ConfirmedElectionCleanup {
-            root: self.election.qualified_root().clone(),
-            hash: self.election.winner().hash(),
+            election: self.election.clone(),
         });
     }
 

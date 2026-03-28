@@ -753,6 +753,61 @@ mod tests {
     }
 
     #[test]
+    fn apply_vote_preserves_confirmed_election_ended_observer_payload() {
+        let aec = AecService::new_null();
+        let block = SavedBlock::new_test_instance();
+        let now = Timestamp::new_test_instance();
+        let (tx, rx) = channel(8);
+
+        aec.set_observer(tx);
+        aec.insert(
+            AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+
+        let rep_key = PrivateKey::from(1);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+        let vote: ReceivedVote = ReceivedVote::new(
+            Vote::new_final(&rep_key, vec![block.hash()]).into(),
+            VoteSource::Live,
+            None,
+        );
+
+        let results = aec.apply_vote(ApplyVoteArgs {
+            vote: &vote.into(),
+            rep_weights: &rep_weights,
+            quorum_specs: &QuorumSpecs::new_test_instance(),
+            now,
+        });
+
+        assert_eq!(results.get(&block.hash()), Some(&Ok(())));
+
+        let mut confirmed_seen = false;
+        let mut ended_seen = false;
+        for _ in 0..3 {
+            match rx.recv().unwrap() {
+                AecFact::ElectionStarted(_, _) => {}
+                AecFact::ElectionConfirmed(confirmed) => {
+                    confirmed_seen = true;
+                    assert_eq!(confirmed.winner.hash(), block.hash());
+                }
+                AecFact::ElectionEnded(election) => {
+                    ended_seen = true;
+                    assert_eq!(election.qualified_root(), &block.qualified_root());
+                    assert_eq!(election.winner().hash(), block.hash());
+                    assert!(election.is_confirmed());
+                }
+                _ => panic!("unexpected event"),
+            }
+        }
+
+        assert!(confirmed_seen);
+        assert!(ended_seen);
+    }
+
+    #[test]
     fn apply_vote_returns_indeterminate_for_single_missing_hash() {
         let aec = AecService::new_null();
         let block = SavedBlock::new_test_instance();
