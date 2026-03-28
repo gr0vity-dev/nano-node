@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::RwLock, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::RwLock,
+    time::Duration,
+};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
@@ -203,22 +207,67 @@ impl AecService {
         &self,
         args: ApplyVoteArgs<'a>,
     ) -> HashMap<BlockHash, Result<(), VoteError>> {
+        let mut filtered_blocks = args.vote.filtered_blocks().copied();
+        let Some(block_hash) = filtered_blocks.next() else {
+            return HashMap::new();
+        };
+
+        if filtered_blocks.next().is_none() {
+            let (observer, result) = {
+                let aec = self.aec.read().unwrap();
+                (
+                    aec.vote_observer(),
+                    self.resolve_vote_result(&aec, block_hash),
+                )
+            };
+
+            let helper = ApplyVoteHelper {
+                args: &args,
+                observer,
+            };
+            let mut results = HashMap::new();
+
+            let (vote_result, counted_vote) = match result {
+                ResolvedVoteResult::Apply(handle) => {
+                    let apply_result = helper.apply_vote(&handle, &block_hash);
+                    if let Some(cleanup) = apply_result.confirmed {
+                        self.aec
+                            .write()
+                            .unwrap()
+                            .cleanup_confirmed_election(cleanup);
+                    }
+                    (apply_result.vote_result, apply_result.vote_was_counted)
+                }
+                ResolvedVoteResult::Resolved(result) => (result, false),
+            };
+
+            if counted_vote {
+                self.aec
+                    .write()
+                    .unwrap()
+                    .count_applied_votes(args.vote.source, 1);
+            }
+
+            results.insert(block_hash, vote_result);
+            return results;
+        }
+
         let (observer, mut pending_votes, mut results) = {
             let aec = self.aec.read().unwrap();
             let mut pending_votes = Vec::new();
             let mut results = HashMap::new();
+            let mut seen = HashSet::new();
 
             for block_hash in args.vote.filtered_blocks() {
-                if results.contains_key(block_hash) {
+                if !seen.insert(*block_hash) {
                     continue;
                 }
 
-                if let Some(handle) = aec.election_handle_for_block(block_hash) {
-                    pending_votes.push((*block_hash, handle));
-                } else if aec.was_recently_confirmed(block_hash) {
-                    results.insert(*block_hash, Err(VoteError::Late));
-                } else {
-                    results.insert(*block_hash, Err(VoteError::Indeterminate));
+                match self.resolve_vote_result(&aec, *block_hash) {
+                    ResolvedVoteResult::Apply(handle) => pending_votes.push((*block_hash, handle)),
+                    ResolvedVoteResult::Resolved(result) => {
+                        results.insert(*block_hash, result);
+                    }
                 }
             }
 
@@ -253,6 +302,20 @@ impl AecService {
         }
 
         results
+    }
+
+    fn resolve_vote_result(
+        &self,
+        aec: &ActiveElectionsContainer,
+        block_hash: BlockHash,
+    ) -> ResolvedVoteResult {
+        if let Some(handle) = aec.election_handle_for_block(&block_hash) {
+            ResolvedVoteResult::Apply(handle)
+        } else if aec.was_recently_confirmed(&block_hash) {
+            ResolvedVoteResult::Resolved(Err(VoteError::Late))
+        } else {
+            ResolvedVoteResult::Resolved(Err(VoteError::Indeterminate))
+        }
     }
 
     pub fn transition_time(&self, now: Timestamp) {
@@ -499,6 +562,11 @@ impl ContainerInfoProvider for AecService {
     }
 }
 
+enum ResolvedVoteResult {
+    Apply(ElectionHandle),
+    Resolved(Result<(), VoteError>),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -642,6 +710,66 @@ mod tests {
         assert!(!aec.is_active_root(&block.qualified_root()));
         assert!(aec.was_recently_confirmed(&block.hash()));
         assert_eq!(aec.vacancy(), 1);
+    }
+
+    #[test]
+    fn apply_vote_returns_indeterminate_for_single_missing_hash() {
+        let aec = AecService::new_null();
+        let block = SavedBlock::new_test_instance();
+        let now = Timestamp::new_test_instance();
+
+        let vote: ReceivedVote = ReceivedVote::new(
+            Vote::new_final(&PrivateKey::from(1), vec![block.hash()]).into(),
+            VoteSource::Live,
+            None,
+        );
+
+        let results = aec.apply_vote(ApplyVoteArgs {
+            vote: &vote.into(),
+            rep_weights: &RepWeights::default(),
+            quorum_specs: &QuorumSpecs::new_test_instance(),
+            now,
+        });
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results.get(&block.hash()),
+            Some(&Err(VoteError::Indeterminate))
+        );
+    }
+
+    #[test]
+    fn apply_vote_ignores_duplicate_single_hash_entries() {
+        let aec = AecService::new_null();
+        let block = SavedBlock::new_test_instance();
+        let now = Timestamp::new_test_instance();
+
+        aec.insert(
+            AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+
+        let rep_key = PrivateKey::from(1);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+        let vote: ReceivedVote = ReceivedVote::new(
+            Vote::new_final(&rep_key, vec![block.hash(), block.hash()]).into(),
+            VoteSource::Live,
+            None,
+        );
+
+        let results = aec.apply_vote(ApplyVoteArgs {
+            vote: &vote.into(),
+            rep_weights: &rep_weights,
+            quorum_specs: &QuorumSpecs::new_test_instance(),
+            now,
+        });
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results.get(&block.hash()), Some(&Ok(())));
+        assert!(!aec.is_active_root(&block.qualified_root()));
+        assert!(aec.was_recently_confirmed(&block.hash()));
     }
 
     #[test]
