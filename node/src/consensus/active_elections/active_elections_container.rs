@@ -5,7 +5,7 @@ use strum::EnumCount;
 use rsnano_ledger::RepWeights;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
-    Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, TimePriority, VoteSource,
+    Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, TimePriority, VoteSource,
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -188,12 +188,20 @@ impl ActiveElectionsContainer {
         self.notify(AecFact::ElectionStarted(hash, root));
     }
 
-    pub fn try_add_fork(&mut self, fork: &Block, fork_tally: Amount) -> bool {
-        let Some(entry) = self.roots.get_mut(&fork.qualified_root()) else {
+    pub(super) fn apply_fork_result(
+        &mut self,
+        root: &QualifiedRoot,
+        handle: &ElectionHandle,
+        fork: &Block,
+        result: AddForkResult,
+    ) -> bool {
+        let Some(current_handle) = self.roots.election_handle_for_root(root) else {
             return false;
         };
+        if !current_handle.ptr_eq(handle) {
+            return false;
+        }
 
-        let result = entry.election.lock().try_add_fork(fork, fork_tally);
         let added = match result {
             AddForkResult::Added => {
                 self.notify(AecFact::BlockAddedToElection(fork.hash()));
@@ -284,10 +292,10 @@ impl ActiveElectionsContainer {
     }
 
     pub fn transition_active(&mut self, block_hash: &BlockHash) -> bool {
-        let Some(mut election) = self.roots.election_for_block_mut(block_hash) else {
+        let Some(handle) = self.roots.election_handle_for_block(block_hash) else {
             return false;
         };
-        election.transition_active();
+        handle.lock().transition_active();
         true
     }
 
@@ -296,9 +304,10 @@ impl ActiveElectionsContainer {
         root: &QualifiedRoot,
         voters: impl IntoIterator<Item = &'a PublicKey>,
     ) {
-        let Some(mut election) = self.roots.election_for_root_mut(root) else {
+        let Some(handle) = self.roots.election_handle_for_root(root) else {
             return;
         };
+        let mut election = handle.lock();
         for voter in voters {
             election.remove_vote(voter);
         }
@@ -339,57 +348,7 @@ impl ActiveElectionsContainer {
         self.notify(AecFact::ElectionEnded(election));
     }
 
-    /// Dependent elections are implicitly confirmed when their block is confirmed
-    pub fn confirm_dependent_elections(
-        &mut self,
-        confirmed: Vec<(SavedBlock, Option<ConfirmedElection>)>,
-        now: Timestamp,
-    ) {
-        for (confirmed_block, source_election) in confirmed {
-            let confirmed_election =
-                self.confirm_dependent_election(&confirmed_block, source_election, now);
-
-            self.block_confirmed(confirmed_block, confirmed_election);
-        }
-    }
-
-    fn confirm_dependent_election(
-        &mut self,
-        confirmed_block: &SavedBlock,
-        source_election: Option<ConfirmedElection>,
-        now: Timestamp,
-    ) -> ConfirmedElection {
-        // Check if the currently confirmed block was part of an election that triggered
-        // the block confirmation
-        if let Some(source) = source_election
-            && confirmed_block.hash() == source.winner.hash()
-        {
-            // This is the block that was directly confirmed by the source election.
-            // The election is already confirmed, so there is nothing to do.
-            return source;
-        }
-
-        let Some(corresponding) = self.roots.get_mut(&confirmed_block.qualified_root()) else {
-            return ConfirmedElection::new(
-                confirmed_block.clone(),
-                ConfirmationType::InactiveConfirmationHeight,
-            );
-        };
-
-        let mut election = corresponding.election.lock();
-        if election.winner().hash() == confirmed_block.hash() {
-            election.force_confirm();
-            election.into_confirmed_election(now, ConfirmationType::ActiveConfirmationHeight)
-        } else {
-            election.cancel();
-            ConfirmedElection::new(
-                confirmed_block.clone(),
-                ConfirmationType::ActiveConfirmationHeight,
-            )
-        }
-    }
-
-    fn block_confirmed(&mut self, block: SavedBlock, election: ConfirmedElection) {
+    pub(super) fn block_confirmed(&mut self, block: SavedBlock, election: ConfirmedElection) {
         self.stats.block_confirmations[election.confirmation_type as usize] += 1;
         self.notify(AecFact::BlockConfirmed(block, election));
     }
@@ -430,9 +389,10 @@ impl ActiveElectionsContainer {
     }
 
     pub fn force_confirm(&mut self, block_hash: &BlockHash, now: Timestamp) {
-        let Some(mut election) = self.roots.election_for_block_mut(block_hash) else {
+        let Some(handle) = self.roots.election_handle_for_block(block_hash) else {
             panic!("Force confirm failed, because no active election was found");
         };
+        let mut election = handle.lock();
         if election.force_confirm() {
             let confirmed_election =
                 election.into_confirmed_election(now, ConfirmationType::ActiveConfirmedQuorum);
@@ -441,8 +401,8 @@ impl ActiveElectionsContainer {
     }
 
     pub fn cancel(&mut self, root: &QualifiedRoot) {
-        if let Some(entry) = self.roots.get_mut(root) {
-            entry.election.lock().cancel();
+        if let Some(handle) = self.roots.election_handle_for_root(root) {
+            handle.lock().cancel();
         }
     }
 
@@ -533,7 +493,7 @@ pub struct ApplyVoteArgs<'a> {
 mod tests {
     use super::*;
     use crate::consensus::{AecService, ReceivedVote};
-    use rsnano_types::{BlockPriority, PrivateKey, TimePriority, Vote, VoteSource};
+    use rsnano_types::{Amount, BlockPriority, PrivateKey, TimePriority, Vote, VoteSource};
     use std::sync::Arc;
 
     #[test]

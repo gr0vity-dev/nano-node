@@ -21,7 +21,7 @@ use super::{
     root_container::ElectionHandle,
 };
 use crate::consensus::election::{
-    ConfirmationType, ConfirmedElection, Election, ElectionBehavior, VoteType,
+    AddForkResult, ConfirmationType, ConfirmedElection, Election, ElectionBehavior, VoteType,
 };
 
 pub struct AecService {
@@ -118,7 +118,20 @@ impl AecService {
     }
 
     pub fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {
-        self.aec.write().unwrap().try_add_fork(fork, fork_tally)
+        let root = fork.qualified_root();
+        let Some(handle) = self.election_handle_for_root(&root) else {
+            return false;
+        };
+
+        let result = handle.lock().try_add_fork(fork, fork_tally);
+        match result {
+            AddForkResult::Duplicate | AddForkResult::ElectionEnded => false,
+            result => self
+                .aec
+                .write()
+                .unwrap()
+                .apply_fork_result(&root, &handle, fork, result),
+        }
     }
 
     pub fn set_last_voted(&self, root: &QualifiedRoot, vote_type: VoteType, timestamp: Timestamp) {
@@ -296,10 +309,41 @@ impl AecService {
         confirmed: Vec<(SavedBlock, Option<ConfirmedElection>)>,
         now: Timestamp,
     ) {
-        self.aec
-            .write()
-            .unwrap()
-            .confirm_dependent_elections(confirmed, now)
+        let mut confirmed_results = Vec::with_capacity(confirmed.len());
+
+        for (confirmed_block, source_election) in confirmed {
+            let confirmed_election = if let Some(source) = source_election
+                && confirmed_block.hash() == source.winner.hash()
+            {
+                source
+            } else if let Some(handle) =
+                self.election_handle_for_root(&confirmed_block.qualified_root())
+            {
+                let mut election = handle.lock();
+                if election.winner().hash() == confirmed_block.hash() {
+                    election.force_confirm();
+                    election.into_confirmed_election(now, ConfirmationType::ActiveConfirmationHeight)
+                } else {
+                    election.cancel();
+                    ConfirmedElection::new(
+                        confirmed_block.clone(),
+                        ConfirmationType::ActiveConfirmationHeight,
+                    )
+                }
+            } else {
+                ConfirmedElection::new(
+                    confirmed_block.clone(),
+                    ConfirmationType::InactiveConfirmationHeight,
+                )
+            };
+
+            confirmed_results.push((confirmed_block, confirmed_election));
+        }
+
+        let mut aec = self.aec.write().unwrap();
+        for (block, election) in confirmed_results {
+            aec.block_confirmed(block, election);
+        }
     }
 
     pub fn remove_recently_confirmed(&self, block_hash: &BlockHash) {
@@ -395,6 +439,7 @@ mod tests {
     };
     use rsnano_ledger::RepWeights;
     use rsnano_types::{BlockPriority, PrivateKey, SavedBlock, Vote, VoteSource};
+    use rsnano_utils::sync::backpressure_channel::channel;
     use std::{
         sync::{
             Arc,
@@ -551,6 +596,71 @@ mod tests {
         assert_eq!(
             aec.election_for_block(&block_b.hash()).unwrap().state(),
             crate::consensus::election::ElectionState::Active
+        );
+    }
+
+    #[test]
+    fn confirm_dependent_elections_does_not_hold_container_write_lock_while_waiting_for_election() {
+        let aec = Arc::new(AecService::new_null());
+        let block = SavedBlock::new_test_instance_with_key(1);
+        let now = Timestamp::new_test_instance();
+
+        aec.insert(
+            AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+
+        let (tx, rx) = channel(1);
+        aec.set_observer(tx);
+
+        let locked_handle = aec
+            .aec
+            .read()
+            .unwrap()
+            .election_handle_for_root(&block.qualified_root())
+            .unwrap();
+        let election_guard = locked_handle.lock();
+
+        let started = Arc::new(AtomicBool::new(false));
+        let started_clone = Arc::clone(&started);
+        let aec_for_thread = Arc::clone(&aec);
+        let confirmed = vec![(block.clone(), None)];
+
+        let worker = thread::spawn(move || {
+            started_clone.store(true, Ordering::Release);
+            aec_for_thread.confirm_dependent_elections(confirmed, now);
+        });
+
+        while !started.load(Ordering::Acquire) {
+            thread::yield_now();
+        }
+
+        let mut container_write_available = false;
+        for _ in 0..10_000 {
+            if worker.is_finished() {
+                break;
+            }
+            if aec.aec.try_write().is_ok() {
+                container_write_available = true;
+                break;
+            }
+            thread::yield_now();
+        }
+
+        assert!(container_write_available);
+
+        drop(election_guard);
+        worker.join().unwrap();
+
+        let event = rx.recv().unwrap();
+        let AecFact::BlockConfirmed(confirmed_block, confirmed_election) = event else {
+            panic!("expected BlockConfirmed event");
+        };
+        assert_eq!(confirmed_block.hash(), block.hash());
+        assert_eq!(
+            confirmed_election.confirmation_type,
+            ConfirmationType::ActiveConfirmationHeight
         );
     }
 }

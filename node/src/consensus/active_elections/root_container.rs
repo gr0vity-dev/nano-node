@@ -48,6 +48,10 @@ impl ElectionHandle {
     pub fn behavior(&self) -> ElectionBehavior {
         self.lock().behavior()
     }
+
+    pub fn ptr_eq(&self, other: &ElectionHandle) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 pub(super) type RootedElectionHandle = (QualifiedRoot, ElectionHandle);
@@ -121,21 +125,9 @@ impl RootContainer {
         self.get(root).map(|i| i.election.snapshot())
     }
 
-    pub fn election_for_root_mut(&self, root: &QualifiedRoot) -> Option<MutexGuard<'_, Election>> {
-        self.get(root).map(|i| i.election.lock())
-    }
-
     pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<Election> {
         let root = self.vote_router.qualified_root(block_hash)?;
         self.election_for_root(root)
-    }
-
-    pub fn election_for_block_mut(
-        &self,
-        block_hash: &BlockHash,
-    ) -> Option<MutexGuard<'_, Election>> {
-        let root = self.vote_router.qualified_root(block_hash)?.clone();
-        self.get(&root).map(|i| i.election.lock())
     }
 
     pub(super) fn election_handle_for_root(&self, root: &QualifiedRoot) -> Option<ElectionHandle> {
