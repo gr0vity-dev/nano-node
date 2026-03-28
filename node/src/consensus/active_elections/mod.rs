@@ -16,7 +16,7 @@ use super::{
     election::{ConfirmedElection, Election, ElectionBehavior},
 };
 pub use active_elections_container::*;
-pub use aec_service::AecService;
+pub use aec_service::{AecService, PriorityActivationResult};
 pub use cooldown_controller::AecCooldownReason;
 use root_container::{Entry, RootContainer};
 

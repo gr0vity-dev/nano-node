@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
-    time::Duration,
-};
+use std::{collections::HashMap, sync::RwLock, time::Duration};
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
@@ -21,8 +17,18 @@ use super::{
     root_container::ElectionHandle,
 };
 use crate::consensus::election::{
-    AddForkResult, ConfirmationType, ConfirmedElection, Election, ElectionBehavior, VoteType,
+    AddForkResult, ConfirmationType, ConfirmedElection, Election, ElectionBehavior, ElectionState,
+    VoteType,
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PriorityActivationResult {
+    Activated,
+    ActivatedWithReplacement,
+    Duplicate,
+    RecentlyConfirmed,
+    Stopped,
+}
 
 pub struct AecService {
     aec: RwLock<ActiveElectionsContainer>,
@@ -39,14 +45,6 @@ impl AecService {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::default()),
         }
-    }
-
-    pub fn read(&self) -> RwLockReadGuard<'_, ActiveElectionsContainer> {
-        self.aec.read().unwrap()
-    }
-
-    pub fn write(&self) -> RwLockWriteGuard<'_, ActiveElectionsContainer> {
-        self.aec.write().unwrap()
     }
 
     // --- Read forwarding ---
@@ -107,6 +105,31 @@ impl AecService {
         self.aec.read().unwrap().info()
     }
 
+    pub fn priority_bucket_available(
+        &self,
+        bucket_id: usize,
+        reserved_elections: usize,
+        candidate_prio: TimePriority,
+    ) -> bool {
+        let aec = self.aec.read().unwrap();
+        let bucket_len = aec.bucket_len(bucket_id);
+        let lowest_prio = aec.lowest_priority(bucket_id);
+
+        let can_reprioritize = lowest_prio
+            .map(|(_, lowest)| candidate_prio > lowest)
+            .unwrap_or(false);
+
+        if can_reprioritize {
+            return true;
+        }
+
+        if bucket_len >= reserved_elections {
+            return false;
+        }
+
+        aec.vacancy() > 0
+    }
+
     // --- Write forwarding ---
 
     pub fn set_observer(&self, observer: Sender<AecFact>) {
@@ -115,6 +138,37 @@ impl AecService {
 
     pub fn insert(&self, request: AecInsertRequest, now: Timestamp) -> Result<(), AecInsertError> {
         self.aec.write().unwrap().insert(request, now)
+    }
+
+    pub fn activate_priority(
+        &self,
+        bucket_id: usize,
+        reserved_elections: usize,
+        block: SavedBlock,
+        priority: rsnano_types::BlockPriority,
+        now: Timestamp,
+    ) -> PriorityActivationResult {
+        let root = block.qualified_root();
+        let mut aec = self.aec.write().unwrap();
+
+        if aec.find_bucket(&root) == Some(bucket_id) {
+            return PriorityActivationResult::Duplicate;
+        }
+
+        let replaced = if aec.bucket_len(bucket_id) >= reserved_elections {
+            aec.erase_lowest_prio_election(bucket_id);
+            true
+        } else {
+            false
+        };
+
+        match aec.insert(AecInsertRequest::new_priority(block, priority), now) {
+            Ok(()) if replaced => PriorityActivationResult::ActivatedWithReplacement,
+            Ok(()) => PriorityActivationResult::Activated,
+            Err(AecInsertError::RecentlyConfirmed) => PriorityActivationResult::RecentlyConfirmed,
+            Err(AecInsertError::Duplicate) => PriorityActivationResult::Duplicate,
+            Err(AecInsertError::Stopped) => PriorityActivationResult::Stopped,
+        }
     }
 
     pub fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {
@@ -266,6 +320,17 @@ impl AecService {
             .collect()
     }
 
+    pub fn election_snapshots(&self) -> Vec<Election> {
+        self.aec.read().unwrap().iter_round_robin().collect()
+    }
+
+    pub fn active_election_snapshots(&self) -> Vec<Election> {
+        self.election_snapshots()
+            .into_iter()
+            .filter(|e| e.state() == ElectionState::Active)
+            .collect()
+    }
+
     pub fn transition_active(&self, block_hash: &BlockHash) -> bool {
         let Some(handle) = self.election_handle_for_block(block_hash) else {
             return false;
@@ -322,7 +387,8 @@ impl AecService {
                 let mut election = handle.lock();
                 if election.winner().hash() == confirmed_block.hash() {
                     election.force_confirm();
-                    election.into_confirmed_election(now, ConfirmationType::ActiveConfirmationHeight)
+                    election
+                        .into_confirmed_election(now, ConfirmationType::ActiveConfirmationHeight)
                 } else {
                     election.cancel();
                     ConfirmedElection::new(

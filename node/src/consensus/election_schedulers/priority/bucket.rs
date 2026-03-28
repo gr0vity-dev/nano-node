@@ -7,7 +7,7 @@ use super::{
     bucket_stats::BucketStats,
     ordered_blocks::{BlockEntry, OrderedBlocks},
 };
-use crate::consensus::{ActiveElectionsContainer, AecInsertError, AecInsertRequest};
+use crate::consensus::{AecService, PriorityActivationResult};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PriorityBucketConfig {
@@ -86,37 +86,20 @@ impl Bucket {
         }
     }
 
-    pub fn available(&self, aec: &ActiveElectionsContainer) -> bool {
+    pub fn available(&self, aec: &AecService) -> bool {
         let Some(highest_block) = self.block_queue.highest_prio() else {
             // No blocks enqueued
             return false;
         };
 
-        let candidate_prio = highest_block.priority.time;
-        let bucket_len = aec.bucket_len(self.bucket_id);
-        let lowest_prio = aec.lowest_priority(self.bucket_id);
-
-        let can_reprioritize = lowest_prio
-            .map(|(_, lowest)| candidate_prio > lowest)
-            .unwrap_or(false);
-
-        if can_reprioritize {
-            return true;
-        }
-
-        if bucket_len >= self.config.reserved_elections {
-            return false;
-        }
-
-        aec.vacancy() > 0 // cooldown check. TODO: check for cooldown explicitly
+        aec.priority_bucket_available(
+            self.bucket_id,
+            self.config.reserved_elections,
+            highest_block.priority.time,
+        )
     }
 
-    pub fn activate(
-        &mut self,
-        aec: &mut ActiveElectionsContainer,
-        now: Timestamp,
-        stats: &BucketStats,
-    ) {
+    pub fn activate(&mut self, aec: &AecService, now: Timestamp, stats: &BucketStats) {
         if !self.available(aec) {
             return;
         }
@@ -125,38 +108,31 @@ impl Bucket {
             return; // Not activated;
         };
 
-        let block = top.block;
-        let priority = top.priority;
-        let root = block.qualified_root();
-
-        if aec.find_bucket(&root) == Some(self.bucket_id) {
-            stats
-                .activate_failed_duplicate
-                .fetch_add(1, Ordering::Relaxed);
-            return;
-        }
-
-        if aec.bucket_len(self.bucket_id) >= self.config.reserved_elections {
-            // TODO aec.replace(old, new);
-            aec.erase_lowest_prio_election(self.bucket_id);
-            stats.replaced.fetch_add(1, Ordering::Relaxed);
-        }
-
-        match aec.insert(AecInsertRequest::new_priority(block, priority), now) {
-            Ok(_) => {
+        match aec.activate_priority(
+            self.bucket_id,
+            self.config.reserved_elections,
+            top.block,
+            top.priority,
+            now,
+        ) {
+            PriorityActivationResult::Activated => {
                 stats.activate_success.fetch_add(1, Ordering::Relaxed);
             }
-            Err(AecInsertError::RecentlyConfirmed) => {
+            PriorityActivationResult::ActivatedWithReplacement => {
+                stats.replaced.fetch_add(1, Ordering::Relaxed);
+                stats.activate_success.fetch_add(1, Ordering::Relaxed);
+            }
+            PriorityActivationResult::RecentlyConfirmed => {
                 stats
                     .activate_failed_confirmed
                     .fetch_add(1, Ordering::Relaxed);
             }
-            Err(AecInsertError::Duplicate) => {
+            PriorityActivationResult::Duplicate => {
                 stats
                     .activate_failed_duplicate
                     .fetch_add(1, Ordering::Relaxed);
             }
-            Err(AecInsertError::Stopped) => {}
+            PriorityActivationResult::Stopped => {}
         }
     }
 }
@@ -189,7 +165,7 @@ mod tests {
 
         assert_eq!(bucket.len(), 0);
         assert_eq!(bucket.contains(&BlockHash::from(1)), false);
-        let aec = ActiveElectionsContainer::default();
+        let aec = AecService::new_null();
         assert_eq!(bucket.available(&aec), false);
     }
 
@@ -206,7 +182,7 @@ mod tests {
 
         assert_eq!(bucket.len(), 1);
         assert_eq!(bucket.contains(&block.hash()), true);
-        let aec = ActiveElectionsContainer::default();
+        let aec = AecService::new_null();
         assert_eq!(bucket.available(&aec), true);
     }
 

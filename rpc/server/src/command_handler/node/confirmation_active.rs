@@ -10,8 +10,7 @@ impl RpcCommandHandler {
         let mut confirmed = 0;
         let mut elections = Vec::new();
 
-        let active = self.node.aec.read();
-        for election in active.iter_round_robin() {
+        for election in self.node.aec.election_snapshots() {
             if !election.is_confirmed() {
                 elections.push(election.qualified_root().clone());
             } else {
