@@ -59,10 +59,10 @@ pub struct BootstrapConfig {
 impl Default for BootstrapConfig {
     fn default() -> Self {
         Self {
-            enable: true,
-            enable_priorities: true,
-            enable_dependency_walker: true,
-            enable_frontier_scan: true,
+            enable: false,
+            enable_priorities: false,
+            enable_dependency_walker: false,
+            enable_frontier_scan: false,
             channel_limit: 16,
             rate_limit: 500,
             database_rate_limit: 256,

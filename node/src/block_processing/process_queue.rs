@@ -35,8 +35,8 @@ impl ProcessQueueConfig {}
 impl Default for ProcessQueueConfig {
     fn default() -> Self {
         Self {
-            max_peer_queue: 1024,
-            max_system_queue: 16 * 1024,
+            max_peer_queue: 500_000,
+            max_system_queue: 500_000,
             priority_live: 1,
             priority_bootstrap: 8,
             priority_local: 16,

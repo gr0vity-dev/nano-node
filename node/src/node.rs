@@ -681,6 +681,7 @@ impl Node {
 
         let election_schedulers = Arc::new(ElectionSchedulers::new(
             config.clone(),
+            flags.clone(),
             active_elections.clone(),
             ledger.clone(),
             stats.clone(),
@@ -845,18 +846,25 @@ impl Node {
 
         let mut aec_ticker = AecTicker::new(active_elections.clone(), steady_clock.clone());
 
-        aec_ticker.add_plugin(ConfirmationSolicitorPlugin {
-            message_flooder: message_flooder.clone(),
-            online_reps: online_reps.clone(),
-            winner_block_broadcaster: winner_block_broadcaster.clone(),
-            confirm_req_sender,
-        });
+        if !flags.disable_confirm_req {
+            aec_ticker.add_plugin(ConfirmationSolicitorPlugin {
+                message_flooder: message_flooder.clone(),
+                online_reps: online_reps.clone(),
+                winner_block_broadcaster: winner_block_broadcaster.clone(),
+                confirm_req_sender,
+            });
+        }
 
-        let mut bootstrap_stale =
-            BootstrapStaleElections::new(bootstrapper.clone(), steady_clock.clone());
-        bootstrap_stale.set_stale_threshold(config.bootstrap_stale_threshold);
-        let bootstrap_stale_stats = bootstrap_stale.stats.clone();
-        aec_ticker.add_plugin(bootstrap_stale);
+        let bootstrap_stale_stats = if !flags.disable_ongoing_bootstrap {
+            let mut bootstrap_stale =
+                BootstrapStaleElections::new(bootstrapper.clone(), steady_clock.clone());
+            bootstrap_stale.set_stale_threshold(config.bootstrap_stale_threshold);
+            let stats = bootstrap_stale.stats.clone();
+            aec_ticker.add_plugin(bootstrap_stale);
+            Some(stats)
+        } else {
+            None
+        };
 
         let local_block_broadcaster = Arc::new(LocalBlockBroadcaster::new(
             config.local_block_broadcaster.clone(),
@@ -969,6 +977,7 @@ impl Node {
             telemetry.clone(),
             bootstrap_server.clone(),
             bootstrapper.clone(),
+            flags.clone(),
             network_params.work.clone(),
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots.clone(),
@@ -1298,7 +1307,9 @@ impl Node {
         stats_collector.add_source(backlog_scan.stats());
         stats_collector.add_source(handshake_stats);
         stats_collector.add_source(inbound_message_queue.clone());
-        stats_collector.add_source(bootstrap_stale_stats);
+        if let Some(bootstrap_stale_stats) = bootstrap_stale_stats {
+            stats_collector.add_source(bootstrap_stale_stats);
+        }
         stats_collector.add_source(block_processor.clone());
         stats_collector.add_source(block_processor_queue.clone());
         stats_collector.add_source(conf_time_stats);
@@ -1603,7 +1614,9 @@ impl Node {
                 .start(self.network_params.network.aec_loop_interval);
         }
         self.vote_generators.start();
-        self.request_aggregator.start();
+        if !self.flags.disable_request_aggregator {
+            self.request_aggregator.start();
+        }
         self.confirming_set.start();
         self.election_schedulers.start();
         self.backlog_scan.start();
@@ -1613,10 +1626,12 @@ impl Node {
             });
             self.bounded_backlog_thread = Some(handle);
         }
-        if self.config.enable_bootstrap_responder {
+        if self.config.enable_bootstrap_responder && !self.flags.disable_ongoing_bootstrap {
             self.bootstrap_server.start();
         }
-        self.bootstrapper.start();
+        if !self.flags.disable_ongoing_bootstrap {
+            self.bootstrapper.start();
+        }
         self.telemetry.start();
         self.local_block_broadcaster.start();
 
@@ -1646,7 +1661,9 @@ impl Node {
         // Cancels ongoing work generation tasks, which may be blocking other threads
         // No tasks may wait for work generation in I/O threads, or termination signal capturing will be unable to call node::stop()
         self.work_factory.stop();
-        self.bootstrapper.stop();
+        if !self.flags.disable_ongoing_bootstrap {
+            self.bootstrapper.stop();
+        }
         if let Some(i) = &self.bounded_backlog {
             i.stop();
         }
@@ -1657,7 +1674,9 @@ impl Node {
         }
         self.rep_crawler.stop();
         self.block_processor.stop();
-        self.request_aggregator.stop();
+        if !self.flags.disable_request_aggregator {
+            self.request_aggregator.stop();
+        }
         self.vote_cache_processor.stop();
         self.vote_processor.stop();
         self.election_schedulers.stop();
@@ -1666,7 +1685,9 @@ impl Node {
         self.vote_generators.stop();
         self.confirming_set.stop();
         self.telemetry.stop();
-        self.bootstrap_server.stop();
+        if self.config.enable_bootstrap_responder && !self.flags.disable_ongoing_bootstrap {
+            self.bootstrap_server.stop();
+        }
         self.wallets.stop();
         self.local_block_broadcaster.stop();
         self.message_processor.lock().unwrap().stop();

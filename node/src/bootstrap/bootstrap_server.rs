@@ -37,10 +37,10 @@ pub struct BootstrapServerConfig {
 impl Default for BootstrapServerConfig {
     fn default() -> Self {
         Self {
-            max_queue: 16,
-            threads: 1,
+            max_queue: 0,
+            threads: 0,
             batch_size: 64,
-            limiter: 500,
+            limiter: 0,
         }
     }
 }

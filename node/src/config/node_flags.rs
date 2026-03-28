@@ -4,6 +4,11 @@ pub struct NodeFlags {
     pub rpc_config_overrides: Vec<String>,
     pub disable_backup: bool,
     pub disable_ongoing_bootstrap: bool, // For testing only
+    pub disable_request_aggregator: bool, // For testing only
+    pub disable_confirm_req: bool,        // For testing only
+    pub disable_hinted_scheduler: bool,   // For testing only
+    pub disable_optimistic_scheduler: bool, // For testing only
+    pub disable_manual_scheduler: bool,   // For testing only
     pub disable_rep_crawler: bool,
     /// Disables the AEC ticker
     pub disable_request_loop: bool, // For testing only
@@ -27,7 +32,12 @@ impl NodeFlags {
             config_overrides: Vec::new(),
             rpc_config_overrides: Vec::new(),
             disable_backup: false,
-            disable_ongoing_bootstrap: false,
+            disable_ongoing_bootstrap: true,
+            disable_request_aggregator: true,
+            disable_confirm_req: true,
+            disable_hinted_scheduler: true,
+            disable_optimistic_scheduler: true,
+            disable_manual_scheduler: true,
             disable_rep_crawler: false,
             disable_request_loop: false,
             disable_providing_telemetry_metrics: false,

@@ -26,10 +26,10 @@ pub struct RequestAggregatorConfig {
 }
 
 impl RequestAggregatorConfig {
-    pub fn new(parallelism: usize) -> Self {
+    pub fn new(_parallelism: usize) -> Self {
         Self {
-            threads: (parallelism / 2).clamp(1, 4),
-            max_queue: 128,
+            threads: 0,
+            max_queue: 0,
             batch_size: 16,
         }
     }

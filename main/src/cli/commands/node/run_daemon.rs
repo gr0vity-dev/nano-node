@@ -12,6 +12,21 @@ pub(crate) struct RunDaemonArgs {
     /// Turn off the ability for ongoing bootstraps to occur
     #[arg(long)]
     disable_ongoing_bootstrap: bool,
+    /// Turn off inbound confirm_req aggregation and its worker threads
+    #[arg(long)]
+    disable_request_aggregator: bool,
+    /// Turn off outgoing confirm_req solicitation from the AEC ticker
+    #[arg(long)]
+    disable_confirm_req: bool,
+    /// Turn off the hinted scheduler
+    #[arg(long)]
+    disable_hinted_scheduler: bool,
+    /// Turn off the optimistic scheduler
+    #[arg(long)]
+    disable_optimistic_scheduler: bool,
+    /// Turn off the manual scheduler
+    #[arg(long)]
+    disable_manual_scheduler: bool,
     /// Turn off the request loop
     #[arg(long)]
     disable_request_loop: bool,
@@ -56,6 +71,11 @@ impl RunDaemonArgs {
         let mut flags = NodeFlags::new();
         flags.disable_backup = self.disable_backup;
         flags.disable_ongoing_bootstrap = self.disable_ongoing_bootstrap;
+        flags.disable_request_aggregator = self.disable_request_aggregator;
+        flags.disable_confirm_req = self.disable_confirm_req;
+        flags.disable_hinted_scheduler = self.disable_hinted_scheduler;
+        flags.disable_optimistic_scheduler = self.disable_optimistic_scheduler;
+        flags.disable_manual_scheduler = self.disable_manual_scheduler;
         flags.disable_rep_crawler = self.disable_rep_crawler;
         flags.disable_request_loop = self.disable_request_loop;
         flags.disable_providing_telemetry_metrics = self.disable_providing_telemetry_metrics;

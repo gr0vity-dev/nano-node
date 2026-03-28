@@ -16,6 +16,7 @@ use crate::ledger_snapshots::LedgerSnapshots;
 use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     bootstrap::{BootstrapServer, Bootstrapper},
+    config::NodeFlags,
     consensus::{AggregatorRequest, RequestAggregator, VoteProcessorQueue},
     telemetry::Telemetry,
     wallets::WalletRepresentatives,
@@ -34,6 +35,7 @@ pub struct NetworkMessageProcessor {
     telemetry: Arc<Telemetry>,
     bootstrap_server: Arc<BootstrapServer>,
     bootstrapper: Arc<Bootstrapper>,
+    flags: NodeFlags,
     work_thresholds: WorkThresholds,
     #[cfg(feature = "ledger_snapshots")]
     ledger_snapshots: Arc<LedgerSnapshots>,
@@ -51,6 +53,7 @@ impl NetworkMessageProcessor {
         telemetry: Arc<Telemetry>,
         bootstrap_server: Arc<BootstrapServer>,
         bootstrapper: Arc<Bootstrapper>,
+        flags: NodeFlags,
         work_thresholds: WorkThresholds,
         #[cfg(feature = "ledger_snapshots")] ledger_snapshots: Arc<LedgerSnapshots>,
     ) -> Self {
@@ -65,6 +68,7 @@ impl NetworkMessageProcessor {
             telemetry,
             bootstrap_server,
             bootstrapper,
+            flags,
             work_thresholds,
             #[cfg(feature = "ledger_snapshots")]
             ledger_snapshots,
@@ -136,6 +140,9 @@ impl NetworkMessageProcessor {
                 }
             }
             Message::ConfirmReq(req) => {
+                if self.flags.disable_request_aggregator {
+                    return;
+                }
                 // Don't load nodes with disabled voting
                 // TODO: This check should be cached somewhere
                 if self.wallet_reps.lock().unwrap().voting_enabled() {
@@ -188,9 +195,17 @@ impl NetworkMessageProcessor {
             }
             Message::TelemetryAck(ack) => self.telemetry.process(&ack, channel),
             Message::AscPullReq(req) => {
+                if self.flags.disable_ongoing_bootstrap {
+                    return;
+                }
                 self.bootstrap_server.enqueue(req, channel.clone());
             }
-            Message::AscPullAck(ack) => self.bootstrapper.process(ack, channel.channel_id()),
+            Message::AscPullAck(ack) => {
+                if self.flags.disable_ongoing_bootstrap {
+                    return;
+                }
+                self.bootstrapper.process(ack, channel.channel_id())
+            }
             Message::FrontierReq(_)
             | Message::BulkPush
             | Message::BulkPull(_)
@@ -283,6 +298,7 @@ mod tests {
             Telemetry::new_null().into(),
             BootstrapServer::new_null().into(),
             Bootstrapper::new_null().into(),
+            NodeFlags::default(),
             WorkThresholds::new_stub(),
             ledger_snapshots.into(),
         )

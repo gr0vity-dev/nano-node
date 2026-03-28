@@ -24,7 +24,11 @@ use rsnano_utils::{
 };
 
 use super::{AecService, VoteCache};
-use crate::{cementation::ConfirmingSet, config::NodeConfig, representatives::OnlineReps};
+use crate::{
+    cementation::ConfirmingSet,
+    config::{NodeConfig, NodeFlags},
+    representatives::OnlineReps,
+};
 use priority::{PriorityScheduler, PrioritySchedulerExt};
 
 pub struct ElectionSchedulers {
@@ -34,6 +38,7 @@ pub struct ElectionSchedulers {
     pub manual: Arc<ManualScheduler>,
     notify_listener: OutputListenerMt<()>,
     config: NodeConfig,
+    flags: NodeFlags,
     ledger: Arc<Ledger>,
     activate_successors_listener: OutputListenerMt<SavedBlock>,
     optimistic_thread: Mutex<Option<JoinHandle<()>>>,
@@ -42,6 +47,7 @@ pub struct ElectionSchedulers {
 impl ElectionSchedulers {
     pub fn new(
         config: NodeConfig,
+        flags: NodeFlags,
         active_elections: Arc<AecService>,
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
@@ -98,6 +104,7 @@ impl ElectionSchedulers {
             manual,
             notify_listener: OutputListenerMt::new(),
             config,
+            flags,
             ledger,
             activate_successors_listener: Default::default(),
             optimistic_thread: Mutex::new(None),
@@ -119,6 +126,7 @@ impl ElectionSchedulers {
 
         Self::new(
             config,
+            NodeFlags::default(),
             active_elections,
             ledger,
             stats,
@@ -135,7 +143,8 @@ impl ElectionSchedulers {
 
     /// Does the block exist in any of the schedulers
     pub fn contains(&self, hash: &BlockHash) -> bool {
-        self.manual.contains(hash) || self.priority.contains(hash)
+        (!self.flags.disable_manual_scheduler && self.manual.contains(hash))
+            || self.priority.contains(hash)
     }
 
     pub fn activate_backlog(
@@ -145,8 +154,10 @@ impl ElectionSchedulers {
         account_info: &AccountInfo,
         conf_info: &ConfirmationHeightInfo,
     ) {
-        self.optimistic
-            .activate(account, account_info.block_count, conf_info.height);
+        if !self.flags.disable_optimistic_scheduler {
+            self.optimistic
+                .activate(account, account_info.block_count, conf_info.height);
+        }
         self.priority
             .activate_with_info(any, account_info, conf_info);
     }
@@ -164,12 +175,18 @@ impl ElectionSchedulers {
     pub fn notify(&self) {
         self.notify_listener.emit(());
         self.priority.notify();
-        self.hinted.notify();
-        self.optimistic.notify();
+        if !self.flags.disable_hinted_scheduler {
+            self.hinted.notify();
+        }
+        if !self.flags.disable_optimistic_scheduler {
+            self.optimistic.notify();
+        }
     }
 
     pub fn add_manual(&self, block: SavedBlock) {
-        self.manual.push(block);
+        if !self.flags.disable_manual_scheduler {
+            self.manual.push(block);
+        }
     }
 
     pub fn activate_successors<'a>(&self, confirmed: impl IntoIterator<Item = &'a SavedBlock>) {
@@ -184,11 +201,13 @@ impl ElectionSchedulers {
     }
 
     pub fn start(&self) {
-        if self.config.enable_hinted_scheduler {
+        if self.config.enable_hinted_scheduler && !self.flags.disable_hinted_scheduler {
             self.hinted.start();
         }
-        self.manual.start();
-        if self.config.enable_optimistic_scheduler {
+        if !self.flags.disable_manual_scheduler {
+            self.manual.start();
+        }
+        if self.config.enable_optimistic_scheduler && !self.flags.disable_optimistic_scheduler {
             let optimistic = self.optimistic.clone();
             let handle = std::thread::Builder::new()
                 .name("Sched Opt".to_string())

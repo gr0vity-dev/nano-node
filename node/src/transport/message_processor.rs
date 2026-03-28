@@ -27,7 +27,7 @@ impl MessageProcessorConfig {
     pub fn new(parallelism: usize) -> Self {
         Self {
             threads: (parallelism / 4).clamp(1, 2),
-            max_queue: 64,
+            max_queue: 500_000,
         }
     }
 }
