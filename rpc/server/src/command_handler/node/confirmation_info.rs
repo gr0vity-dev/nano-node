@@ -13,9 +13,10 @@ impl RpcCommandHandler {
     ) -> anyhow::Result<ConfirmationInfoResponse> {
         let include_representatives = args.representatives.unwrap_or(false.into()).inner();
         let contents = args.contents.unwrap_or(true.into()).inner();
-        let active = self.node.active.read().unwrap();
-        let election = active
-            .election_for_root(&args.root)
+        let election = self
+            .node
+            .active
+            .election(&args.root)
             .ok_or_else(|| anyhow!("Active confirmation not found"))?;
 
         let announcements = 0; // not supported in RsNano

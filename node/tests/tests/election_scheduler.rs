@@ -143,8 +143,6 @@ mod election_scheduler {
         assert_timely2(|| node.is_active_hash(&block.hash()));
         assert_eq!(
             node.active
-                .read()
-                .unwrap()
                 .election_for_block(&block.hash())
                 .unwrap()
                 .behavior(),
@@ -155,16 +153,14 @@ mod election_scheduler {
         node.confirm(blocks[howmany_blocks - 1].hash());
 
         // Attempt to start priority election for second block
-        let _ = node.active.write().unwrap().insert(
-            AecInsertRequest::new_priority(block.clone(), BlockPriority::MIN),
-            node.steady_clock.now(),
-        );
+        let _ = node.active.insert(AecInsertRequest::new_priority(
+            block.clone(),
+            BlockPriority::MIN,
+        ));
 
         // Verify priority transition
         assert_eq!(
             node.active
-                .read()
-                .unwrap()
                 .election_for_block(&block.hash())
                 .unwrap()
                 .behavior(),

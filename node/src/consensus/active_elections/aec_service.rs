@@ -5,7 +5,7 @@ use std::{
 };
 
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{Amount, Block, BlockHash, QualifiedRoot, Root, VoteError};
+use rsnano_types::{Account, Amount, Block, BlockHash, QualifiedRoot, Root, VoteError};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
 use crate::consensus::{AecCooldownReason, ApplyVoteArgs};
@@ -13,7 +13,7 @@ use crate::consensus::{AecCooldownReason, ApplyVoteArgs};
 use super::{
     ActiveElectionsConfig, ActiveElectionsContainer, AecFact, AecInsertError, AecInsertRequest,
 };
-use crate::consensus::election::{ConfirmedElection, VoteType};
+use crate::consensus::election::{ConfirmedElection, Election, ElectionState, VoteType};
 
 pub struct AecService {
     active: RwLock<ActiveElectionsContainer>,
@@ -57,13 +57,13 @@ impl AecService {
     }
 
     pub fn insert(&self, request: AecInsertRequest) -> Result<(), AecInsertError> {
-        self.active.write().unwrap().insert(request, self.clock.now())
+        self.active
+            .write()
+            .unwrap()
+            .insert(request, self.clock.now())
     }
 
-    pub fn apply_vote(
-        &self,
-        args: ApplyVoteArgs<'_>,
-    ) -> HashMap<BlockHash, Result<(), VoteError>> {
+    pub fn apply_vote(&self, args: ApplyVoteArgs<'_>) -> HashMap<BlockHash, Result<(), VoteError>> {
         self.active.write().unwrap().apply_vote(args)
     }
 
@@ -82,11 +82,77 @@ impl AecService {
     }
 
     pub fn transition_time(&self) {
-        self.active.write().unwrap().transition_time(self.clock.now());
+        self.active
+            .write()
+            .unwrap()
+            .transition_time(self.clock.now());
     }
 
     pub fn transition_active(&self, block_hash: &BlockHash) -> bool {
         self.active.write().unwrap().transition_active(block_hash)
+    }
+
+    pub fn election(&self, root: &QualifiedRoot) -> Option<Election> {
+        self.active.read().unwrap().election_for_root(root).cloned()
+    }
+
+    pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<Election> {
+        self.active
+            .read()
+            .unwrap()
+            .election_for_block(block_hash)
+            .cloned()
+    }
+
+    pub fn stale_election_accounts(
+        &self,
+        now: rsnano_nullable_clock::Timestamp,
+        stale_threshold: Duration,
+        max_results: usize,
+    ) -> Vec<Account> {
+        self.active
+            .read()
+            .unwrap()
+            .iter_round_robin()
+            .filter(|election| election.start().elapsed(now) >= stale_threshold)
+            .map(|election| election.account())
+            .take(max_results)
+            .collect()
+    }
+
+    pub fn active_elections(&self) -> Vec<Election> {
+        self.active
+            .read()
+            .unwrap()
+            .iter_round_robin()
+            .filter(|election| election.state() == ElectionState::Active)
+            .cloned()
+            .collect()
+    }
+
+    pub fn confirmation_active_roots(&self, announcements: u64) -> (Vec<QualifiedRoot>, u64) {
+        let mut confirmed = 0;
+        let confirmations = self
+            .active
+            .read()
+            .unwrap()
+            .iter_round_robin()
+            .filter_map(|election| {
+                let req_count = 0_u64; // not supported in RsNano
+                if req_count < announcements {
+                    return None;
+                }
+
+                if election.is_confirmed() {
+                    confirmed += 1;
+                    None
+                } else {
+                    Some(election.qualified_root().clone())
+                }
+            })
+            .collect();
+
+        (confirmations, confirmed)
     }
 
     pub fn remove_votes(

@@ -7,20 +7,7 @@ impl RpcCommandHandler {
         args: ConfirmationActiveArgs,
     ) -> ConfirmationActiveResponse {
         let announcements = unwrap_u64_or_zero(args.announcements);
-        let mut confirmed = 0;
-        let mut elections = Vec::new();
-
-        let active = self.node.active.read().unwrap();
-        for election in active.iter_round_robin() {
-            let req_count = 0; // not supported in RsNano
-            if req_count as u64 >= announcements {
-                if !election.is_confirmed() {
-                    elections.push(election.qualified_root().clone());
-                } else {
-                    confirmed += 1;
-                }
-            }
-        }
+        let (elections, confirmed) = self.node.active.confirmation_active_roots(announcements);
 
         let unconfirmed = elections.len() as u64;
         ConfirmationActiveResponse {
