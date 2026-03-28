@@ -4,7 +4,7 @@ use rsnano_types::{Amount, BlockHash, VoteError, VoteSource};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{
-    AecEvent, ApplyVoteArgs,
+    AecFact, ApplyVoteArgs,
     recently_confirmed_cache::RecentlyConfirmedCache,
     root_container::{Entry, RootContainer},
     stats::VoteCounter,
@@ -15,7 +15,7 @@ pub(super) struct ApplyVoteHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
     pub recently_confirmed: &'a mut RecentlyConfirmedCache,
     pub vote_counter: &'a mut VoteCounter,
-    pub observer: &'a Option<Sender<AecEvent>>,
+    pub observer: &'a Option<Sender<AecFact>>,
     pub roots: &'a mut RootContainer,
 }
 
@@ -71,7 +71,7 @@ struct ApplyVoteToElectionHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
     pub recently_confirmed: &'a mut RecentlyConfirmedCache,
     pub vote_counter: &'a mut VoteCounter,
-    pub observer: &'a Option<Sender<AecEvent>>,
+    pub observer: &'a Option<Sender<AecFact>>,
     pub election: &'a mut Election,
     pub block_hash: &'a BlockHash,
 }
@@ -137,7 +137,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     fn notify_winner_changed(&mut self, old_winner: BlockHash) {
         let winner_changed = self.election.winner().hash() != old_winner;
         if winner_changed {
-            self.notify(AecEvent::WinnerChanged(
+            self.notify(AecFact::WinnerChanged(
                 old_winner,
                 self.election.winner().deref().clone(),
             ));
@@ -151,7 +151,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             .election
             .into_confirmed_election(self.args.now, ConfirmationType::ActiveConfirmedQuorum);
 
-        self.notify(AecEvent::ElectionConfirmed(confirmed_election));
+        self.notify(AecFact::ElectionConfirmed(confirmed_election));
     }
 
     fn insert_recently_confirmed(&mut self) {
@@ -161,7 +161,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
         );
     }
 
-    fn notify(&self, event: AecEvent) {
+    fn notify(&self, event: AecFact) {
         if let Some(o) = self.observer {
             o.send(event).unwrap();
         }
@@ -309,7 +309,7 @@ mod tests {
 
         assert_eq!(fixture.election.winner().hash(), fork.hash());
         assert_eq!(fixture.events.len(), 1);
-        let AecEvent::WinnerChanged(old_winner, new_winner) = &fixture.events[0] else {
+        let AecFact::WinnerChanged(old_winner, new_winner) = &fixture.events[0] else {
             panic!("not a winner changed event");
         };
         assert_eq!(old_winner, &block.hash());
@@ -327,7 +327,7 @@ mod tests {
 
         assert_eq!(fixture.events.len(), 1);
 
-        assert!(matches!(fixture.events[0], AecEvent::ElectionConfirmed(_)));
+        assert!(matches!(fixture.events[0], AecFact::ElectionConfirmed(_)));
     }
 
     // Test helpers:
@@ -419,7 +419,7 @@ mod tests {
         election: Election,
         rep1_key: PrivateKey,
         rep_weights: RepWeights,
-        events: Vec<AecEvent>,
+        events: Vec<AecFact>,
     }
 
     impl FixtureForElection {

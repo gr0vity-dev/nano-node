@@ -51,7 +51,7 @@ use rsnano_wallet::{ReceivableSearch, WalletBackup, Wallets, WalletsTicker};
 use crate::ledger_snapshots::{LedgerSnapshots, fork_detector::ForkDetector};
 use crate::{
     NodeCallbacks, OnlineWeightSampler,
-    aec_event_processor::AecEventProcessor,
+    aec_event_processor::AecFactProcessor,
     block_processing::{
         BacklogScan, BlockContext, BlockProcessor, BlockProcessorQueue, LedgerPipelineEvent,
         LocalBlockBroadcaster, LocalBlockBroadcasterExt, LocalBlockBroadcasterPlugin,
@@ -1236,7 +1236,7 @@ impl Node {
             ));
         }
 
-        let aec_event_processor = AecEventProcessor {
+        let aec_event_processor = AecFactProcessor {
             vote_cache_processor: vote_cache_processor.clone(),
             node_observer: node_observer.clone(),
             election_schedulers: election_schedulers.clone(),
@@ -1723,7 +1723,7 @@ impl CompositeNodeEventHandler {
 mod tests {
     use super::*;
     use crate::consensus::{
-        AecEvent, AecTickerPlugin, BootstrapStaleElections, StaleElectionsStats,
+        AecFact, AecTickerPlugin, BootstrapStaleElections, StaleElectionsStats,
     };
     use rsnano_utils::{stats::StatsSource, ticker::Tickable};
     use std::any::type_name;
@@ -1808,7 +1808,7 @@ mod tests {
         node.active
             .write()
             .unwrap()
-            .simulate_event(AecEvent::ElectionConfirmed(election));
+            .simulate_event(AecFact::ElectionConfirmed(election));
 
         let output = broadcast_tracker.wait_output().unwrap();
         assert_eq!(output, vec![winner_hash]);

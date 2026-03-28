@@ -6,7 +6,7 @@ use strum_macros::EnumCount as EnumCountMacro;
 #[derive(Clone, Debug, PartialEq, EnumCountMacro)]
 pub enum AecCooldownReason {
     ConfirmingSetFull,
-    AecEventQueueFull,
+    AecFactQueueFull,
 }
 
 #[derive(Default)]
@@ -90,7 +90,7 @@ mod tests {
     fn mutliple_sources_different_cooldowns() {
         let mut controller = CooldownController::default();
         controller.set_cooldown(true, AecCooldownReason::ConfirmingSetFull);
-        let result = controller.set_cooldown(false, AecCooldownReason::AecEventQueueFull);
+        let result = controller.set_cooldown(false, AecCooldownReason::AecFactQueueFull);
         assert_eq!(result, CooldownResult::Unchanged);
         assert_eq!(controller.is_cooling_down(), true);
     }

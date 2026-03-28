@@ -14,7 +14,7 @@ use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     cementation::ConfirmingSet,
     consensus::{
-        ActiveElectionsContainer, AecCooldownReason, AecEvent, AecForkInserter,
+        ActiveElectionsContainer, AecCooldownReason, AecFact, AecForkInserter,
         BootstrapElectionActivator, LocalVotesRemover, ReceivedVote, VoteCache, VoteCacheProcessor,
         VoteProcessor, VoteRebroadcastQueue, WinnerBlockBroadcaster, aggregate_vote_results,
         election_schedulers::ElectionSchedulers,
@@ -25,7 +25,7 @@ use crate::{
 };
 
 /// Processes events from the active election container (AEC)
-pub(crate) struct AecEventProcessor {
+pub(crate) struct AecFactProcessor {
     pub(crate) vote_cache_processor: Arc<VoteCacheProcessor>,
     pub(crate) vote_processor: Arc<VoteProcessor>,
     pub(crate) vote_cache: Arc<Mutex<VoteCache>>,
@@ -47,12 +47,12 @@ pub(crate) struct AecEventProcessor {
     pub(crate) winner_block_broadcaster: Arc<Mutex<WinnerBlockBroadcaster>>,
 }
 
-impl BackpressureEventProcessor<AecEvent> for AecEventProcessor {
+impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
     fn cool_down(&mut self) {
         self.active_elections
             .write()
             .unwrap()
-            .set_cooldown(true, AecCooldownReason::AecEventQueueFull);
+            .set_cooldown(true, AecCooldownReason::AecFactQueueFull);
         self.vote_processor.cool_down();
     }
 
@@ -60,13 +60,13 @@ impl BackpressureEventProcessor<AecEvent> for AecEventProcessor {
         self.active_elections
             .write()
             .unwrap()
-            .set_cooldown(false, AecCooldownReason::AecEventQueueFull);
+            .set_cooldown(false, AecCooldownReason::AecFactQueueFull);
         self.vote_processor.recovered();
     }
 
-    fn process(&mut self, event: AecEvent) {
+    fn process(&mut self, event: AecFact) {
         match event {
-            AecEvent::ElectionStarted(hash, root) => {
+            AecFact::ElectionStarted(hash, root) => {
                 self.aec_fork_inserter.try_add_cached_forks(&root);
                 self.bootstrap_election_activator.election_started(hash);
                 self.vote_cache_processor.trigger(hash);
@@ -74,7 +74,7 @@ impl BackpressureEventProcessor<AecEvent> for AecEventProcessor {
                     tx.send(NodeEvent::ElectionStarted(hash)).unwrap();
                 }
             }
-            AecEvent::ElectionConfirmed(election) => {
+            AecFact::ElectionConfirmed(election) => {
                 self.confirming_set.add(election.clone());
                 // Ensure election winner is broadcasted
                 self.winner_block_broadcaster
@@ -82,7 +82,7 @@ impl BackpressureEventProcessor<AecEvent> for AecEventProcessor {
                     .unwrap()
                     .try_broadcast_winner(&election.winner, &election.votes);
             }
-            AecEvent::ElectionEnded(election) => {
+            AecFact::ElectionEnded(election) => {
                 self.election_schedulers.notify();
 
                 let now = self.clock.now();
@@ -107,11 +107,11 @@ impl BackpressureEventProcessor<AecEvent> for AecEventProcessor {
                     }
                 }
             }
-            AecEvent::BlockAddedToElection(hash) => self.vote_cache_processor.trigger(hash),
-            AecEvent::BlockDiscarded(block) => {
+            AecFact::BlockAddedToElection(hash) => self.vote_cache_processor.trigger(hash),
+            AecFact::BlockDiscarded(block) => {
                 self.clear_network_filter(&block);
             }
-            AecEvent::WinnerChanged(previous_winner, new_winner) => {
+            AecFact::WinnerChanged(previous_winner, new_winner) => {
                 debug!(from = ?previous_winner, to = ?new_winner.hash(), "Winning fork changed");
                 self.local_votes_remover
                     .remove_local_votes(&previous_winner, &new_winner.qualified_root());
@@ -123,7 +123,7 @@ impl BackpressureEventProcessor<AecEvent> for AecEventProcessor {
                     ChannelId::LOOPBACK,
                 ));
             }
-            AecEvent::VoteProcessed(vote, voter_weight, results) => {
+            AecFact::VoteProcessed(vote, voter_weight, results) => {
                 // Cache the votes that didn't match any election
                 if vote.source != VoteSource::Cache {
                     self.vote_cache
@@ -143,19 +143,19 @@ impl BackpressureEventProcessor<AecEvent> for AecEventProcessor {
                         .unwrap();
                 }
             }
-            AecEvent::BlockConfirmed(block, election) => {
+            AecFact::BlockConfirmed(block, election) => {
                 if let Some(tx) = &self.node_observer {
                     tx.send(NodeEvent::BlockConfirmed(block, election.clone()))
                         .unwrap();
                 }
                 self.recently_cemented_inserter.insert(election);
             }
-            AecEvent::Recovered => self.election_schedulers.notify(),
+            AecFact::Recovered => self.election_schedulers.notify(),
         }
     }
 }
 
-impl AecEventProcessor {
+impl AecFactProcessor {
     fn clear_network_filter(&mut self, block: &Block) {
         let mut buffer = Vec::new();
         block

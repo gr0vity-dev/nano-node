@@ -9,13 +9,13 @@ use rsnano_ledger::RepWeightCache;
 use rsnano_types::{Amount, BlockHash, VoteError};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
-use super::{ActiveElectionsContainer, AecEvent, FilteredVote, ReceivedVote};
+use super::{ActiveElectionsContainer, AecFact, FilteredVote, ReceivedVote};
 use crate::{consensus::ApplyVoteArgs, representatives::OnlineReps};
 
 /// Applies a vote to an election
 pub(crate) struct VoteApplier {
     active_elections: Arc<RwLock<ActiveElectionsContainer>>,
-    event_senders: RwLock<Vec<Sender<AecEvent>>>,
+    event_senders: RwLock<Vec<Sender<AecFact>>>,
     online_reps: Arc<Mutex<OnlineReps>>,
     clock: Arc<SteadyClock>,
     rep_weights: Arc<RepWeightCache>,
@@ -40,7 +40,7 @@ impl VoteApplier {
         }
     }
 
-    pub fn add_event_sink(&self, sink: Sender<AecEvent>) {
+    pub fn add_event_sink(&self, sink: Sender<AecFact>) {
         self.event_senders.write().unwrap().push(sink);
     }
 
@@ -106,7 +106,7 @@ impl VoteApplier {
         results: &HashMap<BlockHash, Result<(), VoteError>>,
     ) {
         for sender in self.event_senders.read().unwrap().iter() {
-            let _ = sender.send(AecEvent::VoteProcessed(
+            let _ = sender.send(AecFact::VoteProcessed(
                 vote.clone(),
                 voter_weight,
                 results.clone(),

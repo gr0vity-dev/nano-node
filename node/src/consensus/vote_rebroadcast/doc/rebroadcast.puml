@@ -18,7 +18,7 @@ class RebroadcastProcessor {
 class RebroadcastHistory
 
 
-class AecEventProcessor
+class AecFactProcessor
 
 interface RepTiersConsumer {
 	update_rep_tiers(tiers)
@@ -34,6 +34,6 @@ VoteRebroadcaster --> VoteRebroadcastQueue
 VoteRebroadcaster --> RebroadcastProcessor
 RebroadcastProcessor --> MessageFlooder
 RebroadcastProcessor --> RebroadcastHistory
-AecEventProcessor --> VoteRebroadcastQueue: try_enqueue()
+AecFactProcessor --> VoteRebroadcastQueue: try_enqueue()
 
 @enduml

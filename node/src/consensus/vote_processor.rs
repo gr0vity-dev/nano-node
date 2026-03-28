@@ -17,7 +17,7 @@ use rsnano_utils::{
     sync::backpressure_channel::Sender,
 };
 
-use super::{AecEvent, FilteredVote, ReceivedVote, VoteApplier, VoteProcessorQueue};
+use super::{AecFact, FilteredVote, ReceivedVote, VoteApplier, VoteProcessorQueue};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct VoteProcessorConfig {
@@ -70,7 +70,7 @@ impl VoteProcessor {
         }
     }
 
-    pub fn add_observer(&self, sink: Sender<AecEvent>) {
+    pub fn add_observer(&self, sink: Sender<AecFact>) {
         self.vote_applier.add_event_sink(sink);
     }
 

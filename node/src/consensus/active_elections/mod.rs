@@ -35,7 +35,7 @@ impl Default for ActiveElectionsConfig {
     }
 }
 
-pub enum AecEvent {
+pub enum AecFact {
     ElectionStarted(BlockHash, QualifiedRoot),
     ElectionConfirmed(ConfirmedElection),
 

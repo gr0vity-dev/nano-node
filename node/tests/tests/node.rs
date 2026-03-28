@@ -15,7 +15,7 @@ use rsnano_node::{
     block_processing::{BlockContext, BoundedBacklogConfig},
     config::{NodeConfig, NodeFlags},
     consensus::{
-        AecEvent, FilteredVote, ReceivedVote,
+        AecFact, FilteredVote, ReceivedVote,
         election::{ElectionBehavior, VoteType},
     },
 };
@@ -146,7 +146,7 @@ fn vote_by_hash_bundle() {
 
         match rx.try_recv() {
             Ok(e) => {
-                if let AecEvent::VoteProcessed(vote, _, _) = e {
+                if let AecFact::VoteProcessed(vote, _, _) = e {
                     max_hashes = max(max_hashes, vote.hashes.len());
 
                     if max_hashes >= 3 {

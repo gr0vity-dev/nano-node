@@ -25,7 +25,7 @@ use crate::{
 };
 
 use super::{
-    ActiveElectionsConfig, ActiveElectionsInfo, AecEvent, AecInsertError, AecInsertRequest, Entry,
+    ActiveElectionsConfig, ActiveElectionsInfo, AecFact, AecInsertError, AecInsertRequest, Entry,
     RootContainer,
     apply_vote_helper::ApplyVoteHelper,
     cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
@@ -35,7 +35,7 @@ use super::{
 
 pub struct ActiveElectionsContainer {
     roots: RootContainer,
-    observer: Option<Sender<AecEvent>>,
+    observer: Option<Sender<AecFact>>,
     stopped: bool,
     count_by_behavior: [usize; ElectionBehavior::COUNT],
     base_latency: Duration,
@@ -60,7 +60,7 @@ impl ActiveElectionsContainer {
         }
     }
 
-    pub fn set_observer(&mut self, observer: Sender<AecEvent>) {
+    pub fn set_observer(&mut self, observer: Sender<AecFact>) {
         self.observer = Some(observer);
     }
 
@@ -174,7 +174,7 @@ impl ActiveElectionsContainer {
 
         *self.count_by_behavior_mut(request.behavior) += 1;
         self.stats.started(request.behavior);
-        self.notify(AecEvent::ElectionStarted(hash, root));
+        self.notify(AecFact::ElectionStarted(hash, root));
     }
 
     pub fn try_add_fork(&mut self, fork: &Block, fork_tally: Amount) -> bool {
@@ -185,17 +185,17 @@ impl ActiveElectionsContainer {
         let result = entry.election.try_add_fork(fork, fork_tally);
         let added = match result {
             AddForkResult::Added => {
-                self.notify(AecEvent::BlockAddedToElection(fork.hash()));
+                self.notify(AecFact::BlockAddedToElection(fork.hash()));
                 true
             }
             AddForkResult::Replaced(removed) => {
                 self.roots.vote_router.disconnect(&removed.hash());
-                self.notify(AecEvent::BlockDiscarded(removed.into()));
-                self.notify(AecEvent::BlockAddedToElection(fork.hash()));
+                self.notify(AecFact::BlockDiscarded(removed.into()));
+                self.notify(AecFact::BlockAddedToElection(fork.hash()));
                 true
             }
             AddForkResult::TallyTooLow => {
-                self.notify(AecEvent::BlockDiscarded(fork.clone()));
+                self.notify(AecFact::BlockDiscarded(fork.clone()));
                 false
             }
             AddForkResult::Duplicate | AddForkResult::ElectionEnded => false,
@@ -224,7 +224,7 @@ impl ActiveElectionsContainer {
     pub fn set_cooldown(&mut self, cool_down: bool, reason: AecCooldownReason) {
         let result = self.cooldown.set_cooldown(cool_down, reason);
         if result == CooldownResult::Recovered {
-            self.notify(AecEvent::Recovered);
+            self.notify(AecFact::Recovered);
         }
     }
 
@@ -319,7 +319,7 @@ impl ActiveElectionsContainer {
         *self.count_by_behavior_mut(election.behavior()) -= 1;
 
         self.stats.stopped(&entry.election);
-        self.notify(AecEvent::ElectionEnded(entry.election));
+        self.notify(AecFact::ElectionEnded(entry.election));
     }
 
     /// Dependent elections are implicitly confirmed when their block is confirmed
@@ -375,7 +375,7 @@ impl ActiveElectionsContainer {
 
     fn block_confirmed(&mut self, block: SavedBlock, election: ConfirmedElection) {
         self.stats.block_confirmations[election.confirmation_type as usize] += 1;
-        self.notify(AecEvent::BlockConfirmed(block, election));
+        self.notify(AecFact::BlockConfirmed(block, election));
     }
 
     pub fn remove_recently_confirmed(&mut self, block_hash: &BlockHash) {
@@ -407,7 +407,7 @@ impl ActiveElectionsContainer {
         if election.force_confirm() {
             let confirmed_election =
                 election.into_confirmed_election(now, ConfirmationType::ActiveConfirmedQuorum);
-            self.notify(AecEvent::ElectionConfirmed(confirmed_election));
+            self.notify(AecFact::ElectionConfirmed(confirmed_election));
         }
     }
 
@@ -441,11 +441,11 @@ impl ActiveElectionsContainer {
         }
     }
 
-    pub fn simulate_event(&self, event: AecEvent) {
+    pub fn simulate_event(&self, event: AecFact) {
         self.notify(event);
     }
 
-    fn notify(&self, event: AecEvent) {
+    fn notify(&self, event: AecFact) {
         if let Some(sender) = &self.observer {
             sender.send(event).unwrap()
         }
