@@ -378,13 +378,11 @@ impl ActiveElectionsContainer {
         }
     }
 
-    pub(super) fn cleanup_confirmed_elections(&mut self, confirmed: Vec<ConfirmedElectionCleanup>) {
-        for cleanup in confirmed {
-            self.recently_confirmed
-                .put(cleanup.root.clone(), cleanup.hash);
-            if let Some(entry) = self.roots.erase(&cleanup.root) {
-                self.cleanup_election(entry);
-            }
+    pub(super) fn cleanup_confirmed_election(&mut self, cleanup: ConfirmedElectionCleanup) {
+        self.recently_confirmed
+            .put(cleanup.root.clone(), cleanup.hash);
+        if let Some(entry) = self.roots.erase(&cleanup.root) {
+            self.cleanup_election(entry);
         }
     }
 

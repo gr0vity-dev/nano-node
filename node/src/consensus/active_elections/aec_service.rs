@@ -229,7 +229,6 @@ impl AecService {
             args: &args,
             observer,
         };
-        let mut confirmed = Vec::new();
         let mut counted_votes = 0;
 
         for (block_hash, handle) in pending_votes.drain(..) {
@@ -238,15 +237,19 @@ impl AecService {
                 counted_votes += 1;
             }
             if let Some(cleanup) = apply_result.confirmed {
-                confirmed.push(cleanup);
+                self.aec
+                    .write()
+                    .unwrap()
+                    .cleanup_confirmed_election(cleanup);
             }
             results.insert(block_hash, apply_result.vote_result);
         }
 
-        if counted_votes > 0 || !confirmed.is_empty() {
-            let mut aec = self.aec.write().unwrap();
-            aec.count_applied_votes(args.vote.source, counted_votes);
-            aec.cleanup_confirmed_elections(confirmed);
+        if counted_votes > 0 {
+            self.aec
+                .write()
+                .unwrap()
+                .count_applied_votes(args.vote.source, counted_votes);
         }
 
         results
@@ -601,6 +604,44 @@ mod tests {
         assert_eq!(first_results.get(&block_a.hash()), Some(&Ok(())));
         assert!(aec.was_recently_confirmed(&block_a.hash()));
         assert!(aec.was_recently_confirmed(&block_b.hash()));
+    }
+
+    #[test]
+    fn apply_vote_removes_confirmed_election_immediately_after_vote() {
+        let config = ActiveElectionsConfig {
+            max_elections: 1,
+            ..Default::default()
+        };
+        let aec = AecService::new(config, Duration::from_secs(1));
+        let block = SavedBlock::new_test_instance();
+        let now = Timestamp::new_test_instance();
+
+        aec.insert(
+            AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+
+        let rep_key = PrivateKey::from(1);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+        let vote: ReceivedVote = ReceivedVote::new(
+            Vote::new_final(&rep_key, vec![block.hash()]).into(),
+            VoteSource::Live,
+            None,
+        );
+
+        let results = aec.apply_vote(ApplyVoteArgs {
+            vote: &vote.into(),
+            rep_weights: &rep_weights,
+            quorum_specs: &QuorumSpecs::new_test_instance(),
+            now,
+        });
+
+        assert_eq!(results.get(&block.hash()), Some(&Ok(())));
+        assert!(!aec.is_active_root(&block.qualified_root()));
+        assert!(aec.was_recently_confirmed(&block.hash()));
+        assert_eq!(aec.vacancy(), 1);
     }
 
     #[test]
