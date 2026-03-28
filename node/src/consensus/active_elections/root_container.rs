@@ -1,6 +1,7 @@
 use std::{
     cmp::Ordering,
     collections::BTreeSet,
+    ops::Bound::{Excluded, Unbounded},
     sync::{Arc, Mutex, MutexGuard},
 };
 
@@ -55,6 +56,12 @@ impl ElectionHandle {
 }
 
 pub(super) type RootedElectionHandle = (QualifiedRoot, ElectionHandle);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct BucketCursor {
+    root: QualifiedRoot,
+    priority: BlockPriority,
+}
 
 /// Ordered by descending time priority
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
@@ -142,16 +149,32 @@ impl RootContainer {
         self.election_handle_for_root(root)
     }
 
-    pub(super) fn round_robin_snapshot(&self) -> Vec<RootedElectionHandle> {
-        self.iter()
-            .map(|entry| (entry.root.clone(), entry.election.clone()))
-            .collect()
-    }
+    pub(super) fn next_bucket(
+        &self,
+        bucket_id: usize,
+        after: Option<&BucketCursor>,
+    ) -> Option<(BucketCursor, RootedElectionHandle)> {
+        let next = match after {
+            Some(cursor) => self.buckets[bucket_id]
+                .range((
+                    Excluded(BucketEntry {
+                        root: cursor.root.clone(),
+                        priority: cursor.priority,
+                    }),
+                    Unbounded,
+                ))
+                .next(),
+            None => self.buckets[bucket_id].iter().next(),
+        }?;
 
-    pub(super) fn bucket_snapshot(&self, bucket_id: usize) -> Vec<RootedElectionHandle> {
-        self.iter_bucket(bucket_id)
-            .map(|entry| (entry.root.clone(), entry.election.clone()))
-            .collect()
+        let entry = self.by_root.get(&next.root)?;
+        Some((
+            BucketCursor {
+                root: next.root.clone(),
+                priority: next.priority,
+            },
+            (entry.root.clone(), entry.election.clone()),
+        ))
     }
 
     pub fn try_upgrade_to_priority_election(

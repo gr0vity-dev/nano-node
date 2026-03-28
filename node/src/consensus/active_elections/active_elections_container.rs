@@ -30,7 +30,7 @@ use super::{
     apply_vote_helper::ConfirmedElectionCleanup,
     cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
     recently_confirmed_cache::RecentlyConfirmedCache,
-    root_container::{ElectionHandle, RootedElectionHandle},
+    root_container::{BucketCursor, ElectionHandle, RootedElectionHandle},
     stats::AecStats,
 };
 
@@ -99,12 +99,12 @@ impl ActiveElectionsContainer {
             .map(|i| i.election.snapshot())
     }
 
-    pub(super) fn snapshot_round_robin(&self) -> Vec<RootedElectionHandle> {
-        self.roots.round_robin_snapshot()
-    }
-
-    pub(super) fn snapshot_bucket(&self, bucket_id: usize) -> Vec<RootedElectionHandle> {
-        self.roots.bucket_snapshot(bucket_id)
+    pub(super) fn next_bucket(
+        &self,
+        bucket_id: usize,
+        after: Option<&BucketCursor>,
+    ) -> Option<(BucketCursor, RootedElectionHandle)> {
+        self.roots.next_bucket(bucket_id, after)
     }
 
     pub fn insert(

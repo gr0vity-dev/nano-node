@@ -17,13 +17,15 @@ use rsnano_utils::{
 
 use super::{
     ActiveElectionsConfig, ActiveElectionsContainer, ActiveElectionsInfo, AecCooldownReason,
-    AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs, apply_vote_helper::ApplyVoteHelper,
-    root_container::ElectionHandle,
+    AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs,
+    apply_vote_helper::ApplyVoteHelper,
+    root_container::{BucketCursor, ElectionHandle},
 };
 use crate::consensus::election::{
     AddForkResult, ConfirmationType, ConfirmedElection, Election, ElectionBehavior, ElectionState,
     VoteType,
 };
+use crate::consensus::election_schedulers::priority::bucket_count;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PriorityActivationResult {
@@ -319,19 +321,16 @@ impl AecService {
     }
 
     pub fn transition_time(&self, now: Timestamp) {
-        let handles = {
-            let aec = self.aec.read().unwrap();
-            aec.snapshot_round_robin()
-        };
         let mut ended = Vec::new();
 
-        for (root, handle) in handles {
+        self.for_each_round_robin_handle(|_, root, handle| {
             let mut election = handle.lock();
             election.transition_time(now);
             if election.state().has_ended() {
                 ended.push(root);
             }
-        }
+            true
+        });
 
         let mut aec = self.aec.write().unwrap();
         aec.count_tick();
@@ -346,12 +345,11 @@ impl AecService {
         vote_broadcast_interval: Duration,
         now: Timestamp,
     ) -> Option<(QualifiedRoot, VoteType, BlockHash)> {
-        let handles = {
-            let aec = self.aec.read().unwrap();
-            aec.snapshot_bucket(bucket_id)
-        };
-
-        for (root, handle) in handles {
+        let mut cursor = None;
+        while let Some((next_cursor, root, handle)) =
+            self.next_bucket_handle(bucket_id, cursor.as_ref())
+        {
+            cursor = Some(next_cursor);
             let election = handle.lock();
             if election.can_vote(vote_broadcast_interval, now) {
                 return Some((root, election.vote_type(), election.winner().hash()));
@@ -367,23 +365,21 @@ impl AecService {
         stale_threshold: Duration,
         limit: usize,
     ) -> Vec<Account> {
-        let handles = {
-            let aec = self.aec.read().unwrap();
-            aec.snapshot_round_robin()
-        };
+        if limit == 0 {
+            return Vec::new();
+        }
 
-        handles
-            .into_iter()
-            .filter_map(|(_, handle)| {
-                let election = handle.lock();
-                if election.start().elapsed(now) >= stale_threshold {
-                    Some(election.account())
-                } else {
-                    None
-                }
-            })
-            .take(limit)
-            .collect()
+        let mut stale_accounts = Vec::new();
+
+        self.for_each_round_robin_handle(|_, _, handle| {
+            let election = handle.lock();
+            if election.start().elapsed(now) >= stale_threshold {
+                stale_accounts.push(election.account());
+            }
+            stale_accounts.len() < limit
+        });
+
+        stale_accounts
     }
 
     pub fn election_snapshots(&self) -> Vec<Election> {
@@ -547,6 +543,50 @@ impl AecService {
 
     fn election_handle_for_root(&self, root: &QualifiedRoot) -> Option<ElectionHandle> {
         self.aec.read().unwrap().election_handle_for_root(root)
+    }
+
+    fn next_bucket_handle(
+        &self,
+        bucket_id: usize,
+        after: Option<&BucketCursor>,
+    ) -> Option<(BucketCursor, QualifiedRoot, ElectionHandle)> {
+        let aec = self.aec.read().unwrap();
+        aec.next_bucket(bucket_id, after)
+            .map(|(cursor, (root, handle))| (cursor, root, handle))
+    }
+
+    fn for_each_round_robin_handle(
+        &self,
+        mut f: impl FnMut(usize, QualifiedRoot, ElectionHandle) -> bool,
+    ) {
+        let mut cursors = vec![None; bucket_count()];
+        let mut next_bucket = bucket_count().saturating_sub(1);
+
+        while let Some((bucket_id, cursor, root, handle)) =
+            self.next_round_robin_handle(&cursors, next_bucket)
+        {
+            cursors[bucket_id] = Some(cursor);
+            next_bucket = bucket_id.checked_sub(1).unwrap_or(bucket_count() - 1);
+            if !f(bucket_id, root, handle) {
+                break;
+            }
+        }
+    }
+
+    fn next_round_robin_handle(
+        &self,
+        cursors: &[Option<BucketCursor>],
+        start_bucket: usize,
+    ) -> Option<(usize, BucketCursor, QualifiedRoot, ElectionHandle)> {
+        for offset in 0..bucket_count() {
+            let bucket_id = (start_bucket + bucket_count() - offset) % bucket_count();
+            if let Some((cursor, root, handle)) =
+                self.next_bucket_handle(bucket_id, cursors[bucket_id].as_ref())
+            {
+                return Some((bucket_id, cursor, root, handle));
+            }
+        }
+        None
     }
 }
 
@@ -897,5 +937,102 @@ mod tests {
             confirmed_election.confirmation_type,
             ConfirmationType::ActiveConfirmationHeight
         );
+    }
+
+    #[test]
+    fn stale_accounts_streams_round_robin_order_with_limit() {
+        let aec = AecService::new_null();
+        let now = Timestamp::new_test_instance();
+        let stale_start = now - Duration::from_secs(120);
+        let blocks = [
+            SavedBlock::new_test_instance_with_key(1),
+            SavedBlock::new_test_instance_with_key(2),
+            SavedBlock::new_test_instance_with_key(3),
+        ];
+
+        aec.insert(
+            AecInsertRequest::new_priority(blocks[0].clone(), BlockPriority::new_test_instance()),
+            stale_start,
+        )
+        .unwrap();
+        aec.insert(
+            AecInsertRequest::new_hinted(blocks[1].clone(), BlockPriority::new_test_instance()),
+            stale_start,
+        )
+        .unwrap();
+        aec.insert(
+            AecInsertRequest::new_manual(blocks[2].clone(), BlockPriority::new_test_instance()),
+            stale_start,
+        )
+        .unwrap();
+
+        let expected: Vec<_> = aec
+            .election_snapshots()
+            .into_iter()
+            .map(|election| election.account())
+            .take(2)
+            .collect();
+
+        let stale_accounts = aec.stale_accounts(now, Duration::from_secs(60), 2);
+
+        assert_eq!(stale_accounts, expected);
+    }
+
+    #[test]
+    fn next_vote_in_bucket_streams_until_voteable_election() {
+        let aec = AecService::new_null();
+        let now = Timestamp::new_test_instance();
+        let block_a = SavedBlock::new_test_instance_with_key(1);
+        let block_b = SavedBlock::new_test_instance_with_key(2);
+        let priority = BlockPriority::new_test_instance();
+
+        aec.insert(
+            AecInsertRequest::new_priority(block_a.clone(), priority),
+            now - Duration::from_secs(10),
+        )
+        .unwrap();
+        aec.insert(
+            AecInsertRequest::new_priority(block_b.clone(), priority),
+            now - Duration::from_secs(10),
+        )
+        .unwrap();
+
+        let bucket_id = aec.find_bucket(&block_a.qualified_root()).unwrap();
+        let vote_interval = Duration::from_secs(5);
+        aec.set_last_voted(&block_a.qualified_root(), VoteType::NonFinal, now);
+
+        let next_vote = aec
+            .next_vote_in_bucket(bucket_id, vote_interval, now)
+            .unwrap();
+
+        assert_eq!(next_vote.0, block_b.qualified_root());
+        assert_eq!(next_vote.1, VoteType::NonFinal);
+        assert_eq!(next_vote.2, block_b.hash());
+    }
+
+    #[test]
+    fn transition_time_streams_and_erases_ended_elections() {
+        let aec = AecService::new_null();
+        let now = Timestamp::new_test_instance();
+        let transition_at = now + Duration::from_secs(31);
+        let block_a = SavedBlock::new_test_instance_with_key(1);
+        let block_b = SavedBlock::new_test_instance_with_key(2);
+
+        aec.insert(
+            AecInsertRequest::new_hinted(block_a.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+        aec.insert(
+            AecInsertRequest::new_optimistic(block_b.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+
+        aec.transition_time(transition_at);
+
+        assert!(!aec.is_active_root(&block_a.qualified_root()));
+        assert!(!aec.is_active_root(&block_b.qualified_root()));
+        assert!(aec.election_snapshots().is_empty());
     }
 }
