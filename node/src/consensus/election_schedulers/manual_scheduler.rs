@@ -1,7 +1,7 @@
 use std::{
     collections::VecDeque,
     mem::size_of,
-    sync::{Arc, Condvar, Mutex, RwLock},
+    sync::{Arc, Condvar, Mutex},
     thread::JoinHandle,
 };
 
@@ -13,14 +13,14 @@ use rsnano_utils::{
     stats::{DetailType, StatType, Stats},
 };
 
-use crate::consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior};
+use crate::consensus::{AecInsertRequest, AecService, election::ElectionBehavior};
 
 pub struct ManualScheduler {
     thread: Mutex<Option<JoinHandle<()>>>,
     condition: Condvar,
     mutex: Mutex<ManualSchedulerImpl>,
     stats: Arc<Stats>,
-    active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+    active_elections: Arc<AecService>,
     clock: Arc<SteadyClock>,
     ledger: Arc<Ledger>,
 }
@@ -28,7 +28,7 @@ pub struct ManualScheduler {
 impl ManualScheduler {
     pub fn new(
         stats: Arc<Stats>,
-        active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+        active_elections: Arc<AecService>,
         clock: Arc<SteadyClock>,
         ledger: Arc<Ledger>,
     ) -> Self {

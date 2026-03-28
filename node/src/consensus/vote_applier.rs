@@ -9,12 +9,12 @@ use rsnano_ledger::RepWeightCache;
 use rsnano_types::{Amount, BlockHash, VoteError};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
-use super::{ActiveElectionsContainer, AecFact, FilteredVote, ReceivedVote};
+use super::{AecFact, AecService, FilteredVote, ReceivedVote};
 use crate::{consensus::ApplyVoteArgs, representatives::OnlineReps};
 
 /// Applies a vote to an election
 pub(crate) struct VoteApplier {
-    active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+    aec_service: Arc<AecService>,
     event_senders: RwLock<Vec<Sender<AecFact>>>,
     online_reps: Arc<Mutex<OnlineReps>>,
     clock: Arc<SteadyClock>,
@@ -24,14 +24,14 @@ pub(crate) struct VoteApplier {
 
 impl VoteApplier {
     pub(crate) fn new(
-        active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+        aec_service: Arc<AecService>,
         online_reps: Arc<Mutex<OnlineReps>>,
         clock: Arc<SteadyClock>,
         rep_weights: Arc<RepWeightCache>,
         is_dev_network: bool,
     ) -> Self {
         Self {
-            active_elections,
+            aec_service,
             event_senders: RwLock::new(Vec::new()),
             online_reps,
             clock,
@@ -67,7 +67,7 @@ impl VoteApplier {
         }
 
         let is_active = {
-            let active = self.active_elections.read().unwrap();
+            let active = self.aec_service.read().unwrap();
             vote.filtered_blocks()
                 .any(|hash| active.is_active_hash(hash))
         };
@@ -85,9 +85,8 @@ impl VoteApplier {
         };
 
         let results = {
-            let mut active = self.active_elections.write().unwrap();
             let rep_weights = self.rep_weights.read();
-            active.apply_vote(ApplyVoteArgs {
+            self.aec_service.apply_vote(ApplyVoteArgs {
                 vote,
                 rep_weights: &rep_weights,
                 quorum_specs: &quorum_specs,
@@ -118,7 +117,7 @@ impl VoteApplier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::AecInsertRequest;
+    use crate::consensus::{AecInsertRequest, AecService};
     use rsnano_types::{
         BlockPriority, PrivateKey, SavedBlock, UnixMillisTimestamp, Vote, VoteSource,
     };
@@ -134,7 +133,7 @@ mod tests {
         rep_weights.put(rep_key.public_key(), Amount::nano(50_000_000));
         rep_weights.put(another_rep.public_key(), Amount::nano(65_000_000));
 
-        let aec = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let aec = Arc::new(AecService::new_null());
         let online_reps = Arc::new(Mutex::new(
             OnlineReps::builder()
                 .rep_weights(rep_weights.clone())
@@ -152,13 +151,11 @@ mod tests {
             Amount::nano(43_550_000)
         );
 
-        aec.write()
-            .unwrap()
-            .insert(
-                AecInsertRequest::new_priority(block, BlockPriority::new_test_instance()),
-                clock.now(),
-            )
-            .unwrap();
+        aec.insert(AecInsertRequest::new_priority(
+            block,
+            BlockPriority::new_test_instance(),
+        ))
+        .unwrap();
 
         let vote_applier = VoteApplier::new(aec.clone(), online_reps, clock, rep_weights, false);
 

@@ -1,7 +1,7 @@
 use std::{
     any::Any,
     sync::{
-        Arc, RwLock,
+        Arc,
         atomic::{AtomicU64, Ordering},
     },
     time::Duration,
@@ -11,7 +11,7 @@ use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::Account;
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-use super::{ActiveElectionsContainer, AecTickerPlugin, election::Election};
+use super::{AecService, AecTickerPlugin, election::Election};
 use crate::bootstrap::Bootstrapper;
 
 /// If an election isn't confirmed within "stale_threshold", then try to bootstrap
@@ -59,7 +59,7 @@ impl BootstrapStaleElections {
 }
 
 impl AecTickerPlugin for BootstrapStaleElections {
-    fn run(&mut self, aec: &RwLock<ActiveElectionsContainer>) {
+    fn run(&mut self, aec: &AecService) {
         let now = self.clock.now();
 
         let is_stale = |election: &&Election| election.start().elapsed(now) >= self.stale_threshold;
@@ -108,7 +108,7 @@ mod tests {
         let bootstrapper = Arc::new(Bootstrapper::new_null());
         let clock = Arc::new(SteadyClock::new_null());
         let mut plugin = BootstrapStaleElections::new(bootstrapper.clone(), clock);
-        let aec = RwLock::new(ActiveElectionsContainer::default());
+        let aec = AecService::new_null();
 
         plugin.run(&aec);
 
@@ -123,15 +123,20 @@ mod tests {
         let block = SavedBlock::new_test_instance();
         let prio = BlockPriority::new_test_instance();
         let account = block.account();
-        let mut aec = ActiveElectionsContainer::default();
-        aec.insert(
-            AecInsertRequest::new_priority(block, prio),
-            clock.now() - BootstrapStaleElections::DEFAULT_STALE_THRESHOLD,
-        )
+        let aec = AecService::new(
+            crate::consensus::ActiveElectionsConfig::default(),
+            Duration::from_secs(1),
+            clock.clone(),
+        );
+        aec.insert(AecInsertRequest {
+            block,
+            behavior: crate::consensus::election::ElectionBehavior::Priority,
+            priority: prio,
+        })
         .unwrap();
 
         let mut plugin = BootstrapStaleElections::new(bootstrapper.clone(), clock);
-        plugin.run(&RwLock::new(aec));
+        plugin.run(&aec);
 
         assert!(
             bootstrapper

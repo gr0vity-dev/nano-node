@@ -1,36 +1,30 @@
 use std::{
     any::{Any, TypeId},
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 
-use super::ActiveElectionsContainer;
+use super::AecService;
 
 /// Every 300ms tries to transitions election state and send votes + blocks
 pub struct AecTicker {
-    active_elections: Arc<RwLock<ActiveElectionsContainer>>,
-    clock: Arc<SteadyClock>,
+    aec_service: Arc<AecService>,
     plugins: Vec<Box<dyn AecTickerPlugin>>,
 }
 
 impl AecTicker {
-    pub fn new(
-        active_elections: Arc<RwLock<ActiveElectionsContainer>>,
-        clock: Arc<SteadyClock>,
-    ) -> Self {
+    pub fn new(aec_service: Arc<AecService>, _clock: Arc<SteadyClock>) -> Self {
         Self {
-            active_elections,
-            clock,
+            aec_service,
             plugins: Vec::new(),
         }
     }
 
     pub fn new_null() -> Self {
         Self {
-            active_elections: Arc::new(RwLock::new(ActiveElectionsContainer::default())),
-            clock: Arc::new(SteadyClock::new_null()),
+            aec_service: Arc::new(AecService::new_null()),
             plugins: Vec::new(),
         }
     }
@@ -54,19 +48,16 @@ impl AecTicker {
 
 impl Tickable for AecTicker {
     fn tick(&mut self, _cancel_token: &CancellationToken) {
-        {
-            let mut aec = self.active_elections.write().unwrap();
-            aec.transition_time(self.clock.now());
-        }
+        self.aec_service.transition_time();
 
         for plugin in &mut self.plugins {
-            plugin.run(&self.active_elections);
+            plugin.run(&self.aec_service);
         }
     }
 }
 
 pub trait AecTickerPlugin: Send + 'static {
-    fn run(&mut self, aec: &RwLock<ActiveElectionsContainer>);
+    fn run(&mut self, aec: &AecService);
     fn type_id(&self) -> TypeId {
         TypeId::of::<Self>()
     }
@@ -77,7 +68,6 @@ pub trait AecTickerPlugin: Send + 'static {
 mod tests {
     use super::*;
     use crate::consensus::AecInsertRequest;
-    use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{BlockPriority, SavedBlock};
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -89,15 +79,10 @@ mod tests {
         ticker.add_plugin(plugin);
 
         let block = SavedBlock::new_test_instance_with_key(1);
-        let now = Timestamp::new_test_instance();
-
         ticker
-            .active_elections
-            .write()
-            .unwrap()
+            .aec_service
             .insert(
                 AecInsertRequest::new_manual(block.clone(), BlockPriority::new_test_instance()),
-                now,
             )
             .unwrap();
 
@@ -110,7 +95,7 @@ mod tests {
     struct StubPlugin(Arc<AtomicBool>);
 
     impl AecTickerPlugin for StubPlugin {
-        fn run(&mut self, _aec: &RwLock<ActiveElectionsContainer>) {
+        fn run(&mut self, _aec: &AecService) {
             self.0.store(true, Ordering::Relaxed);
         }
 

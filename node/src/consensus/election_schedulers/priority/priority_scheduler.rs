@@ -1,6 +1,6 @@
 use std::{
     sync::{
-        Arc, Condvar, LazyLock, Mutex, RwLock,
+        Arc, Condvar, LazyLock, Mutex,
         atomic::{AtomicU64, Ordering},
     },
     thread::JoinHandle,
@@ -19,10 +19,7 @@ use super::{
     Bucket, Bucketing, PriorityBucketConfig, bucket_stats::BucketStats, prio_bucket_count,
     prio_bucket_index,
 };
-use crate::consensus::{
-    ActiveElectionsContainer,
-    election_schedulers::priority::{BucketInsertError, Eviction},
-};
+use crate::consensus::{AecService, election_schedulers::priority::{BucketInsertError, Eviction}};
 
 pub struct PriorityScheduler {
     stopped: Mutex<bool>,
@@ -32,7 +29,7 @@ pub struct PriorityScheduler {
     thread: Mutex<Option<JoinHandle<()>>>,
     bucket_stats: BucketStats,
     clock: Arc<SteadyClock>,
-    aec: Arc<RwLock<ActiveElectionsContainer>>,
+    aec: Arc<AecService>,
     activate_successors_listener: OutputListenerMt<SavedBlock>,
     activations_per_bucket: Vec<AtomicU64>,
 }
@@ -41,7 +38,7 @@ impl PriorityScheduler {
     pub(crate) fn new(
         config: PriorityBucketConfig,
         stats: Arc<Stats>,
-        active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+        active_elections: Arc<AecService>,
         clock: Arc<SteadyClock>,
     ) -> Self {
         let mut buckets = Vec::with_capacity(prio_bucket_count());
@@ -353,7 +350,7 @@ mod tests {
     fn create_test_scheduler() -> PriorityScheduler {
         let config = PriorityBucketConfig::default();
         let stats = Arc::new(Stats::default());
-        let active_elections = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let active_elections = Arc::new(AecService::new_null());
         let clock = Arc::new(SteadyClock::new_null());
         PriorityScheduler::new(config, stats, active_elections, clock)
     }

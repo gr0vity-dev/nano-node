@@ -1,28 +1,28 @@
 use crate::{
-    block_processing::LedgerPipelineEvent, consensus::ActiveElectionsContainer,
+    block_processing::LedgerPipelineEvent, consensus::AecService,
     ledger_snapshots::LedgerSnapshots,
 };
 use rsnano_ledger::LedgerEvent;
 use rsnano_ledger::{BlockError, Ledger};
 use rsnano_utils::EventHandlerMut;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 pub(crate) struct ForkDetector {
     ledger: Arc<Ledger>,
     ledger_snapshots: Arc<LedgerSnapshots>,
-    active_election_container: Arc<RwLock<ActiveElectionsContainer>>,
+    aec_service: Arc<AecService>,
 }
 
 impl ForkDetector {
     pub(crate) fn new(
         ledger: Arc<Ledger>,
         ledger_snapshots: Arc<LedgerSnapshots>,
-        active_election_container: Arc<RwLock<ActiveElectionsContainer>>,
+        aec_service: Arc<AecService>,
     ) -> Self {
         Self {
             ledger,
             ledger_snapshots,
-            active_election_container,
+            aec_service,
         }
     }
 }
@@ -38,7 +38,7 @@ impl EventHandlerMut<LedgerPipelineEvent> for ForkDetector {
                     self.ledger
                         .mark_fork(&root, self.ledger_snapshots.get_current_snapshot_number());
 
-                    self.active_election_container.write().unwrap().erase(&root);
+                    self.aec_service.erase(&root);
                 }
             }
         }

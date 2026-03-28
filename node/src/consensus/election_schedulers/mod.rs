@@ -10,7 +10,7 @@ pub use manual_scheduler::*;
 pub use optimistic::*;
 
 use std::{
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
     thread::JoinHandle,
 };
 
@@ -23,7 +23,7 @@ use rsnano_utils::{
     stats::{Stats, StatsCollection, StatsSource},
 };
 
-use super::{ActiveElectionsContainer, VoteCache};
+use super::{AecService, VoteCache};
 use crate::{cementation::ConfirmingSet, config::NodeConfig, representatives::OnlineReps};
 use priority::{PriorityScheduler, PrioritySchedulerExt};
 
@@ -42,7 +42,7 @@ pub struct ElectionSchedulers {
 impl ElectionSchedulers {
     pub fn new(
         config: NodeConfig,
-        active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+        active_elections: Arc<AecService>,
         ledger: Arc<Ledger>,
         stats: Arc<Stats>,
         vote_cache: Arc<Mutex<VoteCache>>,
@@ -106,7 +106,7 @@ impl ElectionSchedulers {
 
     pub fn new_null() -> Self {
         let config = NodeConfig::new_test_instance();
-        let active_elections = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let active_elections = Arc::new(AecService::new_null());
         let ledger = Arc::new(Ledger::new_null());
         let stats = Arc::new(Stats::default());
         let vote_cache = Arc::new(Mutex::new(VoteCache::new(

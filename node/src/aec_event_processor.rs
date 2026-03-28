@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex, RwLock, mpsc::SyncSender};
+use std::sync::{Arc, Mutex, mpsc::SyncSender};
 
 use tracing::debug;
 
@@ -14,9 +14,9 @@ use crate::{
     block_processing::{BlockContext, BlockProcessorQueue},
     cementation::ConfirmingSet,
     consensus::{
-        ActiveElectionsContainer, AecCooldownReason, AecFact, AecForkInserter,
-        BootstrapElectionActivator, LocalVotesRemover, ReceivedVote, VoteCache, VoteCacheProcessor,
-        VoteProcessor, VoteRebroadcastQueue, WinnerBlockBroadcaster, aggregate_vote_results,
+        AecCooldownReason, AecFact, AecForkInserter, AecService, BootstrapElectionActivator,
+        LocalVotesRemover, ReceivedVote, VoteCache, VoteCacheProcessor, VoteProcessor,
+        VoteRebroadcastQueue, WinnerBlockBroadcaster, aggregate_vote_results,
         election_schedulers::ElectionSchedulers,
     },
     recently_cemented_inserter::RecentlyCementedInserter,
@@ -38,7 +38,7 @@ pub(crate) struct AecFactProcessor {
     pub(crate) block_processor_queue: Arc<BlockProcessorQueue>,
     pub(crate) confirming_set: Arc<ConfirmingSet>,
     pub(crate) online_reps: Arc<Mutex<OnlineReps>>,
-    pub(crate) active_elections: Arc<RwLock<ActiveElectionsContainer>>,
+    pub(crate) aec_service: Arc<AecService>,
     pub(crate) rep_crawler: Arc<RepCrawler>,
     pub(crate) clock: Arc<SteadyClock>,
     pub(crate) local_votes_remover: LocalVotesRemover,
@@ -49,17 +49,13 @@ pub(crate) struct AecFactProcessor {
 
 impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
     fn cool_down(&mut self) {
-        self.active_elections
-            .write()
-            .unwrap()
+        self.aec_service
             .set_cooldown(true, AecCooldownReason::AecFactQueueFull);
         self.vote_processor.cool_down();
     }
 
     fn recovered(&mut self) {
-        self.active_elections
-            .write()
-            .unwrap()
+        self.aec_service
             .set_cooldown(false, AecCooldownReason::AecFactQueueFull);
         self.vote_processor.recovered();
     }

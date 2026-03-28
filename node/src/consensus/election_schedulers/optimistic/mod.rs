@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, RwLock, atomic::Ordering::Relaxed},
+    sync::{Arc, atomic::Ordering::Relaxed},
     time::Duration,
 };
 
@@ -14,7 +14,7 @@ use rsnano_utils::{
 
 use crate::{
     cementation::ConfirmingSet,
-    consensus::{ActiveElectionsContainer, AecInsertRequest, election::ElectionBehavior},
+    consensus::{AecInsertRequest, AecService, election::ElectionBehavior},
 };
 
 mod candidate_queue;
@@ -28,7 +28,7 @@ use stats::OptimisticSchedulerStats;
 
 pub struct OptimisticScheduler {
     logic: NullableCondvarMutex<OptimisticSchedulerLogic>,
-    aec: Arc<RwLock<ActiveElectionsContainer>>,
+    aec: Arc<AecService>,
     ledger: Arc<Ledger>,
     confirming_set: Arc<ConfirmingSet>,
     clock: Arc<SteadyClock>,
@@ -40,7 +40,7 @@ pub struct OptimisticScheduler {
 impl OptimisticScheduler {
     pub fn new(
         params: OptimisticSchedulerParams,
-        aec: Arc<RwLock<ActiveElectionsContainer>>,
+        aec: Arc<AecService>,
         ledger: Arc<Ledger>,
         confirming_set: Arc<ConfirmingSet>,
         clock: Arc<SteadyClock>,
@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn schedules_election_when_over_gap_threshold() {
-        let aec = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let aec = Arc::new(AecService::new_null());
         let ledger = Arc::new(Ledger::new_null());
         let scheduler = make_scheduler_with(aec.clone(), ledger.clone());
 
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn schedules_election_when_account_is_unconfirmed() {
-        let aec = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let aec = Arc::new(AecService::new_null());
         let ledger = Arc::new(Ledger::new_null());
         let scheduler = make_scheduler_with(aec.clone(), ledger.clone());
 
@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn does_not_schedule_when_gap_is_under_threshold() {
-        let aec = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let aec = Arc::new(AecService::new_null());
         let ledger = Arc::new(Ledger::new_null());
         let scheduler = make_scheduler_with(aec.clone(), ledger.clone());
 
@@ -315,7 +315,7 @@ mod tests {
 
     #[test]
     fn schedules_elections_for_multiple_unconfirmed_accounts() {
-        let aec = Arc::new(RwLock::new(ActiveElectionsContainer::default()));
+        let aec = Arc::new(AecService::new_null());
         let ledger = Arc::new(Ledger::new_null());
         let scheduler = make_scheduler_with(aec.clone(), ledger.clone());
 
@@ -377,7 +377,7 @@ mod tests {
     fn make_scheduler() -> OptimisticScheduler {
         OptimisticScheduler::new(
             test_params(),
-            Arc::new(RwLock::new(ActiveElectionsContainer::default())),
+            Arc::new(AecService::new_null()),
             Ledger::new_null().into(),
             ConfirmingSet::new_null().into(),
             SteadyClock::new_null().into(),
@@ -385,7 +385,7 @@ mod tests {
     }
 
     fn make_scheduler_with(
-        aec: Arc<RwLock<ActiveElectionsContainer>>,
+        aec: Arc<AecService>,
         ledger: Arc<Ledger>,
     ) -> OptimisticScheduler {
         let logic =
