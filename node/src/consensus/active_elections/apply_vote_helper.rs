@@ -1,79 +1,62 @@
-use std::{collections::HashMap, ops::Deref};
+use std::ops::Deref;
 
-use rsnano_types::{Amount, BlockHash, VoteError, VoteSource};
+use rsnano_types::{Amount, BlockHash, QualifiedRoot, VoteError, VoteSource};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{
     AecFact, ApplyVoteArgs,
-    recently_confirmed_cache::RecentlyConfirmedCache,
-    root_container::{Entry, RootContainer},
-    stats::VoteCounter,
+    root_container::ElectionHandle,
 };
 use crate::consensus::election::{ConfirmationType, Election, VoteSummary};
 
 pub(super) struct ApplyVoteHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
-    pub recently_confirmed: &'a mut RecentlyConfirmedCache,
-    pub vote_counter: &'a mut VoteCounter,
-    pub observer: &'a Option<Sender<AecFact>>,
-    pub roots: &'a mut RootContainer,
+    pub observer: Option<Sender<AecFact>>,
 }
 
 impl<'a> ApplyVoteHelper<'a> {
-    pub fn apply_vote(&mut self) -> ApplyVoteResult {
-        let mut result = ApplyVoteResult::default();
-        for block_hash in self.args.vote.filtered_blocks() {
-            // Ignore duplicate hashes (should not happen with a well-behaved voting node)
-            if result.per_block.contains_key(block_hash) {
-                continue;
-            }
+    pub fn apply_vote(
+        &self,
+        handle: &ElectionHandle,
+        block_hash: &BlockHash,
+    ) -> ApplyVoteResult {
+        let mut election = handle.lock();
+        let mut apply_to_election = ApplyVoteToElectionHelper {
+            args: self.args,
+            observer: self.observer.as_ref(),
+            election: &mut election,
+            block_hash,
+            vote_was_counted: false,
+            confirmed: None,
+        };
+        let vote_result = apply_to_election.apply_vote();
 
-            if let Some(election) = self.roots.election_for_block_mut(block_hash) {
-                {
-                    let mut apply_to_election = ApplyVoteToElectionHelper {
-                        args: self.args,
-                        recently_confirmed: self.recently_confirmed,
-                        vote_counter: self.vote_counter,
-                        observer: self.observer,
-                        election,
-                        block_hash,
-                    };
-                    let vote_result = apply_to_election.apply_vote();
-                    result.per_block.insert(*block_hash, vote_result);
-                }
-
-                if election.is_confirmed() {
-                    let root = election.qualified_root().clone();
-                    if let Some(entry) = self.roots.erase(&root) {
-                        result.confirmed.push(entry);
-                    }
-                }
-            } else if self.recently_confirmed.hash_exists(block_hash) {
-                result.per_block.insert(*block_hash, Err(VoteError::Late));
-            } else {
-                result
-                    .per_block
-                    .insert(*block_hash, Err(VoteError::Indeterminate));
-            }
+        ApplyVoteResult {
+            vote_result,
+            vote_was_counted: apply_to_election.vote_was_counted,
+            confirmed: apply_to_election.confirmed,
         }
-
-        result
     }
 }
 
-#[derive(Default)]
-pub(crate) struct ApplyVoteResult {
-    pub per_block: HashMap<BlockHash, Result<(), VoteError>>,
-    pub confirmed: Vec<Entry>,
+pub(super) struct ApplyVoteResult {
+    pub vote_result: Result<(), VoteError>,
+    pub vote_was_counted: bool,
+    pub confirmed: Option<ConfirmedElectionCleanup>,
+}
+
+pub(super) struct ConfirmedElectionCleanup {
+    pub root: QualifiedRoot,
+    pub hash: BlockHash,
 }
 
 struct ApplyVoteToElectionHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
-    pub recently_confirmed: &'a mut RecentlyConfirmedCache,
-    pub vote_counter: &'a mut VoteCounter,
-    pub observer: &'a Option<Sender<AecFact>>,
+    pub observer: Option<&'a Sender<AecFact>>,
     pub election: &'a mut Election,
     pub block_hash: &'a BlockHash,
+    pub vote_was_counted: bool,
+    pub confirmed: Option<ConfirmedElectionCleanup>,
 }
 
 impl<'a> ApplyVoteToElectionHelper<'a> {
@@ -117,7 +100,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             self.args.vote.timestamp(),
             self.args.now,
         );
-        self.vote_counter.count(self.args.vote.source);
+        self.vote_was_counted = true;
         self.confirm_if_quorum();
     }
 
@@ -145,20 +128,15 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     }
 
     fn election_got_confirmed(&mut self) {
-        self.insert_recently_confirmed();
-
         let confirmed_election = self
             .election
             .into_confirmed_election(self.args.now, ConfirmationType::ActiveConfirmedQuorum);
 
         self.notify(AecFact::ElectionConfirmed(confirmed_election));
-    }
-
-    fn insert_recently_confirmed(&mut self) {
-        self.recently_confirmed.put(
-            self.election.qualified_root().clone(),
-            self.election.winner().hash(),
-        );
+        self.confirmed = Some(ConfirmedElectionCleanup {
+            root: self.election.qualified_root().clone(),
+            hash: self.election.winner().hash(),
+        });
     }
 
     fn notify(&self, event: AecFact) {
@@ -173,7 +151,9 @@ mod tests {
     use super::*;
     use crate::{
         consensus::{
-            FilteredVote, ReceivedVote, active_elections::root_container::Entry,
+            FilteredVote, ReceivedVote,
+            active_elections::recently_confirmed_cache::RecentlyConfirmedCache,
+            active_elections::root_container::ElectionHandle,
             election::ElectionBehavior,
         },
         representatives::QuorumSpecs,
@@ -181,7 +161,7 @@ mod tests {
     use rsnano_ledger::RepWeights;
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{
-        Block, BlockPriority, PrivateKey, QualifiedRoot, SavedBlock, StateBlockArgs,
+        Block, PrivateKey, QualifiedRoot, SavedBlock, StateBlockArgs,
         UnixMillisTimestamp, Vote,
     };
     use rsnano_utils::sync::backpressure_channel::channel;
@@ -194,7 +174,7 @@ mod tests {
 
         let result = fixture.apply_vote(vec![fixture.block_hash, fixture.block_hash]);
 
-        assert_eq!(result.get(&fixture.block_hash).unwrap(), &Ok(()));
+        assert_eq!(result[0], (fixture.block_hash, Ok(())));
     }
 
     #[test]
@@ -204,10 +184,7 @@ mod tests {
 
         let result = fixture.apply_vote(vec![fixture.block_hash]);
 
-        assert_eq!(
-            result.get(&fixture.block_hash).unwrap(),
-            &Err(VoteError::Late)
-        );
+        assert_eq!(result[0], (fixture.block_hash, Err(VoteError::Late)));
     }
 
     #[test]
@@ -216,10 +193,7 @@ mod tests {
 
         let result = fixture.apply_vote(vec![fixture.block_hash]);
 
-        assert_eq!(
-            result.get(&fixture.block_hash).unwrap(),
-            &Err(VoteError::Indeterminate)
-        );
+        assert_eq!(result[0], (fixture.block_hash, Err(VoteError::Indeterminate)));
     }
 
     #[test]
@@ -337,7 +311,7 @@ mod tests {
         block: SavedBlock,
         root: QualifiedRoot,
         block_hash: BlockHash,
-        roots: RootContainer,
+        election_handle: Option<ElectionHandle>,
         recently_confirmed: RecentlyConfirmedCache,
         rep_weights: RepWeights,
     }
@@ -350,7 +324,7 @@ mod tests {
                 block,
                 root,
                 block_hash,
-                roots: RootContainer::default(),
+                election_handle: None,
                 recently_confirmed: RecentlyConfirmedCache::default(),
                 rep_weights: RepWeights::default(),
             }
@@ -358,11 +332,7 @@ mod tests {
 
         fn add_active_election(&mut self) {
             let election = Election::new_test_instance_with(self.block.clone());
-            self.roots.insert(Entry {
-                root: self.root.clone(),
-                election,
-                priority: BlockPriority::new_test_instance(),
-            });
+            self.election_handle = Some(ElectionHandle::new(election));
         }
 
         fn add_recently_confirmed(&mut self) {
@@ -373,7 +343,7 @@ mod tests {
         fn apply_vote(
             &mut self,
             hashes: Vec<BlockHash>,
-        ) -> HashMap<BlockHash, Result<(), VoteError>> {
+        ) -> Vec<(BlockHash, Result<(), VoteError>)> {
             let vote = Vote::new(
                 &PrivateKey::from(1),
                 UnixMillisTimestamp::new(1000),
@@ -391,18 +361,28 @@ mod tests {
                 now: Timestamp::new_test_instance(),
             };
 
-            let mut vote_counter = VoteCounter::default();
-
-            let mut helper = ApplyVoteHelper {
+            let helper = ApplyVoteHelper {
                 args: &args,
-                recently_confirmed: &mut self.recently_confirmed,
-                vote_counter: &mut vote_counter,
-                observer: &None,
-                roots: &mut self.roots,
+                observer: None,
             };
 
-            let result = helper.apply_vote();
-            result.per_block
+            let mut result = Vec::new();
+            for block_hash in vote.filtered_blocks() {
+                if result.iter().any(|(existing, _)| existing == block_hash) {
+                    continue;
+                }
+
+                let vote_result = if let Some(handle) = &self.election_handle {
+                    helper.apply_vote(handle, block_hash).vote_result
+                } else if self.recently_confirmed.hash_exists(block_hash) {
+                    Err(VoteError::Late)
+                } else {
+                    Err(VoteError::Indeterminate)
+                };
+                result.push((*block_hash, vote_result));
+            }
+
+            result
         }
     }
 
@@ -460,8 +440,6 @@ mod tests {
             let vote = vote.into();
 
             let quorum_specs = QuorumSpecs::new_test_instance();
-            let mut recently_confirmed = RecentlyConfirmedCache::default();
-            let mut vote_counter = VoteCounter::default();
             let (tx, rx) = channel(1024);
 
             let result = {
@@ -472,14 +450,15 @@ mod tests {
                         quorum_specs: &quorum_specs,
                         now: Timestamp::new_test_instance(),
                     },
-                    recently_confirmed: &mut recently_confirmed,
-                    vote_counter: &mut vote_counter,
-                    observer: &Some(tx),
+                    observer: Some(&tx),
                     election: &mut self.election,
                     block_hash: &vote.hashes[0],
+                    vote_was_counted: false,
+                    confirmed: None,
                 }
                 .apply_vote()
             };
+            drop(tx);
 
             while let Ok(ev) = rx.recv() {
                 self.events.push(ev);

@@ -1,4 +1,8 @@
-use std::{cmp::Ordering, collections::BTreeSet};
+use std::{
+    cmp::Ordering,
+    collections::BTreeSet,
+    sync::{Arc, Mutex, MutexGuard},
+};
 
 use rsnano_types::{BlockHash, BlockPriority, QualifiedRoot, TimePriority};
 use rustc_hash::FxHashMap;
@@ -11,13 +15,38 @@ use crate::consensus::{
 
 pub(crate) struct Entry {
     pub root: QualifiedRoot,
-    pub election: Election,
+    pub election: ElectionHandle,
     pub priority: BlockPriority,
 }
 
 impl Entry {
     pub fn bucket(&self) -> usize {
         bucket_index(self.election.behavior(), self.priority.balance)
+    }
+}
+
+#[derive(Clone)]
+pub(super) struct ElectionHandle(Arc<Mutex<Election>>);
+
+impl ElectionHandle {
+    pub fn new(election: Election) -> Self {
+        Self(Arc::new(Mutex::new(election)))
+    }
+
+    pub fn lock(&self) -> MutexGuard<'_, Election> {
+        self.0.lock().unwrap()
+    }
+
+    pub fn snapshot(&self) -> Election {
+        self.lock().clone()
+    }
+
+    pub fn winner_hash(&self) -> BlockHash {
+        self.lock().winner().hash()
+    }
+
+    pub fn behavior(&self) -> ElectionBehavior {
+        self.lock().behavior()
     }
 }
 
@@ -64,11 +93,11 @@ impl Default for RootContainer {
 }
 
 impl RootContainer {
-    pub const ELEMENT_SIZE: usize = size_of::<QualifiedRoot>() * 2 + size_of::<Election>();
+    pub const ELEMENT_SIZE: usize = size_of::<QualifiedRoot>() * 2 + size_of::<ElectionHandle>();
 
     pub fn insert(&mut self, entry: Entry) {
         let root = entry.root.clone();
-        let hash = entry.election.winner().hash();
+        let hash = entry.election.winner_hash();
         let bucket_entry = BucketEntry {
             root: entry.root.clone(),
             priority: entry.priority,
@@ -86,22 +115,34 @@ impl RootContainer {
         self.by_root.get_mut(root)
     }
 
-    pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<&Election> {
-        self.get(root).map(|i| &i.election)
+    pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<Election> {
+        self.get(root).map(|i| i.election.snapshot())
     }
 
-    pub fn election_for_root_mut(&mut self, root: &QualifiedRoot) -> Option<&mut Election> {
-        self.get_mut(root).map(|i| &mut i.election)
+    pub fn election_for_root_mut(&self, root: &QualifiedRoot) -> Option<MutexGuard<'_, Election>> {
+        self.get(root).map(|i| i.election.lock())
     }
 
-    pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<&Election> {
+    pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<Election> {
         let root = self.vote_router.qualified_root(block_hash)?;
         self.election_for_root(root)
     }
 
-    pub fn election_for_block_mut(&mut self, block_hash: &BlockHash) -> Option<&mut Election> {
+    pub fn election_for_block_mut(
+        &self,
+        block_hash: &BlockHash,
+    ) -> Option<MutexGuard<'_, Election>> {
         let root = self.vote_router.qualified_root(block_hash)?.clone();
-        self.get_mut(&root).map(|i| &mut i.election)
+        self.get(&root).map(|i| i.election.lock())
+    }
+
+    pub(super) fn election_handle_for_root(&self, root: &QualifiedRoot) -> Option<ElectionHandle> {
+        self.get(root).map(|i| i.election.clone())
+    }
+
+    pub(super) fn election_handle_for_block(&self, block_hash: &BlockHash) -> Option<ElectionHandle> {
+        let root = self.vote_router.qualified_root(block_hash)?;
+        self.election_handle_for_root(root)
     }
 
     pub fn try_upgrade_to_priority_election(
@@ -120,7 +161,10 @@ impl RootContainer {
         }
 
         let priority = entry.priority;
-        let upgraded = entry.election.maybe_upgrade_to(ElectionBehavior::Priority);
+        let upgraded = entry
+            .election
+            .lock()
+            .maybe_upgrade_to(ElectionBehavior::Priority);
         if !upgraded {
             return (false, Some(previous_behavior));
         }
@@ -165,7 +209,8 @@ impl RootContainer {
     pub fn erase(&mut self, root: &QualifiedRoot) -> Option<Entry> {
         let erased = self.by_root.remove(root);
         if let Some(entry) = &erased {
-            self.vote_router.disconnect_election(&entry.election);
+            let election = entry.election.snapshot();
+            self.vote_router.disconnect_election(&election);
             self.buckets[entry.bucket()].remove(&BucketEntry {
                 root: entry.root.clone(),
                 priority: entry.priority,
@@ -187,10 +232,6 @@ impl RootContainer {
 
     pub fn iter(&self) -> impl Iterator<Item = &Entry> {
         RoundRobinIterator::new(self)
-    }
-
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Entry> {
-        self.by_root.values_mut()
     }
 
     pub fn iter_bucket(&self, bucket_id: usize) -> impl Iterator<Item = &Entry> {

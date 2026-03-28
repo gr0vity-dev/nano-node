@@ -49,7 +49,6 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
             .read()
             .iter_round_robin()
             .filter(|e| e.state() == ElectionState::Active)
-            .cloned()
             .collect();
 
         for election in &elections {

@@ -17,6 +17,7 @@ use rsnano_utils::{
 use super::{
     ActiveElectionsConfig, ActiveElectionsContainer, ActiveElectionsInfo, AecCooldownReason,
     AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs,
+    apply_vote_helper::ApplyVoteHelper,
 };
 use crate::consensus::election::{ConfirmedElection, Election, ElectionBehavior, VoteType};
 
@@ -48,15 +49,11 @@ impl AecService {
     // --- Read forwarding ---
 
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<Election> {
-        self.aec.read().unwrap().election_for_root(root).cloned()
+        self.aec.read().unwrap().election_for_root(root)
     }
 
     pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<Election> {
-        self.aec
-            .read()
-            .unwrap()
-            .election_for_block(block_hash)
-            .cloned()
+        self.aec.read().unwrap().election_for_block(block_hash)
     }
 
     pub fn max_len(&self) -> usize {
@@ -132,7 +129,53 @@ impl AecService {
         &self,
         args: ApplyVoteArgs<'a>,
     ) -> HashMap<BlockHash, Result<(), VoteError>> {
-        self.aec.write().unwrap().apply_vote(args)
+        let (observer, mut pending_votes, mut results) = {
+            let aec = self.aec.read().unwrap();
+            let mut pending_votes = Vec::new();
+            let mut results = HashMap::new();
+
+            for block_hash in args.vote.filtered_blocks() {
+                if results.contains_key(block_hash) {
+                    continue;
+                }
+
+                if let Some(handle) = aec.election_handle_for_block(block_hash) {
+                    pending_votes.push((*block_hash, handle));
+                } else if aec.was_recently_confirmed(block_hash) {
+                    results.insert(*block_hash, Err(VoteError::Late));
+                } else {
+                    results.insert(*block_hash, Err(VoteError::Indeterminate));
+                }
+            }
+
+            (aec.vote_observer(), pending_votes, results)
+        };
+
+        let helper = ApplyVoteHelper {
+            args: &args,
+            observer,
+        };
+        let mut confirmed = Vec::new();
+        let mut counted_votes = 0;
+
+        for (block_hash, handle) in pending_votes.drain(..) {
+            let apply_result = helper.apply_vote(&handle, &block_hash);
+            if apply_result.vote_was_counted {
+                counted_votes += 1;
+            }
+            if let Some(cleanup) = apply_result.confirmed {
+                confirmed.push(cleanup);
+            }
+            results.insert(block_hash, apply_result.vote_result);
+        }
+
+        if counted_votes > 0 || !confirmed.is_empty() {
+            let mut aec = self.aec.write().unwrap();
+            aec.count_applied_votes(args.vote.source, counted_votes);
+            aec.cleanup_confirmed_elections(confirmed);
+        }
+
+        results
     }
 
     pub fn transition_time(&self, now: Timestamp) {
@@ -222,5 +265,106 @@ impl StatsSource for AecService {
 impl ContainerInfoProvider for AecService {
     fn container_info(&self) -> ContainerInfo {
         self.aec.read().unwrap().container_info()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        consensus::{AecInsertRequest, ReceivedVote},
+        representatives::QuorumSpecs,
+    };
+    use rsnano_ledger::RepWeights;
+    use rsnano_types::{BlockPriority, PrivateKey, SavedBlock, Vote, VoteSource};
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        thread,
+    };
+
+    #[test]
+    fn apply_vote_does_not_hold_container_write_lock_while_waiting_for_other_election() {
+        let aec = Arc::new(AecService::new_null());
+        let block_a = SavedBlock::new_test_instance_with_key(1);
+        let block_b = SavedBlock::new_test_instance_with_key(2);
+        let now = Timestamp::new_test_instance();
+
+        aec.insert(
+            AecInsertRequest::new_priority(block_a.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+        aec.insert(
+            AecInsertRequest::new_priority(block_b.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+
+        let locked_handle = aec
+            .aec
+            .read()
+            .unwrap()
+            .election_handle_for_block(&block_a.hash())
+            .unwrap();
+        let election_guard = locked_handle.lock();
+
+        let rep_key = PrivateKey::from(1);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+        let quorum_specs = QuorumSpecs::new_test_instance();
+        let started = Arc::new(AtomicBool::new(false));
+        let started_clone = started.clone();
+        let aec_for_thread = aec.clone();
+        let vote_a: ReceivedVote =
+            ReceivedVote::new(Vote::new_final(&rep_key, vec![block_a.hash()]).into(), VoteSource::Live, None);
+
+        let worker = thread::spawn(move || {
+            started_clone.store(true, Ordering::Release);
+            aec_for_thread.apply_vote(ApplyVoteArgs {
+                vote: &vote_a.into(),
+                rep_weights: &rep_weights,
+                quorum_specs: &quorum_specs,
+                now,
+            })
+        });
+
+        while !started.load(Ordering::Acquire) {
+            thread::yield_now();
+        }
+        let mut container_write_available = false;
+        for _ in 0..10_000 {
+            if worker.is_finished() {
+                break;
+            }
+            if aec.aec.try_write().is_ok() {
+                container_write_available = true;
+                break;
+            }
+            thread::yield_now();
+        }
+
+        assert!(container_write_available);
+
+        let mut rep_weights_b = RepWeights::default();
+        rep_weights_b.put(rep_key.public_key(), Amount::MAX);
+        let vote_b: ReceivedVote =
+            ReceivedVote::new(Vote::new_final(&rep_key, vec![block_b.hash()]).into(), VoteSource::Live, None);
+        let results = aec.apply_vote(ApplyVoteArgs {
+            vote: &vote_b.into(),
+            rep_weights: &rep_weights_b,
+            quorum_specs: &QuorumSpecs::new_test_instance(),
+            now,
+        });
+
+        assert_eq!(results.get(&block_b.hash()), Some(&Ok(())));
+
+        drop(election_guard);
+        let first_results = worker.join().unwrap();
+        assert_eq!(first_results.get(&block_a.hash()), Some(&Ok(())));
+        assert!(aec.was_recently_confirmed(&block_a.hash()));
+        assert!(aec.was_recently_confirmed(&block_b.hash()));
     }
 }

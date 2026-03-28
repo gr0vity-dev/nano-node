@@ -1,11 +1,11 @@
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use strum::EnumCount;
 
 use rsnano_ledger::RepWeights;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
-    Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, TimePriority, VoteError,
+    Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, TimePriority, VoteSource,
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -27,9 +27,10 @@ use crate::{
 use super::{
     ActiveElectionsConfig, ActiveElectionsInfo, AecFact, AecInsertError, AecInsertRequest, Entry,
     RootContainer,
-    apply_vote_helper::ApplyVoteHelper,
+    apply_vote_helper::ConfirmedElectionCleanup,
     cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
     recently_confirmed_cache::RecentlyConfirmedCache,
+    root_container::ElectionHandle,
     stats::AecStats,
 };
 
@@ -88,12 +89,12 @@ impl ActiveElectionsContainer {
         self.roots.lowest_priority(bucket_id)
     }
 
-    pub fn iter_round_robin(&self) -> impl Iterator<Item = &Election> {
-        self.roots.iter().map(|i| &i.election)
+    pub fn iter_round_robin(&self) -> impl Iterator<Item = Election> {
+        self.roots.iter().map(|i| i.election.snapshot())
     }
 
-    pub fn iter_bucket(&self, bucket_id: usize) -> impl Iterator<Item = &Election> {
-        self.roots.iter_bucket(bucket_id).map(|i| &i.election)
+    pub fn iter_bucket(&self, bucket_id: usize) -> impl Iterator<Item = Election> {
+        self.roots.iter_bucket(bucket_id).map(|i| i.election.snapshot())
     }
 
     pub fn insert(
@@ -121,7 +122,7 @@ impl ActiveElectionsContainer {
         let Some(entry) = self.roots.get_mut(root) else {
             return;
         };
-        entry.election.voted(vote_type, timestamp);
+        entry.election.lock().voted(vote_type, timestamp);
     }
 
     fn ensure_not_stopped(&self) -> Result<(), AecInsertError> {
@@ -168,7 +169,7 @@ impl ActiveElectionsContainer {
 
         self.roots.insert(Entry {
             root: root.clone(),
-            election,
+            election: ElectionHandle::new(election),
             priority: request.priority,
         });
 
@@ -182,7 +183,7 @@ impl ActiveElectionsContainer {
             return false;
         };
 
-        let result = entry.election.try_add_fork(fork, fork_tally);
+        let result = entry.election.lock().try_add_fork(fork, fork_tally);
         let added = match result {
             AddForkResult::Added => {
                 self.notify(AecFact::BlockAddedToElection(fork.hash()));
@@ -254,22 +255,22 @@ impl ActiveElectionsContainer {
     /// Returns the current active elections after transitioning
     pub fn transition_time(&mut self, now: Timestamp) {
         self.stats.ticked += 1;
-        for entry in self.roots.iter_mut() {
-            entry.election.transition_time(now);
+        for entry in self.roots.iter() {
+            entry.election.lock().transition_time(now);
         }
         self.erase_ended_elections();
     }
 
-    pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<&Election> {
+    pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<Election> {
         self.roots.election_for_root(root)
     }
 
-    pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<&Election> {
+    pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<Election> {
         self.roots.election_for_block(block_hash)
     }
 
     pub fn transition_active(&mut self, block_hash: &BlockHash) -> bool {
-        let Some(election) = self.roots.election_for_block_mut(block_hash) else {
+        let Some(mut election) = self.roots.election_for_block_mut(block_hash) else {
             return false;
         };
         election.transition_active();
@@ -281,7 +282,7 @@ impl ActiveElectionsContainer {
         root: &QualifiedRoot,
         voters: impl IntoIterator<Item = &'a PublicKey>,
     ) {
-        let Some(election) = self.roots.election_for_root_mut(root) else {
+        let Some(mut election) = self.roots.election_for_root_mut(root) else {
             return;
         };
         for voter in voters {
@@ -290,7 +291,9 @@ impl ActiveElectionsContainer {
     }
 
     pub fn erase_ended_elections(&mut self) {
-        let removed = self.roots.drain_filter(|i| i.election.state().has_ended());
+        let removed = self
+            .roots
+            .drain_filter(|i| i.election.lock().state().has_ended());
 
         for entry in removed {
             self.cleanup_election(entry);
@@ -313,13 +316,13 @@ impl ActiveElectionsContainer {
     }
 
     fn cleanup_election(&mut self, entry: Entry) {
-        let election = &entry.election;
+        let election = entry.election.snapshot();
 
         // Keep track of election count by election type
         *self.count_by_behavior_mut(election.behavior()) -= 1;
 
-        self.stats.stopped(&entry.election);
-        self.notify(AecFact::ElectionEnded(entry.election));
+        self.stats.stopped(&election);
+        self.notify(AecFact::ElectionEnded(election));
     }
 
     /// Dependent elections are implicitly confirmed when their block is confirmed
@@ -359,13 +362,12 @@ impl ActiveElectionsContainer {
             );
         };
 
-        if corresponding.election.winner().hash() == confirmed_block.hash() {
-            corresponding.election.force_confirm();
-            corresponding
-                .election
-                .into_confirmed_election(now, ConfirmationType::ActiveConfirmationHeight)
+        let mut election = corresponding.election.lock();
+        if election.winner().hash() == confirmed_block.hash() {
+            election.force_confirm();
+            election.into_confirmed_election(now, ConfirmationType::ActiveConfirmationHeight)
         } else {
-            corresponding.election.cancel();
+            election.cancel();
             ConfirmedElection::new(
                 confirmed_block.clone(),
                 ConfirmationType::ActiveConfirmationHeight,
@@ -382,26 +384,34 @@ impl ActiveElectionsContainer {
         self.recently_confirmed.erase(block_hash);
     }
 
-    pub fn apply_vote<'a>(
-        &mut self,
-        args: ApplyVoteArgs<'a>,
-    ) -> HashMap<BlockHash, Result<(), VoteError>> {
-        let mut apply_helper = ApplyVoteHelper {
-            args: &args,
-            recently_confirmed: &mut self.recently_confirmed,
-            vote_counter: &mut self.stats.vote_counter,
-            observer: &self.observer,
-            roots: &mut self.roots,
-        };
-        let result = apply_helper.apply_vote();
-        for entry in result.confirmed {
-            self.cleanup_election(entry);
+    pub(super) fn election_handle_for_block(&self, block_hash: &BlockHash) -> Option<ElectionHandle> {
+        self.roots.election_handle_for_block(block_hash)
+    }
+
+    pub(super) fn vote_observer(&self) -> Option<Sender<AecFact>> {
+        self.observer.clone()
+    }
+
+    pub(super) fn count_applied_votes(&mut self, source: VoteSource, count: usize) {
+        for _ in 0..count {
+            self.stats.vote_counter.count(source);
         }
-        result.per_block
+    }
+
+    pub(super) fn cleanup_confirmed_elections(
+        &mut self,
+        confirmed: Vec<ConfirmedElectionCleanup>,
+    ) {
+        for cleanup in confirmed {
+            self.recently_confirmed.put(cleanup.root.clone(), cleanup.hash);
+            if let Some(entry) = self.roots.erase(&cleanup.root) {
+                self.cleanup_election(entry);
+            }
+        }
     }
 
     pub fn force_confirm(&mut self, block_hash: &BlockHash, now: Timestamp) {
-        let Some(election) = self.roots.election_for_block_mut(block_hash) else {
+        let Some(mut election) = self.roots.election_for_block_mut(block_hash) else {
             panic!("Force confirm failed, because no active election was found");
         };
         if election.force_confirm() {
@@ -413,13 +423,13 @@ impl ActiveElectionsContainer {
 
     pub fn cancel(&mut self, root: &QualifiedRoot) {
         if let Some(entry) = self.roots.get_mut(root) {
-            entry.election.cancel();
+            entry.election.lock().cancel();
         }
     }
 
     pub fn cancel_all(&mut self) {
-        for entry in self.roots.iter_mut() {
-            entry.election.cancel();
+        for entry in self.roots.iter() {
+            entry.election.lock().cancel();
         }
     }
 
@@ -503,7 +513,7 @@ pub struct ApplyVoteArgs<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::ReceivedVote;
+    use crate::consensus::{AecService, ReceivedVote};
     use rsnano_types::{BlockPriority, PrivateKey, TimePriority, Vote, VoteSource};
     use std::sync::Arc;
 
@@ -533,19 +543,20 @@ mod tests {
 
     #[test]
     fn confirm_election() {
-        let mut container = ActiveElectionsContainer::default();
-
         let block = SavedBlock::new_test_instance();
         let block_hash = block.hash();
 
-        let request = AecInsertRequest {
-            block,
-            behavior: ElectionBehavior::Priority,
-            priority: BlockPriority::new_test_instance(),
-        };
-
         let now = Timestamp::new_test_instance();
-        container.insert(request, now).unwrap();
+        let aec = AecService::new_null();
+        aec.insert(
+            AecInsertRequest {
+                block,
+                behavior: ElectionBehavior::Priority,
+                priority: BlockPriority::new_test_instance(),
+            },
+            now,
+        )
+        .unwrap();
 
         let rep_key = PrivateKey::from(1);
         let received_vote = test_final_vote(&rep_key, block_hash);
@@ -553,16 +564,16 @@ mod tests {
         let mut rep_weights = RepWeights::default();
         rep_weights.put(rep_key.public_key(), Amount::MAX);
 
-        let result = container.apply_vote(ApplyVoteArgs {
-            vote: &received_vote.into(),
+        let vote: crate::consensus::FilteredVote = received_vote.into();
+        let result = aec.apply_vote(ApplyVoteArgs {
+            vote: &vote,
             rep_weights: &rep_weights,
             quorum_specs: &QuorumSpecs::new_test_instance(),
             now,
         });
 
         assert_eq!(result.get(&block_hash), Some(&Ok(())));
-
-        assert!(container.election_for_block(&block_hash).is_none());
+        assert!(aec.election_for_block(&block_hash).is_none());
     }
 
     #[test]

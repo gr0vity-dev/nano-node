@@ -62,7 +62,7 @@ impl AecTickerPlugin for BootstrapStaleElections {
     fn run(&mut self, aec: &AecService) {
         let now = self.clock.now();
 
-        let is_stale = |election: &&Election| election.start().elapsed(now) >= self.stale_threshold;
+        let is_stale = |election: &Election| election.start().elapsed(now) >= self.stale_threshold;
 
         self.stale_accounts.clear();
         self.stale_accounts.extend(
