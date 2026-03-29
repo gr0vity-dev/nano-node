@@ -213,7 +213,9 @@ impl ActiveElectionsContainer {
     }
 
     pub fn erase(&mut self, root: &QualifiedRoot) -> Option<Election> {
-        self.roots.erase(root).map(|entry| entry.election.snapshot())
+        self.roots
+            .erase(root)
+            .map(|entry| entry.election.snapshot())
     }
 
     pub fn erase_lowest_prio_election(&mut self, bucket_id: usize) -> Option<Election> {
@@ -230,7 +232,9 @@ impl ActiveElectionsContainer {
         root: &QualifiedRoot,
         election: &Election,
     ) -> bool {
-        self.roots.erase_with_known_election(root, election).is_some()
+        self.roots
+            .erase_with_known_election(root, election)
+            .is_some()
     }
 
     pub fn cancel(&mut self, root: &QualifiedRoot) {
@@ -271,7 +275,9 @@ pub struct ApplyVoteArgs<'a> {
 mod tests {
     use super::*;
     use crate::consensus::{AecService, ReceivedVote};
-    use rsnano_types::{Amount, BlockPriority, PrivateKey, SavedBlock, TimePriority, Vote, VoteSource};
+    use rsnano_types::{
+        Amount, BlockPriority, PrivateKey, SavedBlock, TimePriority, Vote, VoteSource,
+    };
     use std::sync::Arc;
 
     #[test]
@@ -297,7 +303,11 @@ mod tests {
 
         assert_eq!(container.len(), 1);
         assert_eq!(
-            container.election_for_root(&block.qualified_root()).unwrap().winner().hash(),
+            container
+                .election_for_root(&block.qualified_root())
+                .unwrap()
+                .winner()
+                .hash(),
             block.hash()
         );
     }
@@ -315,7 +325,11 @@ mod tests {
             .unwrap();
 
         assert!(container.erase(&block.qualified_root()).is_some());
-        assert!(container.election_for_root(&block.qualified_root()).is_none());
+        assert!(
+            container
+                .election_for_root(&block.qualified_root())
+                .is_none()
+        );
     }
 
     #[test]
@@ -332,7 +346,11 @@ mod tests {
 
         container.stop();
 
-        assert!(container.election_for_root(&block.qualified_root()).is_none());
+        assert!(
+            container
+                .election_for_root(&block.qualified_root())
+                .is_none()
+        );
     }
 
     #[test]

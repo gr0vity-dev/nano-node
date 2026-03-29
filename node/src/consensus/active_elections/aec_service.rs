@@ -18,14 +18,13 @@ use strum::EnumCount;
 
 use super::{
     ActiveElectionsConfig, ActiveElectionsContainer, ActiveElectionsInfo, AecCooldownReason,
-    AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs,
+    AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs, RootContainer,
+    active_elections_container::{ForkChange, InsertResult},
     apply_vote_helper::ApplyVoteHelper,
-    RootContainer,
     cooldown_controller::{CooldownController, CooldownResult},
     recently_confirmed_cache::RecentlyConfirmedCache,
     root_container::{BucketCursor, ElectionHandle},
     stats::AecStats,
-    active_elections_container::{ForkChange, InsertResult},
     vote_router::VoteRouter,
 };
 use crate::consensus::election::{
@@ -170,7 +169,12 @@ impl AecService {
     }
 
     pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<Election> {
-        let root = self.router.read().unwrap().qualified_root(block_hash).cloned()?;
+        let root = self
+            .router
+            .read()
+            .unwrap()
+            .qualified_root(block_hash)
+            .cloned()?;
         self.election_for_root(&root)
     }
 
@@ -198,7 +202,11 @@ impl AecService {
     }
 
     pub fn was_recently_confirmed(&self, block_hash: &BlockHash) -> bool {
-        self.global.read().unwrap().recently_confirmed.hash_exists(block_hash)
+        self.global
+            .read()
+            .unwrap()
+            .recently_confirmed
+            .hash_exists(block_hash)
     }
 
     pub fn count_by_behavior(&self, behavior: ElectionBehavior) -> usize {
@@ -401,7 +409,10 @@ impl AecService {
                 let mut global = self.global.write().unwrap();
                 let mut shard = self.shard(&root).write().unwrap();
                 let change = shard.apply_fork_result(&root, &handle, fork, result);
-                if matches!(change, ForkChange::Added { .. } | ForkChange::Replaced { .. }) {
+                if matches!(
+                    change,
+                    ForkChange::Added { .. } | ForkChange::Replaced { .. }
+                ) {
                     global.stats.conflicts += 1;
                 }
                 change
@@ -410,11 +421,17 @@ impl AecService {
 
         match change {
             ForkChange::Added { added_hash } => {
-                self.router.write().unwrap().connect(added_hash, root.clone());
+                self.router
+                    .write()
+                    .unwrap()
+                    .connect(added_hash, root.clone());
                 self.notify(AecFact::BlockAddedToElection(added_hash));
                 true
             }
-            ForkChange::Replaced { added_hash, removed } => {
+            ForkChange::Replaced {
+                added_hash,
+                removed,
+            } => {
                 let mut router = self.router.write().unwrap();
                 router.disconnect(&removed.hash());
                 router.connect(added_hash, root.clone());
@@ -467,7 +484,12 @@ impl AecService {
             };
 
             if counted_vote {
-                self.global.write().unwrap().stats.vote_counter.count(args.vote.source);
+                self.global
+                    .write()
+                    .unwrap()
+                    .stats
+                    .vote_counter
+                    .count(args.vote.source);
             }
 
             results.insert(block_hash, vote_result);
@@ -862,7 +884,10 @@ impl AecService {
     }
 
     fn election_handle_for_root(&self, root: &QualifiedRoot) -> Option<ElectionHandle> {
-        self.shard(root).read().unwrap().election_handle_for_root(root)
+        self.shard(root)
+            .read()
+            .unwrap()
+            .election_handle_for_root(root)
     }
 
     fn next_bucket_handle(
@@ -872,7 +897,8 @@ impl AecService {
         after: Option<&BucketCursor>,
     ) -> Option<(BucketCursor, QualifiedRoot, ElectionHandle)> {
         let shard = self.shards[shard_index].read().unwrap();
-        shard.next_bucket(bucket_id, after)
+        shard
+            .next_bucket(bucket_id, after)
             .map(|(cursor, (root, handle))| (cursor, root, handle))
     }
 
@@ -935,7 +961,12 @@ impl AecService {
     }
 
     fn routed_root(&self, block_hash: &BlockHash) -> Option<(QualifiedRoot, usize)> {
-        let root = self.router.read().unwrap().qualified_root(block_hash).cloned()?;
+        let root = self
+            .router
+            .read()
+            .unwrap()
+            .qualified_root(block_hash)
+            .cloned()?;
         let shard_index = self.shard_index_for_root(&root);
         Some((root, shard_index))
     }
@@ -1036,13 +1067,13 @@ enum ResolvedVoteResult {
 mod tests {
     use super::*;
     use crate::{
-        consensus::{AecInsertRequest, ReceivedVote},
         consensus::election_schedulers::priority::bucket_index,
+        consensus::{AecInsertRequest, ReceivedVote},
         representatives::QuorumSpecs,
     };
     use rsnano_ledger::RepWeights;
-    use rsnano_utils::container_info::ContainerInfoEntry;
     use rsnano_types::{BlockPriority, PrivateKey, SavedBlock, Vote, VoteSource};
+    use rsnano_utils::container_info::ContainerInfoEntry;
     use rsnano_utils::sync::backpressure_channel::channel;
     use std::{
         sync::{
@@ -1050,7 +1081,15 @@ mod tests {
             atomic::{AtomicBool, Ordering},
         },
         thread,
+        time::Instant,
     };
+
+    fn block_in_shard(aec: &AecService, shard_index: usize) -> SavedBlock {
+        (1..256)
+            .map(SavedBlock::new_test_instance_with_key)
+            .find(|block| aec.shard_index_for_root(&block.qualified_root()) == shard_index)
+            .unwrap()
+    }
 
     #[test]
     fn apply_vote_does_not_hold_container_write_lock_while_waiting_for_other_election() {
@@ -1493,14 +1532,8 @@ mod tests {
     #[test]
     fn transition_active_does_not_hold_container_write_lock_while_waiting_for_other_election() {
         let aec = Arc::new(AecService::new_null());
-        let block_a = SavedBlock::new_test_instance_with_key(1);
-        let block_b = (2..64)
-            .map(SavedBlock::new_test_instance_with_key)
-            .find(|block| {
-                aec.shard_index_for_root(&block.qualified_root())
-                    != aec.shard_index_for_root(&block_a.qualified_root())
-            })
-            .unwrap();
+        let block_a = block_in_shard(&aec, 0);
+        let block_b = block_in_shard(&aec, 1);
         let now = Timestamp::new_test_instance();
 
         aec.insert(
@@ -1554,6 +1587,64 @@ mod tests {
     }
 
     #[test]
+    fn transition_active_on_other_shard_is_not_blocked_by_unrelated_shard_write_lock() {
+        let aec = Arc::new(AecService::new_null());
+        let block_a = block_in_shard(&aec, 0);
+        let block_b = block_in_shard(&aec, 1);
+        let now = Timestamp::new_test_instance();
+        assert_ne!(
+            aec.shard_index_for_root(&block_a.qualified_root()),
+            aec.shard_index_for_root(&block_b.qualified_root())
+        );
+
+        aec.insert(
+            AecInsertRequest::new_priority(block_a.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+        aec.insert(
+            AecInsertRequest::new_priority(block_b.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+
+        let unrelated_shard_guard = aec.shard(&block_a.qualified_root()).write().unwrap();
+        let started = Arc::new(AtomicBool::new(false));
+        let finished = Arc::new(AtomicBool::new(false));
+        let aec_for_thread = Arc::clone(&aec);
+        let started_clone = Arc::clone(&started);
+        let finished_clone = Arc::clone(&finished);
+        let block_b_hash = block_b.hash();
+
+        let worker = thread::spawn(move || {
+            started_clone.store(true, Ordering::Release);
+            assert!(aec_for_thread.transition_active(&block_b_hash));
+            finished_clone.store(true, Ordering::Release);
+        });
+
+        while !started.load(Ordering::Acquire) {
+            thread::yield_now();
+        }
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < deadline {
+            if finished.load(Ordering::Acquire) {
+                break;
+            }
+            thread::yield_now();
+        }
+
+        let finished_before_release = finished.load(Ordering::Acquire);
+        drop(unrelated_shard_guard);
+        worker.join().unwrap();
+        assert!(finished_before_release);
+        assert_eq!(
+            aec.election_for_block(&block_b.hash()).unwrap().state(),
+            crate::consensus::election::ElectionState::Active
+        );
+    }
+
+    #[test]
     fn confirm_dependent_elections_does_not_hold_container_write_lock_while_waiting_for_election() {
         let aec = Arc::new(AecService::new_null());
         let block = SavedBlock::new_test_instance_with_key(1);
@@ -1568,7 +1659,9 @@ mod tests {
         let (tx, rx) = channel(1);
         aec.set_observer(tx);
 
-        let locked_handle = aec.election_handle_for_root(&block.qualified_root()).unwrap();
+        let locked_handle = aec
+            .election_handle_for_root(&block.qualified_root())
+            .unwrap();
         let election_guard = locked_handle.lock();
 
         let started = Arc::new(AtomicBool::new(false));
@@ -1650,6 +1743,71 @@ mod tests {
         let stale_accounts = aec.stale_accounts(now, Duration::from_secs(60), 2);
 
         assert_eq!(stale_accounts, expected);
+    }
+
+    #[test]
+    fn election_snapshot_scan_releases_one_shard_before_waiting_on_the_next() {
+        let aec = Arc::new(AecService::new_null());
+        let block_a = block_in_shard(&aec, 0);
+        let block_b = block_in_shard(&aec, 1);
+        let now = Timestamp::new_test_instance();
+        assert_ne!(
+            aec.shard_index_for_root(&block_a.qualified_root()),
+            aec.shard_index_for_root(&block_b.qualified_root())
+        );
+
+        aec.insert(
+            AecInsertRequest::new_priority(block_a.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+        aec.insert(
+            AecInsertRequest::new_priority(block_b.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+
+        let blocked_shard_guard = aec.shard(&block_b.qualified_root()).write().unwrap();
+        let started = Arc::new(AtomicBool::new(false));
+        let saw_first_shard = Arc::new(AtomicBool::new(false));
+        let aec_for_thread = Arc::clone(&aec);
+        let started_clone = Arc::clone(&started);
+        let saw_first_shard_clone = Arc::clone(&saw_first_shard);
+        let first_root = block_a.qualified_root();
+
+        let worker = thread::spawn(move || {
+            started_clone.store(true, Ordering::Release);
+            aec_for_thread.for_each_election_snapshot(|election| {
+                if election.qualified_root() == &first_root {
+                    saw_first_shard_clone.store(true, Ordering::Release);
+                }
+                true
+            });
+        });
+
+        while !started.load(Ordering::Acquire) {
+            thread::yield_now();
+        }
+        let saw_deadline = Instant::now() + Duration::from_secs(1);
+        while !saw_first_shard.load(Ordering::Acquire) && Instant::now() < saw_deadline {
+            thread::yield_now();
+        }
+        let saw_first_shard_before_release = saw_first_shard.load(Ordering::Acquire);
+
+        let mut first_shard_released = false;
+        let write_deadline = Instant::now() + Duration::from_secs(1);
+        while saw_first_shard_before_release && Instant::now() < write_deadline {
+            if aec.shard(&block_a.qualified_root()).try_write().is_ok() {
+                first_shard_released = true;
+                break;
+            }
+            thread::yield_now();
+        }
+
+        drop(blocked_shard_guard);
+        worker.join().unwrap();
+        assert!(saw_first_shard_before_release);
+        assert!(first_shard_released);
     }
 
     #[test]
