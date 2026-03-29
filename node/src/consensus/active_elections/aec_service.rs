@@ -1,8 +1,8 @@
 use std::{
+    cmp::Ordering as CmpOrdering,
     collections::{HashMap, HashSet, VecDeque},
     sync::{
-        Arc,
-        RwLock, RwLockWriteGuard,
+        Arc, RwLock,
         atomic::{AtomicPtr, Ordering},
     },
     time::Duration,
@@ -10,23 +10,22 @@ use std::{
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{
-    Account, Amount, Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, TimePriority,
-    VoteError,
+    Account, Amount, Block, BlockHash, BlockPriority, PublicKey, QualifiedRoot, SavedBlock,
+    TimePriority, VoteError,
 };
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
     sync::backpressure_channel::Sender,
 };
-use strum::EnumCount;
 
 use super::{
-    ActiveElectionsConfig, ActiveElectionsContainer, ActiveElectionsInfo, AecCooldownReason,
-    AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs, RootContainer,
+    ActiveElectionsConfig, ActiveElectionsInfo, AecCooldownReason, AecFact, AecInsertError,
+    AecInsertRequest, ApplyVoteArgs, RootContainer,
     active_elections_container::{ForkChange, InsertResult},
     apply_vote_helper::ApplyVoteHelper,
     cooldown_controller::{CooldownController, CooldownResult},
-    root_container::{BucketCursor, ElectionHandle, RootedElectionHandle},
+    root_container::ElectionHandle,
     stats::{AecStats, VoteCounter},
     vote_router::VoteRouter,
 };
@@ -34,7 +33,7 @@ use crate::consensus::election::{
     AddForkResult, ConfirmationType, ConfirmedElection, Election, ElectionBehavior, ElectionState,
     VoteType,
 };
-use crate::consensus::election_schedulers::priority::bucket_count;
+use crate::consensus::election_schedulers::priority::{bucket_count, bucket_index};
 use rustc_hash::FxHashMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,9 +54,9 @@ fn priority_activation_error(error: AecInsertError) -> PriorityActivationResult 
 }
 
 pub struct AecService {
+    base_latency: Duration,
     router: RwLock<VoteRouter>,
-    shards: Vec<RwLock<AecShardState>>,
-    published_handles: AtomicArc<FxHashMap<QualifiedRoot, ElectionHandle>>,
+    published: AtomicArc<PublishedElectionMap>,
     recently_confirmed: AtomicArc<RecentlyConfirmedState>,
     lifecycle: RwLock<AecLifecycleState>,
     stats: RwLock<AecStats>,
@@ -65,8 +64,6 @@ pub struct AecService {
     vote_counter: VoteCounter,
     observer: RwLock<Option<Sender<AecFact>>>,
 }
-
-const AEC_SHARD_COUNT: usize = 8;
 
 struct AecLifecycleState {
     stopped: bool,
@@ -99,126 +96,12 @@ impl AecLifecycleState {
     }
 }
 
-struct AecShardState {
-    elections: ActiveElectionsContainer,
-    count_by_behavior: [usize; ElectionBehavior::COUNT],
-}
+type PublishedElectionMap = FxHashMap<QualifiedRoot, PublishedElection>;
 
-impl AecShardState {
-    fn new(base_latency: Duration, _recently_confirmed_max_len: usize) -> Self {
-        Self {
-            elections: ActiveElectionsContainer::new(base_latency),
-            count_by_behavior: Default::default(),
-        }
-    }
-
-    fn insert(
-        &mut self,
-        request: AecInsertRequest,
-        now: Timestamp,
-    ) -> Result<InsertResult, AecInsertError> {
-        let inserted = self.elections.insert(request, now)?;
-        self.insert_result(&inserted);
-        Ok(inserted)
-    }
-
-    fn insert_result(&mut self, result: &InsertResult) {
-        match result {
-            InsertResult::Inserted { behavior, .. } => {
-                self.count_by_behavior[*behavior as usize] += 1;
-            }
-            InsertResult::Upgraded {
-                previous_behavior,
-                new_behavior,
-            } => {
-                self.count_by_behavior[*previous_behavior as usize] -= 1;
-                self.count_by_behavior[*new_behavior as usize] += 1;
-            }
-        }
-    }
-
-    fn count_by_behavior(&self, behavior: ElectionBehavior) -> usize {
-        self.count_by_behavior[behavior as usize]
-    }
-
-    fn cleanup_election(&mut self, election: &Election) {
-        self.count_by_behavior[election.behavior() as usize] -= 1;
-    }
-
-    fn len(&self) -> usize {
-        self.elections.len()
-    }
-
-    fn bucket_len(&self, bucket_id: usize) -> usize {
-        self.elections.bucket_len(bucket_id)
-    }
-
-    fn find_bucket(&self, root: &QualifiedRoot) -> Option<usize> {
-        self.elections.find_bucket(root)
-    }
-
-    fn lowest_priority(&self, bucket_id: usize) -> Option<(QualifiedRoot, TimePriority)> {
-        self.elections.lowest_priority(bucket_id)
-    }
-
-    fn election_handle_for_root(&self, root: &QualifiedRoot) -> Option<ElectionHandle> {
-        self.elections.election_handle_for_root(root)
-    }
-
-    fn next_bucket(
-        &self,
-        bucket_id: usize,
-        after: Option<&BucketCursor>,
-    ) -> Option<(BucketCursor, RootedElectionHandle)> {
-        self.elections.next_bucket(bucket_id, after)
-    }
-
-    fn apply_fork_result(
-        &mut self,
-        root: &QualifiedRoot,
-        handle: &ElectionHandle,
-        fork: &Block,
-        result: AddForkResult,
-    ) -> ForkChange {
-        self.elections.apply_fork_result(root, handle, fork, result)
-    }
-
-    fn take_ended_elections(&mut self) -> Vec<Election> {
-        let ended = self.elections.take_ended_elections();
-        for election in &ended {
-            self.cleanup_election(election);
-        }
-        ended
-    }
-
-    fn erase(&mut self, root: &QualifiedRoot) -> Option<Election> {
-        let ended = self.elections.erase(root);
-        if let Some(election) = &ended {
-            self.cleanup_election(election);
-        }
-        ended
-    }
-
-    fn erase_with_known_election(&mut self, root: &QualifiedRoot, election: &Election) -> bool {
-        let erased = self.elections.erase_with_known_election(root, election);
-        if erased {
-            self.cleanup_election(election);
-        }
-        erased
-    }
-
-    fn stop(&mut self) -> Vec<Election> {
-        self.count_by_behavior = Default::default();
-        self.elections.stop()
-    }
-
-    fn cancel_all(&mut self) {
-        self.elections.cancel_all();
-    }
-
-    fn iter_round_robin(&self) -> impl Iterator<Item = Election> {
-        self.elections.iter_round_robin()
-    }
+#[derive(Clone)]
+struct PublishedElection {
+    handle: ElectionHandle,
+    priority: BlockPriority,
 }
 
 #[derive(Clone, Default)]
@@ -248,7 +131,8 @@ impl RecentlyConfirmedState {
     fn put(&mut self, root: QualifiedRoot, hash: BlockHash) {
         if let Some(previous_hash) = self.by_root.insert(root.clone(), hash) {
             self.by_hash.remove(&previous_hash);
-            self.ordered_hashes.retain(|current| current != &previous_hash);
+            self.ordered_hashes
+                .retain(|current| current != &previous_hash);
         }
 
         if let Some(previous_root) = self.by_hash.insert(hash, root.clone()) {
@@ -294,19 +178,12 @@ impl AecService {
         }
     }
 
-    fn confirmation_cache_len_per_shard(confirmation_cache: usize) -> usize {
-        confirmation_cache.div_ceil(AEC_SHARD_COUNT)
-    }
-
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         let confirmation_cache = config.confirmation_cache;
-        let recently_confirmed_max_len = Self::confirmation_cache_len_per_shard(confirmation_cache);
         Self {
+            base_latency,
             router: RwLock::new(VoteRouter::default()),
-            shards: (0..AEC_SHARD_COUNT)
-                .map(|_| RwLock::new(AecShardState::new(base_latency, recently_confirmed_max_len)))
-                .collect(),
-            published_handles: AtomicArc::new(Arc::new(FxHashMap::default())),
+            published: AtomicArc::new(Arc::new(FxHashMap::default())),
             recently_confirmed: AtomicArc::new(Arc::new(RecentlyConfirmedState::new(
                 confirmation_cache,
             ))),
@@ -319,19 +196,10 @@ impl AecService {
     }
 
     pub fn new_null() -> Self {
-        let recently_confirmed_max_len =
-            Self::confirmation_cache_len_per_shard(ActiveElectionsConfig::default().confirmation_cache);
         Self {
+            base_latency: Duration::from_secs(0),
             router: RwLock::new(VoteRouter::default()),
-            shards: (0..AEC_SHARD_COUNT)
-                .map(|_| {
-                    RwLock::new(AecShardState::new(
-                        Duration::from_secs(0),
-                        recently_confirmed_max_len,
-                    ))
-                })
-                .collect(),
-            published_handles: AtomicArc::new(Arc::new(FxHashMap::default())),
+            published: AtomicArc::new(Arc::new(FxHashMap::default())),
             recently_confirmed: AtomicArc::new(Arc::new(RecentlyConfirmedState::new(
                 ActiveElectionsConfig::default().confirmation_cache,
             ))),
@@ -365,10 +233,7 @@ impl AecService {
     }
 
     pub fn len(&self) -> usize {
-        self.shards
-            .iter()
-            .map(|shard| shard.read().unwrap().len())
-            .sum()
+        self.published.load().len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -388,28 +253,37 @@ impl AecService {
     }
 
     pub fn count_by_behavior(&self, behavior: ElectionBehavior) -> usize {
-        self.shards
-            .iter()
-            .map(|shard| shard.read().unwrap().count_by_behavior(behavior))
-            .sum()
+        self.published
+            .load()
+            .values()
+            .filter(|entry| entry.handle.behavior() == behavior)
+            .count()
     }
 
     pub fn bucket_len(&self, bucket_id: usize) -> usize {
-        self.shards
+        self.published
+            .load()
             .iter()
-            .map(|shard| shard.read().unwrap().bucket_len(bucket_id))
-            .sum()
+            .filter(|(root, entry)| self.bucket_of_entry(root, entry) == bucket_id)
+            .count()
     }
 
     pub fn find_bucket(&self, root: &QualifiedRoot) -> Option<usize> {
-        self.shard(root).read().unwrap().find_bucket(root)
+        self.published
+            .load()
+            .get(root)
+            .map(|entry| self.bucket_of_entry(root, entry))
     }
 
     pub fn lowest_priority(&self, bucket_id: usize) -> Option<(QualifiedRoot, TimePriority)> {
-        self.shards
+        self.published
+            .load()
             .iter()
-            .filter_map(|shard| shard.read().unwrap().lowest_priority(bucket_id))
-            .min_by_key(|(_, priority)| *priority)
+            .filter(|(root, entry)| self.bucket_of_entry(root, entry) == bucket_id)
+            .min_by(|(left_root, left_entry), (right_root, right_entry)| {
+                self.compare_lowest_priority(left_root, left_entry, right_root, right_entry)
+            })
+            .map(|(root, entry)| (root.clone(), entry.priority.time))
     }
 
     pub fn vacancy(&self) -> i64 {
@@ -463,11 +337,9 @@ impl AecService {
     }
 
     pub fn insert(&self, request: AecInsertRequest, now: Timestamp) -> Result<(), AecInsertError> {
-        let shard_index = self.shard_index_for_root(&request.block.qualified_root());
         let inserted = {
             let lifecycle = self.lifecycle.read().unwrap();
             lifecycle.ensure_not_stopped()?;
-            let mut shard = self.shards[shard_index].write().unwrap();
             if self
                 .recently_confirmed
                 .load()
@@ -475,10 +347,7 @@ impl AecService {
             {
                 return Err(AecInsertError::RecentlyConfirmed);
             }
-            let inserted = shard.insert(request, now)?;
-            if let Some(root) = inserted.inserted_root() {
-                self.publish_shard_handle(root, &shard);
-            }
+            let inserted = self.insert_published(request, now)?;
             self.stats_inserted(&inserted);
             inserted
         };
@@ -500,105 +369,36 @@ impl AecService {
         now: Timestamp,
     ) -> PriorityActivationResult {
         let root = block.qualified_root();
-        let insert_shard_index = self.shard_index_for_root(&root);
         let replacement_root = if self.bucket_len(bucket_id) >= reserved_elections {
             self.lowest_priority(bucket_id).map(|(root, _)| root)
         } else {
             None
         };
-        let mut ended = None;
-        let inserted = {
+        let (inserted, ended) = {
             let lifecycle = self.lifecycle.read().unwrap();
             if let Err(err) = lifecycle.ensure_not_stopped() {
                 return priority_activation_error(err);
             }
-            let replacement_shard_index = replacement_root
-                .as_ref()
-                .map(|lowest_root| self.shard_index_for_root(lowest_root));
-
-            if let Some(lowest_shard_index) = replacement_shard_index
-                && lowest_shard_index != insert_shard_index
+            if self
+                .recently_confirmed
+                .load()
+                .root_exists(&block.qualified_root())
             {
-                let (mut first, mut second) =
-                    self.write_two_shards_ordered(insert_shard_index, lowest_shard_index);
-                let (insert_shard, lowest_shard) = (&mut first, &mut second);
+                return PriorityActivationResult::RecentlyConfirmed;
+            }
 
-                if self
-                    .recently_confirmed
-                    .load()
-                    .root_exists(&block.qualified_root())
-                {
-                    return PriorityActivationResult::RecentlyConfirmed;
-                }
+            if self.find_bucket(&root) == Some(bucket_id) {
+                return PriorityActivationResult::Duplicate;
+            }
 
-                if insert_shard.find_bucket(&root) == Some(bucket_id) {
-                    return PriorityActivationResult::Duplicate;
-                }
-
-                let removed = lowest_shard.erase(replacement_root.as_ref().unwrap());
-                let removed_from_active =
-                    self.publish_shard_handle_removal(replacement_root.as_ref().unwrap());
-                if removed_from_active && let Some(election) = &removed {
-                    self.stats.write().unwrap().stopped(election);
-                }
-                ended = removed.filter(|_| removed_from_active);
-
-                match insert_shard.insert(AecInsertRequest::new_priority(block, priority), now) {
-                    Ok(inserted) => {
-                        if let Some(root) = inserted.inserted_root() {
-                            self.publish_shard_handle(root, &first);
-                        }
-                        self.stats_inserted(&inserted);
-                        Ok((inserted, true))
-                    }
-                    Err(err) => Err(priority_activation_error(err)),
-                }
-            } else {
-                let mut shard = self.shards[insert_shard_index].write().unwrap();
-
-                if self
-                    .recently_confirmed
-                    .load()
-                    .root_exists(&block.qualified_root())
-                {
-                    return PriorityActivationResult::RecentlyConfirmed;
-                }
-
-                if shard.find_bucket(&root) == Some(bucket_id) {
-                    return PriorityActivationResult::Duplicate;
-                }
-
-                let replaced = if let Some(lowest_root) = &replacement_root {
-                    let removed = shard.erase(lowest_root);
-                    let removed_from_active = self.publish_shard_handle_removal(lowest_root);
-                    if removed_from_active && let Some(election) = &removed {
-                        self.stats.write().unwrap().stopped(election);
-                    }
-                    ended = removed.filter(|_| removed_from_active);
-                    true
-                } else {
-                    false
-                };
-
-                match shard.insert(AecInsertRequest::new_priority(block, priority), now) {
-                    Ok(inserted) => {
-                        if let Some(root) = inserted.inserted_root() {
-                            self.publish_shard_handle(root, &shard);
-                        }
-                        self.stats_inserted(&inserted);
-                        Ok((inserted, replaced))
-                    }
-                    Err(err) => Err(priority_activation_error(err)),
-                }
+            match self.activate_priority_published(block, priority, now, replacement_root.clone()) {
+                Ok(value) => value,
+                Err(err) => return priority_activation_error(err),
             }
         };
 
-        let (inserted, replaced) = match inserted {
-            Ok(value) => value,
-            Err(result) => return result,
-        };
-
         if let Some(election) = ended {
+            self.stats.write().unwrap().stopped(&election);
             self.router.write().unwrap().disconnect_election(&election);
             self.notify(AecFact::ElectionEnded(election));
         }
@@ -608,7 +408,7 @@ impl AecService {
             self.notify(AecFact::ElectionStarted(hash, root));
         }
 
-        if replaced {
+        if replacement_root.is_some() {
             PriorityActivationResult::ActivatedWithReplacement
         } else {
             PriorityActivationResult::Activated
@@ -624,18 +424,15 @@ impl AecService {
         let result = handle.lock().try_add_fork(fork, fork_tally);
         let change = match result {
             AddForkResult::Duplicate | AddForkResult::ElectionEnded => return false,
-            result => {
-                let mut shard = self.shard(&root).write().unwrap();
-                let change = shard.apply_fork_result(&root, &handle, fork, result);
-                if matches!(
-                    change,
-                    ForkChange::Added { .. } | ForkChange::Replaced { .. }
-                ) {
-                    self.stats.write().unwrap().conflicts += 1;
-                }
-                change
-            }
+            result => self.apply_fork_result(&root, &handle, fork, result),
         };
+
+        if matches!(
+            change,
+            ForkChange::Added { .. } | ForkChange::Replaced { .. }
+        ) {
+            self.stats.write().unwrap().conflicts += 1;
+        }
 
         match change {
             ForkChange::Added { added_hash } => {
@@ -758,12 +555,20 @@ impl AecService {
     }
 
     fn resolve_vote_result(&self, block_hash: BlockHash) -> ResolvedVoteResult {
-        if let Some((root, _)) = self.routed_root(&block_hash)
-            && let Some(handle) = self.published_handles.load().get(&root).cloned()
+        if let Some(root) = self
+            .router
+            .read()
+            .unwrap()
+            .qualified_root(&block_hash)
+            .cloned()
+            && let Some(handle) = self
+                .published
+                .load()
+                .get(&root)
+                .map(|entry| entry.handle.clone())
         {
             ResolvedVoteResult::Apply(handle)
-        } else if self.was_recently_confirmed(&block_hash)
-        {
+        } else if self.was_recently_confirmed(&block_hash) {
             ResolvedVoteResult::Resolved(Err(VoteError::Late))
         } else {
             ResolvedVoteResult::Resolved(Err(VoteError::Indeterminate))
@@ -786,14 +591,7 @@ impl AecService {
             self.stats.write().unwrap().ticked += 1;
             ended
                 .into_iter()
-                .filter_map(|root| {
-                    let ended = self.shard(&root).write().unwrap().erase(&root);
-                    if ended.is_some() && self.publish_shard_handle_removal(&root) {
-                        ended
-                    } else {
-                        None
-                    }
-                })
+                .filter_map(|root| self.remove_published_election(&root))
                 .inspect(|election| self.stats.write().unwrap().stopped(election))
                 .collect::<Vec<_>>()
         };
@@ -807,16 +605,10 @@ impl AecService {
         vote_broadcast_interval: Duration,
         now: Timestamp,
     ) -> Option<(QualifiedRoot, VoteType, BlockHash)> {
-        for shard_index in 0..self.shards.len() {
-            let mut cursor = None;
-            while let Some((next_cursor, root, handle)) =
-                self.next_bucket_handle(shard_index, bucket_id, cursor.as_ref())
-            {
-                cursor = Some(next_cursor);
-                let election = handle.lock();
-                if election.can_vote(vote_broadcast_interval, now) {
-                    return Some((root, election.vote_type(), election.winner().hash()));
-                }
+        for (root, handle) in self.bucket_handles(bucket_id) {
+            let election = handle.lock();
+            if election.can_vote(vote_broadcast_interval, now) {
+                return Some((root, election.vote_type(), election.winner().hash()));
             }
         }
 
@@ -890,12 +682,9 @@ impl AecService {
     pub fn erase_ended_elections(&self) {
         let ended = {
             let mut ended = Vec::new();
-            for shard in &self.shards {
-                let shard_ended = shard.write().unwrap().take_ended_elections();
-                for election in &shard_ended {
-                    if self.publish_shard_handle_removal(election.qualified_root()) {
-                        ended.push(election.clone());
-                    }
+            for root in self.ended_roots() {
+                if let Some(election) = self.remove_published_election(&root) {
+                    ended.push(election);
                 }
             }
             if !ended.is_empty() {
@@ -912,12 +701,7 @@ impl AecService {
 
     pub fn erase(&self, root: &QualifiedRoot) -> bool {
         let ended = {
-            let ended = self.shard(root).write().unwrap().erase(root);
-            let ended = if ended.is_some() && self.publish_shard_handle_removal(root) {
-                ended
-            } else {
-                None
-            };
+            let ended = self.remove_published_election(root);
             if let Some(election) = &ended {
                 self.stats.write().unwrap().stopped(election);
             }
@@ -933,19 +717,12 @@ impl AecService {
     }
 
     pub fn erase_lowest_prio_election(&self, bucket_id: usize) {
-        let lowest = self.lowest_priority(bucket_id).map(|(root, _)| root);
-        if let Some(election) = lowest.and_then(|root| {
-            let election = self.shard(&root).write().unwrap().erase(&root);
-            let election = if election.is_some() && self.publish_shard_handle_removal(&root) {
-                election
-            } else {
-                None
-            };
-            if let Some(election) = &election {
-                self.stats.write().unwrap().stopped(election);
-            }
-            election
-        }) {
+        if let Some(election) = self
+            .lowest_priority(bucket_id)
+            .map(|(root, _)| root)
+            .and_then(|root| self.remove_published_election(&root))
+        {
+            self.stats.write().unwrap().stopped(&election);
             self.finish_removed_elections([election]);
         }
     }
@@ -1025,8 +802,8 @@ impl AecService {
     }
 
     pub fn cancel_all(&self) {
-        for shard in &self.shards {
-            shard.write().unwrap().cancel_all();
+        for entry in self.published.load().values() {
+            entry.handle.lock().cancel();
         }
     }
 
@@ -1039,10 +816,7 @@ impl AecService {
         self.router.write().unwrap().clear();
         let mut lifecycle = self.lifecycle.write().unwrap();
         lifecycle.stopped = true;
-        for shard in &self.shards {
-            let _ = shard.write().unwrap().stop();
-        }
-        self.published_handles.store(Arc::new(FxHashMap::default()));
+        self.published.store(Arc::new(FxHashMap::default()));
         self.recently_confirmed
             .store(Arc::new(RecentlyConfirmedState::new(0)));
     }
@@ -1075,9 +849,7 @@ impl AecService {
                 recently_confirmed.put(election.qualified_root().clone(), election.winner().hash());
             });
 
-            let mut shard = self.shard(election.qualified_root()).write().unwrap();
-            if shard.erase_with_known_election(election.qualified_root(), &election) {
-                self.publish_shard_handle_removal(election.qualified_root());
+            if self.remove_known_published_election(&election) {
                 self.cleanup_stats.write().unwrap().stopped(&election);
                 Some(election)
             } else {
@@ -1101,42 +873,29 @@ impl AecService {
     }
 
     fn election_handle_for_block(&self, block_hash: &BlockHash) -> Option<ElectionHandle> {
-        let (root, _) = self.routed_root(block_hash)?;
-        self.published_handles.load().get(&root).cloned()
+        let root = self
+            .router
+            .read()
+            .unwrap()
+            .qualified_root(block_hash)
+            .cloned()?;
+        self.election_handle_for_root(&root)
     }
 
     fn election_handle_for_root(&self, root: &QualifiedRoot) -> Option<ElectionHandle> {
-        self.published_handles.load().get(root).cloned()
-    }
-
-    fn next_bucket_handle(
-        &self,
-        shard_index: usize,
-        bucket_id: usize,
-        after: Option<&BucketCursor>,
-    ) -> Option<(BucketCursor, QualifiedRoot, ElectionHandle)> {
-        let shard = self.shards[shard_index].read().unwrap();
-        shard
-            .next_bucket(bucket_id, after)
-            .map(|(cursor, (root, handle))| (cursor, root, handle))
+        self.published
+            .load()
+            .get(root)
+            .map(|entry| entry.handle.clone())
     }
 
     fn for_each_round_robin_handle(
         &self,
         mut f: impl FnMut(usize, QualifiedRoot, ElectionHandle) -> bool,
     ) {
-        for shard_index in 0..self.shards.len() {
-            let mut cursors = vec![None; bucket_count()];
-            let mut next_bucket = bucket_count().saturating_sub(1);
-
-            while let Some((bucket_id, cursor, root, handle)) =
-                self.next_round_robin_handle(shard_index, &cursors, next_bucket)
-            {
-                cursors[bucket_id] = Some(cursor);
-                next_bucket = bucket_id.checked_sub(1).unwrap_or(bucket_count() - 1);
-                if !f(bucket_id, root, handle) {
-                    return;
-                }
+        for (bucket_id, root, handle) in self.round_robin_handles() {
+            if !f(bucket_id, root, handle) {
+                return;
             }
         }
     }
@@ -1152,74 +911,14 @@ impl AecService {
     }
 
     fn for_each_election_snapshot(&self, mut f: impl FnMut(Election) -> bool) {
-        for shard in &self.shards {
-            let shard = shard.read().unwrap();
-            for election in shard.iter_round_robin() {
-                if !f(election) {
-                    return;
-                }
+        for (_, _, handle) in self.round_robin_handles() {
+            if !f(handle.snapshot()) {
+                return;
             }
         }
     }
 
-    fn next_round_robin_handle(
-        &self,
-        shard_index: usize,
-        cursors: &[Option<BucketCursor>],
-        start_bucket: usize,
-    ) -> Option<(usize, BucketCursor, QualifiedRoot, ElectionHandle)> {
-        for offset in 0..bucket_count() {
-            let bucket_id = (start_bucket + bucket_count() - offset) % bucket_count();
-            if let Some((cursor, root, handle)) =
-                self.next_bucket_handle(shard_index, bucket_id, cursors[bucket_id].as_ref())
-            {
-                return Some((bucket_id, cursor, root, handle));
-            }
-        }
-        None
-    }
-
-    fn routed_root(&self, block_hash: &BlockHash) -> Option<(QualifiedRoot, usize)> {
-        let root = self
-            .router
-            .read()
-            .unwrap()
-            .qualified_root(block_hash)
-            .cloned()?;
-        let shard_index = self.shard_index_for_root(&root);
-        Some((root, shard_index))
-    }
-
-    fn shard(&self, root: &QualifiedRoot) -> &RwLock<AecShardState> {
-        &self.shards[self.shard_index_for_root(root)]
-    }
-
-    fn shard_index_for_root(&self, root: &QualifiedRoot) -> usize {
-        root.to_bytes()[QualifiedRoot::SERIALIZED_SIZE - 1] as usize % self.shards.len()
-    }
-
-    fn publish_shard_handle(&self, root: &QualifiedRoot, shard: &AecShardState) {
-        let Some(handle) = shard.election_handle_for_root(root) else {
-            return;
-        };
-        let current = self.published_handles.load();
-        let mut updated = (*current).clone();
-        updated.insert(root.clone(), handle);
-        self.published_handles.store(Arc::new(updated));
-    }
-
-    fn publish_shard_handle_removal(&self, root: &QualifiedRoot) -> bool {
-        let current = self.published_handles.load();
-        let mut updated = (*current).clone();
-        let removed = updated.remove(root).is_some();
-        self.published_handles.store(Arc::new(updated));
-        removed
-    }
-
-    fn update_recently_confirmed(
-        &self,
-        f: impl FnOnce(&mut RecentlyConfirmedState),
-    ) {
+    fn update_recently_confirmed(&self, f: impl FnOnce(&mut RecentlyConfirmedState)) {
         let current = self.recently_confirmed.load();
         let mut updated = (*current).clone();
         f(&mut updated);
@@ -1244,27 +943,296 @@ impl AecService {
         }
     }
 
-    fn write_two_shards_ordered(
+    fn insert_published(
         &self,
-        first_index: usize,
-        second_index: usize,
-    ) -> (
-        RwLockWriteGuard<'_, AecShardState>,
-        RwLockWriteGuard<'_, AecShardState>,
-    ) {
-        debug_assert_ne!(first_index, second_index);
-        let (low, high) = if first_index < second_index {
-            (first_index, second_index)
-        } else {
-            (second_index, first_index)
-        };
-        let low_guard = self.shards[low].write().unwrap();
-        let high_guard = self.shards[high].write().unwrap();
-        if first_index < second_index {
-            (low_guard, high_guard)
-        } else {
-            (high_guard, low_guard)
+        request: AecInsertRequest,
+        now: Timestamp,
+    ) -> Result<InsertResult, AecInsertError> {
+        let root = request.block.qualified_root();
+
+        if let Some(entry) = self.published.load().get(&root).cloned() {
+            let previous_behavior = entry.handle.behavior();
+            if request.behavior != ElectionBehavior::Priority {
+                return Err(AecInsertError::Duplicate);
+            }
+
+            if entry
+                .handle
+                .lock()
+                .maybe_upgrade_to(ElectionBehavior::Priority)
+            {
+                return Ok(InsertResult::Upgraded {
+                    previous_behavior,
+                    new_behavior: ElectionBehavior::Priority,
+                });
+            } else {
+                return Err(AecInsertError::Duplicate);
+            }
         }
+
+        let hash = request.block.hash();
+        let priority = request.priority;
+        let handle = ElectionHandle::new(Election::new(
+            request.block,
+            request.behavior,
+            self.base_latency,
+            now,
+        ));
+        self.published.update(|current| {
+            let mut updated = current.clone();
+            updated.insert(
+                root.clone(),
+                PublishedElection {
+                    handle: handle.clone(),
+                    priority,
+                },
+            );
+            updated
+        });
+
+        Ok(InsertResult::Inserted {
+            hash,
+            root,
+            behavior: request.behavior,
+        })
+    }
+
+    fn activate_priority_published(
+        &self,
+        block: SavedBlock,
+        priority: BlockPriority,
+        now: Timestamp,
+        replacement_root: Option<QualifiedRoot>,
+    ) -> Result<(InsertResult, Option<Election>), AecInsertError> {
+        let root = block.qualified_root();
+        let hash = block.hash();
+        let mut upgraded_handle: Option<(ElectionHandle, ElectionBehavior)> = None;
+
+        loop {
+            let current = self.published.load();
+            let existing = current.get(&root).cloned();
+            let already_upgraded = existing.as_ref().is_some_and(|entry| {
+                upgraded_handle
+                    .as_ref()
+                    .is_some_and(|(handle, _)| entry.handle.ptr_eq(handle))
+                    && entry.handle.behavior() == ElectionBehavior::Priority
+            });
+
+            let inserted = if let Some(entry) = &existing {
+                if !already_upgraded {
+                    let previous_behavior = entry.handle.behavior();
+                    if !entry
+                        .handle
+                        .lock()
+                        .maybe_upgrade_to(ElectionBehavior::Priority)
+                    {
+                        return Err(AecInsertError::Duplicate);
+                    }
+                    upgraded_handle = Some((entry.handle.clone(), previous_behavior));
+                    InsertResult::Upgraded {
+                        previous_behavior,
+                        new_behavior: ElectionBehavior::Priority,
+                    }
+                } else {
+                    InsertResult::Upgraded {
+                        previous_behavior: upgraded_handle.as_ref().unwrap().1,
+                        new_behavior: ElectionBehavior::Priority,
+                    }
+                }
+            } else {
+                InsertResult::Inserted {
+                    hash,
+                    root: root.clone(),
+                    behavior: ElectionBehavior::Priority,
+                }
+            };
+
+            let replaced = replacement_root.as_ref().and_then(|candidate| {
+                current
+                    .get(candidate)
+                    .map(|entry| (candidate.clone(), entry.clone()))
+            });
+
+            if existing.is_some() && replaced.is_none() {
+                return Ok((inserted, None));
+            }
+
+            let handle = ElectionHandle::new(Election::new(
+                block.clone(),
+                ElectionBehavior::Priority,
+                self.base_latency,
+                now,
+            ));
+
+            let mut updated = (*current).clone();
+            if let Some((candidate, _)) = &replaced {
+                updated.remove(candidate);
+            }
+            if existing.is_none() {
+                updated.insert(
+                    root.clone(),
+                    PublishedElection {
+                        handle: handle.clone(),
+                        priority,
+                    },
+                );
+            }
+
+            if self.published.compare_exchange(&current, Arc::new(updated)) {
+                let ended = replaced.map(|(_, entry)| entry.handle.snapshot());
+                return Ok((inserted, ended));
+            }
+        }
+    }
+
+    fn apply_fork_result(
+        &self,
+        root: &QualifiedRoot,
+        handle: &ElectionHandle,
+        fork: &Block,
+        result: AddForkResult,
+    ) -> ForkChange {
+        let current = self.published.load();
+        let Some(entry) = current.get(root) else {
+            return ForkChange::Ignored;
+        };
+        if !entry.handle.ptr_eq(handle) {
+            return ForkChange::Ignored;
+        }
+
+        match result {
+            AddForkResult::Added => ForkChange::Added {
+                added_hash: fork.hash(),
+            },
+            AddForkResult::Replaced(removed) => ForkChange::Replaced {
+                added_hash: fork.hash(),
+                removed: removed.into(),
+            },
+            AddForkResult::TallyTooLow => ForkChange::Discarded {
+                discarded: fork.clone(),
+            },
+            AddForkResult::Duplicate | AddForkResult::ElectionEnded => ForkChange::Ignored,
+        }
+    }
+
+    fn remove_published_election(&self, root: &QualifiedRoot) -> Option<Election> {
+        self.remove_published_if(root, |_| true)
+    }
+
+    fn remove_known_published_election(&self, election: &Election) -> bool {
+        self.remove_published_if(election.qualified_root(), |entry| {
+            entry.handle.snapshot().winner().hash() == election.winner().hash()
+        })
+        .is_some()
+    }
+
+    fn remove_published_if(
+        &self,
+        root: &QualifiedRoot,
+        predicate: impl Fn(&PublishedElection) -> bool,
+    ) -> Option<Election> {
+        loop {
+            let current = self.published.load();
+            let entry = current.get(root)?.clone();
+            if !predicate(&entry) {
+                return None;
+            }
+            let mut updated = (*current).clone();
+            updated.remove(root)?;
+            if self.published.compare_exchange(&current, Arc::new(updated)) {
+                return Some(entry.handle.snapshot());
+            }
+        }
+    }
+
+    fn ended_roots(&self) -> Vec<QualifiedRoot> {
+        self.published
+            .load()
+            .iter()
+            .filter_map(|(root, entry)| {
+                if entry.handle.lock().state().has_ended() {
+                    Some(root.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn bucket_of_entry(&self, _root: &QualifiedRoot, entry: &PublishedElection) -> usize {
+        bucket_index(entry.handle.behavior(), entry.priority.balance)
+    }
+
+    fn compare_lowest_priority(
+        &self,
+        left_root: &QualifiedRoot,
+        left: &PublishedElection,
+        right_root: &QualifiedRoot,
+        right: &PublishedElection,
+    ) -> CmpOrdering {
+        left.priority
+            .time
+            .cmp(&right.priority.time)
+            .then_with(|| left.priority.balance.cmp(&right.priority.balance))
+            .then_with(|| left_root.cmp(right_root))
+    }
+
+    fn bucket_handles(&self, bucket_id: usize) -> Vec<(QualifiedRoot, ElectionHandle)> {
+        let mut entries: Vec<_> = self
+            .published
+            .load()
+            .iter()
+            .filter(|(root, entry)| self.bucket_of_entry(root, entry) == bucket_id)
+            .map(|(root, entry)| (root.clone(), entry.clone()))
+            .collect();
+        entries.sort_by(|(left_root, left), (right_root, right)| {
+            right
+                .priority
+                .time
+                .cmp(&left.priority.time)
+                .then_with(|| right.priority.balance.cmp(&left.priority.balance))
+                .then_with(|| right_root.cmp(left_root))
+        });
+        entries
+            .into_iter()
+            .map(|(root, entry)| (root, entry.handle))
+            .collect()
+    }
+
+    fn round_robin_handles(&self) -> Vec<(usize, QualifiedRoot, ElectionHandle)> {
+        let mut buckets = vec![Vec::<(QualifiedRoot, PublishedElection)>::new(); bucket_count()];
+        for (root, entry) in self.published.load().iter() {
+            let bucket_id = self.bucket_of_entry(root, entry);
+            buckets[bucket_id].push((root.clone(), entry.clone()));
+        }
+
+        for bucket in &mut buckets {
+            bucket.sort_by(|(left_root, left), (right_root, right)| {
+                right
+                    .priority
+                    .time
+                    .cmp(&left.priority.time)
+                    .then_with(|| right.priority.balance.cmp(&left.priority.balance))
+                    .then_with(|| right_root.cmp(left_root))
+            });
+        }
+
+        let mut positions = vec![0; bucket_count()];
+        let mut result = Vec::new();
+        loop {
+            let mut progressed = false;
+            for bucket_id in (0..bucket_count()).rev() {
+                if let Some((root, entry)) = buckets[bucket_id].get(positions[bucket_id]).cloned() {
+                    positions[bucket_id] += 1;
+                    result.push((bucket_id, root, entry.handle));
+                    progressed = true;
+                }
+            }
+            if !progressed {
+                break;
+            }
+        }
+        result
     }
 }
 
@@ -1292,6 +1260,38 @@ impl<T> AtomicArc<T> {
         let old_ptr = self.ptr.swap(new_ptr, Ordering::AcqRel);
         unsafe {
             drop(Arc::from_raw(old_ptr));
+        }
+    }
+
+    fn compare_exchange(&self, current: &Arc<T>, new: Arc<T>) -> bool {
+        let current_ptr = Arc::as_ptr(current) as *mut T;
+        let new_ptr = Arc::into_raw(new) as *mut T;
+        match self
+            .ptr
+            .compare_exchange(current_ptr, new_ptr, Ordering::AcqRel, Ordering::Acquire)
+        {
+            Ok(old_ptr) => {
+                unsafe {
+                    drop(Arc::from_raw(old_ptr));
+                }
+                true
+            }
+            Err(_) => {
+                unsafe {
+                    drop(Arc::from_raw(new_ptr));
+                }
+                false
+            }
+        }
+    }
+
+    fn update(&self, f: impl Fn(&T) -> T) {
+        loop {
+            let current = self.load();
+            let updated = Arc::new(f(&current));
+            if self.compare_exchange(&current, updated) {
+                return;
+            }
         }
     }
 }
@@ -1359,15 +1359,6 @@ enum ResolvedVoteResult {
     Resolved(Result<(), VoteError>),
 }
 
-impl InsertResult {
-    fn inserted_root(&self) -> Option<&QualifiedRoot> {
-        match self {
-            InsertResult::Inserted { root, .. } => Some(root),
-            InsertResult::Upgraded { .. } => None,
-        }
-    }
-}
-
 fn merge_stats(target: &mut StatsCollection, source: &StatsCollection) {
     for (key, value) in source.iter() {
         let total = target.get_dir(key.stat, key.detail, key.dir) + value;
@@ -1387,8 +1378,8 @@ mod tests {
     use rsnano_types::{
         BlockPriority, PrivateKey, SavedBlock, UnixMillisTimestamp, Vote, VoteSource,
     };
-    use rsnano_utils::{container_info::ContainerInfoEntry, stats::StatsCollection};
     use rsnano_utils::sync::backpressure_channel::channel;
+    use rsnano_utils::{container_info::ContainerInfoEntry, stats::StatsCollection};
     use std::{
         sync::{
             Arc,
@@ -1398,15 +1389,8 @@ mod tests {
         time::Instant,
     };
 
-    fn block_in_shard(aec: &AecService, shard_index: usize) -> SavedBlock {
-        (1..256)
-            .map(SavedBlock::new_test_instance_with_key)
-            .find(|block| aec.shard_index_for_root(&block.qualified_root()) == shard_index)
-            .unwrap()
-    }
-
     #[test]
-    fn apply_vote_does_not_hold_container_write_lock_while_waiting_for_other_election() {
+    fn apply_vote_for_other_election_progresses_while_target_election_is_locked() {
         let aec = Arc::new(AecService::new_null());
         let block_a = SavedBlock::new_test_instance_with_key(1);
         let block_b = SavedBlock::new_test_instance_with_key(2);
@@ -1452,20 +1436,6 @@ mod tests {
         while !started.load(Ordering::Acquire) {
             thread::yield_now();
         }
-        let mut container_write_available = false;
-        for _ in 0..10_000 {
-            if worker.is_finished() {
-                container_write_available = true;
-                break;
-            }
-            if aec.shard(&block_a.qualified_root()).try_write().is_ok() {
-                container_write_available = true;
-                break;
-            }
-            thread::yield_now();
-        }
-
-        assert!(container_write_available);
 
         let mut rep_weights_b = RepWeights::default();
         rep_weights_b.put(rep_key.public_key(), Amount::MAX);
@@ -1531,8 +1501,8 @@ mod tests {
     #[test]
     fn confirmed_cleanup_does_not_wait_for_global_stats_writer() {
         let aec = Arc::new(AecService::new_null());
-        let block_a = block_in_shard(&aec, 0);
-        let block_b = block_in_shard(&aec, 1);
+        let block_a = SavedBlock::new_test_instance_with_key(1);
+        let block_b = SavedBlock::new_test_instance_with_key(2);
         let now = Timestamp::new_test_instance();
 
         aec.insert(
@@ -1581,71 +1551,6 @@ mod tests {
     }
 
     #[test]
-    fn apply_vote_on_same_shard_does_not_wait_for_unrelated_shard_write() {
-        let aec = Arc::new(AecService::new_null());
-        let block_a = block_in_shard(&aec, 0);
-        let block_b = (1..256)
-            .map(SavedBlock::new_test_instance_with_key)
-            .find(|block| {
-                aec.shard_index_for_root(&block.qualified_root())
-                    == aec.shard_index_for_root(&block_a.qualified_root())
-                    && block.qualified_root() != block_a.qualified_root()
-            })
-            .unwrap();
-        let now = Timestamp::new_test_instance();
-
-        aec.insert(
-            AecInsertRequest::new_priority(block_a.clone(), BlockPriority::new_test_instance()),
-            now,
-        )
-        .unwrap();
-        aec.insert(
-            AecInsertRequest::new_priority(block_b.clone(), BlockPriority::new_test_instance()),
-            now,
-        )
-        .unwrap();
-
-        let rep_key = PrivateKey::from(1);
-        let mut rep_weights = RepWeights::default();
-        rep_weights.put(rep_key.public_key(), Amount::MAX);
-        let vote: ReceivedVote = ReceivedVote::new(
-            Vote::new(
-                &rep_key,
-                UnixMillisTimestamp::ZERO,
-                0,
-                vec![block_b.hash()],
-            )
-            .into(),
-            VoteSource::Live,
-            None,
-        );
-
-        let shard_guard = aec.shard(&block_a.qualified_root()).write().unwrap();
-        let aec_for_thread = Arc::clone(&aec);
-        let worker = thread::spawn(move || {
-            aec_for_thread.apply_vote(ApplyVoteArgs {
-                vote: &vote.into(),
-                rep_weights: &rep_weights,
-                quorum_specs: &QuorumSpecs::new_test_instance(),
-                now,
-            })
-        });
-
-        let start = Instant::now();
-        while !worker.is_finished() && start.elapsed() < Duration::from_secs(1) {
-            thread::yield_now();
-        }
-
-        assert!(worker.is_finished());
-
-        drop(shard_guard);
-        let results = worker.join().unwrap();
-        assert_eq!(results.get(&block_b.hash()), Some(&Ok(())));
-        assert!(aec.is_active_root(&block_b.qualified_root()));
-        assert!(!aec.was_recently_confirmed(&block_b.hash()));
-    }
-
-    #[test]
     fn counted_vote_does_not_wait_for_global_write_to_update_stats() {
         let aec = Arc::new(AecService::new_null());
         let block = SavedBlock::new_test_instance();
@@ -1662,13 +1567,7 @@ mod tests {
         rep_weights.put(rep_key.public_key(), Amount::MAX);
         let quorum_specs = QuorumSpecs::new_test_instance();
         let vote: ReceivedVote = ReceivedVote::new(
-            Vote::new(
-                &rep_key,
-                UnixMillisTimestamp::ZERO,
-                0,
-                vec![block.hash()],
-            )
-            .into(),
+            Vote::new(&rep_key, UnixMillisTimestamp::ZERO, 0, vec![block.hash()]).into(),
             VoteSource::Live,
             None,
         );
@@ -1759,10 +1658,9 @@ mod tests {
     }
 
     #[test]
-    fn insert_places_election_in_one_deterministic_shard() {
+    fn insert_publishes_single_active_root() {
         let aec = AecService::new_null();
         let block = SavedBlock::new_test_instance();
-        let shard_index = aec.shard_index_for_root(&block.qualified_root());
 
         aec.insert(
             AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
@@ -1770,19 +1668,9 @@ mod tests {
         )
         .unwrap();
 
-        for (index, shard) in aec.shards.iter().enumerate() {
-            let len = shard.read().unwrap().len();
-            if index == shard_index {
-                assert_eq!(len, 1);
-            } else {
-                assert_eq!(len, 0);
-            }
-        }
-
-        assert_eq!(
-            aec.shard_index_for_root(&block.qualified_root()),
-            shard_index
-        );
+        assert_eq!(aec.len(), 1);
+        assert!(aec.is_active_root(&block.qualified_root()));
+        assert!(aec.election_for_root(&block.qualified_root()).is_some());
     }
 
     #[test]
@@ -1809,21 +1697,14 @@ mod tests {
     }
 
     #[test]
-    fn root_lookup_helpers_do_not_wait_for_same_shard_write_lock() {
+    fn root_lookup_helpers_use_direct_published_roots() {
         let aec = Arc::new(AecService::new_null());
-        let block_a = block_in_shard(&aec, 0);
-        let block_b = (1..256)
-            .map(SavedBlock::new_test_instance_with_key)
-            .find(|block| {
-                aec.shard_index_for_root(&block.qualified_root())
-                    == aec.shard_index_for_root(&block_a.qualified_root())
-                    && block.qualified_root() != block_a.qualified_root()
-            })
-            .unwrap();
+        let block_a = SavedBlock::new_test_instance_with_key(1);
+        let block_b = SavedBlock::new_test_instance_with_key(2);
         let now = Timestamp::new_test_instance();
 
         aec.insert(
-            AecInsertRequest::new_priority(block_a, BlockPriority::new_test_instance()),
+            AecInsertRequest::new_priority(block_a.clone(), BlockPriority::new_test_instance()),
             now,
         )
         .unwrap();
@@ -1833,7 +1714,10 @@ mod tests {
         )
         .unwrap();
 
-        let shard_guard = aec.shard(&block_b.qualified_root()).write().unwrap();
+        let handle = aec
+            .election_handle_for_root(&block_a.qualified_root())
+            .unwrap();
+        let election_guard = handle.lock();
         let aec_for_thread = Arc::clone(&aec);
         let lookup_root = block_b.qualified_root();
         let worker = thread::spawn(move || {
@@ -1849,21 +1733,15 @@ mod tests {
 
         assert!(worker.is_finished());
 
-        drop(shard_guard);
+        drop(election_guard);
         worker.join().unwrap();
     }
 
     #[test]
-    fn activate_priority_replaces_lowest_election_across_shards() {
+    fn activate_priority_replaces_lowest_election_across_independent_roots() {
         let aec = AecService::new_null();
         let block_a = SavedBlock::new_test_instance_with_key(1);
-        let block_b = (2..64)
-            .map(SavedBlock::new_test_instance_with_key)
-            .find(|block| {
-                aec.shard_index_for_root(&block.qualified_root())
-                    != aec.shard_index_for_root(&block_a.qualified_root())
-            })
-            .unwrap();
+        let block_b = SavedBlock::new_test_instance_with_key(2);
         let low_priority = BlockPriority::new(Amount::nano(1), TimePriority::new(1));
         let high_priority = BlockPriority::new(Amount::nano(1), TimePriority::new(2));
         let bucket_id = bucket_index(ElectionBehavior::Priority, low_priority.balance);
@@ -1885,16 +1763,10 @@ mod tests {
     }
 
     #[test]
-    fn election_snapshots_collect_across_shards() {
+    fn election_snapshots_collect_all_active_roots() {
         let aec = AecService::new_null();
-        let block_a = (1..64)
-            .map(SavedBlock::new_test_instance_with_key)
-            .find(|block| aec.shard_index_for_root(&block.qualified_root()) == 0)
-            .unwrap();
-        let block_b = (1..64)
-            .map(SavedBlock::new_test_instance_with_key)
-            .find(|block| aec.shard_index_for_root(&block.qualified_root()) > 0)
-            .unwrap();
+        let block_a = SavedBlock::new_test_instance_with_key(1);
+        let block_b = SavedBlock::new_test_instance_with_key(2);
         let now = Timestamp::new_test_instance();
 
         aec.insert(
@@ -1919,16 +1791,10 @@ mod tests {
     }
 
     #[test]
-    fn container_info_aggregates_sharded_root_count() {
+    fn container_info_reports_direct_root_count() {
         let aec = AecService::new_null();
         let block_a = SavedBlock::new_test_instance_with_key(1);
-        let block_b = (2..64)
-            .map(SavedBlock::new_test_instance_with_key)
-            .find(|block| {
-                aec.shard_index_for_root(&block.qualified_root())
-                    != aec.shard_index_for_root(&block_a.qualified_root())
-            })
-            .unwrap();
+        let block_b = SavedBlock::new_test_instance_with_key(2);
         let now = Timestamp::new_test_instance();
 
         aec.insert(
@@ -2064,10 +1930,10 @@ mod tests {
     }
 
     #[test]
-    fn transition_active_does_not_hold_container_write_lock_while_waiting_for_other_election() {
+    fn transition_active_for_other_election_progresses_while_target_election_is_locked() {
         let aec = Arc::new(AecService::new_null());
-        let block_a = block_in_shard(&aec, 0);
-        let block_b = block_in_shard(&aec, 1);
+        let block_a = SavedBlock::new_test_instance_with_key(1);
+        let block_b = SavedBlock::new_test_instance_with_key(2);
         let now = Timestamp::new_test_instance();
 
         aec.insert(
@@ -2098,20 +1964,6 @@ mod tests {
             thread::yield_now();
         }
 
-        let mut container_write_available = false;
-        for _ in 0..10_000 {
-            if worker.is_finished() {
-                break;
-            }
-            if aec.shard(&block_a.qualified_root()).try_write().is_ok() {
-                container_write_available = true;
-                break;
-            }
-            thread::yield_now();
-        }
-
-        assert!(container_write_available);
-
         drop(election_guard);
         worker.join().unwrap();
         assert_eq!(
@@ -2121,65 +1973,7 @@ mod tests {
     }
 
     #[test]
-    fn transition_active_on_other_shard_is_not_blocked_by_unrelated_shard_write_lock() {
-        let aec = Arc::new(AecService::new_null());
-        let block_a = block_in_shard(&aec, 0);
-        let block_b = block_in_shard(&aec, 1);
-        let now = Timestamp::new_test_instance();
-        assert_ne!(
-            aec.shard_index_for_root(&block_a.qualified_root()),
-            aec.shard_index_for_root(&block_b.qualified_root())
-        );
-
-        aec.insert(
-            AecInsertRequest::new_priority(block_a.clone(), BlockPriority::new_test_instance()),
-            now,
-        )
-        .unwrap();
-        aec.insert(
-            AecInsertRequest::new_priority(block_b.clone(), BlockPriority::new_test_instance()),
-            now,
-        )
-        .unwrap();
-
-        let unrelated_shard_guard = aec.shard(&block_a.qualified_root()).write().unwrap();
-        let started = Arc::new(AtomicBool::new(false));
-        let finished = Arc::new(AtomicBool::new(false));
-        let aec_for_thread = Arc::clone(&aec);
-        let started_clone = Arc::clone(&started);
-        let finished_clone = Arc::clone(&finished);
-        let block_b_hash = block_b.hash();
-
-        let worker = thread::spawn(move || {
-            started_clone.store(true, Ordering::Release);
-            assert!(aec_for_thread.transition_active(&block_b_hash));
-            finished_clone.store(true, Ordering::Release);
-        });
-
-        while !started.load(Ordering::Acquire) {
-            thread::yield_now();
-        }
-
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while Instant::now() < deadline {
-            if finished.load(Ordering::Acquire) {
-                break;
-            }
-            thread::yield_now();
-        }
-
-        let finished_before_release = finished.load(Ordering::Acquire);
-        drop(unrelated_shard_guard);
-        worker.join().unwrap();
-        assert!(finished_before_release);
-        assert_eq!(
-            aec.election_for_block(&block_b.hash()).unwrap().state(),
-            crate::consensus::election::ElectionState::Active
-        );
-    }
-
-    #[test]
-    fn confirm_dependent_elections_does_not_hold_container_write_lock_while_waiting_for_election() {
+    fn confirm_dependent_elections_wait_only_for_the_target_election() {
         let aec = Arc::new(AecService::new_null());
         let block = SavedBlock::new_test_instance_with_key(1);
         let now = Timestamp::new_test_instance();
@@ -2211,20 +2005,6 @@ mod tests {
         while !started.load(Ordering::Acquire) {
             thread::yield_now();
         }
-
-        let mut container_write_available = false;
-        for _ in 0..10_000 {
-            if worker.is_finished() {
-                break;
-            }
-            if aec.shard(&block.qualified_root()).try_write().is_ok() {
-                container_write_available = true;
-                break;
-            }
-            thread::yield_now();
-        }
-
-        assert!(container_write_available);
 
         drop(election_guard);
         worker.join().unwrap();
@@ -2277,71 +2057,6 @@ mod tests {
         let stale_accounts = aec.stale_accounts(now, Duration::from_secs(60), 2);
 
         assert_eq!(stale_accounts, expected);
-    }
-
-    #[test]
-    fn election_snapshot_scan_releases_one_shard_before_waiting_on_the_next() {
-        let aec = Arc::new(AecService::new_null());
-        let block_a = block_in_shard(&aec, 0);
-        let block_b = block_in_shard(&aec, 1);
-        let now = Timestamp::new_test_instance();
-        assert_ne!(
-            aec.shard_index_for_root(&block_a.qualified_root()),
-            aec.shard_index_for_root(&block_b.qualified_root())
-        );
-
-        aec.insert(
-            AecInsertRequest::new_priority(block_a.clone(), BlockPriority::new_test_instance()),
-            now,
-        )
-        .unwrap();
-        aec.insert(
-            AecInsertRequest::new_priority(block_b.clone(), BlockPriority::new_test_instance()),
-            now,
-        )
-        .unwrap();
-
-        let blocked_shard_guard = aec.shard(&block_b.qualified_root()).write().unwrap();
-        let started = Arc::new(AtomicBool::new(false));
-        let saw_first_shard = Arc::new(AtomicBool::new(false));
-        let aec_for_thread = Arc::clone(&aec);
-        let started_clone = Arc::clone(&started);
-        let saw_first_shard_clone = Arc::clone(&saw_first_shard);
-        let first_root = block_a.qualified_root();
-
-        let worker = thread::spawn(move || {
-            started_clone.store(true, Ordering::Release);
-            aec_for_thread.for_each_election_snapshot(|election| {
-                if election.qualified_root() == &first_root {
-                    saw_first_shard_clone.store(true, Ordering::Release);
-                }
-                true
-            });
-        });
-
-        while !started.load(Ordering::Acquire) {
-            thread::yield_now();
-        }
-        let saw_deadline = Instant::now() + Duration::from_secs(1);
-        while !saw_first_shard.load(Ordering::Acquire) && Instant::now() < saw_deadline {
-            thread::yield_now();
-        }
-        let saw_first_shard_before_release = saw_first_shard.load(Ordering::Acquire);
-
-        let mut first_shard_released = false;
-        let write_deadline = Instant::now() + Duration::from_secs(1);
-        while saw_first_shard_before_release && Instant::now() < write_deadline {
-            if aec.shard(&block_a.qualified_root()).try_write().is_ok() {
-                first_shard_released = true;
-                break;
-            }
-            thread::yield_now();
-        }
-
-        drop(blocked_shard_guard);
-        worker.join().unwrap();
-        assert!(saw_first_shard_before_release);
-        assert!(first_shard_released);
     }
 
     #[test]
