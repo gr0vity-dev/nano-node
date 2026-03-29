@@ -1,8 +1,8 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     sync::{
-        Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        Arc, Mutex, RwLock,
+        atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
     },
 };
 
@@ -11,8 +11,6 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Amount, PublicKey};
 
 use super::{OnlineReps, QuorumSpecs, QuorumTrackerStateSnapshot};
-
-const OBSERVED_REP_SHARDS: usize = 16;
 
 pub struct VoteQuorumPreparation {
     pub minimum_principal_weight: Amount,
@@ -25,60 +23,6 @@ struct PublishedQuorumState {
     quorum_specs: QuorumSpecs,
     trended_or_minimum_weight: Amount,
     online_weight: Amount,
-}
-
-#[derive(Clone)]
-struct ObservedRepShardState {
-    by_time: BTreeMap<Timestamp, Vec<PublicKey>>,
-    by_account: HashMap<PublicKey, Timestamp>,
-    online_weight: Amount,
-}
-
-impl ObservedRepShardState {
-    fn empty() -> Self {
-        Self {
-            by_time: BTreeMap::new(),
-            by_account: HashMap::new(),
-            online_weight: Amount::ZERO,
-        }
-    }
-
-    fn vote_observed(&mut self, voter: PublicKey, now: Timestamp, weight: Amount) {
-        if let Some(previous) = self.by_account.insert(voter, now) {
-            let entries = self.by_time.get_mut(&previous).unwrap();
-            if entries.len() == 1 {
-                self.by_time.remove(&previous);
-            } else {
-                entries.retain(|rep| rep != &voter);
-            }
-            self.by_time.entry(now).or_default().push(voter);
-        } else {
-            self.by_time.entry(now).or_default().push(voter);
-            self.online_weight += weight;
-        }
-    }
-
-    fn trim(&mut self, now: Timestamp, rep_weights: &RepWeightCache) -> bool {
-        let mut changed = false;
-        let cutoff = now
-            .checked_sub(std::time::Duration::from_secs(60 * 10))
-            .unwrap_or_default();
-
-        while let Some((&timestamp, _)) = self.by_time.first_key_value() {
-            if timestamp >= cutoff {
-                break;
-            }
-
-            let removed = self.by_time.pop_first().unwrap().1;
-            for rep in removed {
-                self.by_account.remove(&rep);
-                self.online_weight -= rep_weights.weight(&rep);
-            }
-            changed = true;
-        }
-
-        changed
-    }
 }
 
 struct AtomicAmount {
@@ -136,17 +80,16 @@ impl AtomicAmount {
     }
 }
 
-struct ObservedRepShard {
-    state: Mutex<ObservedRepShardState>,
-    online_weight: AtomicAmount,
+struct ObservedRepEntry {
+    last_observed: AtomicI64,
+    is_online: AtomicBool,
 }
 
-impl ObservedRepShard {
-    fn new(state: ObservedRepShardState) -> Self {
-        let online_weight = state.online_weight;
+impl ObservedRepEntry {
+    fn new(last_observed: Option<Timestamp>, is_online: bool) -> Self {
         Self {
-            state: Mutex::new(state),
-            online_weight: AtomicAmount::new(online_weight),
+            last_observed: AtomicI64::new(last_observed.map(|i| i.millis()).unwrap_or_default()),
+            is_online: AtomicBool::new(is_online),
         }
     }
 }
@@ -157,9 +100,9 @@ pub struct VoteQuorumPreparer {
     representative_weight_minimum: Amount,
     online_weight_minimum: Amount,
     trended_weight: AtomicAmount,
-    shards: Box<[ObservedRepShard]>,
+    observed_reps: RwLock<Arc<HashMap<PublicKey, Arc<ObservedRepEntry>>>>,
     #[cfg(test)]
-    mutation_hook: Option<Arc<dyn Fn(usize) + Send + Sync>>,
+    mutation_hook: Option<Arc<dyn Fn(PublicKey) + Send + Sync>>,
 }
 
 impl VoteQuorumPreparer {
@@ -168,37 +111,50 @@ impl VoteQuorumPreparer {
     }
 
     #[cfg(test)]
-    fn new_with_hook(
+    pub(crate) fn new_with_hook(
         online_reps: Arc<Mutex<OnlineReps>>,
-        mutation_hook: Arc<dyn Fn(usize) + Send + Sync>,
+        mutation_hook: Arc<dyn Fn(PublicKey) + Send + Sync>,
     ) -> Self {
-        let mut preparer = Self::from_snapshot(online_reps.lock().unwrap().quorum_tracker_snapshot());
+        let mut preparer =
+            Self::from_snapshot(online_reps.lock().unwrap().quorum_tracker_snapshot());
         preparer.mutation_hook = Some(mutation_hook);
         preparer
     }
 
     fn from_snapshot(snapshot: QuorumTrackerStateSnapshot) -> Self {
-        let mut shards: Vec<ObservedRepShardState> = (0..OBSERVED_REP_SHARDS)
-            .map(|_| ObservedRepShardState::empty())
-            .collect();
+        let rep_weights_cache = snapshot.rep_weights.clone();
+        let observed_reps = snapshot
+            .observed_reps
+            .into_iter()
+            .collect::<HashMap<_, _>>();
 
-        for (rep, observed_at) in snapshot.observed_reps {
-            let shard = &mut shards[Self::shard_index(rep)];
-            shard.by_time.entry(observed_at).or_default().push(rep);
-            shard.by_account.insert(rep, observed_at);
-            shard.online_weight += snapshot.rep_weights.weight(&rep);
+        let mut entries = HashMap::new();
+        {
+            let rep_weights = rep_weights_cache.read();
+            for (rep, weight) in rep_weights.iter() {
+                if *weight < snapshot.representative_weight_minimum
+                    && !observed_reps.contains_key(rep)
+                {
+                    continue;
+                }
+
+                let last_observed = observed_reps.get(rep).copied();
+                entries.insert(
+                    *rep,
+                    Arc::new(ObservedRepEntry::new(
+                        last_observed,
+                        last_observed.is_some(),
+                    )),
+                );
+            }
         }
 
         Self {
-            rep_weights: snapshot.rep_weights,
+            rep_weights: rep_weights_cache,
             representative_weight_minimum: snapshot.representative_weight_minimum,
             online_weight_minimum: snapshot.online_weight_minimum,
             trended_weight: AtomicAmount::new(snapshot.trended_weight),
-            shards: shards
-                .into_iter()
-                .map(ObservedRepShard::new)
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
+            observed_reps: RwLock::new(Arc::new(entries)),
             #[cfg(test)]
             mutation_hook: None,
         }
@@ -238,15 +194,24 @@ impl VoteQuorumPreparer {
     }
 
     pub fn trim(&self, now: Timestamp) {
-        for (shard_index, shard) in self.shards.iter().enumerate() {
-            let mut guard = shard.state.lock().unwrap();
-            if guard.trim(now, &self.rep_weights) {
-                #[cfg(test)]
-                if let Some(hook) = &self.mutation_hook {
-                    hook(shard_index);
-                }
-                shard.online_weight.store(guard.online_weight);
+        let cutoff = now
+            .checked_sub(std::time::Duration::from_secs(60 * 10))
+            .unwrap_or_default()
+            .millis();
+
+        for entry in self.observed_reps.read().unwrap().values() {
+            if !entry.is_online.load(Ordering::Acquire) {
+                continue;
             }
+
+            if entry.last_observed.load(Ordering::Acquire) >= cutoff {
+                continue;
+            }
+
+            let _ =
+                entry
+                    .is_online
+                    .compare_exchange(true, false, Ordering::AcqRel, Ordering::Acquire);
         }
     }
 
@@ -260,15 +225,20 @@ impl VoteQuorumPreparer {
             return;
         }
 
-        let shard_index = Self::shard_index(voter);
-        let shard = &self.shards[shard_index];
-        let mut guard = shard.state.lock().unwrap();
-        guard.vote_observed(voter, now, weight);
+        let Some(entry) = self.observed_entry(voter) else {
+            return;
+        };
+
         #[cfg(test)]
         if let Some(hook) = &self.mutation_hook {
-            hook(shard_index);
+            hook(voter);
         }
-        shard.online_weight.store(guard.online_weight);
+
+        self.store_last_observed(&entry.last_observed, now);
+
+        let _ = entry
+            .is_online
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire);
     }
 
     fn current_preparation(&self) -> VoteQuorumPreparation {
@@ -288,7 +258,13 @@ impl VoteQuorumPreparer {
     }
 
     fn total_online_weight(&self) -> Amount {
-        self.shards.iter().map(|shard| shard.online_weight.load()).sum()
+        self.observed_reps
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|(_, entry)| entry.is_online.load(Ordering::Acquire))
+            .map(|(rep, _)| self.rep_weights.weight(rep))
+            .sum()
     }
 
     fn published_state(
@@ -311,8 +287,37 @@ impl VoteQuorumPreparer {
         }
     }
 
-    fn shard_index(voter: PublicKey) -> usize {
-        voter.as_bytes()[31] as usize % OBSERVED_REP_SHARDS
+    fn observed_entry(&self, voter: PublicKey) -> Option<Arc<ObservedRepEntry>> {
+        if let Some(entry) = self.observed_reps.read().unwrap().get(&voter) {
+            return Some(entry.clone());
+        }
+
+        let weight = self.rep_weights.weight(&voter);
+        if weight < self.representative_weight_minimum {
+            return None;
+        }
+
+        let mut observed = self.observed_reps.write().unwrap();
+        if let Some(entry) = observed.get(&voter) {
+            return Some(entry.clone());
+        }
+
+        let mut updated = (**observed).clone();
+        let entry = Arc::new(ObservedRepEntry::new(None, false));
+        updated.insert(voter, entry.clone());
+        *observed = Arc::new(updated);
+        Some(entry)
+    }
+
+    fn store_last_observed(&self, target: &AtomicI64, now: Timestamp) {
+        let now = now.millis();
+        let mut current = target.load(Ordering::Acquire);
+        while current < now {
+            match target.compare_exchange(current, now, Ordering::AcqRel, Ordering::Acquire) {
+                Ok(_) => break,
+                Err(updated) => current = updated,
+            }
+        }
     }
 }
 
@@ -342,20 +347,18 @@ mod tests {
     }
 
     fn new_preparer_with_blocker(
-        blocked_shard: usize,
+        blocked_rep: PublicKey,
         entered: Arc<(Mutex<bool>, Condvar)>,
         release: Arc<(Mutex<bool>, Condvar)>,
         rep_weights: Arc<RepWeightCache>,
     ) -> VoteQuorumPreparer {
         let online_reps = Arc::new(Mutex::new(
-            OnlineReps::builder()
-                .rep_weights(rep_weights)
-                .finish(),
+            OnlineReps::builder().rep_weights(rep_weights).finish(),
         ));
         VoteQuorumPreparer::new_with_hook(
             online_reps,
-            Arc::new(move |shard_index| {
-                if shard_index != blocked_shard {
+            Arc::new(move |voter| {
+                if voter != blocked_rep {
                     return;
                 }
 
@@ -376,15 +379,15 @@ mod tests {
         )
     }
 
-    fn rep_on_different_shard(rep: &PrivateKey) -> PrivateKey {
-        let current = VoteQuorumPreparer::shard_index(rep.public_key());
+    fn rep_on_same_shard(rep: &PrivateKey) -> PrivateKey {
+        let current = rep.public_key().as_bytes()[31] as usize % 16;
         for i in 2..100 {
             let candidate = PrivateKey::from(i);
-            if VoteQuorumPreparer::shard_index(candidate.public_key()) != current {
+            if candidate.public_key().as_bytes()[31] as usize % 16 == current {
                 return candidate;
             }
         }
-        panic!("could not find representative on a different shard");
+        panic!("could not find representative on the same shard");
     }
 
     #[test]
@@ -397,9 +400,7 @@ mod tests {
         rep_weights.put(new_rep.public_key(), Amount::nano(50_000_000));
 
         let online_reps = Arc::new(Mutex::new(
-            OnlineReps::builder()
-                .rep_weights(rep_weights)
-                .finish(),
+            OnlineReps::builder().rep_weights(rep_weights).finish(),
         ));
         online_reps
             .lock()
@@ -425,9 +426,9 @@ mod tests {
     }
 
     #[test]
-    fn active_prepare_does_not_wait_on_different_shard_mutation() {
+    fn active_prepare_does_not_wait_on_other_vote_observation() {
         let first_rep = PrivateKey::from(1);
-        let second_rep = rep_on_different_shard(&first_rep);
+        let second_rep = rep_on_same_shard(&first_rep);
 
         let rep_weights = Arc::new(RepWeightCache::default());
         rep_weights.put(first_rep.public_key(), Amount::nano(80_000_000));
@@ -435,9 +436,8 @@ mod tests {
 
         let entered = Arc::new((Mutex::new(false), Condvar::new()));
         let release = Arc::new((Mutex::new(false), Condvar::new()));
-        let blocked_shard = VoteQuorumPreparer::shard_index(first_rep.public_key());
         let preparer = Arc::new(new_preparer_with_blocker(
-            blocked_shard,
+            first_rep.public_key(),
             entered.clone(),
             release.clone(),
             rep_weights,
@@ -446,11 +446,7 @@ mod tests {
         let blocked_prepare = {
             let preparer = preparer.clone();
             std::thread::spawn(move || {
-                preparer.prepare(
-                    first_rep.public_key(),
-                    true,
-                    Timestamp::new_test_instance(),
-                );
+                preparer.prepare(first_rep.public_key(), true, Timestamp::new_test_instance());
             })
         };
 
@@ -471,7 +467,7 @@ mod tests {
 
         assert!(
             rx.recv_timeout(Duration::from_millis(200)).is_ok(),
-            "prepare on another shard should not wait on a blocked shard mutation"
+            "prepare for another rep should not wait on blocked vote observation"
         );
 
         release_blocker(&release);
@@ -480,9 +476,9 @@ mod tests {
     }
 
     #[test]
-    fn direct_observation_does_not_block_prepare_on_different_shard() {
+    fn direct_observation_does_not_block_prepare_on_other_rep() {
         let direct_rep = PrivateKey::from(1);
-        let active_vote_rep = rep_on_different_shard(&direct_rep);
+        let active_vote_rep = rep_on_same_shard(&direct_rep);
 
         let rep_weights = Arc::new(RepWeightCache::default());
         rep_weights.put(direct_rep.public_key(), Amount::nano(80_000_000));
@@ -490,9 +486,8 @@ mod tests {
 
         let entered = Arc::new((Mutex::new(false), Condvar::new()));
         let release = Arc::new((Mutex::new(false), Condvar::new()));
-        let blocked_shard = VoteQuorumPreparer::shard_index(direct_rep.public_key());
         let preparer = Arc::new(new_preparer_with_blocker(
-            blocked_shard,
+            direct_rep.public_key(),
             entered.clone(),
             release.clone(),
             rep_weights,
@@ -525,11 +520,36 @@ mod tests {
 
         assert!(
             rx.recv_timeout(Duration::from_millis(200)).is_ok(),
-            "active prepare should not wait on direct observation for another shard"
+            "active prepare should not wait on direct observation for another rep"
         );
 
         release_blocker(&release);
         blocked_direct_observation.join().unwrap();
         concurrent_prepare.join().unwrap();
+    }
+
+    #[test]
+    fn online_weight_uses_current_rep_weight_cache_for_tracked_rep() {
+        let rep = PrivateKey::from(1);
+        let rep_weights = Arc::new(RepWeightCache::default());
+        rep_weights.put(rep.public_key(), Amount::nano(80_000_000));
+
+        let online_reps = Arc::new(Mutex::new(
+            OnlineReps::builder()
+                .rep_weights(rep_weights.clone())
+                .finish(),
+        ));
+        online_reps
+            .lock()
+            .unwrap()
+            .vote_observed(rep.public_key(), Timestamp::new_test_instance());
+
+        let preparer = VoteQuorumPreparer::new(online_reps);
+        assert_eq!(preparer.online_weight(), Amount::nano(80_000_000));
+
+        rep_weights.put(rep.public_key(), Amount::nano(95_000_000));
+
+        assert_eq!(preparer.online_weight(), Amount::nano(95_000_000));
+        assert_eq!(preparer.quorum_delta(), Amount::nano(63_650_000));
     }
 }

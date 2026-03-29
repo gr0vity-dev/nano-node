@@ -309,10 +309,17 @@ struct ClaimedVote {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsnano_types::{PrivateKey, Vote};
+    use crate::{
+        consensus::{AecFact, AecInsertRequest, AecService},
+        representatives::{OnlineReps, VoteQuorumPreparer},
+    };
+    use rsnano_ledger::RepWeightCache;
+    use rsnano_nullable_clock::{SteadyClock, Timestamp};
+    use rsnano_types::{Amount, BlockPriority, PrivateKey, SavedBlock, Vote};
+    use rsnano_utils::{stats::Stats, sync::backpressure_channel::channel};
     use std::{
-        sync::{Arc, mpsc},
-        time::Duration,
+        sync::{Arc, Condvar, Mutex, mpsc},
+        time::{Duration, Instant},
     };
 
     #[test]
@@ -367,5 +374,158 @@ mod tests {
         for handle in handles {
             handle.join().unwrap();
         }
+    }
+
+    fn wait_until_blocked(entered: &Arc<(Mutex<bool>, Condvar)>, timeout: Duration) {
+        let (lock, condition) = &**entered;
+        let blocked = condition
+            .wait_timeout_while(lock.lock().unwrap(), timeout, |blocked| !*blocked)
+            .unwrap()
+            .0;
+        assert!(*blocked, "timed out waiting for blocked quorum preparation");
+    }
+
+    fn release_blocker(release: &Arc<(Mutex<bool>, Condvar)>) {
+        let (lock, condition) = &**release;
+        *lock.lock().unwrap() = true;
+        condition.notify_all();
+    }
+
+    fn rep_on_same_legacy_shard(rep: &PrivateKey) -> PrivateKey {
+        let current = rep.public_key().as_bytes()[31] as usize % 16;
+        for i in 2..100 {
+            let candidate = PrivateKey::from(i);
+            if candidate.public_key().as_bytes()[31] as usize % 16 == current {
+                return candidate;
+            }
+        }
+        panic!("could not find representative on the same legacy shard");
+    }
+
+    #[test]
+    fn queued_votes_for_different_elections_do_not_wait_on_each_other_anywhere_but_target_election()
+    {
+        let first_rep = PrivateKey::from(1);
+        let second_rep = rep_on_same_legacy_shard(&first_rep);
+
+        let rep_weights = Arc::new(RepWeightCache::default());
+        rep_weights.put(first_rep.public_key(), Amount::nano(80_000_000));
+        rep_weights.put(second_rep.public_key(), Amount::nano(90_000_000));
+
+        let online_reps = Arc::new(Mutex::new(
+            OnlineReps::builder()
+                .rep_weights(rep_weights.clone())
+                .finish(),
+        ));
+
+        let entered = Arc::new((Mutex::new(false), Condvar::new()));
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let blocked_voter = first_rep.public_key();
+        let quorum_preparer = Arc::new(VoteQuorumPreparer::new_with_hook(
+            online_reps,
+            Arc::new({
+                let entered = entered.clone();
+                let release = release.clone();
+                move |voter| {
+                    if voter != blocked_voter {
+                        return;
+                    }
+
+                    let (entered_lock, entered_condition) = &*entered;
+                    *entered_lock.lock().unwrap() = true;
+                    entered_condition.notify_all();
+
+                    let (release_lock, release_condition) = &*release;
+                    let _guard = release_condition
+                        .wait_timeout_while(
+                            release_lock.lock().unwrap(),
+                            Duration::from_secs(1),
+                            |released| !*released,
+                        )
+                        .unwrap()
+                        .0;
+                }
+            }),
+        ));
+
+        let aec = Arc::new(AecService::new_null());
+        let block_a = SavedBlock::new_test_instance_with_key(11);
+        let block_b = SavedBlock::new_test_instance_with_key(22);
+        let now = Timestamp::new_test_instance();
+
+        aec.insert(
+            AecInsertRequest::new_priority(block_a.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+        aec.insert(
+            AecInsertRequest::new_priority(block_b.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+
+        let vote_applier = VoteApplier::new(
+            aec.clone(),
+            quorum_preparer,
+            Arc::new(SteadyClock::new_null()),
+            rep_weights,
+            false,
+        );
+
+        let mut config = VoteProcessorConfig::new(4);
+        config.threads = 2;
+        config.batch_size = 2;
+        let queue = Arc::new(VoteProcessorQueue::new(config, Arc::new(Stats::default())));
+        let processor = Arc::new(VoteProcessor::new(
+            queue.clone(),
+            vote_applier,
+            Arc::new(Stats::default()),
+        ));
+        let (tx, rx) = channel(16);
+        processor.add_observer(tx);
+        processor.start();
+
+        queue.enqueue(
+            Arc::new(Vote::new_final(&first_rep, vec![block_a.hash()])),
+            None,
+            VoteSource::Live,
+            None,
+        );
+        wait_until_blocked(&entered, Duration::from_millis(200));
+
+        queue.enqueue(
+            Arc::new(Vote::new_final(&second_rep, vec![block_b.hash()])),
+            None,
+            VoteSource::Live,
+            None,
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut second_vote_processed = false;
+        while Instant::now() < deadline {
+            if aec.was_recently_confirmed(&block_b.hash()) {
+                second_vote_processed = true;
+                break;
+            }
+
+            if let Ok(AecFact::VoteProcessed(vote, _, results)) = rx.try_recv()
+                && vote.vote.voter == second_rep.public_key()
+                && results.get(&block_b.hash()) == Some(&Ok(()))
+            {
+                second_vote_processed = true;
+                break;
+            }
+
+            std::thread::yield_now();
+        }
+
+        assert!(
+            second_vote_processed,
+            "second vote should complete end to end while the first vote is blocked in quorum preparation"
+        );
+        assert!(aec.was_recently_confirmed(&block_b.hash()));
+
+        release_blocker(&release);
+        processor.stop();
     }
 }
