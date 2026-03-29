@@ -20,7 +20,7 @@ use rsnano_utils::{
     stats::{DetailType, Direction, Sample, StatType, Stats},
 };
 
-use super::{InsertResult, OnlineReps};
+use super::{InsertResult, OnlineReps, VoteQuorumPreparer};
 use crate::{
     config::{NetworkParams, NodeConfig},
     consensus::{AecService, ReceivedVote},
@@ -35,6 +35,7 @@ use crate::{
 pub struct RepCrawler {
     rep_crawler_impl: Mutex<RepCrawlerImpl>,
     online_reps: Arc<Mutex<OnlineReps>>,
+    quorum_preparer: Arc<VoteQuorumPreparer>,
     stats: Arc<Stats>,
     config: NodeConfig,
     network_params: NetworkParams,
@@ -54,6 +55,7 @@ impl RepCrawler {
 
     pub(crate) fn new(
         online_reps: Arc<Mutex<OnlineReps>>,
+        quorum_preparer: Arc<VoteQuorumPreparer>,
         stats: Arc<Stats>,
         query_timeout: Duration,
         config: NodeConfig,
@@ -69,6 +71,7 @@ impl RepCrawler {
         let is_dev_network = network_params.network.is_dev_network();
         Self {
             online_reps: Arc::clone(&online_reps),
+            quorum_preparer,
             stats: Arc::clone(&stats),
             config: config.clone(),
             network_params,
@@ -220,7 +223,7 @@ impl RepCrawler {
             {
                 let reps = self.online_reps.lock().unwrap();
                 current_total_weight = reps.peered_weight();
-                sufficient_weight = current_total_weight > reps.quorum_delta();
+                sufficient_weight = current_total_weight > self.quorum_preparer.quorum_delta();
             }
 
             // If online weight drops below minimum, reach out to preconfigured peers
@@ -314,7 +317,7 @@ impl RepCrawler {
         // normally the rep_crawler only tracks principal reps but it can be made to track
         // reps with less weight by setting rep_crawler_weight_minimum to a low value
         let minimum = std::cmp::min(
-            self.online_reps.lock().unwrap().minimum_principal_weight(),
+            self.quorum_preparer.minimum_principal_weight(),
             self.config.rep_crawler_weight_minimum,
         );
 
@@ -333,11 +336,13 @@ impl RepCrawler {
                 continue;
             }
 
+            let now = self.steady_clock.now();
             let result = self.online_reps.lock().unwrap().vote_observed_directly(
                 vote.voter,
                 channel.clone(),
-                self.steady_clock.now(),
+                now,
             );
+            self.quorum_preparer.record_direct_observation(vote.voter, now);
 
             match result {
                 InsertResult::Inserted => {

@@ -430,10 +430,12 @@ impl Node {
 
         let online_weight_sampler =
             OnlineWeightSampler::new(ledger.clone(), network_params.network.current_network);
+        let vote_quorum_preparer = Arc::new(VoteQuorumPreparer::new(online_reps.clone()));
 
         let mut online_weight_calculation = OnlineWeightCalculation::new(
             online_weight_sampler,
             online_reps.clone(),
+            vote_quorum_preparer.clone(),
             steady_clock.clone(),
         );
         // Make sure that online weight is properly calculated from the beginning;
@@ -594,7 +596,7 @@ impl Node {
             wallets_config.vote_minimum,
             ledger.rep_weights.clone(),
             wallets.clone(),
-            online_reps.clone(),
+            vote_quorum_preparer.clone(),
         )));
         wallet_reps.lock().unwrap().compute_reps();
 
@@ -645,11 +647,9 @@ impl Node {
             CpsLimiter::unlimited()
         };
 
-        let vote_quorum_preparer = Arc::new(VoteQuorumPreparer::new(online_reps.clone()));
-
         let vote_applier = VoteApplier::new(
             active_elections.clone(),
-            vote_quorum_preparer,
+            vote_quorum_preparer.clone(),
             steady_clock.clone(),
             rep_weights.clone(),
             current_network == NetworkType::NanoDevNetwork,
@@ -690,6 +690,7 @@ impl Node {
             vote_cache.clone(),
             confirming_set.clone(),
             online_reps.clone(),
+            vote_quorum_preparer.clone(),
             steady_clock.clone(),
         ));
         ledger_event_handlers.add_mut(ElectionSchedulersPlugin::new(election_schedulers.clone()));
@@ -754,6 +755,7 @@ impl Node {
 
         let rep_crawler = Arc::new(RepCrawler::new(
             online_reps.clone(),
+            vote_quorum_preparer.clone(),
             stats.clone(),
             config.rep_crawler_query_timeout,
             config.clone(),
@@ -1148,7 +1150,12 @@ impl Node {
 
         let rep_tiers = Arc::new(CurrentRepTiers::new());
         let mut rep_tiers_calculator =
-            RepTiersCalculator::new(rep_weights.clone(), online_reps.clone(), stats.clone());
+            RepTiersCalculator::new(
+                rep_weights.clone(),
+                online_reps.clone(),
+                vote_quorum_preparer.clone(),
+                stats.clone(),
+            );
         rep_tiers_calculator.add_tiers_consumer(vote_processor_queue.clone());
         rep_tiers_calculator.add_tiers_consumer(vote_rebroadcast_queue.clone());
         rep_tiers_calculator.add_tiers_consumer(rep_tiers.clone());

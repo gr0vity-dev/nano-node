@@ -22,6 +22,10 @@ impl OnlineContainer {
         self.by_account.keys()
     }
 
+    pub fn entries(&self) -> impl Iterator<Item = (&PublicKey, &Timestamp)> {
+        self.by_account.iter()
+    }
+
     /// Returns `true` if it was a new insert and `false` if an entry for that account was already present
     pub fn insert(&mut self, rep: PublicKey, now: Timestamp) -> bool {
         if let Some(time) = self.by_account.get_mut(&rep) {

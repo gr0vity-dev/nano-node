@@ -1,4 +1,4 @@
-Current UoW: Unit 4. Reimplement quorum preparation without a global `OnlineReps` mutex
+Current UoW: Unit 5. Remove counted-vote serialization in AEC global state
 Verdict: APPROVED
-Accepted shape: Unit 3 is complete. `VoteQuorumPreparer` is now the named synchronous owner for vote-path quorum preparation, `VoteApplier` depends on that owner, and `AecFactProcessor` no longer performs duplicate authoritative `vote_observed()` hot-path updates.
-Exact next boundary: Start Unit 4 only. Keep the Unit 3 ownership contract stable while replacing the process-wide exclusive `OnlineReps` mutex in quorum preparation with a narrower seam that still preserves quorum-before-tally behavior and compatibility for non-hot-path readers.
+Accepted shape: Unit 4 is complete. `VoteQuorumPreparer` now owns published quorum state for the hot path without taking the legacy `OnlineReps` mutex during `prepare()`, and the dependent threshold readers were rewired to consume that published state while preserving quorum-before-tally behavior.
+Exact next boundary: Start Unit 5 only. Move counted-vote stats updates off `AecService.global.write()` while keeping current vote-result semantics and leaving immediate confirmation cleanup behavior unchanged.

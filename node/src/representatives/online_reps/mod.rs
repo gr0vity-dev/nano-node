@@ -26,6 +26,15 @@ use {online_container::OnlineContainer, peered_container::PeeredContainer};
 
 pub const ONLINE_WEIGHT_QUORUM: u8 = 67;
 
+pub(crate) struct QuorumTrackerStateSnapshot {
+    pub rep_weights: Arc<RepWeightCache>,
+    pub online_weight_minimum: Amount,
+    pub representative_weight_minimum: Amount,
+    pub trended_weight: Amount,
+    pub online_weight: Amount,
+    pub observed_reps: Vec<(PublicKey, Timestamp)>,
+}
+
 /// Keeps track of all representatives that are online
 /// and all representatives to which we have a direct connection
 pub struct OnlineReps {
@@ -139,12 +148,7 @@ impl OnlineReps {
 
     /// Returns the quorum required for confirmation
     pub fn quorum_delta(&self) -> Amount {
-        let weight = max(self.online_weight(), self.trended_or_minimum_weight());
-
-        // Using a larger container to ensure maximum precision
-        let delta =
-            U256::from(weight.number()) * U256::from(ONLINE_WEIGHT_QUORUM) / U256::from(100);
-        Amount::raw(delta.as_u128())
+        Self::quorum_delta_for(self.online_weight(), self.trended_or_minimum_weight())
     }
 
     pub fn quorum_specs(&self) -> QuorumSpecs {
@@ -256,6 +260,30 @@ impl OnlineReps {
             current += rep_weights.get(account).cloned().unwrap_or_default();
         }
         self.online_weight = current;
+    }
+
+    pub(crate) fn quorum_tracker_snapshot(&self) -> QuorumTrackerStateSnapshot {
+        QuorumTrackerStateSnapshot {
+            rep_weights: self.rep_weights.clone(),
+            online_weight_minimum: self.online_weight_minimum,
+            representative_weight_minimum: self.representative_weight_minimum,
+            trended_weight: self.trended_weight,
+            online_weight: self.online_weight,
+            observed_reps: self
+                .online_reps
+                .entries()
+                .map(|(rep, observed_at)| (*rep, *observed_at))
+                .collect(),
+        }
+    }
+
+    pub(crate) fn quorum_delta_for(online_weight: Amount, trended_or_minimum_weight: Amount) -> Amount {
+        let weight = max(online_weight, trended_or_minimum_weight);
+
+        // Using a larger container to ensure maximum precision
+        let delta =
+            U256::from(weight.number()) * U256::from(ONLINE_WEIGHT_QUORUM) / U256::from(100);
+        Amount::raw(delta.as_u128())
     }
 
     /// Add rep_account to the set of peered representatives

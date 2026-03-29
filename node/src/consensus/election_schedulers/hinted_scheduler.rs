@@ -22,7 +22,7 @@ use super::VoteCache;
 use crate::{
     cementation::ConfirmingSet,
     consensus::{AecInsertRequest, AecService, election::ElectionBehavior},
-    representatives::OnlineReps,
+    representatives::{OnlineReps, VoteQuorumPreparer},
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -67,7 +67,7 @@ pub struct HintedScheduler {
     confirming_set: Arc<ConfirmingSet>,
     stats: Arc<Stats>,
     vote_cache: Arc<Mutex<VoteCache>>,
-    online_reps: Arc<Mutex<OnlineReps>>,
+    quorum_preparer: Arc<VoteQuorumPreparer>,
     clock: Arc<SteadyClock>,
     stopped: AtomicBool,
     stopped_mutex: Mutex<()>,
@@ -84,7 +84,8 @@ impl HintedScheduler {
         stats: Arc<Stats>,
         vote_cache: Arc<Mutex<VoteCache>>,
         confirming_set: Arc<ConfirmingSet>,
-        online_reps: Arc<Mutex<OnlineReps>>,
+        _online_reps: Arc<Mutex<OnlineReps>>,
+        quorum_preparer: Arc<VoteQuorumPreparer>,
         clock: Arc<SteadyClock>,
     ) -> Self {
         let max_elections = active_elections.max_len() * config.hinted_limit_percentage / 100;
@@ -101,7 +102,7 @@ impl HintedScheduler {
             stats,
             vote_cache,
             confirming_set,
-            online_reps,
+            quorum_preparer,
             clock,
             stopped: AtomicBool::new(false),
             stopped_mutex: Mutex::new(()),
@@ -289,12 +290,12 @@ impl HintedScheduler {
     }
 
     fn tally_threshold(&self) -> Amount {
-        (self.online_reps.lock().unwrap().trended_or_minimum_weight() / 100)
+        (self.quorum_preparer.trended_or_minimum_weight() / 100)
             * self.config.hinting_threshold_percent as u128
     }
 
     fn final_tally_threshold(&self) -> Amount {
-        self.online_reps.lock().unwrap().quorum_delta()
+        self.quorum_preparer.quorum_delta()
     }
 
     fn cooldown(&self, hash: BlockHash) -> bool {

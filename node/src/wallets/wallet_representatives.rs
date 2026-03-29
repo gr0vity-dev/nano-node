@@ -5,7 +5,7 @@ use rsnano_types::{Account, Amount, PrivateKey, PublicKey};
 use rsnano_utils::{CancellationToken, ticker::Tickable};
 use rsnano_wallet::Wallets;
 
-use crate::representatives::OnlineReps;
+use crate::representatives::{OnlineReps, VoteQuorumPreparer};
 
 #[derive(Clone)]
 pub struct WalletRepresentatives {
@@ -17,7 +17,7 @@ pub struct WalletRepresentatives {
     vote_minimum: Amount,
     rep_weights: Arc<RepWeightCache>,
     wallets: Arc<Wallets>,
-    online_reps: Arc<Mutex<OnlineReps>>,
+    quorum_preparer: Arc<VoteQuorumPreparer>,
 }
 
 impl WalletRepresentatives {
@@ -26,7 +26,7 @@ impl WalletRepresentatives {
         vote_minimum: Amount,
         rep_weights: Arc<RepWeightCache>,
         wallets: Arc<Wallets>,
-        online_reps: Arc<Mutex<OnlineReps>>,
+        quorum_preparer: Arc<VoteQuorumPreparer>,
     ) -> Self {
         Self {
             voting_enabled,
@@ -35,17 +35,18 @@ impl WalletRepresentatives {
             vote_minimum,
             rep_weights,
             wallets,
-            online_reps,
+            quorum_preparer,
         }
     }
 
     pub fn new_null() -> Self {
+        let online_reps = Arc::new(Mutex::new(OnlineReps::new_test_instance()));
         Self::new(
             false,
             Amount::ZERO,
             Arc::new(RepWeightCache::default()),
             Arc::new(Wallets::new_null()),
-            Arc::new(Mutex::new(OnlineReps::new_test_instance())),
+            Arc::new(VoteQuorumPreparer::new(online_reps)),
         )
     }
 
@@ -101,7 +102,7 @@ impl WalletRepresentatives {
     }
 
     pub fn compute_reps(&mut self) {
-        let half_principal_weight = self.online_reps.lock().unwrap().minimum_principal_weight() / 2;
+        let half_principal_weight = self.quorum_preparer.minimum_principal_weight() / 2;
         let wallet_keys = self.wallets.get_all_pub_keys();
         self.clear();
         for pub_key in wallet_keys {

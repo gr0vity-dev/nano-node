@@ -18,7 +18,7 @@ use rsnano_utils::{
     ticker::Tickable,
 };
 
-use crate::representatives::OnlineReps;
+use crate::representatives::{OnlineReps, VoteQuorumPreparer};
 
 // Higher number means higher priority
 #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, EnumIter, Hash, Debug, EnumCount)]
@@ -135,7 +135,7 @@ where
 pub struct RepTiersCalculator {
     thread: Mutex<Option<JoinHandle<()>>>,
     rep_weights: Arc<RepWeightCache>,
-    online_reps: Arc<Mutex<OnlineReps>>,
+    quorum_preparer: Arc<VoteQuorumPreparer>,
     stats: Arc<Stats>,
     consumers: Vec<Box<dyn RepTiersConsumer + Send + Sync>>,
 }
@@ -143,13 +143,14 @@ pub struct RepTiersCalculator {
 impl RepTiersCalculator {
     pub fn new(
         rep_weights: Arc<RepWeightCache>,
-        online_reps: Arc<Mutex<OnlineReps>>,
+        _online_reps: Arc<Mutex<OnlineReps>>,
+        quorum_preparer: Arc<VoteQuorumPreparer>,
         stats: Arc<Stats>,
     ) -> Self {
         Self {
             thread: Mutex::new(None),
             rep_weights,
-            online_reps,
+            quorum_preparer,
             stats,
             consumers: Vec::new(),
         }
@@ -161,7 +162,7 @@ impl RepTiersCalculator {
 
     fn calculate_tiers(&mut self) {
         self.stats.inc(StatType::RepTiers, DetailType::Loop);
-        let trended = self.online_reps.lock().unwrap().trended_or_minimum_weight();
+        let trended = self.quorum_preparer.trended_or_minimum_weight();
         let mut new_tier1 = HashSet::new();
         let mut new_tier2 = HashSet::new();
         let mut new_tier3 = HashSet::new();

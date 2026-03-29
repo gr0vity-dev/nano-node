@@ -198,7 +198,7 @@ mod tests {
                 .rep_weights(rep_weights.clone())
                 .finish(),
         ));
-        let quorum_preparer = VoteQuorumPreparer::new(online_reps.clone());
+        let quorum_preparer = Arc::new(VoteQuorumPreparer::new(online_reps.clone()));
         let observed_at = Timestamp::new_test_instance();
         quorum_preparer.prepare(rep.public_key(), true, observed_at);
 
@@ -215,6 +215,7 @@ mod tests {
         ));
         let rep_crawler = RepCrawler::new(
             online_reps.clone(),
+            quorum_preparer,
             Arc::new(Stats::default()),
             Duration::from_secs(1),
             NodeConfig::new_test_instance(),

@@ -24,7 +24,11 @@ use rsnano_utils::{
 };
 
 use super::{AecService, VoteCache};
-use crate::{cementation::ConfirmingSet, config::NodeConfig, representatives::OnlineReps};
+use crate::{
+    cementation::ConfirmingSet,
+    config::NodeConfig,
+    representatives::{OnlineReps, VoteQuorumPreparer},
+};
 use priority::{PriorityScheduler, PrioritySchedulerExt};
 
 pub struct ElectionSchedulers {
@@ -48,6 +52,7 @@ impl ElectionSchedulers {
         vote_cache: Arc<Mutex<VoteCache>>,
         confirming_set: Arc<ConfirmingSet>,
         online_reps: Arc<Mutex<OnlineReps>>,
+        quorum_preparer: Arc<VoteQuorumPreparer>,
         clock: Arc<SteadyClock>,
     ) -> Self {
         let hinted = Arc::new(HintedScheduler::new(
@@ -58,6 +63,7 @@ impl ElectionSchedulers {
             vote_cache.clone(),
             confirming_set.clone(),
             online_reps.clone(),
+            quorum_preparer,
             clock.clone(),
         ));
 
@@ -115,6 +121,7 @@ impl ElectionSchedulers {
         )));
         let confirming_set = Arc::new(ConfirmingSet::new_null());
         let online_reps = Arc::new(Mutex::new(OnlineReps::new_test_instance()));
+        let quorum_preparer = Arc::new(VoteQuorumPreparer::new(online_reps.clone()));
         let clock = Arc::new(SteadyClock::new_null());
 
         Self::new(
@@ -125,6 +132,7 @@ impl ElectionSchedulers {
             vote_cache,
             confirming_set,
             online_reps,
+            quorum_preparer,
             clock,
         )
     }
