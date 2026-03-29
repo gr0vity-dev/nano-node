@@ -45,16 +45,15 @@ impl AecTickerPlugin for ConfirmationSolicitorPlugin {
          * Elections extending the soft config.size limit are flushed after a certain time-to-live cutoff
          * Flushed elections are later re-activated via frontier confirmation
          */
-        let elections = aec.active_election_snapshots();
-
-        for election in &elections {
+        aec.for_each_active_election(|election| {
             self.winner_block_broadcaster
                 .lock()
                 .unwrap()
                 .try_broadcast_winner(&election.winner().clone(), election.votes());
             self.confirm_req_sender
-                .send_confirm_req(&mut solicitor, election);
-        }
+                .send_confirm_req(&mut solicitor, &election);
+            true
+        });
 
         solicitor.flush();
     }

@@ -611,17 +611,20 @@ impl AecService {
 
     pub fn election_snapshots(&self) -> Vec<Election> {
         let mut snapshots = Vec::new();
-        for shard in &self.shards {
-            snapshots.extend(shard.read().unwrap().iter_round_robin());
-        }
+        self.for_each_election_snapshot(|election| {
+            snapshots.push(election);
+            true
+        });
         snapshots
     }
 
     pub fn active_election_snapshots(&self) -> Vec<Election> {
-        self.election_snapshots()
-            .into_iter()
-            .filter(|e| e.state() == ElectionState::Active)
-            .collect()
+        let mut snapshots = Vec::new();
+        self.for_each_active_election(|election| {
+            snapshots.push(election);
+            true
+        });
+        snapshots
     }
 
     pub fn transition_active(&self, block_hash: &BlockHash) -> bool {
@@ -893,6 +896,27 @@ impl AecService {
         }
     }
 
+    pub(crate) fn for_each_active_election(&self, mut f: impl FnMut(Election) -> bool) {
+        self.for_each_election_snapshot(|election| {
+            if election.state() == ElectionState::Active {
+                f(election)
+            } else {
+                true
+            }
+        });
+    }
+
+    fn for_each_election_snapshot(&self, mut f: impl FnMut(Election) -> bool) {
+        for shard in &self.shards {
+            let shard = shard.read().unwrap();
+            for election in shard.iter_round_robin() {
+                if !f(election) {
+                    return;
+                }
+            }
+        }
+    }
+
     fn next_round_robin_handle(
         &self,
         shard_index: usize,
@@ -1017,6 +1041,7 @@ mod tests {
         representatives::QuorumSpecs,
     };
     use rsnano_ledger::RepWeights;
+    use rsnano_utils::container_info::ContainerInfoEntry;
     use rsnano_types::{BlockPriority, PrivateKey, SavedBlock, Vote, VoteSource};
     use rsnano_utils::sync::backpressure_channel::channel;
     use std::{
@@ -1284,6 +1309,70 @@ mod tests {
         assert!(aec.is_active_root(&block_b.qualified_root()));
         assert!(!aec.is_active_hash(&block_a.hash()));
         assert!(aec.is_active_hash(&block_b.hash()));
+    }
+
+    #[test]
+    fn election_snapshots_collect_across_shards() {
+        let aec = AecService::new_null();
+        let block_a = (1..64)
+            .map(SavedBlock::new_test_instance_with_key)
+            .find(|block| aec.shard_index_for_root(&block.qualified_root()) == 0)
+            .unwrap();
+        let block_b = (1..64)
+            .map(SavedBlock::new_test_instance_with_key)
+            .find(|block| aec.shard_index_for_root(&block.qualified_root()) > 0)
+            .unwrap();
+        let now = Timestamp::new_test_instance();
+
+        aec.insert(
+            AecInsertRequest::new_priority(block_a.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+        aec.insert(
+            AecInsertRequest::new_priority(block_b.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+
+        let seen: Vec<_> = aec
+            .election_snapshots()
+            .into_iter()
+            .map(|election| election.qualified_root().clone())
+            .collect();
+
+        assert!(seen.contains(&block_a.qualified_root()));
+        assert!(seen.contains(&block_b.qualified_root()));
+    }
+
+    #[test]
+    fn container_info_aggregates_sharded_root_count() {
+        let aec = AecService::new_null();
+        let block_a = SavedBlock::new_test_instance_with_key(1);
+        let block_b = (2..64)
+            .map(SavedBlock::new_test_instance_with_key)
+            .find(|block| {
+                aec.shard_index_for_root(&block.qualified_root())
+                    != aec.shard_index_for_root(&block_a.qualified_root())
+            })
+            .unwrap();
+        let now = Timestamp::new_test_instance();
+
+        aec.insert(
+            AecInsertRequest::new_priority(block_a, BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+        aec.insert(
+            AecInsertRequest::new_priority(block_b, BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+
+        let ContainerInfoEntry::Leaf(roots) = &aec.container_info()[0] else {
+            panic!("expected roots leaf");
+        };
+        assert_eq!(roots.info.count, 2);
     }
 
     #[test]
