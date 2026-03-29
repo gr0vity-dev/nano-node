@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
 };
 
 use rsnano_nullable_clock::SteadyClock;
@@ -10,13 +10,13 @@ use rsnano_types::{Amount, BlockHash, VoteError};
 use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{AecFact, AecService, FilteredVote, ReceivedVote};
-use crate::{consensus::ApplyVoteArgs, representatives::OnlineReps};
+use crate::{consensus::ApplyVoteArgs, representatives::VoteQuorumPreparer};
 
 /// Applies a vote to an election
 pub(crate) struct VoteApplier {
     active_elections: Arc<AecService>,
     event_senders: RwLock<Vec<Sender<AecFact>>>,
-    online_reps: Arc<Mutex<OnlineReps>>,
+    quorum_preparer: Arc<VoteQuorumPreparer>,
     clock: Arc<SteadyClock>,
     rep_weights: Arc<RepWeightCache>,
     is_dev_network: bool,
@@ -25,7 +25,7 @@ pub(crate) struct VoteApplier {
 impl VoteApplier {
     pub(crate) fn new(
         active_elections: Arc<AecService>,
-        online_reps: Arc<Mutex<OnlineReps>>,
+        quorum_preparer: Arc<VoteQuorumPreparer>,
         clock: Arc<SteadyClock>,
         rep_weights: Arc<RepWeightCache>,
         is_dev_network: bool,
@@ -33,7 +33,7 @@ impl VoteApplier {
         Self {
             active_elections,
             event_senders: RwLock::new(Vec::new()),
-            online_reps,
+            quorum_preparer,
             clock,
             rep_weights,
             is_dev_network,
@@ -54,11 +54,16 @@ impl VoteApplier {
     /// This eliminates duplicate processing when triggering votes from the vote_cache as the result of a specific election being created.
     pub fn vote(&self, vote: &FilteredVote) -> HashMap<BlockHash, Result<(), VoteError>> {
         debug_assert!(vote.validate().is_ok());
-
-        let minimum_pr_weight = self.online_reps.lock().unwrap().minimum_principal_weight();
         let voter_weight = self.rep_weights.weight(&vote.voter);
 
-        if !self.is_dev_network && voter_weight <= minimum_pr_weight {
+        let is_active = vote
+            .filtered_blocks()
+            .any(|hash| self.active_elections.is_active_hash(hash));
+
+        let now = self.clock.now();
+        let preparation = self.quorum_preparer.prepare(vote.voter, is_active, now);
+
+        if !self.is_dev_network && voter_weight <= preparation.minimum_principal_weight {
             // Ignore votes from reps below min PR weight!
             return vote
                 .filtered_blocks()
@@ -66,28 +71,12 @@ impl VoteApplier {
                 .collect();
         }
 
-        let is_active = vote
-            .filtered_blocks()
-            .any(|hash| self.active_elections.is_active_hash(hash));
-
-        let now = self.clock.now();
-
-        let quorum_specs = {
-            let mut online = self.online_reps.lock().unwrap();
-            if is_active {
-                // Representative is defined as online if replying to live votes or rep_crawler queries.
-                // The rep weights have to be updated before the votes are processed!
-                online.vote_observed(vote.voter, now);
-            }
-            online.quorum_specs()
-        };
-
         let results = {
             let rep_weights = self.rep_weights.read();
             self.active_elections.apply_vote(ApplyVoteArgs {
                 vote,
                 rep_weights: &rep_weights,
-                quorum_specs: &quorum_specs,
+                quorum_specs: &preparation.quorum_specs,
                 now,
             })
         };
@@ -115,7 +104,12 @@ impl VoteApplier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::{AecInsertRequest, AecService};
+    use std::sync::Mutex;
+
+    use crate::{
+        consensus::{AecInsertRequest, AecService},
+        representatives::{OnlineReps, VoteQuorumPreparer},
+    };
     use rsnano_types::{
         BlockPriority, PrivateKey, SavedBlock, UnixMillisTimestamp, Vote, VoteSource,
     };
@@ -155,7 +149,9 @@ mod tests {
         )
         .unwrap();
 
-        let vote_applier = VoteApplier::new(aec.clone(), online_reps, clock, rep_weights, false);
+        let quorum_preparer = Arc::new(VoteQuorumPreparer::new(online_reps.clone()));
+        let vote_applier =
+            VoteApplier::new(aec.clone(), quorum_preparer, clock, rep_weights, false);
 
         let vote = ReceivedVote::new(
             Vote::new(&rep_key, UnixMillisTimestamp::new(123), 0, vec![block_hash]).into(),

@@ -83,6 +83,7 @@ use crate::{
     recently_cemented_inserter::RecentlyCementedInserter,
     representatives::{
         OnlineReps, OnlineRepsCleanup, OnlineWeightCalculation, RepCrawler, RepCrawlerExt,
+        VoteQuorumPreparer,
     },
     telemetry::{
         TelementryConfig, TelementryExt, Telemetry, TelemetryFactory, rsnano_build_info,
@@ -644,9 +645,11 @@ impl Node {
             CpsLimiter::unlimited()
         };
 
+        let vote_quorum_preparer = Arc::new(VoteQuorumPreparer::new(online_reps.clone()));
+
         let vote_applier = VoteApplier::new(
             active_elections.clone(),
-            online_reps.clone(),
+            vote_quorum_preparer,
             steady_clock.clone(),
             rep_weights.clone(),
             current_network == NetworkType::NanoDevNetwork,
@@ -1248,7 +1251,6 @@ impl Node {
             vote_processor: vote_processor.clone(),
             block_processor_queue: block_processor_queue.clone(),
             confirming_set: confirming_set.clone(),
-            online_reps: online_reps.clone(),
             active_elections: active_elections.clone(),
             rep_crawler: rep_crawler.clone(),
             clock: steady_clock.clone(),

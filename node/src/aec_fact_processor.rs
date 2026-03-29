@@ -6,7 +6,7 @@ use rsnano_ledger::BlockSource;
 use rsnano_messages::NetworkFilter;
 use rsnano_network::ChannelId;
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_types::{Block, VoteError, VoteSource};
+use rsnano_types::{Block, VoteSource};
 use rsnano_utils::stats::{Sample, Stats};
 
 use crate::{
@@ -20,7 +20,7 @@ use crate::{
         election_schedulers::ElectionSchedulers,
     },
     recently_cemented_inserter::RecentlyCementedInserter,
-    representatives::{OnlineReps, RepCrawler},
+    representatives::RepCrawler,
     utils::BackpressureEventProcessor,
 };
 
@@ -37,7 +37,6 @@ pub(crate) struct AecFactProcessor {
     pub(crate) vote_rebroadcast_queue: Arc<VoteRebroadcastQueue>,
     pub(crate) block_processor_queue: Arc<BlockProcessorQueue>,
     pub(crate) confirming_set: Arc<ConfirmingSet>,
-    pub(crate) online_reps: Arc<Mutex<OnlineReps>>,
     pub(crate) active_elections: Arc<AecService>,
     pub(crate) rep_crawler: Arc<RepCrawler>,
     pub(crate) clock: Arc<SteadyClock>,
@@ -132,7 +131,7 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                     .try_enqueue(&vote.vote, &results);
 
                 let result = aggregate_vote_results(&results);
-                self.try_update_online_reps(&vote, result);
+                Self::process_vote_observation_follow_up(&self.rep_crawler, &vote);
 
                 if let Some(tx) = &self.node_observer {
                     tx.send(NodeEvent::VoteProcessed(vote.vote, result))
@@ -160,24 +159,91 @@ impl AecFactProcessor {
         self.network_filter.clear_bytes(&buffer);
     }
 
-    fn try_update_online_reps(&mut self, vote: &ReceivedVote, result: Result<(), VoteError>) {
-        // Track rep weight voting on live elections
-        let mut should_observe = matches!(
-            result,
-            Ok(()) | Err(VoteError::Replay) | Err(VoteError::Ignored)
-        );
-
+    fn process_vote_observation_follow_up(rep_crawler: &RepCrawler, vote: &ReceivedVote) {
         // Ignore republished votes when rep crawling
         if vote.source == VoteSource::Live {
-            should_observe |= self.rep_crawler.process(vote);
+            rep_crawler.process(vote);
         }
+    }
+}
 
-        if should_observe {
-            // Representative is defined as online if replying to live votes or rep_crawler queries
-            self.online_reps
-                .lock()
-                .unwrap()
-                .vote_observed(vote.voter, self.clock.now());
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        config::{NetworkParams, NodeConfig},
+        representatives::{OnlineReps, VoteQuorumPreparer},
+        transport::{
+            MessageSender,
+            keepalive::{KeepaliveMessageFactory, KeepalivePublisher},
+        },
+    };
+    use rsnano_ledger::{Ledger, RepWeightCache};
+    use rsnano_network::{Network, PeerConnector};
+    use rsnano_nullable_clock::Timestamp;
+    use rsnano_types::{
+        Amount, BlockHash, Peer, PrivateKey, UnixMillisTimestamp, Vote, VoteSource,
+    };
+    use rsnano_utils::stats::Stats;
+    use std::{sync::RwLock, time::Duration};
+
+    #[test]
+    fn vote_processed_follow_up_does_not_refresh_hot_path_observation() {
+        let rep = PrivateKey::from(1);
+        let rep_weights = Arc::new(RepWeightCache::default());
+        rep_weights.put(rep.public_key(), Amount::nano(80_000_000));
+
+        let online_reps = Arc::new(Mutex::new(
+            OnlineReps::builder()
+                .rep_weights(rep_weights.clone())
+                .finish(),
+        ));
+        let quorum_preparer = VoteQuorumPreparer::new(online_reps.clone());
+        let observed_at = Timestamp::new_test_instance();
+        quorum_preparer.prepare(rep.public_key(), true, observed_at);
+
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let network = Arc::new(RwLock::new(Network::new_test_instance()));
+        let keepalive_publisher = Arc::new(KeepalivePublisher::new(
+            network.clone(),
+            Arc::new(PeerConnector::new_null(runtime.handle().clone())),
+            MessageSender::new_null(),
+            Arc::new(KeepaliveMessageFactory::new(
+                network.clone(),
+                Peer::new("::".to_string(), 0),
+            )),
+        ));
+        let rep_crawler = RepCrawler::new(
+            online_reps.clone(),
+            Arc::new(Stats::default()),
+            Duration::from_secs(1),
+            NodeConfig::new_test_instance(),
+            NetworkParams::new(rsnano_types::NetworkType::NanoDevNetwork),
+            network,
+            Arc::new(Ledger::new_null()),
+            Arc::new(SteadyClock::new_null()),
+            MessageSender::new_null(),
+            keepalive_publisher,
+            Arc::new(AecService::new_null()),
+            runtime.handle().clone(),
+        );
+
+        let vote = ReceivedVote::new(
+            Vote::new(
+                &rep,
+                UnixMillisTimestamp::new(123),
+                0,
+                vec![BlockHash::from(1)],
+            )
+            .into(),
+            VoteSource::Live,
+            Some(Arc::new(rsnano_network::Channel::new_test_instance())),
+        );
+
+        AecFactProcessor::process_vote_observation_follow_up(&rep_crawler, &vote);
+
+        let mut online = online_reps.lock().unwrap();
+        online.trim(observed_at + Duration::from_secs(60 * 10 + 1));
+        assert_eq!(online.online_reps().count(), 0);
     }
 }
