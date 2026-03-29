@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{
         Arc,
         RwLock, RwLockWriteGuard,
@@ -26,7 +26,6 @@ use super::{
     active_elections_container::{ForkChange, InsertResult},
     apply_vote_helper::ApplyVoteHelper,
     cooldown_controller::{CooldownController, CooldownResult},
-    recently_confirmed_cache::RecentlyConfirmedCache,
     root_container::{BucketCursor, ElectionHandle, RootedElectionHandle},
     stats::{AecStats, VoteCounter},
     vote_router::VoteRouter,
@@ -59,8 +58,10 @@ pub struct AecService {
     router: RwLock<VoteRouter>,
     shards: Vec<RwLock<AecShardState>>,
     published_handles: AtomicArc<FxHashMap<QualifiedRoot, ElectionHandle>>,
+    recently_confirmed: AtomicArc<RecentlyConfirmedState>,
     lifecycle: RwLock<AecLifecycleState>,
     stats: RwLock<AecStats>,
+    cleanup_stats: RwLock<AecStats>,
     vote_counter: VoteCounter,
     observer: RwLock<Option<Sender<AecFact>>>,
 }
@@ -101,17 +102,13 @@ impl AecLifecycleState {
 struct AecShardState {
     elections: ActiveElectionsContainer,
     count_by_behavior: [usize; ElectionBehavior::COUNT],
-    recently_confirmed: RecentlyConfirmedCache,
-    cleanup_stats: AecStats,
 }
 
 impl AecShardState {
-    fn new(base_latency: Duration, recently_confirmed_max_len: usize) -> Self {
+    fn new(base_latency: Duration, _recently_confirmed_max_len: usize) -> Self {
         Self {
             elections: ActiveElectionsContainer::new(base_latency),
             count_by_behavior: Default::default(),
-            recently_confirmed: RecentlyConfirmedCache::new(recently_confirmed_max_len),
-            cleanup_stats: AecStats::default(),
         }
     }
 
@@ -210,34 +207,6 @@ impl AecShardState {
         erased
     }
 
-    fn recently_confirmed_root_exists(&self, root: &QualifiedRoot) -> bool {
-        self.recently_confirmed.root_exists(root)
-    }
-
-    fn recently_confirmed_hash_exists(&self, block_hash: &BlockHash) -> bool {
-        self.recently_confirmed.hash_exists(block_hash)
-    }
-
-    fn put_recently_confirmed(&mut self, root: QualifiedRoot, hash: BlockHash) {
-        self.recently_confirmed.put(root, hash);
-    }
-
-    fn remove_recently_confirmed(&mut self, block_hash: &BlockHash) {
-        self.recently_confirmed.erase(block_hash);
-    }
-
-    fn clear_recently_confirmed(&mut self) {
-        self.recently_confirmed.clear();
-    }
-
-    fn recently_confirmed_len(&self) -> usize {
-        self.recently_confirmed.len()
-    }
-
-    fn record_cleanup_stopped(&mut self, election: &Election) {
-        self.cleanup_stats.stopped(election);
-    }
-
     fn stop(&mut self) -> Vec<Election> {
         self.count_by_behavior = Default::default();
         self.elections.stop()
@@ -249,6 +218,72 @@ impl AecShardState {
 
     fn iter_round_robin(&self) -> impl Iterator<Item = Election> {
         self.elections.iter_round_robin()
+    }
+}
+
+#[derive(Clone, Default)]
+struct RecentlyConfirmedState {
+    by_root: FxHashMap<QualifiedRoot, BlockHash>,
+    by_hash: FxHashMap<BlockHash, QualifiedRoot>,
+    ordered_hashes: VecDeque<BlockHash>,
+    max_len: usize,
+}
+
+impl RecentlyConfirmedState {
+    fn new(max_len: usize) -> Self {
+        Self {
+            max_len,
+            ..Default::default()
+        }
+    }
+
+    fn root_exists(&self, root: &QualifiedRoot) -> bool {
+        self.by_root.contains_key(root)
+    }
+
+    fn hash_exists(&self, block_hash: &BlockHash) -> bool {
+        self.by_hash.contains_key(block_hash)
+    }
+
+    fn put(&mut self, root: QualifiedRoot, hash: BlockHash) {
+        if let Some(previous_hash) = self.by_root.insert(root.clone(), hash) {
+            self.by_hash.remove(&previous_hash);
+            self.ordered_hashes.retain(|current| current != &previous_hash);
+        }
+
+        if let Some(previous_root) = self.by_hash.insert(hash, root.clone()) {
+            self.by_root.remove(&previous_root);
+            self.ordered_hashes.retain(|current| current != &hash);
+        }
+
+        self.ordered_hashes.push_back(hash);
+
+        while self.by_hash.len() > self.max_len {
+            let Some(oldest_hash) = self.ordered_hashes.pop_front() else {
+                break;
+            };
+            let Some(oldest_root) = self.by_hash.remove(&oldest_hash) else {
+                continue;
+            };
+            self.by_root.remove(&oldest_root);
+        }
+    }
+
+    fn erase(&mut self, block_hash: &BlockHash) {
+        if let Some(root) = self.by_hash.remove(block_hash) {
+            self.by_root.remove(&root);
+            self.ordered_hashes.retain(|current| current != block_hash);
+        }
+    }
+
+    fn clear(&mut self) {
+        self.by_root.clear();
+        self.by_hash.clear();
+        self.ordered_hashes.clear();
+    }
+
+    fn len(&self) -> usize {
+        self.by_hash.len()
     }
 }
 
@@ -272,8 +307,12 @@ impl AecService {
                 .map(|_| RwLock::new(AecShardState::new(base_latency, recently_confirmed_max_len)))
                 .collect(),
             published_handles: AtomicArc::new(Arc::new(FxHashMap::default())),
+            recently_confirmed: AtomicArc::new(Arc::new(RecentlyConfirmedState::new(
+                confirmation_cache,
+            ))),
             lifecycle: RwLock::new(AecLifecycleState::new(config)),
             stats: RwLock::new(AecStats::default()),
+            cleanup_stats: RwLock::new(AecStats::default()),
             vote_counter: VoteCounter::default(),
             observer: RwLock::new(None),
         }
@@ -293,8 +332,12 @@ impl AecService {
                 })
                 .collect(),
             published_handles: AtomicArc::new(Arc::new(FxHashMap::default())),
+            recently_confirmed: AtomicArc::new(Arc::new(RecentlyConfirmedState::new(
+                ActiveElectionsConfig::default().confirmation_cache,
+            ))),
             lifecycle: RwLock::new(AecLifecycleState::new(ActiveElectionsConfig::default())),
             stats: RwLock::new(AecStats::default()),
+            cleanup_stats: RwLock::new(AecStats::default()),
             vote_counter: VoteCounter::default(),
             observer: RwLock::new(None),
         }
@@ -341,11 +384,7 @@ impl AecService {
     }
 
     pub fn was_recently_confirmed(&self, block_hash: &BlockHash) -> bool {
-        self.shards.iter().any(|shard| {
-            shard.read()
-                .unwrap()
-                .recently_confirmed_hash_exists(block_hash)
-        })
+        self.recently_confirmed.load().hash_exists(block_hash)
     }
 
     pub fn count_by_behavior(&self, behavior: ElectionBehavior) -> usize {
@@ -429,7 +468,11 @@ impl AecService {
             let lifecycle = self.lifecycle.read().unwrap();
             lifecycle.ensure_not_stopped()?;
             let mut shard = self.shards[shard_index].write().unwrap();
-            if shard.recently_confirmed_root_exists(&request.block.qualified_root()) {
+            if self
+                .recently_confirmed
+                .load()
+                .root_exists(&request.block.qualified_root())
+            {
                 return Err(AecInsertError::RecentlyConfirmed);
             }
             let inserted = shard.insert(request, now)?;
@@ -480,7 +523,11 @@ impl AecService {
                     self.write_two_shards_ordered(insert_shard_index, lowest_shard_index);
                 let (insert_shard, lowest_shard) = (&mut first, &mut second);
 
-                if insert_shard.recently_confirmed_root_exists(&block.qualified_root()) {
+                if self
+                    .recently_confirmed
+                    .load()
+                    .root_exists(&block.qualified_root())
+                {
                     return PriorityActivationResult::RecentlyConfirmed;
                 }
 
@@ -489,11 +536,12 @@ impl AecService {
                 }
 
                 let removed = lowest_shard.erase(replacement_root.as_ref().unwrap());
-                self.publish_shard_handle_removal(replacement_root.as_ref().unwrap());
-                if let Some(election) = &removed {
+                let removed_from_active =
+                    self.publish_shard_handle_removal(replacement_root.as_ref().unwrap());
+                if removed_from_active && let Some(election) = &removed {
                     self.stats.write().unwrap().stopped(election);
                 }
-                ended = removed;
+                ended = removed.filter(|_| removed_from_active);
 
                 match insert_shard.insert(AecInsertRequest::new_priority(block, priority), now) {
                     Ok(inserted) => {
@@ -508,7 +556,11 @@ impl AecService {
             } else {
                 let mut shard = self.shards[insert_shard_index].write().unwrap();
 
-                if shard.recently_confirmed_root_exists(&block.qualified_root()) {
+                if self
+                    .recently_confirmed
+                    .load()
+                    .root_exists(&block.qualified_root())
+                {
                     return PriorityActivationResult::RecentlyConfirmed;
                 }
 
@@ -518,11 +570,11 @@ impl AecService {
 
                 let replaced = if let Some(lowest_root) = &replacement_root {
                     let removed = shard.erase(lowest_root);
-                    self.publish_shard_handle_removal(lowest_root);
-                    if let Some(election) = &removed {
+                    let removed_from_active = self.publish_shard_handle_removal(lowest_root);
+                    if removed_from_active && let Some(election) = &removed {
                         self.stats.write().unwrap().stopped(election);
                     }
-                    ended = removed;
+                    ended = removed.filter(|_| removed_from_active);
                     true
                 } else {
                     false
@@ -736,10 +788,11 @@ impl AecService {
                 .into_iter()
                 .filter_map(|root| {
                     let ended = self.shard(&root).write().unwrap().erase(&root);
-                    if ended.is_some() {
-                        self.publish_shard_handle_removal(&root);
+                    if ended.is_some() && self.publish_shard_handle_removal(&root) {
+                        ended
+                    } else {
+                        None
                     }
-                    ended
                 })
                 .inspect(|election| self.stats.write().unwrap().stopped(election))
                 .collect::<Vec<_>>()
@@ -840,9 +893,10 @@ impl AecService {
             for shard in &self.shards {
                 let shard_ended = shard.write().unwrap().take_ended_elections();
                 for election in &shard_ended {
-                    self.publish_shard_handle_removal(election.qualified_root());
+                    if self.publish_shard_handle_removal(election.qualified_root()) {
+                        ended.push(election.clone());
+                    }
                 }
-                ended.extend(shard_ended);
             }
             if !ended.is_empty() {
                 let mut stats = self.stats.write().unwrap();
@@ -859,9 +913,11 @@ impl AecService {
     pub fn erase(&self, root: &QualifiedRoot) -> bool {
         let ended = {
             let ended = self.shard(root).write().unwrap().erase(root);
-            if ended.is_some() {
-                self.publish_shard_handle_removal(root);
-            }
+            let ended = if ended.is_some() && self.publish_shard_handle_removal(root) {
+                ended
+            } else {
+                None
+            };
             if let Some(election) = &ended {
                 self.stats.write().unwrap().stopped(election);
             }
@@ -880,9 +936,11 @@ impl AecService {
         let lowest = self.lowest_priority(bucket_id).map(|(root, _)| root);
         if let Some(election) = lowest.and_then(|root| {
             let election = self.shard(&root).write().unwrap().erase(&root);
-            if election.is_some() {
-                self.publish_shard_handle_removal(&root);
-            }
+            let election = if election.is_some() && self.publish_shard_handle_removal(&root) {
+                election
+            } else {
+                None
+            };
             if let Some(election) = &election {
                 self.stats.write().unwrap().stopped(election);
             }
@@ -941,9 +999,7 @@ impl AecService {
     }
 
     pub fn remove_recently_confirmed(&self, block_hash: &BlockHash) {
-        for shard in &self.shards {
-            shard.write().unwrap().remove_recently_confirmed(block_hash);
-        }
+        self.update_recently_confirmed(|recently_confirmed| recently_confirmed.erase(block_hash));
     }
 
     pub fn set_cooldown(&self, cool_down: bool, reason: AecCooldownReason) {
@@ -975,9 +1031,7 @@ impl AecService {
     }
 
     pub fn clear_recently_confirmed(&self) {
-        for shard in &self.shards {
-            shard.write().unwrap().clear_recently_confirmed();
-        }
+        self.update_recently_confirmed(RecentlyConfirmedState::clear);
     }
 
     pub fn stop(&self) {
@@ -989,6 +1043,8 @@ impl AecService {
             let _ = shard.write().unwrap().stop();
         }
         self.published_handles.store(Arc::new(FxHashMap::default()));
+        self.recently_confirmed
+            .store(Arc::new(RecentlyConfirmedState::new(0)));
     }
 
     pub fn force_confirm(&self, block_hash: &BlockHash, now: Timestamp) {
@@ -1015,11 +1071,14 @@ impl AecService {
 
     fn cleanup_confirmed_election(&self, election: Election) {
         let ended = {
+            self.update_recently_confirmed(|recently_confirmed| {
+                recently_confirmed.put(election.qualified_root().clone(), election.winner().hash());
+            });
+
             let mut shard = self.shard(election.qualified_root()).write().unwrap();
-            shard.put_recently_confirmed(election.qualified_root().clone(), election.winner().hash());
             if shard.erase_with_known_election(election.qualified_root(), &election) {
                 self.publish_shard_handle_removal(election.qualified_root());
-                shard.record_cleanup_stopped(&election);
+                self.cleanup_stats.write().unwrap().stopped(&election);
                 Some(election)
             } else {
                 None
@@ -1149,11 +1208,22 @@ impl AecService {
         self.published_handles.store(Arc::new(updated));
     }
 
-    fn publish_shard_handle_removal(&self, root: &QualifiedRoot) {
+    fn publish_shard_handle_removal(&self, root: &QualifiedRoot) -> bool {
         let current = self.published_handles.load();
         let mut updated = (*current).clone();
-        updated.remove(root);
+        let removed = updated.remove(root).is_some();
         self.published_handles.store(Arc::new(updated));
+        removed
+    }
+
+    fn update_recently_confirmed(
+        &self,
+        f: impl FnOnce(&mut RecentlyConfirmedState),
+    ) {
+        let current = self.recently_confirmed.load();
+        let mut updated = (*current).clone();
+        f(&mut updated);
+        self.recently_confirmed.store(Arc::new(updated));
     }
 
     fn finish_removed_elections(&self, elections: impl IntoIterator<Item = Election>) {
@@ -1240,22 +1310,19 @@ impl StatsSource for AecService {
         let lifecycle = self.lifecycle.read().unwrap();
         lifecycle.cooldown.collect_stats(result);
         self.stats.read().unwrap().collect_stats(result);
-        for shard in &self.shards {
-            let mut shard_stats = StatsCollection::new();
-            shard.read().unwrap().cleanup_stats.collect_stats(&mut shard_stats);
-            merge_stats(result, &shard_stats);
-        }
+        let mut cleanup_stats = StatsCollection::new();
+        self.cleanup_stats
+            .read()
+            .unwrap()
+            .collect_stats(&mut cleanup_stats);
+        merge_stats(result, &cleanup_stats);
         self.vote_counter.collect_stats(result);
     }
 }
 
 impl ContainerInfoProvider for AecService {
     fn container_info(&self) -> ContainerInfo {
-        let recently_confirmed_count: usize = self
-            .shards
-            .iter()
-            .map(|shard| shard.read().unwrap().recently_confirmed_len())
-            .sum();
+        let recently_confirmed_count = self.recently_confirmed.load().len();
         ContainerInfo::builder()
             .leaf("roots", self.len(), RootContainer::ELEMENT_SIZE)
             .leaf(
