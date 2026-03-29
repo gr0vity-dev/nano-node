@@ -391,22 +391,11 @@ mod tests {
         condition.notify_all();
     }
 
-    fn rep_on_same_legacy_shard(rep: &PrivateKey) -> PrivateKey {
-        let current = rep.public_key().as_bytes()[31] as usize % 16;
-        for i in 2..100 {
-            let candidate = PrivateKey::from(i);
-            if candidate.public_key().as_bytes()[31] as usize % 16 == current {
-                return candidate;
-            }
-        }
-        panic!("could not find representative on the same legacy shard");
-    }
-
     #[test]
     fn queued_votes_for_different_elections_do_not_wait_on_each_other_anywhere_but_target_election()
     {
         let first_rep = PrivateKey::from(1);
-        let second_rep = rep_on_same_legacy_shard(&first_rep);
+        let second_rep = PrivateKey::from(2);
 
         let rep_weights = Arc::new(RepWeightCache::default());
         rep_weights.put(first_rep.public_key(), Amount::nano(80_000_000));
