@@ -1,83 +1,63 @@
 use std::time::Duration;
 
-use strum::EnumCount;
-
 use rsnano_ledger::RepWeights;
 use rsnano_nullable_clock::Timestamp;
-use rsnano_types::{
-    Block, BlockHash, PublicKey, QualifiedRoot, SavedBlock, TimePriority, VoteSource,
-};
-use rsnano_utils::{
-    container_info::{ContainerInfo, ContainerInfoProvider},
-    stats::{StatsCollection, StatsSource},
-    sync::backpressure_channel::Sender,
-};
+use rsnano_types::{Block, BlockHash, PublicKey, QualifiedRoot, TimePriority};
+use rsnano_utils::container_info::ContainerInfo;
 
 use crate::{
     consensus::{
-        election::{
-            AddForkResult, ConfirmationType, ConfirmedElection, Election, ElectionBehavior,
-            VoteType,
-        },
+        election::{AddForkResult, Election, ElectionBehavior, VoteType},
         filtered_vote::FilteredVote,
     },
     representatives::QuorumSpecs,
 };
 
 use super::{
-    ActiveElectionsConfig, ActiveElectionsInfo, AecFact, AecInsertError, AecInsertRequest, Entry,
-    RootContainer,
-    apply_vote_helper::ConfirmedElectionCleanup,
-    cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
-    recently_confirmed_cache::RecentlyConfirmedCache,
+    AecInsertError, AecInsertRequest, Entry, RootContainer,
     root_container::{BucketCursor, ElectionHandle, RootedElectionHandle},
-    stats::AecStats,
     vote_router::VoteRouter,
 };
 
 pub struct ActiveElectionsContainer {
     roots: RootContainer,
     vote_router: VoteRouter,
-    observer: Option<Sender<AecFact>>,
-    stopped: bool,
-    count_by_behavior: [usize; ElectionBehavior::COUNT],
     base_latency: Duration,
-    recently_confirmed: RecentlyConfirmedCache,
-    cooldown: CooldownController,
-    max_elections: usize,
-    stats: AecStats,
+}
+
+pub(super) enum InsertResult {
+    Inserted {
+        hash: BlockHash,
+        root: QualifiedRoot,
+        behavior: ElectionBehavior,
+    },
+    Upgraded {
+        previous_behavior: ElectionBehavior,
+        new_behavior: ElectionBehavior,
+    },
+}
+
+pub(super) enum ForkChange {
+    Added {
+        added_hash: BlockHash,
+    },
+    Replaced {
+        added_hash: BlockHash,
+        removed: Block,
+    },
+    Discarded {
+        discarded: Block,
+    },
+    Ignored,
 }
 
 impl ActiveElectionsContainer {
-    pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
+    pub fn new(base_latency: Duration) -> Self {
         Self {
             roots: RootContainer::default(),
             vote_router: VoteRouter::default(),
-            observer: None,
-            stopped: false,
-            count_by_behavior: Default::default(),
             base_latency,
-            recently_confirmed: RecentlyConfirmedCache::new(config.confirmation_cache),
-            cooldown: CooldownController::default(),
-            max_elections: config.max_elections,
-            stats: Default::default(),
         }
-    }
-
-    pub fn set_observer(&mut self, observer: Sender<AecFact>) {
-        self.observer = Some(observer);
-    }
-
-    pub fn max_len(&self) -> usize {
-        self.max_elections
-    }
-
-    pub fn count_by_behavior(&self, behavior: ElectionBehavior) -> usize {
-        self.count_by_behavior[behavior as usize]
-    }
-
-    fn count_by_behavior_mut(&mut self, behavior: ElectionBehavior) -> &mut usize {
-        &mut self.count_by_behavior[behavior as usize]
     }
 
     pub fn bucket_len(&self, bucket_id: usize) -> usize {
@@ -110,20 +90,19 @@ impl ActiveElectionsContainer {
         self.roots.next_bucket(bucket_id, after)
     }
 
-    pub fn insert(
+    pub(super) fn insert(
         &mut self,
         request: AecInsertRequest,
         now: Timestamp,
-    ) -> Result<(), AecInsertError> {
-        self.ensure_not_stopped()?;
-        self.ensure_not_recently_confirmed(&request)?;
-
-        if self.try_upgrade_priority_election(&request)? {
-            return Ok(());
+    ) -> Result<InsertResult, AecInsertError> {
+        if let Some(previous_behavior) = self.try_upgrade_priority_election(&request)? {
+            return Ok(InsertResult::Upgraded {
+                previous_behavior,
+                new_behavior: request.behavior,
+            });
         }
 
-        self.insert_new_election(request, now);
-        Ok(())
+        Ok(self.insert_new_election(request, now))
     }
 
     pub fn set_last_voted(
@@ -138,44 +117,22 @@ impl ActiveElectionsContainer {
         entry.election.lock().voted(vote_type, timestamp);
     }
 
-    fn ensure_not_stopped(&self) -> Result<(), AecInsertError> {
-        if self.stopped {
-            Err(AecInsertError::Stopped)
-        } else {
-            Ok(())
-        }
-    }
-
-    fn ensure_not_recently_confirmed(
-        &self,
-        request: &AecInsertRequest,
-    ) -> Result<(), AecInsertError> {
-        let root = request.block.qualified_root();
-
-        if self.recently_confirmed.root_exists(&root) {
-            return Err(AecInsertError::RecentlyConfirmed);
-        }
-        Ok(())
-    }
-
     fn try_upgrade_priority_election(
         &mut self,
         request: &AecInsertRequest,
-    ) -> Result<bool, AecInsertError> {
+    ) -> Result<Option<ElectionBehavior>, AecInsertError> {
         let (upgraded, previous_behavior) = self.roots.try_upgrade_to_priority_election(request);
 
         if upgraded {
-            *self.count_by_behavior_mut(previous_behavior.unwrap()) -= 1;
-            *self.count_by_behavior_mut(request.behavior) += 1;
-            Ok(true)
+            Ok(previous_behavior)
         } else if previous_behavior.is_some() {
             Err(AecInsertError::Duplicate)
         } else {
-            Ok(false)
+            Ok(None)
         }
     }
 
-    fn insert_new_election(&mut self, request: AecInsertRequest, now: Timestamp) {
+    fn insert_new_election(&mut self, request: AecInsertRequest, now: Timestamp) -> InsertResult {
         let root = request.block.qualified_root();
         let hash = request.block.hash();
         let election = Election::new(request.block, request.behavior, self.base_latency, now);
@@ -186,10 +143,11 @@ impl ActiveElectionsContainer {
             priority: request.priority,
         });
         self.vote_router.connect(hash, root.clone());
-
-        *self.count_by_behavior_mut(request.behavior) += 1;
-        self.stats.started(request.behavior);
-        self.notify(AecFact::ElectionStarted(hash, root));
+        InsertResult::Inserted {
+            hash,
+            root,
+            behavior: request.behavior,
+        }
     }
 
     pub(super) fn apply_fork_result(
@@ -198,63 +156,45 @@ impl ActiveElectionsContainer {
         handle: &ElectionHandle,
         fork: &Block,
         result: AddForkResult,
-    ) -> bool {
+    ) -> ForkChange {
         let Some(current_handle) = self.roots.election_handle_for_root(root) else {
-            return false;
+            return ForkChange::Ignored;
         };
         if !current_handle.ptr_eq(handle) {
-            return false;
+            return ForkChange::Ignored;
         }
 
-        let added = match result {
+        match result {
             AddForkResult::Added => {
-                self.notify(AecFact::BlockAddedToElection(fork.hash()));
-                true
+                self.vote_router.connect(fork.hash(), fork.qualified_root());
+                ForkChange::Added {
+                    added_hash: fork.hash(),
+                }
             }
             AddForkResult::Replaced(removed) => {
                 self.vote_router.disconnect(&removed.hash());
-                self.notify(AecFact::BlockDiscarded(removed.into()));
-                self.notify(AecFact::BlockAddedToElection(fork.hash()));
-                true
+                self.vote_router.connect(fork.hash(), fork.qualified_root());
+                ForkChange::Replaced {
+                    added_hash: fork.hash(),
+                    removed: removed.into(),
+                }
             }
-            AddForkResult::TallyTooLow => {
-                self.notify(AecFact::BlockDiscarded(fork.clone()));
-                false
-            }
-            AddForkResult::Duplicate | AddForkResult::ElectionEnded => false,
-        };
-
-        if added {
-            self.vote_router.connect(fork.hash(), fork.qualified_root());
-            self.stats.conflicts += 1;
-        }
-
-        added
-    }
-
-    /// How many election slots are available
-    /// This is a soft limit and can be negative!
-    pub fn vacancy(&self) -> i64 {
-        if self.cooldown.is_cooling_down() {
-            return 0;
-        }
-        let current_size = self.roots.len() as i64;
-        self.max_elections as i64 - current_size
-    }
-
-    pub fn set_cooldown(&mut self, cool_down: bool, reason: AecCooldownReason) {
-        let result = self.cooldown.set_cooldown(cool_down, reason);
-        if result == CooldownResult::Recovered {
-            self.notify(AecFact::Recovered);
+            AddForkResult::TallyTooLow => ForkChange::Discarded {
+                discarded: fork.clone(),
+            },
+            AddForkResult::Duplicate | AddForkResult::ElectionEnded => ForkChange::Ignored,
         }
     }
 
-    pub fn stop(&mut self) {
-        // destroy send queue so that the receiver thread will be stopped too
-        drop(self.observer.take());
-        self.stopped = true;
-        self.roots.clear();
+    pub fn stop(&mut self) -> Vec<Election> {
+        let removed = self
+            .roots
+            .drain_filter(|_| true)
+            .into_iter()
+            .map(|entry| entry.election.snapshot())
+            .collect();
         self.vote_router.clear();
+        removed
     }
 
     pub fn is_active_root(&self, root: &QualifiedRoot) -> bool {
@@ -263,27 +203,6 @@ impl ActiveElectionsContainer {
 
     pub fn is_active_hash(&self, block_hash: &BlockHash) -> bool {
         self.vote_router.is_active(block_hash)
-    }
-
-    pub fn was_recently_confirmed(&self, block_hash: &BlockHash) -> bool {
-        self.recently_confirmed.hash_exists(block_hash)
-    }
-
-    pub fn clear_recently_confirmed(&mut self) {
-        self.recently_confirmed.clear();
-    }
-
-    /// Returns the current active elections after transitioning
-    pub fn transition_time(&mut self, now: Timestamp) {
-        self.stats.ticked += 1;
-        for entry in self.roots.iter() {
-            entry.election.lock().transition_time(now);
-        }
-        self.erase_ended_elections();
-    }
-
-    pub(super) fn count_tick(&mut self) {
-        self.stats.ticked += 1;
     }
 
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<Election> {
@@ -317,42 +236,23 @@ impl ActiveElectionsContainer {
         }
     }
 
-    pub fn erase_ended_elections(&mut self) {
-        let removed = self
-            .roots
-            .drain_filter(|i| i.election.lock().state().has_ended());
-
-        for entry in removed {
-            self.cleanup_election(entry);
-        }
+    pub fn take_ended_elections(&mut self) -> Vec<Election> {
+        self.roots
+            .drain_filter(|i| i.election.lock().state().has_ended())
+            .into_iter()
+            .map(|entry| self.cleanup_snapshot(entry.election.snapshot()))
+            .collect()
     }
 
-    pub fn erase(&mut self, root: &QualifiedRoot) -> bool {
-        let Some(entry) = self.roots.erase(root) else {
-            return false;
-        };
-        self.cleanup_election(entry);
-        true
+    pub fn erase(&mut self, root: &QualifiedRoot) -> Option<Election> {
+        self.roots
+            .erase(root)
+            .map(|entry| self.cleanup_snapshot(entry.election.snapshot()))
     }
 
-    pub fn erase_lowest_prio_election(&mut self, bucket_id: usize) {
-        let Some((root, _)) = self.lowest_priority(bucket_id) else {
-            return;
-        };
-        self.erase(&root);
-    }
-
-    fn cleanup_election(&mut self, entry: Entry) {
-        self.cleanup_snapshot(entry.election.snapshot());
-    }
-
-    pub(super) fn block_confirmed(&mut self, block: SavedBlock, election: ConfirmedElection) {
-        self.stats.block_confirmations[election.confirmation_type as usize] += 1;
-        self.notify(AecFact::BlockConfirmed(block, election));
-    }
-
-    pub fn remove_recently_confirmed(&mut self, block_hash: &BlockHash) {
-        self.recently_confirmed.erase(block_hash);
+    pub fn erase_lowest_prio_election(&mut self, bucket_id: usize) -> Option<Election> {
+        let (root, _) = self.lowest_priority(bucket_id)?;
+        self.erase(&root)
     }
 
     pub(super) fn election_handle_for_block(
@@ -367,38 +267,16 @@ impl ActiveElectionsContainer {
         self.roots.election_handle_for_root(root)
     }
 
-    pub(super) fn vote_observer(&self) -> Option<Sender<AecFact>> {
-        self.observer.clone()
-    }
-
-    pub(super) fn count_applied_votes(&mut self, source: VoteSource, count: usize) {
-        for _ in 0..count {
-            self.stats.vote_counter.count(source);
-        }
-    }
-
-    pub(super) fn cleanup_confirmed_election(&mut self, cleanup: ConfirmedElectionCleanup) {
-        let root = cleanup.election.qualified_root().clone();
-        self.recently_confirmed
-            .put(root.clone(), cleanup.election.winner().hash());
-        if self
-            .roots
-            .erase_with_known_election(&root, &cleanup.election)
-            .is_some()
-        {
-            self.cleanup_snapshot(cleanup.election);
-        }
-    }
-
-    pub fn force_confirm(&mut self, block_hash: &BlockHash, now: Timestamp) {
-        let Some(handle) = self.election_handle_for_block(block_hash) else {
-            panic!("Force confirm failed, because no active election was found");
-        };
-        let mut election = handle.lock();
-        if election.force_confirm() {
-            let confirmed_election =
-                election.into_confirmed_election(now, ConfirmationType::ActiveConfirmedQuorum);
-            self.notify(AecFact::ElectionConfirmed(confirmed_election));
+    pub(super) fn erase_with_known_election(
+        &mut self,
+        root: &QualifiedRoot,
+        election: &Election,
+    ) -> bool {
+        if self.roots.erase_with_known_election(root, election).is_some() {
+            self.cleanup_snapshot(election.clone());
+            true
+        } else {
+            false
         }
     }
 
@@ -422,72 +300,19 @@ impl ActiveElectionsContainer {
         self.len() == 0
     }
 
-    pub fn info(&self) -> ActiveElectionsInfo {
-        ActiveElectionsInfo {
-            max_elections: self.max_elections,
-            total: self.roots.len(),
-            priority: self.count_by_behavior(ElectionBehavior::Priority),
-            hinted: self.count_by_behavior(ElectionBehavior::Hinted),
-            optimistic: self.count_by_behavior(ElectionBehavior::Optimistic),
-        }
+    pub fn vote_router_container_info(&self) -> ContainerInfo {
+        self.vote_router.container_info()
     }
 
-    pub fn simulate_event(&self, event: AecFact) {
-        self.notify(event);
-    }
-
-    fn notify(&self, event: AecFact) {
-        if let Some(sender) = &self.observer {
-            sender.send(event).unwrap()
-        }
-    }
-
-    fn cleanup_snapshot(&mut self, election: Election) {
+    fn cleanup_snapshot(&mut self, election: Election) -> Election {
         self.vote_router.disconnect_election(&election);
-        *self.count_by_behavior_mut(election.behavior()) -= 1;
-        self.stats.stopped(&election);
-        self.notify(AecFact::ElectionEnded(election));
+        election
     }
 }
 
 impl Default for ActiveElectionsContainer {
     fn default() -> Self {
-        Self::new(ActiveElectionsConfig::default(), Duration::from_secs(1))
-    }
-}
-
-impl StatsSource for ActiveElectionsContainer {
-    fn collect_stats(&self, result: &mut StatsCollection) {
-        self.cooldown.collect_stats(result);
-        self.stats.collect_stats(result);
-    }
-}
-
-impl ContainerInfoProvider for ActiveElectionsContainer {
-    fn container_info(&self) -> ContainerInfo {
-        ContainerInfo::builder()
-            .leaf("roots", self.roots.len(), RootContainer::ELEMENT_SIZE)
-            .leaf(
-                "normal",
-                self.count_by_behavior(ElectionBehavior::Priority),
-                0,
-            )
-            .leaf(
-                "hinted".to_string(),
-                self.count_by_behavior(ElectionBehavior::Hinted),
-                0,
-            )
-            .leaf(
-                "optimistic".to_string(),
-                self.count_by_behavior(ElectionBehavior::Optimistic),
-                0,
-            )
-            .node(
-                "recently_confirmed",
-                self.recently_confirmed.container_info(),
-            )
-            .node("vote_router", self.vote_router.container_info())
-            .finish()
+        Self::new(Duration::from_secs(1))
     }
 }
 
@@ -502,7 +327,7 @@ pub struct ApplyVoteArgs<'a> {
 mod tests {
     use super::*;
     use crate::consensus::{AecService, ReceivedVote};
-    use rsnano_types::{Amount, BlockPriority, PrivateKey, TimePriority, Vote, VoteSource};
+    use rsnano_types::{Amount, BlockPriority, PrivateKey, SavedBlock, TimePriority, Vote, VoteSource};
     use std::sync::Arc;
 
     #[test]
@@ -551,7 +376,7 @@ mod tests {
             )
             .unwrap();
 
-        assert!(container.erase(&block.qualified_root()));
+        assert!(container.erase(&block.qualified_root()).is_some());
         assert!(!container.is_active_hash(&block.hash()));
         assert!(container.election_for_block(&block.hash()).is_none());
     }
