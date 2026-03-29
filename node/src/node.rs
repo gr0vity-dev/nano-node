@@ -1149,13 +1149,12 @@ impl Node {
         );
 
         let rep_tiers = Arc::new(CurrentRepTiers::new());
-        let mut rep_tiers_calculator =
-            RepTiersCalculator::new(
-                rep_weights.clone(),
-                online_reps.clone(),
-                vote_quorum_preparer.clone(),
-                stats.clone(),
-            );
+        let mut rep_tiers_calculator = RepTiersCalculator::new(
+            rep_weights.clone(),
+            online_reps.clone(),
+            vote_quorum_preparer.clone(),
+            stats.clone(),
+        );
         rep_tiers_calculator.add_tiers_consumer(vote_processor_queue.clone());
         rep_tiers_calculator.add_tiers_consumer(vote_rebroadcast_queue.clone());
         rep_tiers_calculator.add_tiers_consumer(rep_tiers.clone());

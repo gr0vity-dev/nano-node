@@ -277,7 +277,10 @@ impl OnlineReps {
         }
     }
 
-    pub(crate) fn quorum_delta_for(online_weight: Amount, trended_or_minimum_weight: Amount) -> Amount {
+    pub(crate) fn quorum_delta_for(
+        online_weight: Amount,
+        trended_or_minimum_weight: Amount,
+    ) -> Amount {
         let weight = max(online_weight, trended_or_minimum_weight);
 
         // Using a larger container to ensure maximum precision

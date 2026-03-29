@@ -180,9 +180,7 @@ mod tests {
         rep_weights.put(rep.public_key(), Amount::nano(80_000_000));
 
         let online_reps = Arc::new(Mutex::new(
-            OnlineReps::builder()
-                .rep_weights(rep_weights)
-                .finish(),
+            OnlineReps::builder().rep_weights(rep_weights).finish(),
         ));
         let quorum_preparer = Arc::new(VoteQuorumPreparer::new(online_reps.clone()));
         quorum_preparer.record_direct_observation(rep.public_key(), Timestamp::new_test_instance());

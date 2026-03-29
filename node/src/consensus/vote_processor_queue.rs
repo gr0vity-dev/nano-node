@@ -139,10 +139,7 @@ impl VoteProcessorQueue {
         true
     }
 
-    pub(crate) fn wait_for_votes(
-        &self,
-        max_batch_size: usize,
-    ) -> VecDeque<(QueueKey, QueuedVote)> {
+    pub(crate) fn wait_for_votes(&self, max_batch_size: usize) -> VecDeque<(QueueKey, QueuedVote)> {
         let mut guard = self.state.lock().unwrap();
         loop {
             self.drain_ingress(&mut guard);
@@ -213,7 +210,12 @@ impl VoteProcessorQueue {
                 Ok(request) => {
                     let added = state.queue.push(
                         request.key,
-                        (request.vote, request.source, request.channel, request.filter),
+                        (
+                            request.vote,
+                            request.source,
+                            request.channel,
+                            request.filter,
+                        ),
                     );
                     debug_assert!(added, "reserved ingress slot must accept queued vote");
                 }
@@ -234,11 +236,7 @@ impl ContainerInfoProvider for VoteProcessorQueue {
         let fair_queue_len = guard.queue.len();
         let total_len = self.len();
         ContainerInfo::builder()
-            .leaf(
-                "votes",
-                total_len,
-                size_of::<(Arc<Vote>, VoteSource)>(),
-            )
+            .leaf("votes", total_len, size_of::<(Arc<Vote>, VoteSource)>())
             .leaf(
                 "ingress",
                 total_len.saturating_sub(fair_queue_len),

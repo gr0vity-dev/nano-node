@@ -342,7 +342,8 @@ impl RepCrawler {
                 channel.clone(),
                 now,
             );
-            self.quorum_preparer.record_direct_observation(vote.voter, now);
+            self.quorum_preparer
+                .record_direct_observation(vote.voter, now);
 
             match result {
                 InsertResult::Inserted => {
