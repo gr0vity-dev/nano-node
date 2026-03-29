@@ -552,4 +552,42 @@ mod tests {
         assert_eq!(preparer.online_weight(), Amount::nano(95_000_000));
         assert_eq!(preparer.quorum_delta(), Amount::nano(63_650_000));
     }
+
+    #[test]
+    fn prepare_uses_current_rep_weight_cache_for_already_tracked_rep() {
+        let tracked_rep = PrivateKey::from(1);
+        let voter = PrivateKey::from(2);
+        let rep_weights = Arc::new(RepWeightCache::default());
+        rep_weights.put(tracked_rep.public_key(), Amount::nano(80_000_000));
+        rep_weights.put(voter.public_key(), Amount::nano(50_000_000));
+
+        let online_reps = Arc::new(Mutex::new(
+            OnlineReps::builder()
+                .rep_weights(rep_weights.clone())
+                .finish(),
+        ));
+        online_reps
+            .lock()
+            .unwrap()
+            .vote_observed(tracked_rep.public_key(), Timestamp::new_test_instance());
+
+        let preparer = VoteQuorumPreparer::new(online_reps);
+        let before = preparer.quorum_delta();
+
+        rep_weights.put(tracked_rep.public_key(), Amount::nano(95_000_000));
+
+        let after = preparer
+            .prepare(
+                voter.public_key(),
+                true,
+                Timestamp::new_test_instance() + Duration::from_secs(1),
+            )
+            .quorum_specs
+            .quorum_delta;
+
+        assert_eq!(before, Amount::nano(53_600_000));
+        assert_eq!(after, Amount::nano(97_150_000));
+        assert_eq!(preparer.online_weight(), Amount::nano(145_000_000));
+        assert_eq!(preparer.quorum_delta(), after);
+    }
 }
