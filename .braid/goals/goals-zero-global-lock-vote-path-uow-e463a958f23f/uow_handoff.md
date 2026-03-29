@@ -1,4 +1,4 @@
-Current UoW: Unit 2. Delete the global vote-ingress mutex
+Current UoW: Unit 3. Centralize vote-path online-representative ownership
 Verdict: APPROVED
-Accepted shape: Unit 1 is complete. `VoteProcessor` now hands off dequeued batch members through an internal execution queue so one worker no longer owns a private serial batch loop; queue ingress, online-representative ownership, and AEC behavior remain unchanged.
-Exact next boundary: Start Unit 2 only. Keep one public enqueue boundary, replace the single mutex-protected ingress queue with an execution-ready ingress owner, and preserve rep-tier fairness and backpressure semantics without changing `VoteApplier`, `AecService`, or online-representative ownership.
+Accepted shape: Unit 2 is complete. `VoteProcessorQueue` now keeps one public enqueue boundary but moves producer-side ingress through a channel plus per-key reservation ownership instead of one mutex-guarded global ingress queue; `VoteApplier`, `AecService`, and online-representative behavior remain unchanged.
+Exact next boundary: Start Unit 3 only. Create one named owner for synchronous quorum preparation, remove duplicate authoritative `vote_observed()` ownership from `AecFactProcessor`, and preserve the current quorum-before-tally behavior without changing `AecService`.
