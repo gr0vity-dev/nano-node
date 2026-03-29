@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::RwLock,
+    sync::{RwLock, RwLockWriteGuard},
     time::Duration,
 };
 
@@ -310,34 +310,59 @@ impl AecService {
             {
                 return priority_activation_error(err);
             }
-            let mut shard = self.shards[insert_shard_index].write().unwrap();
+            let replacement_shard_index = replacement_root
+                .as_ref()
+                .map(|lowest_root| self.shard_index_for_root(lowest_root));
 
-            if shard.find_bucket(&root) == Some(bucket_id) {
-                return PriorityActivationResult::Duplicate;
-            }
+            if let Some(lowest_shard_index) = replacement_shard_index
+                && lowest_shard_index != insert_shard_index
+            {
+                let (mut first, mut second) =
+                    self.write_two_shards_ordered(insert_shard_index, lowest_shard_index);
+                let (insert_shard, lowest_shard) = (&mut first, &mut second);
 
-            let replaced = if let Some(lowest_root) = &replacement_root {
-                let lowest_shard = self.shard_index_for_root(lowest_root);
-                let removed = if lowest_shard == insert_shard_index {
-                    shard.erase(lowest_root)
-                } else {
-                    self.shards[lowest_shard].write().unwrap().erase(lowest_root)
-                };
+                if insert_shard.find_bucket(&root) == Some(bucket_id) {
+                    return PriorityActivationResult::Duplicate;
+                }
+
+                let removed = lowest_shard.erase(replacement_root.as_ref().unwrap());
                 if let Some(election) = &removed {
                     global.cleanup_election(election);
                 }
                 ended = removed;
-                true
-            } else {
-                false
-            };
 
-            match shard.insert(AecInsertRequest::new_priority(block, priority), now) {
-                Ok(inserted) => {
-                    global.insert_result(&inserted);
-                    Ok((inserted, replaced))
+                match insert_shard.insert(AecInsertRequest::new_priority(block, priority), now) {
+                    Ok(inserted) => {
+                        global.insert_result(&inserted);
+                        Ok((inserted, true))
+                    }
+                    Err(err) => Err(priority_activation_error(err)),
                 }
-                Err(err) => Err(priority_activation_error(err)),
+            } else {
+                let mut shard = self.shards[insert_shard_index].write().unwrap();
+
+                if shard.find_bucket(&root) == Some(bucket_id) {
+                    return PriorityActivationResult::Duplicate;
+                }
+
+                let replaced = if let Some(lowest_root) = &replacement_root {
+                    let removed = shard.erase(lowest_root);
+                    if let Some(election) = &removed {
+                        global.cleanup_election(election);
+                    }
+                    ended = removed;
+                    true
+                } else {
+                    false
+                };
+
+                match shard.insert(AecInsertRequest::new_priority(block, priority), now) {
+                    Ok(inserted) => {
+                        global.insert_result(&inserted);
+                        Ok((inserted, replaced))
+                    }
+                    Err(err) => Err(priority_activation_error(err)),
+                }
             }
         };
 
@@ -916,6 +941,29 @@ impl AecService {
             self.notify(AecFact::ElectionEnded(election));
         }
     }
+
+    fn write_two_shards_ordered(
+        &self,
+        first_index: usize,
+        second_index: usize,
+    ) -> (
+        RwLockWriteGuard<'_, ActiveElectionsContainer>,
+        RwLockWriteGuard<'_, ActiveElectionsContainer>,
+    ) {
+        debug_assert_ne!(first_index, second_index);
+        let (low, high) = if first_index < second_index {
+            (first_index, second_index)
+        } else {
+            (second_index, first_index)
+        };
+        let low_guard = self.shards[low].write().unwrap();
+        let high_guard = self.shards[high].write().unwrap();
+        if first_index < second_index {
+            (low_guard, high_guard)
+        } else {
+            (high_guard, low_guard)
+        }
+    }
 }
 
 impl StatsSource for AecService {
@@ -965,6 +1013,7 @@ mod tests {
     use super::*;
     use crate::{
         consensus::{AecInsertRequest, ReceivedVote},
+        consensus::election_schedulers::priority::bucket_index,
         representatives::QuorumSpecs,
     };
     use rsnano_ledger::RepWeights;
@@ -1204,6 +1253,37 @@ mod tests {
             aec.election_for_block(&hash).unwrap().qualified_root(),
             &root
         );
+    }
+
+    #[test]
+    fn activate_priority_replaces_lowest_election_across_shards() {
+        let aec = AecService::new_null();
+        let block_a = SavedBlock::new_test_instance_with_key(1);
+        let block_b = (2..64)
+            .map(SavedBlock::new_test_instance_with_key)
+            .find(|block| {
+                aec.shard_index_for_root(&block.qualified_root())
+                    != aec.shard_index_for_root(&block_a.qualified_root())
+            })
+            .unwrap();
+        let low_priority = BlockPriority::new(Amount::nano(1), TimePriority::new(1));
+        let high_priority = BlockPriority::new(Amount::nano(1), TimePriority::new(2));
+        let bucket_id = bucket_index(ElectionBehavior::Priority, low_priority.balance);
+        let now = Timestamp::new_test_instance();
+
+        assert_eq!(
+            aec.activate_priority(bucket_id, 1, block_a.clone(), low_priority, now),
+            PriorityActivationResult::Activated
+        );
+        assert_eq!(
+            aec.activate_priority(bucket_id, 1, block_b.clone(), high_priority, now),
+            PriorityActivationResult::ActivatedWithReplacement
+        );
+
+        assert!(!aec.is_active_root(&block_a.qualified_root()));
+        assert!(aec.is_active_root(&block_b.qualified_root()));
+        assert!(!aec.is_active_hash(&block_a.hash()));
+        assert!(aec.is_active_hash(&block_b.hash()));
     }
 
     #[test]
