@@ -1,4 +1,4 @@
-Current UoW: Unit 5. Remove counted-vote serialization in AEC global state
+Current UoW: Unit 6. Keep immediate confirmation cleanup but remove cross-election structural serialization
 Verdict: APPROVED
-Accepted shape: Unit 4 is complete. `VoteQuorumPreparer` now owns published quorum state for the hot path without taking the legacy `OnlineReps` mutex during `prepare()`, and the dependent threshold readers were rewired to consume that published state while preserving quorum-before-tally behavior.
-Exact next boundary: Start Unit 5 only. Move counted-vote stats updates off `AecService.global.write()` while keeping current vote-result semantics and leaving immediate confirmation cleanup behavior unchanged.
+Accepted shape: Unit 5 is complete. Counted-vote stats now live in a service-owned atomic `VoteCounter` instead of `AecService.global.write()`, and the existing immediate confirmation-cleanup contract remains unchanged.
+Exact next boundary: Start Unit 6 only. Preserve `apply_vote()` postconditions while splitting `recently_confirmed`, counts, and erase ownership away from one shared confirmation-cleanup write path so different confirmed elections can clean up independently.

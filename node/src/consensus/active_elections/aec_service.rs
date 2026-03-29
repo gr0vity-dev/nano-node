@@ -24,7 +24,7 @@ use super::{
     cooldown_controller::{CooldownController, CooldownResult},
     recently_confirmed_cache::RecentlyConfirmedCache,
     root_container::{BucketCursor, ElectionHandle},
-    stats::AecStats,
+    stats::{AecStats, VoteCounter},
     vote_router::VoteRouter,
 };
 use crate::consensus::election::{
@@ -54,6 +54,7 @@ pub struct AecService {
     router: RwLock<VoteRouter>,
     shards: Vec<RwLock<ActiveElectionsContainer>>,
     global: RwLock<AecGlobalState>,
+    vote_counter: VoteCounter,
     observer: RwLock<Option<Sender<AecFact>>>,
 }
 
@@ -147,6 +148,7 @@ impl AecService {
                 .map(|_| RwLock::new(ActiveElectionsContainer::new(base_latency)))
                 .collect(),
             global: RwLock::new(AecGlobalState::new(config)),
+            vote_counter: VoteCounter::default(),
             observer: RwLock::new(None),
         }
     }
@@ -158,6 +160,7 @@ impl AecService {
                 .map(|_| RwLock::new(ActiveElectionsContainer::default()))
                 .collect(),
             global: RwLock::new(AecGlobalState::new(ActiveElectionsConfig::default())),
+            vote_counter: VoteCounter::default(),
             observer: RwLock::new(None),
         }
     }
@@ -484,12 +487,7 @@ impl AecService {
             };
 
             if counted_vote {
-                self.global
-                    .write()
-                    .unwrap()
-                    .stats
-                    .vote_counter
-                    .count(args.vote.source);
+                self.vote_counter.count(args.vote.source);
             }
 
             results.insert(block_hash, vote_result);
@@ -536,9 +534,8 @@ impl AecService {
         }
 
         if counted_votes > 0 {
-            let mut global = self.global.write().unwrap();
             for _ in 0..counted_votes {
-                global.stats.vote_counter.count(args.vote.source);
+                self.vote_counter.count(args.vote.source);
             }
         }
 
@@ -1026,6 +1023,7 @@ impl StatsSource for AecService {
         let global = self.global.read().unwrap();
         global.cooldown.collect_stats(result);
         global.stats.collect_stats(result);
+        self.vote_counter.collect_stats(result);
     }
 }
 
@@ -1072,8 +1070,10 @@ mod tests {
         representatives::QuorumSpecs,
     };
     use rsnano_ledger::RepWeights;
-    use rsnano_types::{BlockPriority, PrivateKey, SavedBlock, Vote, VoteSource};
-    use rsnano_utils::container_info::ContainerInfoEntry;
+    use rsnano_types::{
+        BlockPriority, PrivateKey, SavedBlock, UnixMillisTimestamp, Vote, VoteSource,
+    };
+    use rsnano_utils::{container_info::ContainerInfoEntry, stats::StatsCollection};
     use rsnano_utils::sync::backpressure_channel::channel;
     use std::{
         sync::{
@@ -1212,6 +1212,64 @@ mod tests {
         assert!(!aec.is_active_root(&block.qualified_root()));
         assert!(aec.was_recently_confirmed(&block.hash()));
         assert_eq!(aec.vacancy(), 1);
+    }
+
+    #[test]
+    fn counted_vote_does_not_wait_for_global_write_to_update_stats() {
+        let aec = Arc::new(AecService::new_null());
+        let block = SavedBlock::new_test_instance();
+        let now = Timestamp::new_test_instance();
+
+        aec.insert(
+            AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance()),
+            now,
+        )
+        .unwrap();
+
+        let rep_key = PrivateKey::from(1);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+        let quorum_specs = QuorumSpecs::new_test_instance();
+        let vote: ReceivedVote = ReceivedVote::new(
+            Vote::new(
+                &rep_key,
+                UnixMillisTimestamp::ZERO,
+                0,
+                vec![block.hash()],
+            )
+            .into(),
+            VoteSource::Live,
+            None,
+        );
+
+        let read_guard = aec.global.read().unwrap();
+        let aec_for_thread = Arc::clone(&aec);
+        let worker = thread::spawn(move || {
+            aec_for_thread.apply_vote(ApplyVoteArgs {
+                vote: &vote.into(),
+                rep_weights: &rep_weights,
+                quorum_specs: &quorum_specs,
+                now,
+            })
+        });
+
+        let start = Instant::now();
+        while !worker.is_finished() && start.elapsed() < Duration::from_secs(1) {
+            thread::yield_now();
+        }
+        assert!(worker.is_finished());
+
+        let results = worker.join().unwrap();
+        drop(read_guard);
+
+        assert_eq!(results.get(&block.hash()), Some(&Ok(())));
+        assert!(aec.is_active_root(&block.qualified_root()));
+        assert!(!aec.was_recently_confirmed(&block.hash()));
+
+        let mut stats = StatsCollection::new();
+        aec.collect_stats(&mut stats);
+        assert_eq!(stats.get("election", "vote"), 1);
+        assert_eq!(stats.get("election_vote", "live"), 1);
     }
 
     #[test]

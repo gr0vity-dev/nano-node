@@ -1,4 +1,4 @@
-use super::{stopped_counter::StoppedCounter, vote_counter::VoteCounter};
+use super::stopped_counter::StoppedCounter;
 use crate::consensus::{
     active_elections::AEC_STAT_KEY,
     election::{ConfirmationType, Election, ElectionBehavior},
@@ -8,7 +8,6 @@ use strum::{EnumCount, IntoEnumIterator};
 
 #[derive(Default)]
 pub(crate) struct AecStats {
-    pub vote_counter: VoteCounter,
     stopped_counter: StoppedCounter,
     pub ticked: u64,
     pub conflicts: u64,
@@ -50,7 +49,6 @@ impl StatsSource for AecStats {
             );
         }
 
-        self.vote_counter.collect_stats(result);
         self.stopped_counter.collect_stats(result);
     }
 }
