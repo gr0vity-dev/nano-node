@@ -5,10 +5,10 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
-use rsnano_types::{BlockHash, BlockPriority, QualifiedRoot, TimePriority};
+use rsnano_types::{BlockPriority, QualifiedRoot, TimePriority};
 use rustc_hash::FxHashMap;
 
-use super::{AecInsertRequest, vote_router::VoteRouter};
+use super::AecInsertRequest;
 use crate::consensus::{
     election::{Election, ElectionBehavior},
     election_schedulers::priority::{bucket_count, bucket_index},
@@ -40,10 +40,6 @@ impl ElectionHandle {
 
     pub fn snapshot(&self) -> Election {
         self.lock().clone()
-    }
-
-    pub fn winner_hash(&self) -> BlockHash {
-        self.lock().winner().hash()
     }
 
     pub fn behavior(&self) -> ElectionBehavior {
@@ -92,14 +88,12 @@ impl PartialOrd for BucketEntry {
 pub(crate) struct RootContainer {
     by_root: FxHashMap<QualifiedRoot, Entry>,
     buckets: Vec<BTreeSet<BucketEntry>>,
-    pub vote_router: VoteRouter,
 }
 
 impl Default for RootContainer {
     fn default() -> Self {
         Self {
             by_root: Default::default(),
-            vote_router: Default::default(),
             buckets: vec![BTreeSet::new(); bucket_count()],
         }
     }
@@ -109,15 +103,12 @@ impl RootContainer {
     pub const ELEMENT_SIZE: usize = size_of::<QualifiedRoot>() * 2 + size_of::<ElectionHandle>();
 
     pub fn insert(&mut self, entry: Entry) {
-        let root = entry.root.clone();
-        let hash = entry.election.winner_hash();
         let bucket_entry = BucketEntry {
             root: entry.root.clone(),
             priority: entry.priority,
         };
         self.buckets[entry.bucket()].insert(bucket_entry);
-        self.by_root.insert(root.clone(), entry);
-        self.vote_router.connect(hash, root.clone());
+        self.by_root.insert(entry.root.clone(), entry);
     }
 
     pub fn get(&self, root: &QualifiedRoot) -> Option<&Entry> {
@@ -132,21 +123,8 @@ impl RootContainer {
         self.get(root).map(|i| i.election.snapshot())
     }
 
-    pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<Election> {
-        let root = self.vote_router.qualified_root(block_hash)?;
-        self.election_for_root(root)
-    }
-
     pub(super) fn election_handle_for_root(&self, root: &QualifiedRoot) -> Option<ElectionHandle> {
         self.get(root).map(|i| i.election.clone())
-    }
-
-    pub(super) fn election_handle_for_block(
-        &self,
-        block_hash: &BlockHash,
-    ) -> Option<ElectionHandle> {
-        let root = self.vote_router.qualified_root(block_hash)?;
-        self.election_handle_for_root(root)
     }
 
     pub(super) fn next_bucket(
@@ -241,8 +219,6 @@ impl RootContainer {
     pub fn erase(&mut self, root: &QualifiedRoot) -> Option<Entry> {
         let erased = self.by_root.remove(root);
         if let Some(entry) = &erased {
-            let election = entry.election.snapshot();
-            self.vote_router.disconnect_election(&election);
             self.buckets[entry.bucket()].remove(&BucketEntry {
                 root: entry.root.clone(),
                 priority: entry.priority,
@@ -254,11 +230,10 @@ impl RootContainer {
     pub fn erase_with_known_election(
         &mut self,
         root: &QualifiedRoot,
-        election: &Election,
+        _election: &Election,
     ) -> Option<Entry> {
         let erased = self.by_root.remove(root);
         if let Some(entry) = &erased {
-            self.vote_router.disconnect_election(election);
             self.buckets[entry.bucket()].remove(&BucketEntry {
                 root: entry.root.clone(),
                 priority: entry.priority,

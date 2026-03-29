@@ -32,6 +32,10 @@ impl VoteRouter {
         self.elections.remove(hash);
     }
 
+    pub fn clear(&mut self) {
+        self.elections.clear();
+    }
+
     pub fn qualified_root(&self, hash: &BlockHash) -> Option<&QualifiedRoot> {
         self.elections.get(hash)
     }
