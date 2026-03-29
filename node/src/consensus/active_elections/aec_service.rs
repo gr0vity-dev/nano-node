@@ -57,7 +57,7 @@ pub struct AecService {
     observer: RwLock<Option<Sender<AecFact>>>,
 }
 
-const AEC_SHARD_COUNT: usize = 4;
+const AEC_SHARD_COUNT: usize = 1;
 
 struct AecGlobalState {
     stopped: bool,
