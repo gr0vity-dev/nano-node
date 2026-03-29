@@ -3,7 +3,6 @@ use std::time::Duration;
 use rsnano_ledger::RepWeights;
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::{Block, BlockHash, PublicKey, QualifiedRoot, TimePriority};
-use rsnano_utils::container_info::ContainerInfo;
 
 use crate::{
     consensus::{
@@ -16,12 +15,10 @@ use crate::{
 use super::{
     AecInsertError, AecInsertRequest, Entry, RootContainer,
     root_container::{BucketCursor, ElectionHandle, RootedElectionHandle},
-    vote_router::VoteRouter,
 };
 
 pub struct ActiveElectionsContainer {
     roots: RootContainer,
-    vote_router: VoteRouter,
     base_latency: Duration,
 }
 
@@ -55,7 +52,6 @@ impl ActiveElectionsContainer {
     pub fn new(base_latency: Duration) -> Self {
         Self {
             roots: RootContainer::default(),
-            vote_router: VoteRouter::default(),
             base_latency,
         }
     }
@@ -142,7 +138,6 @@ impl ActiveElectionsContainer {
             election: ElectionHandle::new(election),
             priority: request.priority,
         });
-        self.vote_router.connect(hash, root.clone());
         InsertResult::Inserted {
             hash,
             root,
@@ -165,20 +160,13 @@ impl ActiveElectionsContainer {
         }
 
         match result {
-            AddForkResult::Added => {
-                self.vote_router.connect(fork.hash(), fork.qualified_root());
-                ForkChange::Added {
-                    added_hash: fork.hash(),
-                }
-            }
-            AddForkResult::Replaced(removed) => {
-                self.vote_router.disconnect(&removed.hash());
-                self.vote_router.connect(fork.hash(), fork.qualified_root());
-                ForkChange::Replaced {
-                    added_hash: fork.hash(),
-                    removed: removed.into(),
-                }
-            }
+            AddForkResult::Added => ForkChange::Added {
+                added_hash: fork.hash(),
+            },
+            AddForkResult::Replaced(removed) => ForkChange::Replaced {
+                added_hash: fork.hash(),
+                removed: removed.into(),
+            },
             AddForkResult::TallyTooLow => ForkChange::Discarded {
                 discarded: fork.clone(),
             },
@@ -187,39 +175,19 @@ impl ActiveElectionsContainer {
     }
 
     pub fn stop(&mut self) -> Vec<Election> {
-        let removed = self
-            .roots
+        self.roots
             .drain_filter(|_| true)
             .into_iter()
             .map(|entry| entry.election.snapshot())
-            .collect();
-        self.vote_router.clear();
-        removed
+            .collect()
     }
 
     pub fn is_active_root(&self, root: &QualifiedRoot) -> bool {
         self.roots.get(root).is_some()
     }
 
-    pub fn is_active_hash(&self, block_hash: &BlockHash) -> bool {
-        self.vote_router.is_active(block_hash)
-    }
-
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<Election> {
         self.roots.election_for_root(root)
-    }
-
-    pub fn election_for_block(&self, block_hash: &BlockHash) -> Option<Election> {
-        let root = self.vote_router.qualified_root(block_hash)?;
-        self.election_for_root(root)
-    }
-
-    pub fn transition_active(&mut self, block_hash: &BlockHash) -> bool {
-        let Some(handle) = self.election_handle_for_block(block_hash) else {
-            return false;
-        };
-        handle.lock().transition_active();
-        true
     }
 
     pub fn remove_votes<'a>(
@@ -240,27 +208,17 @@ impl ActiveElectionsContainer {
         self.roots
             .drain_filter(|i| i.election.lock().state().has_ended())
             .into_iter()
-            .map(|entry| self.cleanup_snapshot(entry.election.snapshot()))
+            .map(|entry| entry.election.snapshot())
             .collect()
     }
 
     pub fn erase(&mut self, root: &QualifiedRoot) -> Option<Election> {
-        self.roots
-            .erase(root)
-            .map(|entry| self.cleanup_snapshot(entry.election.snapshot()))
+        self.roots.erase(root).map(|entry| entry.election.snapshot())
     }
 
     pub fn erase_lowest_prio_election(&mut self, bucket_id: usize) -> Option<Election> {
         let (root, _) = self.lowest_priority(bucket_id)?;
         self.erase(&root)
-    }
-
-    pub(super) fn election_handle_for_block(
-        &self,
-        block_hash: &BlockHash,
-    ) -> Option<ElectionHandle> {
-        let root = self.vote_router.qualified_root(block_hash)?;
-        self.roots.election_handle_for_root(root)
     }
 
     pub(super) fn election_handle_for_root(&self, root: &QualifiedRoot) -> Option<ElectionHandle> {
@@ -272,12 +230,7 @@ impl ActiveElectionsContainer {
         root: &QualifiedRoot,
         election: &Election,
     ) -> bool {
-        if self.roots.erase_with_known_election(root, election).is_some() {
-            self.cleanup_snapshot(election.clone());
-            true
-        } else {
-            false
-        }
+        self.roots.erase_with_known_election(root, election).is_some()
     }
 
     pub fn cancel(&mut self, root: &QualifiedRoot) {
@@ -298,15 +251,6 @@ impl ActiveElectionsContainer {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    pub fn vote_router_container_info(&self) -> ContainerInfo {
-        self.vote_router.container_info()
-    }
-
-    fn cleanup_snapshot(&mut self, election: Election) -> Election {
-        self.vote_router.disconnect_election(&election);
-        election
     }
 }
 
@@ -335,7 +279,6 @@ mod tests {
         let container = ActiveElectionsContainer::default();
         assert_eq!(container.len(), 0);
         assert!(!container.is_active_root(&QualifiedRoot::new_test_instance()));
-        assert!(!container.is_active_hash(&BlockHash::from(1)));
     }
 
     #[test]
@@ -353,13 +296,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(container.len(), 1);
-        assert!(container.is_active_hash(&block.hash()));
         assert_eq!(
-            container
-                .election_for_block(&block.hash())
-                .unwrap()
-                .winner()
-                .hash(),
+            container.election_for_root(&block.qualified_root()).unwrap().winner().hash(),
             block.hash()
         );
     }
@@ -377,8 +315,7 @@ mod tests {
             .unwrap();
 
         assert!(container.erase(&block.qualified_root()).is_some());
-        assert!(!container.is_active_hash(&block.hash()));
-        assert!(container.election_for_block(&block.hash()).is_none());
+        assert!(container.election_for_root(&block.qualified_root()).is_none());
     }
 
     #[test]
@@ -395,8 +332,7 @@ mod tests {
 
         container.stop();
 
-        assert!(!container.is_active_hash(&block.hash()));
-        assert!(container.election_for_block(&block.hash()).is_none());
+        assert!(container.election_for_root(&block.qualified_root()).is_none());
     }
 
     #[test]

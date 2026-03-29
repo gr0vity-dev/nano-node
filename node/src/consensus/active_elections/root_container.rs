@@ -242,13 +242,6 @@ impl RootContainer {
         erased
     }
 
-    pub fn clear(&mut self) {
-        self.by_root.clear();
-        for bucket in self.buckets.iter_mut() {
-            bucket.clear();
-        }
-    }
-
     pub fn len(&self) -> usize {
         self.by_root.len()
     }
