@@ -19,18 +19,21 @@ use crate::consensus::{
 
 pub struct AecService {
     aec: RwLock<ActiveElectionsContainer>,
+    publisher: RwLock<Option<Sender<AecFact>>>,
 }
 
 impl AecService {
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::new(config, base_latency)),
+            publisher: RwLock::new(None),
         }
     }
 
     pub fn new_null() -> Self {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::default()),
+            publisher: RwLock::new(None),
         }
     }
 
@@ -116,26 +119,33 @@ impl AecService {
     // --- Write forwarding ---
 
     pub fn set_observer(&self, observer: Sender<AecFact>) {
-        self.aec.write().unwrap().set_observer(observer)
+        *self.publisher.write().unwrap() = Some(observer);
     }
 
     pub fn insert(&self, request: AecInsertRequest, now: Timestamp) -> Result<(), AecInsertError> {
-        self.aec.write().unwrap().insert(request, now)
+        let produced_facts = self.aec.write().unwrap().insert(request, now)?;
+        self.publish(produced_facts);
+        Ok(())
     }
 
     pub fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {
-        self.aec.write().unwrap().try_add_fork(fork, fork_tally)
+        let (added, produced_facts) = self.aec.write().unwrap().try_add_fork(fork, fork_tally);
+        self.publish(produced_facts);
+        added
     }
 
     pub fn apply_vote<'a>(
         &self,
         args: ApplyVoteArgs<'a>,
     ) -> HashMap<BlockHash, Result<(), VoteError>> {
-        self.aec.write().unwrap().apply_vote(args)
+        let (results, produced_facts) = self.aec.write().unwrap().apply_vote(args);
+        self.publish(produced_facts);
+        results
     }
 
     pub fn transition_time(&self, now: Timestamp) {
-        self.aec.write().unwrap().transition_time(now)
+        let produced_facts = self.aec.write().unwrap().transition_time(now);
+        self.publish(produced_facts);
     }
 
     pub fn transition_active(&self, block_hash: &BlockHash) -> bool {
@@ -146,7 +156,8 @@ impl AecService {
     where
         T: ElectionCandidateSource,
     {
-        self.aec.write().unwrap().refill(source, now);
+        let produced_facts = self.aec.write().unwrap().refill(source, now);
+        self.publish(produced_facts);
     }
 
     pub fn remove_votes<'a>(
@@ -158,7 +169,11 @@ impl AecService {
     }
 
     pub fn erase(&self, root: &QualifiedRoot) -> bool {
-        self.aec.write().unwrap().erase(root)
+        let Some(produced_facts) = self.aec.write().unwrap().erase(root) else {
+            return false;
+        };
+        self.publish(produced_facts);
+        true
     }
 
     pub fn confirm_dependent_elections(
@@ -166,10 +181,12 @@ impl AecService {
         confirmed: Vec<(SavedBlock, Option<ConfirmedElection>)>,
         now: Timestamp,
     ) {
-        self.aec
+        let produced_facts = self
+            .aec
             .write()
             .unwrap()
-            .confirm_dependent_elections(confirmed, now)
+            .confirm_dependent_elections(confirmed, now);
+        self.publish(produced_facts);
     }
 
     pub fn remove_recently_confirmed(&self, block_hash: &BlockHash) {
@@ -180,7 +197,8 @@ impl AecService {
     }
 
     pub fn set_cooldown(&self, cool_down: bool, reason: AecCooldownReason) {
-        self.aec.write().unwrap().set_cooldown(cool_down, reason)
+        let produced_facts = self.aec.write().unwrap().set_cooldown(cool_down, reason);
+        self.publish(produced_facts);
     }
 
     pub fn cancel(&self, root: &QualifiedRoot) {
@@ -196,15 +214,30 @@ impl AecService {
     }
 
     pub fn stop(&self) {
+        drop(self.publisher.write().unwrap().take());
         self.aec.write().unwrap().stop()
     }
 
     pub fn force_confirm(&self, block_hash: &BlockHash, now: Timestamp) {
-        self.aec.write().unwrap().force_confirm(block_hash, now)
+        let produced_facts = self.aec.write().unwrap().force_confirm(block_hash, now);
+        self.publish(produced_facts);
     }
 
     pub fn simulate_event(&self, event: AecFact) {
-        self.aec.read().unwrap().simulate_event(event)
+        let produced_facts = self.aec.read().unwrap().simulate_event(event);
+        self.publish(produced_facts);
+    }
+
+    fn publish(&self, produced_facts: super::ProducedAecFacts) {
+        if produced_facts.is_empty() {
+            return;
+        }
+
+        if let Some(sender) = self.publisher.read().unwrap().as_ref() {
+            for fact in produced_facts {
+                sender.send(fact).unwrap();
+            }
+        }
     }
 }
 
@@ -217,5 +250,91 @@ impl StatsSource for AecService {
 impl ContainerInfoProvider for AecService {
     fn container_info(&self) -> ContainerInfo {
         self.aec.read().unwrap().container_info()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::consensus::{BucketInfo, ElectionCandidate, election::ElectionBehavior};
+    use rsnano_nullable_clock::Timestamp;
+    use rsnano_types::{BlockPriority, SavedBlock};
+    use rsnano_utils::sync::backpressure_channel;
+
+    #[test]
+    fn insert_publishes_container_facts_through_service_owned_sender() {
+        let service = AecService::new_null();
+        let (tx, rx) = backpressure_channel::channel(1);
+        service.set_observer(tx);
+
+        service
+            .insert(
+                AecInsertRequest {
+                    block: SavedBlock::new_test_instance(),
+                    behavior: ElectionBehavior::Priority,
+                    priority: BlockPriority::new_test_instance(),
+                },
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+
+        assert!(matches!(rx.try_recv(), Ok(AecFact::ElectionStarted(_, _))));
+    }
+
+    #[test]
+    fn simulate_event_uses_service_owned_publication_path() {
+        let service = AecService::new_null();
+        let (tx, rx) = backpressure_channel::channel(1);
+        service.set_observer(tx);
+
+        service.simulate_event(AecFact::Recovered);
+
+        assert!(matches!(rx.try_recv(), Ok(AecFact::Recovered)));
+    }
+
+    #[test]
+    fn refill_publishes_scheduler_driven_activation_through_service_owned_sender() {
+        let service = AecService::new_null();
+        let (tx, rx) = backpressure_channel::channel(1);
+        service.set_observer(tx);
+
+        let block = SavedBlock::new_test_instance();
+        let mut source = StubCandidateSource::new(block.clone(), BlockPriority::new_test_instance());
+        service.refill(&mut source, Timestamp::new_test_instance());
+
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(AecFact::ElectionStarted(hash, root)) if hash == block.hash() && root == block.qualified_root()
+        ));
+    }
+
+    struct StubCandidateSource {
+        candidates: Vec<ElectionCandidate>,
+    }
+
+    impl StubCandidateSource {
+        fn new(block: SavedBlock, priority: BlockPriority) -> Self {
+            Self {
+                candidates: vec![ElectionCandidate {
+                    bucket_id: 0,
+                    block,
+                    priority,
+                }],
+            }
+        }
+    }
+
+    impl ElectionCandidateSource for StubCandidateSource {
+        fn should_schedule(&self, _buckets: &[BucketInfo]) -> bool {
+            !self.candidates.is_empty()
+        }
+
+        fn gather_candidates(
+            &mut self,
+            _buckets: &[BucketInfo],
+            result: &mut Vec<ElectionCandidate>,
+        ) {
+            result.append(&mut self.candidates);
+        }
     }
 }

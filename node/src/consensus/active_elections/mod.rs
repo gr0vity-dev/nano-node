@@ -62,8 +62,16 @@ pub enum AecFact {
 pub(super) struct ProducedAecFacts(Vec<AecFact>);
 
 impl ProducedAecFacts {
-    fn push(&mut self, fact: AecFact) {
+    pub(super) fn push(&mut self, fact: AecFact) {
         self.0.push(fact);
+    }
+
+    pub(super) fn extend(&mut self, other: ProducedAecFacts) {
+        self.0.extend(other.0);
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 

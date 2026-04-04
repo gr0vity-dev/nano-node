@@ -10,7 +10,6 @@ use rsnano_types::{
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
     stats::{StatsCollection, StatsSource},
-    sync::backpressure_channel::Sender,
 };
 
 use crate::{
@@ -36,7 +35,6 @@ use super::{
 
 pub struct ActiveElectionsContainer {
     roots: RootContainer,
-    observer: Option<Sender<AecFact>>,
     stopped: bool,
     count_by_behavior: [usize; ElectionBehavior::COUNT],
     base_latency: Duration,
@@ -51,7 +49,6 @@ impl ActiveElectionsContainer {
     pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
         Self {
             roots: RootContainer::new(config.max_elections),
-            observer: None,
             stopped: false,
             count_by_behavior: Default::default(),
             base_latency,
@@ -61,10 +58,6 @@ impl ActiveElectionsContainer {
             max_elections_per_bucket: config.max_elections / bucket_count(),
             stats: Default::default(),
         }
-    }
-
-    pub fn set_observer(&mut self, observer: Sender<AecFact>) {
-        self.observer = Some(observer);
     }
 
     pub fn max_len(&self) -> usize {
@@ -135,22 +128,21 @@ impl ActiveElectionsContainer {
         source.should_schedule(&bucket_infos)
     }
 
-    pub fn insert(
+    pub(super) fn insert(
         &mut self,
         request: AecInsertRequest,
         now: Timestamp,
-    ) -> Result<(), AecInsertError> {
+    ) -> Result<ProducedAecFacts, AecInsertError> {
         self.ensure_not_stopped()?;
         self.ensure_not_recently_confirmed(&request)?;
 
         if self.try_upgrade_priority_election(&request)? {
-            return Ok(());
+            return Ok(ProducedAecFacts::default());
         }
 
         let mut produced_facts = ProducedAecFacts::default();
         self.insert_new_election(request, now, &mut produced_facts);
-        self.publish(produced_facts);
-        Ok(())
+        Ok(produced_facts)
     }
 
     fn ensure_not_stopped(&self) -> Result<(), AecInsertError> {
@@ -211,10 +203,14 @@ impl ActiveElectionsContainer {
         produced_facts.push(AecFact::ElectionStarted(hash, root));
     }
 
-    pub fn try_add_fork(&mut self, fork: &Block, fork_tally: Amount) -> bool {
+    pub(super) fn try_add_fork(
+        &mut self,
+        fork: &Block,
+        fork_tally: Amount,
+    ) -> (bool, ProducedAecFacts) {
         let mut produced_facts = ProducedAecFacts::default();
         let Some(entry) = self.roots.get_mut(&fork.qualified_root()) else {
-            return false;
+            return (false, produced_facts);
         };
 
         let result = entry.election.try_add_fork(fork, fork_tally);
@@ -243,8 +239,7 @@ impl ActiveElectionsContainer {
             self.stats.conflicts += 1;
         }
 
-        self.publish(produced_facts);
-        added
+        (added, produced_facts)
     }
 
     /// How many election slots are available
@@ -257,18 +252,20 @@ impl ActiveElectionsContainer {
         self.max_elections as i64 - current_size
     }
 
-    pub fn set_cooldown(&mut self, cool_down: bool, reason: AecCooldownReason) {
+    pub(super) fn set_cooldown(
+        &mut self,
+        cool_down: bool,
+        reason: AecCooldownReason,
+    ) -> ProducedAecFacts {
         let mut produced_facts = ProducedAecFacts::default();
         let result = self.cooldown.set_cooldown(cool_down, reason);
         if result == CooldownResult::Recovered {
             produced_facts.push(AecFact::Recovered);
         }
-        self.publish(produced_facts);
+        produced_facts
     }
 
     pub fn stop(&mut self) {
-        // destroy send queue so that the receiver thread will be stopped too
-        drop(self.observer.take());
         self.stopped = true;
         self.roots.clear();
     }
@@ -290,12 +287,12 @@ impl ActiveElectionsContainer {
     }
 
     /// Returns the current active elections after transitioning
-    pub fn transition_time(&mut self, now: Timestamp) {
+    pub(super) fn transition_time(&mut self, now: Timestamp) -> ProducedAecFacts {
         self.stats.ticked += 1;
         for entry in self.roots.iter_mut() {
             entry.election.transition_time(now);
         }
-        self.erase_ended_elections();
+        self.erase_ended_elections()
     }
 
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<&Election> {
@@ -314,12 +311,13 @@ impl ActiveElectionsContainer {
         true
     }
 
-    pub fn refill<T>(&mut self, source: &mut T, now: Timestamp)
+    pub(super) fn refill<T>(&mut self, source: &mut T, now: Timestamp) -> ProducedAecFacts
     where
         T: ElectionCandidateSource,
     {
+        let mut produced_facts = ProducedAecFacts::default();
         if self.cooldown.is_cooling_down() {
-            return;
+            return produced_facts;
         }
 
         // TODO: reuse a buffer!
@@ -341,7 +339,7 @@ impl ActiveElectionsContainer {
                 }
 
                 if self.bucket_len(candidate.bucket_id) >= self.max_elections_per_bucket {
-                    self.erase_lowest_prio_election(candidate.bucket_id);
+                    produced_facts.extend(self.erase_lowest_prio_election(candidate.bucket_id));
                     // TODO stats
                     //stats.replaced.fetch_add(1, Ordering::Relaxed);
                 }
@@ -351,7 +349,8 @@ impl ActiveElectionsContainer {
                     AecInsertRequest::new_priority(candidate.block, candidate.priority),
                     now,
                 ) {
-                    Ok(_) => {
+                    Ok(new_facts) => {
+                        produced_facts.extend(new_facts);
                         //TODO
                         //stats.activate_success.fetch_add(1, Ordering::Relaxed);
                     }
@@ -371,6 +370,7 @@ impl ActiveElectionsContainer {
                 }
             }
         }
+        produced_facts
     }
 
     pub fn remove_votes<'a>(
@@ -386,31 +386,30 @@ impl ActiveElectionsContainer {
         }
     }
 
-    pub fn erase_ended_elections(&mut self) {
+    fn erase_ended_elections(&mut self) -> ProducedAecFacts {
         let mut produced_facts = ProducedAecFacts::default();
         let removed = self.roots.drain_filter(|i| i.election.state().has_ended());
 
         for entry in removed {
             self.cleanup_election(entry, &mut produced_facts);
         }
-        self.publish(produced_facts);
+        produced_facts
     }
 
-    pub fn erase(&mut self, root: &QualifiedRoot) -> bool {
+    pub(super) fn erase(&mut self, root: &QualifiedRoot) -> Option<ProducedAecFacts> {
         let mut produced_facts = ProducedAecFacts::default();
         let Some(entry) = self.roots.erase(root) else {
-            return false;
+            return None;
         };
         self.cleanup_election(entry, &mut produced_facts);
-        self.publish(produced_facts);
-        true
+        Some(produced_facts)
     }
 
-    pub fn erase_lowest_prio_election(&mut self, bucket_id: usize) {
+    fn erase_lowest_prio_election(&mut self, bucket_id: usize) -> ProducedAecFacts {
         let Some((root, _)) = self.lowest_priority(bucket_id) else {
-            return;
+            return ProducedAecFacts::default();
         };
-        self.erase(&root);
+        self.erase(&root).unwrap_or_default()
     }
 
     fn cleanup_election(&mut self, entry: Entry, produced_facts: &mut ProducedAecFacts) {
@@ -424,11 +423,11 @@ impl ActiveElectionsContainer {
     }
 
     /// Dependent elections are implicitly confirmed when their block is confirmed
-    pub fn confirm_dependent_elections(
+    pub(super) fn confirm_dependent_elections(
         &mut self,
         confirmed: Vec<(SavedBlock, Option<ConfirmedElection>)>,
         now: Timestamp,
-    ) {
+    ) -> ProducedAecFacts {
         let mut produced_facts = ProducedAecFacts::default();
         for (confirmed_block, source_election) in confirmed {
             let confirmed_election =
@@ -436,7 +435,7 @@ impl ActiveElectionsContainer {
 
             self.block_confirmed(confirmed_block, confirmed_election, &mut produced_facts);
         }
-        self.publish(produced_facts);
+        produced_facts
     }
 
     fn confirm_dependent_election(
@@ -490,10 +489,10 @@ impl ActiveElectionsContainer {
         self.recently_confirmed.erase(block_hash);
     }
 
-    pub fn apply_vote<'a>(
+    pub(super) fn apply_vote<'a>(
         &mut self,
         args: ApplyVoteArgs<'a>,
-    ) -> HashMap<BlockHash, Result<(), VoteError>> {
+    ) -> (HashMap<BlockHash, Result<(), VoteError>>, ProducedAecFacts) {
         let mut apply_helper = ApplyVoteHelper {
             args: &args,
             recently_confirmed: &mut self.recently_confirmed,
@@ -505,11 +504,14 @@ impl ActiveElectionsContainer {
         for entry in result.confirmed {
             self.cleanup_election(entry, &mut produced_facts);
         }
-        self.publish(produced_facts);
-        result.per_block
+        (result.per_block, produced_facts)
     }
 
-    pub fn force_confirm(&mut self, block_hash: &BlockHash, now: Timestamp) {
+    pub(super) fn force_confirm(
+        &mut self,
+        block_hash: &BlockHash,
+        now: Timestamp,
+    ) -> ProducedAecFacts {
         let mut produced_facts = ProducedAecFacts::default();
         let Some(election) = self.roots.election_for_block_mut(block_hash) else {
             panic!("Force confirm failed, because no active election was found");
@@ -519,7 +521,7 @@ impl ActiveElectionsContainer {
                 election.into_confirmed_election(now, ConfirmationType::ActiveConfirmedQuorum);
             produced_facts.push(AecFact::ElectionConfirmed(confirmed_election));
         }
-        self.publish(produced_facts);
+        produced_facts
     }
 
     pub fn cancel(&mut self, root: &QualifiedRoot) {
@@ -552,16 +554,8 @@ impl ActiveElectionsContainer {
         }
     }
 
-    pub fn simulate_event(&self, event: AecFact) {
-        self.publish(ProducedAecFacts(vec![event]));
-    }
-
-    fn publish(&self, produced_facts: ProducedAecFacts) {
-        if let Some(sender) = &self.observer {
-            for fact in produced_facts {
-                sender.send(fact).unwrap();
-            }
-        }
+    pub(super) fn simulate_event(&self, event: AecFact) -> ProducedAecFacts {
+        ProducedAecFacts(vec![event])
     }
 }
 
@@ -686,7 +680,7 @@ mod tests {
         let mut rep_weights = RepWeights::default();
         rep_weights.put(rep_key.public_key(), Amount::MAX);
 
-        let result = container.apply_vote(ApplyVoteArgs {
+        let (result, produced_facts) = container.apply_vote(ApplyVoteArgs {
             vote: &received_vote.into(),
             rep_weights: &rep_weights,
             quorum_specs: &QuorumSpecs::new_test_instance(),
@@ -694,6 +688,11 @@ mod tests {
         });
 
         assert_eq!(result.get(&block_hash), Some(&Ok(())));
+        assert!(
+            produced_facts
+                .into_iter()
+                .any(|fact| matches!(fact, AecFact::ElectionConfirmed(_)))
+        );
 
         assert!(container.election_for_block(&block_hash).is_none());
     }
