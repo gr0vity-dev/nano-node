@@ -13,7 +13,7 @@ use crate::consensus::{
 use rsnano_types::{BlockHash, BlockPriority, SavedBlock};
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
-pub(super) struct PriorityBuckets {
+pub(crate) struct PriorityBuckets {
     buckets: Vec<Bucket>,
     activations_per_bucket: Vec<u64>,
     // TODO remove this:

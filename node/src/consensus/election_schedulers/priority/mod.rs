@@ -3,8 +3,7 @@ mod bucket_stats;
 mod bucketing;
 mod ordered_blocks;
 mod priority_buckets;
-mod priority_scheduler;
 
 pub use bucket::*;
 pub use bucketing::*;
-pub use priority_scheduler::*;
+pub(crate) use priority_buckets::PriorityBuckets;

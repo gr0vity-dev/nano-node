@@ -5,81 +5,93 @@ use std::{
 
 use rsnano_ledger::{AnySet, ConfirmedSet};
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
+use rsnano_output_tracker::OutputListenerMt;
+#[cfg(test)]
+use rsnano_output_tracker::OutputTrackerMt;
 use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::{
     container_info::ContainerInfo,
     stats::{DetailType, StatType, Stats, StatsCollection, StatsSource},
 };
 
-use super::{PriorityBucketConfig, prio_bucket_count};
-use crate::consensus::{
-    AecService,
-    election_schedulers::priority::{
-        BucketInsertError, Eviction, priority_buckets::PriorityBuckets,
-    },
+use super::priority::{
+    BucketInsertError, Eviction, PriorityBucketConfig, PriorityBuckets, prio_bucket_count,
 };
+use crate::consensus::AecService;
 
-pub struct PriorityScheduler {
+pub(crate) struct CandidateCoordinator {
     stopped: Mutex<bool>,
     condition: Condvar,
     stats: Arc<Stats>,
-    buckets: Mutex<PriorityBuckets>,
-    thread: Mutex<Option<JoinHandle<()>>>,
+    priority_buckets: Mutex<PriorityBuckets>,
+    priority_thread: Mutex<Option<JoinHandle<()>>>,
     clock: Arc<SteadyClock>,
     aec: Arc<AecService>,
     activate_successors_listener: OutputListenerMt<SavedBlock>,
 }
 
-impl PriorityScheduler {
+impl CandidateCoordinator {
     pub(crate) fn new(
-        config: PriorityBucketConfig,
+        priority_config: PriorityBucketConfig,
         stats: Arc<Stats>,
         active_elections: Arc<AecService>,
         clock: Arc<SteadyClock>,
     ) -> Self {
-        let buckets = PriorityBuckets::new(prio_bucket_count(), config);
-
+        let priority_buckets = PriorityBuckets::new(prio_bucket_count(), priority_config);
         Self {
-            thread: Mutex::new(None),
             stopped: Mutex::new(false),
             condition: Condvar::new(),
-            buckets: Mutex::new(buckets),
             stats,
+            priority_buckets: Mutex::new(priority_buckets),
+            priority_thread: Mutex::new(None),
             clock,
             aec: active_elections,
             activate_successors_listener: Default::default(),
         }
     }
 
-    pub fn track_activate_successors(&self) -> Arc<OutputTrackerMt<SavedBlock>> {
+    #[cfg(test)]
+    pub(crate) fn track_activate_successors(&self) -> Arc<OutputTrackerMt<SavedBlock>> {
         self.activate_successors_listener.track()
     }
 
-    pub fn stop(&self) {
+    pub(crate) fn start_loop(self: &Arc<Self>) {
+        debug_assert!(self.priority_thread.lock().unwrap().is_none());
+
+        let self_l = Arc::clone(self);
+        *self.priority_thread.lock().unwrap() = Some(
+            std::thread::Builder::new()
+                .name("Sched Priority".to_string())
+                .spawn(Box::new(move || {
+                    self_l.run();
+                }))
+                .unwrap(),
+        );
+    }
+
+    pub(crate) fn stop(&self) {
         *self.stopped.lock().unwrap() = true;
         self.condition.notify_all();
-        let handle = self.thread.lock().unwrap().take();
-        if let Some(handle) = handle {
+        if let Some(handle) = self.priority_thread.lock().unwrap().take() {
             handle.join().unwrap();
         }
     }
 
-    pub fn notify(&self) {
+    pub(crate) fn notify(&self) {
         self.condition.notify_all();
     }
 
-    pub fn contains(&self, hash: &BlockHash) -> bool {
-        self.buckets.lock().unwrap().contains(hash)
+    pub(crate) fn contains(&self, hash: &BlockHash) -> bool {
+        self.priority_buckets.lock().unwrap().contains(hash)
     }
 
-    pub fn activate(&self, any: &impl AnySet, account: &Account) {
+    pub(crate) fn activate_priority(&self, any: &impl AnySet, account: &Account) {
         debug_assert!(!account.is_zero());
         if let Some(account_info) = any.get_account(account) {
             let conf_info = any.confirmed().get_conf_info(account).unwrap_or_default();
 
             if conf_info.height < account_info.block_count {
-                self.activate_with_info(any, &account_info, &conf_info);
+                self.activate_priority_with_info(any, &account_info, &conf_info);
                 return;
             }
         };
@@ -88,7 +100,7 @@ impl PriorityScheduler {
             .inc(StatType::ElectionScheduler, DetailType::ActivateSkip);
     }
 
-    pub fn activate_with_info(
+    pub(crate) fn activate_priority_with_info(
         &self,
         any: &impl AnySet,
         account_info: &AccountInfo,
@@ -98,15 +110,10 @@ impl PriorityScheduler {
 
         let next_unconfirmed_hash = match conf_info.height {
             0 => account_info.open_block,
-            _ => {
-                match any.block_successor(&conf_info.frontier) {
-                    Some(h) => h,
-                    None => {
-                        // This can happen if the bounded backlog did a rollback
-                        return;
-                    }
-                }
-            }
+            _ => match any.block_successor(&conf_info.frontier) {
+                Some(h) => h,
+                None => return,
+            },
         };
 
         let Some(block) = any.get_block(&next_unconfirmed_hash) else {
@@ -127,8 +134,11 @@ impl PriorityScheduler {
         }
 
         let priority = any.block_priority(&block);
-
-        let insert_result = self.buckets.lock().unwrap().insert(priority, block);
+        let insert_result = self
+            .priority_buckets
+            .lock()
+            .unwrap()
+            .insert(priority, block);
 
         match insert_result {
             Ok(Eviction::None) => {}
@@ -153,50 +163,23 @@ impl PriorityScheduler {
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.buckets.lock().unwrap().len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    fn run(&self) {
-        let mut stopped = self.stopped.lock().unwrap();
-        while !*stopped {
-            stopped = self
-                .condition
-                .wait_while(stopped, |s| !*s && !self.predicate())
-                .unwrap();
-
-            if !*stopped {
-                drop(stopped);
-                self.run_one();
-                stopped = self.stopped.lock().unwrap();
-            }
-        }
-    }
-
-    fn predicate(&self) -> bool {
-        let buckets = self.buckets.lock().unwrap();
-        self.aec.check_vacancy(&*buckets)
-    }
-
-    fn run_one(&self) {
-        self.stats
-            .inc(StatType::ElectionScheduler, DetailType::Loop);
-
-        let now = self.clock.now();
-        let mut buckets = self.buckets.lock().unwrap();
-        self.aec.refill(&mut *buckets, now);
-    }
-
-    pub fn activate_successors(&self, any: &impl AnySet, block: &SavedBlock) {
+    pub(crate) fn activate_successors(&self, any: &impl AnySet, block: &SavedBlock) {
         if self.activate_successors_listener.is_tracked() {
             self.activate_successors_listener.emit(block.clone());
         }
-        self.activate(any, &block.account());
+        self.activate_priority(any, &block.account());
         self.activate_destination_account(any, block);
+    }
+
+    pub(crate) fn container_info(&self) -> ContainerInfo {
+        let mut bucket_infos = ContainerInfo::builder();
+        for (id, bucket) in self.priority_buckets.lock().unwrap().iter().enumerate() {
+            bucket_infos = bucket_infos.leaf(id.to_string(), bucket.len(), 0);
+        }
+
+        ContainerInfo::builder()
+            .node("blocks", bucket_infos.finish())
+            .finish()
     }
 
     fn activate_destination_account(&self, any: &impl AnySet, block: &SavedBlock) {
@@ -205,53 +188,50 @@ impl PriorityScheduler {
             && !destination.is_zero()
             && destination != block.account()
         {
-            self.activate(any, &destination);
+            self.activate_priority(any, &destination);
         }
     }
 
-    pub fn container_info(&self) -> ContainerInfo {
-        let mut bucket_infos = ContainerInfo::builder();
+    fn run(&self) {
+        let mut stopped = self.stopped.lock().unwrap();
+        while !*stopped {
+            stopped = self
+                .condition
+                .wait_while(stopped, |s| !*s && !self.priority_predicate())
+                .unwrap();
 
-        for (id, bucket) in self.buckets.lock().unwrap().iter().enumerate() {
-            bucket_infos = bucket_infos.leaf(id.to_string(), bucket.len(), 0);
+            if !*stopped {
+                drop(stopped);
+                self.run_priority_refill();
+                stopped = self.stopped.lock().unwrap();
+            }
         }
+    }
 
-        ContainerInfo::builder()
-            .node("blocks", bucket_infos.finish())
-            .finish()
+    fn priority_predicate(&self) -> bool {
+        let buckets = self.priority_buckets.lock().unwrap();
+        self.aec.check_vacancy(&*buckets)
+    }
+
+    fn run_priority_refill(&self) {
+        self.stats
+            .inc(StatType::ElectionScheduler, DetailType::Loop);
+
+        let now = self.clock.now();
+        let mut buckets = self.priority_buckets.lock().unwrap();
+        self.aec.refill(&mut *buckets, now);
     }
 }
 
-impl Drop for PriorityScheduler {
+impl Drop for CandidateCoordinator {
     fn drop(&mut self) {
-        // Thread must be stopped before destruction
-        debug_assert!(self.thread.lock().unwrap().is_none());
+        debug_assert!(self.priority_thread.lock().unwrap().is_none());
     }
 }
 
-pub trait PrioritySchedulerExt {
-    fn start(&self);
-}
-
-impl PrioritySchedulerExt for Arc<PriorityScheduler> {
-    fn start(&self) {
-        debug_assert!(self.thread.lock().unwrap().is_none());
-
-        let self_l = Arc::clone(self);
-        *self.thread.lock().unwrap() = Some(
-            std::thread::Builder::new()
-                .name("Sched Priority".to_string())
-                .spawn(Box::new(move || {
-                    self_l.run();
-                }))
-                .unwrap(),
-        );
-    }
-}
-
-impl StatsSource for PriorityScheduler {
+impl StatsSource for CandidateCoordinator {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        let guard = self.buckets.lock().unwrap();
+        let guard = self.priority_buckets.lock().unwrap();
         guard.bucket_stats.collect_stats(result);
         guard.collect_stats(result);
     }
@@ -265,12 +245,12 @@ mod tests {
 
     #[test]
     fn can_track_successor_activation() {
-        let scheduler = create_test_scheduler();
+        let coordinator = create_test_coordinator();
         let block = SavedBlock::new_test_instance();
         let ledger = Ledger::new_null();
-        let tracker = scheduler.track_activate_successors();
+        let tracker = coordinator.track_activate_successors();
 
-        scheduler.activate_successors(&ledger.any(), &block);
+        coordinator.activate_successors(&ledger.any(), &block);
 
         let output = tracker.output();
         assert_eq!(output, [block]);
@@ -278,7 +258,7 @@ mod tests {
 
     #[test]
     fn activate_successors() {
-        let scheduler = create_test_scheduler();
+        let coordinator = create_test_coordinator();
 
         let ledger = Ledger::new_null();
         let inserter = LedgerInserter::new(&ledger);
@@ -288,18 +268,18 @@ mod tests {
         let open = inserter.account(&destination).receive(send1.hash());
 
         ledger.confirm(send1.hash());
-        scheduler.activate_successors(&ledger.any(), &send1);
-        scheduler.run_one();
+        coordinator.activate_successors(&ledger.any(), &send1);
+        coordinator.run_priority_refill();
 
-        assert!(scheduler.aec.is_active_hash(&send2.hash()));
-        assert!(scheduler.aec.is_active_hash(&open.hash()));
+        assert!(coordinator.aec.is_active_hash(&send2.hash()));
+        assert!(coordinator.aec.is_active_hash(&open.hash()));
     }
 
-    fn create_test_scheduler() -> PriorityScheduler {
+    fn create_test_coordinator() -> CandidateCoordinator {
         let config = PriorityBucketConfig::default();
         let stats = Arc::new(Stats::default());
         let active_elections = Arc::new(AecService::new_null());
         let clock = Arc::new(SteadyClock::new_null());
-        PriorityScheduler::new(config, stats, active_elections, clock)
+        CandidateCoordinator::new(config, stats, active_elections, clock)
     }
 }

@@ -1,3 +1,4 @@
+mod candidate_coordinator;
 mod election_schedulers_plugin;
 mod hinted_scheduler;
 mod manual_scheduler;
@@ -25,10 +26,10 @@ use rsnano_utils::{
 
 use super::{AecService, VoteCache};
 use crate::{cementation::ConfirmingSet, config::NodeConfig, representatives::OnlineReps};
-use priority::{PriorityScheduler, PrioritySchedulerExt};
+use candidate_coordinator::CandidateCoordinator;
 
 pub struct ElectionSchedulers {
-    pub priority: Arc<PriorityScheduler>,
+    coordinator: Arc<CandidateCoordinator>,
     pub optimistic: Arc<OptimisticScheduler>,
     pub hinted: Arc<HintedScheduler>,
     pub manual: Arc<ManualScheduler>,
@@ -84,7 +85,7 @@ impl ElectionSchedulers {
             clock.clone(),
         ));
 
-        let priority = Arc::new(PriorityScheduler::new(
+        let coordinator = Arc::new(CandidateCoordinator::new(
             config.priority_bucket.clone(),
             stats.clone(),
             active_elections.clone(),
@@ -92,7 +93,7 @@ impl ElectionSchedulers {
         ));
 
         Self {
-            priority,
+            coordinator,
             optimistic,
             hinted,
             manual,
@@ -135,7 +136,7 @@ impl ElectionSchedulers {
 
     /// Does the block exist in any of the schedulers
     pub fn contains(&self, hash: &BlockHash) -> bool {
-        self.manual.contains(hash) || self.priority.contains(hash)
+        self.manual.contains(hash) || self.coordinator.contains(hash)
     }
 
     pub fn activate_backlog(
@@ -147,8 +148,8 @@ impl ElectionSchedulers {
     ) {
         self.optimistic
             .activate(account, account_info.block_count, conf_info.height);
-        self.priority
-            .activate_with_info(any, account_info, conf_info);
+        self.coordinator
+            .activate_priority_with_info(any, account_info, conf_info);
     }
 
     pub fn activate_accounts_with_fresh_blocks(&self, processed: &[ProcessResult]) {
@@ -156,14 +157,14 @@ impl ElectionSchedulers {
         for result in processed {
             if result.status.is_ok() {
                 let account = result.saved_block.as_ref().unwrap().account();
-                self.priority.activate(&any, &account);
+                self.coordinator.activate_priority(&any, &account);
             }
         }
     }
 
     pub fn notify(&self) {
         self.notify_listener.emit(());
-        self.priority.notify();
+        self.coordinator.notify();
         self.hinted.notify();
         self.optimistic.notify();
     }
@@ -179,7 +180,7 @@ impl ElectionSchedulers {
             if self.activate_successors_listener.is_tracked() {
                 self.activate_successors_listener.emit(block.clone());
             }
-            self.priority.activate_successors(&any, block);
+            self.coordinator.activate_successors(&any, block);
         }
     }
 
@@ -197,7 +198,7 @@ impl ElectionSchedulers {
             *self.optimistic_thread.lock().unwrap() = Some(handle);
         }
         if self.config.enable_priority_scheduler {
-            self.priority.start();
+            self.coordinator.start_loop();
         }
     }
 
@@ -212,7 +213,7 @@ impl ElectionSchedulers {
         if let Some(handle) = self.optimistic_thread.lock().unwrap().take() {
             handle.join().unwrap();
         }
-        self.priority.stop();
+        self.coordinator.stop();
     }
 }
 
@@ -222,14 +223,14 @@ impl ContainerInfoProvider for ElectionSchedulers {
             .node("hinted", self.hinted.container_info())
             .node("manual", self.manual.container_info())
             .node("optimistic", self.optimistic.container_info())
-            .node("priority", self.priority.container_info())
+            .node("priority", self.coordinator.container_info())
             .finish()
     }
 }
 
 impl StatsSource for ElectionSchedulers {
     fn collect_stats(&self, result: &mut StatsCollection) {
-        self.priority.collect_stats(result);
+        self.coordinator.collect_stats(result);
         self.optimistic.collect_stats(result);
     }
 }
@@ -241,7 +242,7 @@ mod tests {
     #[test]
     fn activate_successors() {
         let schedulers = ElectionSchedulers::new_null();
-        let tracker = schedulers.priority.track_activate_successors();
+        let tracker = schedulers.coordinator.track_activate_successors();
         let block = SavedBlock::new_test_instance();
 
         schedulers.activate_successors([&block]);
