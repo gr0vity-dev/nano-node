@@ -27,7 +27,7 @@ use crate::{
 
 use super::{
     ActiveElectionsConfig, ActiveElectionsInfo, AecFact, AecInsertError, AecInsertRequest, Entry,
-    RootContainer,
+    ProducedAecFacts, RootContainer,
     apply_vote_helper::ApplyVoteHelper,
     cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
     recently_confirmed_cache::RecentlyConfirmedCache,
@@ -147,7 +147,9 @@ impl ActiveElectionsContainer {
             return Ok(());
         }
 
-        self.insert_new_election(request, now);
+        let mut produced_facts = ProducedAecFacts::default();
+        self.insert_new_election(request, now, &mut produced_facts);
+        self.publish(produced_facts);
         Ok(())
     }
 
@@ -188,7 +190,12 @@ impl ActiveElectionsContainer {
         }
     }
 
-    fn insert_new_election(&mut self, request: AecInsertRequest, now: Timestamp) {
+    fn insert_new_election(
+        &mut self,
+        request: AecInsertRequest,
+        now: Timestamp,
+        produced_facts: &mut ProducedAecFacts,
+    ) {
         let root = request.block.qualified_root();
         let hash = request.block.hash();
         let election = Election::new(request.block, request.behavior, self.base_latency, now);
@@ -201,10 +208,11 @@ impl ActiveElectionsContainer {
 
         *self.count_by_behavior_mut(request.behavior) += 1;
         self.stats.started(request.behavior);
-        self.notify(AecFact::ElectionStarted(hash, root));
+        produced_facts.push(AecFact::ElectionStarted(hash, root));
     }
 
     pub fn try_add_fork(&mut self, fork: &Block, fork_tally: Amount) -> bool {
+        let mut produced_facts = ProducedAecFacts::default();
         let Some(entry) = self.roots.get_mut(&fork.qualified_root()) else {
             return false;
         };
@@ -212,17 +220,17 @@ impl ActiveElectionsContainer {
         let result = entry.election.try_add_fork(fork, fork_tally);
         let added = match result {
             AddForkResult::Added => {
-                self.notify(AecFact::BlockAddedToElection(fork.hash()));
+                produced_facts.push(AecFact::BlockAddedToElection(fork.hash()));
                 true
             }
             AddForkResult::Replaced(removed) => {
                 self.roots.vote_router.disconnect(&removed.hash());
-                self.notify(AecFact::BlockDiscarded(removed.into()));
-                self.notify(AecFact::BlockAddedToElection(fork.hash()));
+                produced_facts.push(AecFact::BlockDiscarded(removed.into()));
+                produced_facts.push(AecFact::BlockAddedToElection(fork.hash()));
                 true
             }
             AddForkResult::TallyTooLow => {
-                self.notify(AecFact::BlockDiscarded(fork.clone()));
+                produced_facts.push(AecFact::BlockDiscarded(fork.clone()));
                 false
             }
             AddForkResult::Duplicate | AddForkResult::ElectionEnded => false,
@@ -235,6 +243,7 @@ impl ActiveElectionsContainer {
             self.stats.conflicts += 1;
         }
 
+        self.publish(produced_facts);
         added
     }
 
@@ -249,10 +258,12 @@ impl ActiveElectionsContainer {
     }
 
     pub fn set_cooldown(&mut self, cool_down: bool, reason: AecCooldownReason) {
+        let mut produced_facts = ProducedAecFacts::default();
         let result = self.cooldown.set_cooldown(cool_down, reason);
         if result == CooldownResult::Recovered {
-            self.notify(AecFact::Recovered);
+            produced_facts.push(AecFact::Recovered);
         }
+        self.publish(produced_facts);
     }
 
     pub fn stop(&mut self) {
@@ -376,18 +387,22 @@ impl ActiveElectionsContainer {
     }
 
     pub fn erase_ended_elections(&mut self) {
+        let mut produced_facts = ProducedAecFacts::default();
         let removed = self.roots.drain_filter(|i| i.election.state().has_ended());
 
         for entry in removed {
-            self.cleanup_election(entry);
+            self.cleanup_election(entry, &mut produced_facts);
         }
+        self.publish(produced_facts);
     }
 
     pub fn erase(&mut self, root: &QualifiedRoot) -> bool {
+        let mut produced_facts = ProducedAecFacts::default();
         let Some(entry) = self.roots.erase(root) else {
             return false;
         };
-        self.cleanup_election(entry);
+        self.cleanup_election(entry, &mut produced_facts);
+        self.publish(produced_facts);
         true
     }
 
@@ -398,14 +413,14 @@ impl ActiveElectionsContainer {
         self.erase(&root);
     }
 
-    fn cleanup_election(&mut self, entry: Entry) {
+    fn cleanup_election(&mut self, entry: Entry, produced_facts: &mut ProducedAecFacts) {
         let election = &entry.election;
 
         // Keep track of election count by election type
         *self.count_by_behavior_mut(election.behavior()) -= 1;
 
         self.stats.stopped(&entry.election);
-        self.notify(AecFact::ElectionEnded(entry.election));
+        produced_facts.push(AecFact::ElectionEnded(entry.election));
     }
 
     /// Dependent elections are implicitly confirmed when their block is confirmed
@@ -414,12 +429,14 @@ impl ActiveElectionsContainer {
         confirmed: Vec<(SavedBlock, Option<ConfirmedElection>)>,
         now: Timestamp,
     ) {
+        let mut produced_facts = ProducedAecFacts::default();
         for (confirmed_block, source_election) in confirmed {
             let confirmed_election =
                 self.confirm_dependent_election(&confirmed_block, source_election, now);
 
-            self.block_confirmed(confirmed_block, confirmed_election);
+            self.block_confirmed(confirmed_block, confirmed_election, &mut produced_facts);
         }
+        self.publish(produced_facts);
     }
 
     fn confirm_dependent_election(
@@ -459,9 +476,14 @@ impl ActiveElectionsContainer {
         }
     }
 
-    fn block_confirmed(&mut self, block: SavedBlock, election: ConfirmedElection) {
+    fn block_confirmed(
+        &mut self,
+        block: SavedBlock,
+        election: ConfirmedElection,
+        produced_facts: &mut ProducedAecFacts,
+    ) {
         self.stats.block_confirmations[election.confirmation_type as usize] += 1;
-        self.notify(AecFact::BlockConfirmed(block, election));
+        produced_facts.push(AecFact::BlockConfirmed(block, election));
     }
 
     pub fn remove_recently_confirmed(&mut self, block_hash: &BlockHash) {
@@ -476,25 +498,28 @@ impl ActiveElectionsContainer {
             args: &args,
             recently_confirmed: &mut self.recently_confirmed,
             vote_counter: &mut self.stats.vote_counter,
-            observer: &self.observer,
             roots: &mut self.roots,
         };
         let result = apply_helper.apply_vote();
+        let mut produced_facts = result.produced_facts;
         for entry in result.confirmed {
-            self.cleanup_election(entry);
+            self.cleanup_election(entry, &mut produced_facts);
         }
+        self.publish(produced_facts);
         result.per_block
     }
 
     pub fn force_confirm(&mut self, block_hash: &BlockHash, now: Timestamp) {
+        let mut produced_facts = ProducedAecFacts::default();
         let Some(election) = self.roots.election_for_block_mut(block_hash) else {
             panic!("Force confirm failed, because no active election was found");
         };
         if election.force_confirm() {
             let confirmed_election =
                 election.into_confirmed_election(now, ConfirmationType::ActiveConfirmedQuorum);
-            self.notify(AecFact::ElectionConfirmed(confirmed_election));
+            produced_facts.push(AecFact::ElectionConfirmed(confirmed_election));
         }
+        self.publish(produced_facts);
     }
 
     pub fn cancel(&mut self, root: &QualifiedRoot) {
@@ -528,12 +553,14 @@ impl ActiveElectionsContainer {
     }
 
     pub fn simulate_event(&self, event: AecFact) {
-        self.notify(event);
+        self.publish(ProducedAecFacts(vec![event]));
     }
 
-    fn notify(&self, event: AecFact) {
+    fn publish(&self, produced_facts: ProducedAecFacts) {
         if let Some(sender) = &self.observer {
-            sender.send(event).unwrap()
+            for fact in produced_facts {
+                sender.send(fact).unwrap();
+            }
         }
     }
 }
@@ -618,6 +645,26 @@ mod tests {
     }
 
     #[test]
+    fn insert_new_election_collects_fact_before_publication() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let root = block.qualified_root();
+        let hash = block.hash();
+        let request = AecInsertRequest::new_priority(block, BlockPriority::new_test_instance());
+        let mut produced_facts = ProducedAecFacts::default();
+
+        container.insert_new_election(request, Timestamp::new_test_instance(), &mut produced_facts);
+
+        let facts: Vec<_> = produced_facts.into_iter().collect();
+        assert_eq!(facts.len(), 1);
+        let AecFact::ElectionStarted(started_hash, started_root) = &facts[0] else {
+            panic!("expected election started");
+        };
+        assert_eq!(*started_hash, hash);
+        assert_eq!(*started_root, root);
+    }
+
+    #[test]
     fn confirm_election() {
         let mut container = ActiveElectionsContainer::default();
 
@@ -649,6 +696,45 @@ mod tests {
         assert_eq!(result.get(&block_hash), Some(&Ok(())));
 
         assert!(container.election_for_block(&block_hash).is_none());
+    }
+
+    #[test]
+    fn apply_vote_collects_confirmation_and_cleanup_facts() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let block_hash = block.hash();
+        let request =
+            AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance());
+        let now = Timestamp::new_test_instance();
+        let mut produced_facts = ProducedAecFacts::default();
+        container.insert_new_election(request, now, &mut produced_facts);
+
+        let rep_key = PrivateKey::from(1);
+        let received_vote = test_final_vote(&rep_key, block_hash);
+        let mut rep_weights = RepWeights::default();
+        rep_weights.put(rep_key.public_key(), Amount::MAX);
+
+        let mut apply_helper = ApplyVoteHelper {
+            args: &ApplyVoteArgs {
+                vote: &received_vote.into(),
+                rep_weights: &rep_weights,
+                quorum_specs: &QuorumSpecs::new_test_instance(),
+                now,
+            },
+            recently_confirmed: &mut container.recently_confirmed,
+            vote_counter: &mut container.stats.vote_counter,
+            roots: &mut container.roots,
+        };
+
+        let result = apply_helper.apply_vote();
+        let mut facts: Vec<_> = result.produced_facts.into_iter().collect();
+        for entry in result.confirmed {
+            container.cleanup_election(entry, &mut produced_facts);
+        }
+        facts.extend(produced_facts);
+
+        assert!(facts.iter().any(|fact| matches!(fact, AecFact::ElectionConfirmed(_))));
+        assert!(facts.iter().any(|fact| matches!(fact, AecFact::ElectionEnded(_))));
     }
 
     #[test]

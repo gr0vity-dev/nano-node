@@ -58,6 +58,24 @@ pub enum AecFact {
     Recovered,
 }
 
+#[derive(Default)]
+pub(super) struct ProducedAecFacts(Vec<AecFact>);
+
+impl ProducedAecFacts {
+    fn push(&mut self, fact: AecFact) {
+        self.0.push(fact);
+    }
+}
+
+impl IntoIterator for ProducedAecFacts {
+    type Item = AecFact;
+    type IntoIter = std::vec::IntoIter<AecFact>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum AecInsertError {
     Stopped,

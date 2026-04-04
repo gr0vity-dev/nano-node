@@ -1,10 +1,9 @@
 use std::{collections::HashMap, ops::Deref};
 
 use rsnano_types::{Amount, BlockHash, VoteError, VoteSource};
-use rsnano_utils::sync::backpressure_channel::Sender;
 
 use super::{
-    AecFact, ApplyVoteArgs,
+    AecFact, ApplyVoteArgs, ProducedAecFacts,
     recently_confirmed_cache::RecentlyConfirmedCache,
     root_container::{Entry, RootContainer},
     stats::VoteCounter,
@@ -15,7 +14,6 @@ pub(super) struct ApplyVoteHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
     pub recently_confirmed: &'a mut RecentlyConfirmedCache,
     pub vote_counter: &'a mut VoteCounter,
-    pub observer: &'a Option<Sender<AecFact>>,
     pub roots: &'a mut RootContainer,
 }
 
@@ -34,7 +32,7 @@ impl<'a> ApplyVoteHelper<'a> {
                         args: self.args,
                         recently_confirmed: self.recently_confirmed,
                         vote_counter: self.vote_counter,
-                        observer: self.observer,
+                        produced_facts: &mut result.produced_facts,
                         election,
                         block_hash,
                     };
@@ -65,13 +63,14 @@ impl<'a> ApplyVoteHelper<'a> {
 pub(crate) struct ApplyVoteResult {
     pub per_block: HashMap<BlockHash, Result<(), VoteError>>,
     pub confirmed: Vec<Entry>,
+    pub produced_facts: ProducedAecFacts,
 }
 
 struct ApplyVoteToElectionHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
     pub recently_confirmed: &'a mut RecentlyConfirmedCache,
     pub vote_counter: &'a mut VoteCounter,
-    pub observer: &'a Option<Sender<AecFact>>,
+    pub produced_facts: &'a mut ProducedAecFacts,
     pub election: &'a mut Election,
     pub block_hash: &'a BlockHash,
 }
@@ -137,7 +136,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     fn notify_winner_changed(&mut self, old_winner: BlockHash) {
         let winner_changed = self.election.winner().hash() != old_winner;
         if winner_changed {
-            self.notify(AecFact::WinnerChanged(
+            self.produced_facts.push(AecFact::WinnerChanged(
                 old_winner,
                 self.election.winner().deref().clone(),
             ));
@@ -151,7 +150,8 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             .election
             .into_confirmed_election(self.args.now, ConfirmationType::ActiveConfirmedQuorum);
 
-        self.notify(AecFact::ElectionConfirmed(confirmed_election));
+        self.produced_facts
+            .push(AecFact::ElectionConfirmed(confirmed_election));
     }
 
     fn insert_recently_confirmed(&mut self) {
@@ -159,12 +159,6 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             self.election.qualified_root().clone(),
             self.election.winner().hash(),
         );
-    }
-
-    fn notify(&self, event: AecFact) {
-        if let Some(o) = self.observer {
-            o.send(event).unwrap();
-        }
     }
 }
 
@@ -184,7 +178,6 @@ mod tests {
         Block, BlockPriority, PrivateKey, QualifiedRoot, SavedBlock, StateBlockArgs,
         UnixMillisTimestamp, Vote,
     };
-    use rsnano_utils::sync::backpressure_channel::channel;
     use std::time::Duration;
 
     #[test]
@@ -397,7 +390,6 @@ mod tests {
                 args: &args,
                 recently_confirmed: &mut self.recently_confirmed,
                 vote_counter: &mut vote_counter,
-                observer: &None,
                 roots: &mut self.roots,
             };
 
@@ -462,7 +454,7 @@ mod tests {
             let quorum_specs = QuorumSpecs::new_test_instance();
             let mut recently_confirmed = RecentlyConfirmedCache::default();
             let mut vote_counter = VoteCounter::default();
-            let (tx, rx) = channel(1024);
+            let mut produced_facts = ProducedAecFacts::default();
 
             let result = {
                 ApplyVoteToElectionHelper {
@@ -474,16 +466,14 @@ mod tests {
                     },
                     recently_confirmed: &mut recently_confirmed,
                     vote_counter: &mut vote_counter,
-                    observer: &Some(tx),
+                    produced_facts: &mut produced_facts,
                     election: &mut self.election,
                     block_hash: &vote.hashes[0],
                 }
                 .apply_vote()
             };
 
-            while let Ok(ev) = rx.recv() {
-                self.events.push(ev);
-            }
+            self.events.extend(produced_facts);
 
             result
         }
