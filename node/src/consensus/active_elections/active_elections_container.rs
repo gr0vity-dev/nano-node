@@ -194,6 +194,7 @@ impl ActiveElectionsContainer {
 
         self.roots.insert(Entry {
             root: root.clone(),
+            bucket_id: request.bucket_id,
             election,
             priority: request.priority,
         });
@@ -344,9 +345,13 @@ impl ActiveElectionsContainer {
                     //stats.replaced.fetch_add(1, Ordering::Relaxed);
                 }
 
-                // TODO: Don't hard code priority election!
                 match self.insert(
-                    AecInsertRequest::new_priority(candidate.block, candidate.priority),
+                    AecInsertRequest {
+                        block: candidate.block,
+                        bucket_id: candidate.bucket_id,
+                        behavior: ElectionBehavior::Priority,
+                        priority: candidate.priority,
+                    },
                     now,
                 ) {
                     Ok(new_facts) => {
@@ -627,6 +632,7 @@ mod tests {
         let mut container = ActiveElectionsContainer::default();
         let request = AecInsertRequest {
             block: SavedBlock::new_test_instance(),
+            bucket_id: 0,
             behavior: ElectionBehavior::Priority,
             priority: BlockPriority::new_test_instance(),
         };
@@ -667,6 +673,7 @@ mod tests {
 
         let request = AecInsertRequest {
             block,
+            bucket_id: 0,
             behavior: ElectionBehavior::Priority,
             priority: BlockPriority::new_test_instance(),
         };
@@ -831,6 +838,34 @@ mod tests {
         assert_eq!(results[1].1, block_a2.hash());
         assert_eq!(results[2].0, bucket_c);
         assert_eq!(results[2].1, block_c.hash());
+    }
+
+    #[test]
+    fn priority_upgrade_moves_election_to_request_owned_bucket() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let optimistic_priority = BlockPriority::new(Amount::raw(0), TimePriority::new(1));
+        let priority_priority = BlockPriority::new(Amount::MAX, TimePriority::new(1));
+
+        container
+            .insert(
+                AecInsertRequest::new_optimistic(block.clone(), optimistic_priority),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+
+        let optimistic_bucket = container.find_bucket(&block.qualified_root()).unwrap();
+
+        container
+            .insert(
+                AecInsertRequest::new_priority(block.clone(), priority_priority),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+
+        let priority_bucket = container.find_bucket(&block.qualified_root()).unwrap();
+        assert_ne!(optimistic_bucket, priority_bucket);
+        assert_eq!(priority_bucket, AecInsertRequest::new_priority(block, priority_priority).bucket_id);
     }
 
     fn test_final_vote(rep_key: &PrivateKey, block_hash: BlockHash) -> ReceivedVote {

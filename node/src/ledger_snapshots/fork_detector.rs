@@ -180,6 +180,7 @@ mod tests {
         let aec = Arc::new(AecService::new_null());
         let request = AecInsertRequest {
             block: block.clone(),
+            bucket_id: 0,
             behavior: ElectionBehavior::Priority,
             priority: BlockPriority::new_test_instance(),
         };

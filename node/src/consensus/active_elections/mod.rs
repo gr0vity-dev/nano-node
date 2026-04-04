@@ -14,6 +14,7 @@ use rsnano_types::{Amount, Block, BlockHash, BlockPriority, QualifiedRoot, Saved
 use super::{
     ReceivedVote,
     election::{ConfirmedElection, Election, ElectionBehavior},
+    election_schedulers::priority::{prio_bucket_count, prio_bucket_index},
 };
 pub use active_elections_container::*;
 pub use aec_service::AecService;
@@ -104,6 +105,7 @@ pub struct ActiveElectionsInfo {
 
 pub struct AecInsertRequest {
     pub block: SavedBlock,
+    pub bucket_id: usize,
     pub behavior: ElectionBehavior,
     pub priority: BlockPriority,
 }
@@ -112,6 +114,7 @@ impl AecInsertRequest {
     pub fn new_hinted(block: SavedBlock, priority: BlockPriority) -> Self {
         Self {
             block,
+            bucket_id: prio_bucket_count() + 1,
             behavior: ElectionBehavior::Hinted,
             priority,
         }
@@ -120,6 +123,7 @@ impl AecInsertRequest {
     pub fn new_optimistic(block: SavedBlock, priority: BlockPriority) -> Self {
         Self {
             block,
+            bucket_id: prio_bucket_count() + 2,
             behavior: ElectionBehavior::Optimistic,
             priority,
         }
@@ -128,6 +132,7 @@ impl AecInsertRequest {
     pub fn new_manual(block: SavedBlock, priority: BlockPriority) -> Self {
         Self {
             block,
+            bucket_id: prio_bucket_count(),
             behavior: ElectionBehavior::Manual,
             priority,
         }
@@ -136,6 +141,7 @@ impl AecInsertRequest {
     pub fn new_priority(block: SavedBlock, priority: BlockPriority) -> Self {
         Self {
             block,
+            bucket_id: prio_bucket_index(priority.balance),
             behavior: ElectionBehavior::Priority,
             priority,
         }

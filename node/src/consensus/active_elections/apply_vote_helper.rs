@@ -353,6 +353,7 @@ mod tests {
             let election = Election::new_test_instance_with(self.block.clone());
             self.roots.insert(Entry {
                 root: self.root.clone(),
+                bucket_id: 0,
                 election,
                 priority: BlockPriority::new_test_instance(),
             });
