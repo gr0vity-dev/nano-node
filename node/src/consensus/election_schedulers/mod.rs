@@ -5,12 +5,10 @@ mod optimistic;
 pub mod priority;
 
 pub(crate) use election_schedulers_plugin::*;
-pub use hinted_scheduler::*;
+pub use hinted_scheduler::HintedSchedulerConfig;
 pub use optimistic::OptimisticSchedulerParams;
 
-use std::{
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use rsnano_ledger::{AnySet, Ledger, ProcessResult};
 use rsnano_nullable_clock::SteadyClock;
@@ -27,9 +25,7 @@ use candidate_coordinator::CandidateCoordinator;
 
 pub struct ElectionSchedulers {
     coordinator: Arc<CandidateCoordinator>,
-    pub hinted: Arc<HintedScheduler>,
     notify_listener: OutputListenerMt<()>,
-    config: NodeConfig,
     ledger: Arc<Ledger>,
     activate_successors_listener: OutputListenerMt<SavedBlock>,
 }
@@ -45,17 +41,6 @@ impl ElectionSchedulers {
         online_reps: Arc<Mutex<OnlineReps>>,
         clock: Arc<SteadyClock>,
     ) -> Self {
-        let hinted = Arc::new(HintedScheduler::new(
-            config.hinted_scheduler.clone(),
-            active_elections.clone(),
-            ledger.clone(),
-            stats.clone(),
-            vote_cache.clone(),
-            confirming_set.clone(),
-            online_reps.clone(),
-            clock.clone(),
-        ));
-
         let optimistic_params = OptimisticSchedulerParams {
             gap_threshold: config.optimistic_scheduler.gap_threshold,
             max_candidates: config.optimistic_scheduler.max_size,
@@ -67,20 +52,22 @@ impl ElectionSchedulers {
         let coordinator = Arc::new(CandidateCoordinator::new(
             config.priority_bucket.clone(),
             config.enable_priority_scheduler,
+            config.hinted_scheduler.clone(),
+            config.enable_hinted_scheduler,
             optimistic_params,
             config.enable_optimistic_scheduler,
             stats.clone(),
             active_elections.clone(),
             ledger.clone(),
+            vote_cache.clone(),
             confirming_set,
+            online_reps.clone(),
             clock,
         ));
 
         Self {
             coordinator,
-            hinted,
             notify_listener: OutputListenerMt::new(),
-            config,
             ledger,
             activate_successors_listener: Default::default(),
         }
@@ -146,7 +133,6 @@ impl ElectionSchedulers {
     pub fn notify(&self) {
         self.notify_listener.emit(());
         self.coordinator.notify();
-        self.hinted.notify();
     }
 
     pub fn add_manual(&self, block: SavedBlock) {
@@ -165,9 +151,6 @@ impl ElectionSchedulers {
     }
 
     pub fn start(&self) {
-        if self.config.enable_hinted_scheduler {
-            self.hinted.start();
-        }
         self.coordinator.start_loop();
     }
 
@@ -180,7 +163,6 @@ impl ElectionSchedulers {
     }
 
     pub fn stop(&self) {
-        self.hinted.stop();
         self.coordinator.stop();
     }
 }
@@ -188,7 +170,7 @@ impl ElectionSchedulers {
 impl ContainerInfoProvider for ElectionSchedulers {
     fn container_info(&self) -> ContainerInfo {
         ContainerInfo::builder()
-            .node("hinted", self.hinted.container_info())
+            .node("hinted", self.coordinator.hinted_container_info())
             .node("optimistic", self.coordinator.optimistic_container_info())
             .node("priority", self.coordinator.container_info())
             .finish()
@@ -227,5 +209,15 @@ mod tests {
 
         let output = tracker.output();
         assert_eq!(output, [block]);
+    }
+
+    #[test]
+    fn notify_wakes_single_activation_owner() {
+        let schedulers = ElectionSchedulers::new_null();
+        let tracker = schedulers.coordinator.track_notify();
+
+        schedulers.notify();
+
+        assert_eq!(tracker.output(), [()]);
     }
 }

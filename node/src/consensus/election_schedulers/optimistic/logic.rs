@@ -90,14 +90,13 @@ impl OptimisticSchedulerLogic {
     }
 
     pub fn next_activation_delay(&self, now: Timestamp) -> Option<Duration> {
-        self.next_activation_deadline()
-            .map(|deadline| {
-                if deadline <= now {
-                    Duration::ZERO
-                } else {
-                    deadline - now
-                }
-            })
+        self.next_activation_deadline().map(|deadline| {
+            if deadline <= now {
+                Duration::ZERO
+            } else {
+                deadline - now
+            }
+        })
     }
 
     pub fn max_elections(&self) -> usize {

@@ -12,13 +12,26 @@ mod tests {
     use super::OptimisticSchedulerParams;
     use crate::{
         cementation::ConfirmingSet,
-        consensus::{AecService, election::ElectionBehavior, election_schedulers::candidate_coordinator::CandidateCoordinator, election_schedulers::priority::PriorityBucketConfig},
+        consensus::{
+            AecService, VoteCache,
+            election::ElectionBehavior,
+            election_schedulers::{
+                HintedSchedulerConfig, candidate_coordinator::CandidateCoordinator,
+                priority::PriorityBucketConfig,
+            },
+        },
+        representatives::OnlineReps,
     };
-    use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, LedgerSet, test_helpers::UnsavedBlockLatticeBuilder};
+    use rsnano_ledger::{
+        AnySet, ConfirmedSet, Ledger, LedgerSet, test_helpers::UnsavedBlockLatticeBuilder,
+    };
     use rsnano_nullable_clock::SteadyClock;
     use rsnano_types::PrivateKey;
     use rsnano_utils::stats::Stats;
-    use std::{sync::Arc, time::Duration};
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
 
     #[test]
     fn schedules_election_when_over_gap_threshold() {
@@ -185,7 +198,10 @@ mod tests {
             let block = builder.genesis().send(1, 1);
             ledger.process_one(&block).unwrap();
         }
-        let head = ledger.any().account_head(&ledger.genesis().account()).unwrap();
+        let head = ledger
+            .any()
+            .account_head(&ledger.genesis().account())
+            .unwrap();
 
         assert!(activate(&coordinator, ledger.genesis().account()));
 
@@ -220,12 +236,19 @@ mod tests {
         CandidateCoordinator::new(
             PriorityBucketConfig::default(),
             true,
+            HintedSchedulerConfig::default(),
+            true,
             params,
             true,
             Arc::new(Stats::default()),
             aec,
             ledger,
+            Arc::new(Mutex::new(VoteCache::new(
+                Default::default(),
+                Arc::new(Stats::default()),
+            ))),
             confirming_set,
+            Arc::new(Mutex::new(OnlineReps::new_test_instance())),
             clock,
         )
     }
