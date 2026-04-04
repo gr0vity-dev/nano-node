@@ -23,10 +23,14 @@ pub struct AecService {
 }
 
 impl AecService {
-    pub fn new(config: ActiveElectionsConfig, base_latency: Duration) -> Self {
+    pub fn new(
+        config: ActiveElectionsConfig,
+        base_latency: Duration,
+        publisher: Sender<AecFact>,
+    ) -> Self {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::new(config, base_latency)),
-            publisher: RwLock::new(None),
+            publisher: RwLock::new(Some(publisher)),
         }
     }
 
@@ -117,10 +121,6 @@ impl AecService {
     }
 
     // --- Write forwarding ---
-
-    pub fn set_observer(&self, observer: Sender<AecFact>) {
-        *self.publisher.write().unwrap() = Some(observer);
-    }
 
     pub fn insert(&self, request: AecInsertRequest, now: Timestamp) -> Result<(), AecInsertError> {
         let produced_facts = self.aec.write().unwrap().insert(request, now)?;
@@ -279,9 +279,12 @@ mod tests {
 
     #[test]
     fn insert_publishes_container_facts_through_service_owned_sender() {
-        let service = AecService::new_null();
         let (tx, rx) = backpressure_channel::channel(1);
-        service.set_observer(tx);
+        let service = AecService::new(
+            ActiveElectionsConfig::default(),
+            Duration::ZERO,
+            tx,
+        );
 
         service
             .insert(
@@ -299,9 +302,12 @@ mod tests {
 
     #[test]
     fn simulate_event_uses_service_owned_publication_path() {
-        let service = AecService::new_null();
         let (tx, rx) = backpressure_channel::channel(1);
-        service.set_observer(tx);
+        let service = AecService::new(
+            ActiveElectionsConfig::default(),
+            Duration::ZERO,
+            tx,
+        );
 
         service.simulate_event(AecFact::Recovered);
 
@@ -310,9 +316,12 @@ mod tests {
 
     #[test]
     fn refill_publishes_scheduler_driven_activation_through_service_owned_sender() {
-        let service = AecService::new_null();
         let (tx, rx) = backpressure_channel::channel(1);
-        service.set_observer(tx);
+        let service = AecService::new(
+            ActiveElectionsConfig::default(),
+            Duration::ZERO,
+            tx,
+        );
 
         let block = SavedBlock::new_test_instance();
         let mut source = StubCandidateSource::new(block.clone(), BlockPriority::new_test_instance());
@@ -326,9 +335,12 @@ mod tests {
 
     #[test]
     fn vote_processed_uses_service_owned_publication_path() {
-        let service = AecService::new_null();
         let (tx, rx) = backpressure_channel::channel(1);
-        service.set_observer(tx);
+        let service = AecService::new(
+            ActiveElectionsConfig::default(),
+            Duration::ZERO,
+            tx,
+        );
 
         let vote = crate::consensus::ReceivedVote::new(
             Arc::new(Vote::new_test_instance()),

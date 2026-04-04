@@ -627,8 +627,8 @@ impl Node {
         let active_elections = Arc::new(AecService::new(
             config.active_elections.clone(),
             base_latency,
+            aec_tx.clone(),
         ));
-        active_elections.set_observer(aec_tx.clone());
 
         let block_rate_calculator = BlockRateCalculator::new(steady_clock.clone(), ledger.clone());
         let block_rates = block_rate_calculator.rates().clone();
