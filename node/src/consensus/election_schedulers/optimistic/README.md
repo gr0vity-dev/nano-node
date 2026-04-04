@@ -13,14 +13,16 @@ The word *optimistic* reflects the strategy: the scheduler bets that accounts wi
 The module follows the **A-frame architecture** used throughout the codebase:
 
 - **Logic** (`OptimisticSchedulerLogic`) — pure computation, no I/O. Decides which accounts qualify, manages the candidate queue, and enforces capacity limits.
-- **Application** (`OptimisticScheduler`) — owns the background run loop, reads from the `Ledger`, writes to the `ActiveElectionsContainer`, and consults the `ConfirmingSet`.
-- The application layer calls into the logic layer to make all scheduling decisions (the "Logic Sandwich" pattern).
+- **Application owner** (`CandidateCoordinator`) — owns the shared scheduler loop, reads from the `Ledger`, writes through `AecService`, and consults the `ConfirmingSet`.
+- **Facade** (`ElectionSchedulers`) — receives backlog signals and forwards optimistic admission into the coordinator.
+- The application layer calls into the logic layer to make all optimistic scheduling decisions (the "Logic Sandwich" pattern).
 
 ### Components
 
 | Component | Role |
 |-----------|------|
-| `OptimisticScheduler` | Application. Run loop, ledger access, AEC insertion. |
+| `ElectionSchedulers` | Source-agnostic facade. Receives backlog activation signals. |
+| `CandidateCoordinator` | Application. Owns the shared loop, optimistic wakeups, ledger access, and AEC insertion timing. |
 | `OptimisticSchedulerLogic` | Pure logic. Gate-keeps activation, manages the candidate queue. |
 | `CandidateQueue` | Dual-indexed data structure. Supports O(log n) pop-by-highest-gap and O(1) account lookup. |
 | `OptimisticSchedulerParams` | Configuration (gap threshold, capacity, election cap, activation delay). |
@@ -28,17 +30,18 @@ The module follows the **A-frame architecture** used throughout the codebase:
 
 ### Activation flow
 
-1. The backlog scan calls `OptimisticScheduler::activate(account, block_count, confirmation_height)`.
-2. `OptimisticSchedulerLogic::try_activate` computes `gap = block_count − confirmation_height`.
-3. If `gap < gap_threshold` the account is rejected. If the queue is full, the account must have a strictly higher gap than the current minimum to evict it; otherwise it is rejected.
-4. Accepted accounts are enqueued in `CandidateQueue` with their insertion timestamp.
+1. The backlog scan calls `ElectionSchedulers::activate_backlog(...)`.
+2. `ElectionSchedulers` forwards the optimistic half of that signal to `CandidateCoordinator::activate_optimistic(account, block_count, confirmation_height)`.
+3. `OptimisticSchedulerLogic::try_activate` computes `gap = block_count − confirmation_height`.
+4. If `gap < gap_threshold` the account is rejected. If the queue is full, the account must have a strictly higher gap than the current minimum to evict it; otherwise it is rejected.
+5. Accepted accounts are enqueued in `CandidateQueue` with their insertion timestamp.
 
-### Scheduling (run loop)
+### Coordinator scheduling path
 
-1. The run loop wakes when there is AEC vacancy and a candidate old enough (older than `activation_delay`).
-2. Candidates are popped in descending gap order — the most-backlogged account first.
-3. For each account the scheduler looks up the head block in the ledger, checks it is not already confirmed, and inserts it into the AEC as `ElectionBehavior::Optimistic`.
-4. The run loop caps optimistic elections at `max_elections` and respects the overall AEC vacancy.
+1. The shared coordinator loop wakes when there is AEC vacancy and an optimistic candidate is old enough (older than `activation_delay`).
+2. `CandidateCoordinator::run_optimistic()` pops candidates in descending gap order through `OptimisticSchedulerLogic` and `CandidateQueue`.
+3. For each account the coordinator looks up the head block in the ledger, checks it is not already confirmed, and inserts it through `AecService::insert(AecInsertRequest::new_optimistic(...))`.
+4. The optimistic path caps optimistic elections at `max_elections` and respects the overall AEC vacancy alongside the coordinator's other sources.
 
 ### CandidateQueue internals
 
@@ -53,33 +56,27 @@ When an account is re-activated with a new gap its entry is moved to the correct
 
 ```mermaid
 classDiagram
-    class OptimisticScheduler {
+    class ElectionSchedulers {
+        +activate_backlog(any, account, account_info, conf_info)
+    }
+
+    class CandidateCoordinator {
         -clock: Arc~SteadyClock~
-        +activate(account, block_count, conf_height) bool
-        +run_loop()
+        +activate_optimistic(account, block_count, conf_height) bool
         +notify()
+        +start_loop()
         +stop()
-        -run_one(any, account)
-        -has_vacancy(logic) bool
+        -run()
+        -run_optimistic()
+        -run_one_optimistic(account)
     }
 
     class OptimisticSchedulerLogic {
         +try_activate(account, block_count, conf_height, now) bool
         +pop_candidate(now) Option~Account~
-        +has_candidate(now) bool
-        +has_vacancy(optimistic_count, aec_vacancy) bool
-        +stop()
-        +stopped() bool
-    }
-
-    class CandidateQueue {
-        +insert(account, now, gap)
-        +pop_first(cutoff) Option~Account~
-        +pop_lowest_gap_entry() Option~Account~
-        +has_candidate(cutoff) bool
-        +contains(account) bool
-        +min_gap() Option~u64~
-        +len() usize
+        +has_ready_candidate(now) bool
+        +next_activation_delay(now) Option~Duration~
+        +max_elections() usize
     }
 
     class OptimisticSchedulerParams {
@@ -96,10 +93,18 @@ classDiagram
         +insert_failed_count: AtomicU64
     }
 
-    class ActiveElectionsContainer {
+    class CandidateQueue {
+        +insert(account, now, gap)
+        +pop_first(cutoff) Option~Account~
+        +pop_lowest_gap_entry() Option~Account~
+        +has_candidate(cutoff) bool
+        +contains(account) bool
+        +min_gap() Option~u64~
+        +len() usize
+    }
+
+    class AecService {
         +insert(request, now)
-        +count_by_behavior(behavior) usize
-        +vacancy() i64
     }
 
     class Ledger {
@@ -108,11 +113,12 @@ classDiagram
     class ConfirmingSet {
     }
 
-    OptimisticScheduler *-- OptimisticSchedulerLogic : owns via condvar mutex
-    OptimisticScheduler *-- OptimisticSchedulerStats : owns
-    OptimisticScheduler --> ActiveElectionsContainer : inserts elections
-    OptimisticScheduler --> Ledger : reads head blocks
-    OptimisticScheduler --> ConfirmingSet : checks confirmation status
+    ElectionSchedulers --> CandidateCoordinator : forwards backlog activation
+    CandidateCoordinator *-- OptimisticSchedulerLogic : owns optimistic state
+    CandidateCoordinator *-- OptimisticSchedulerStats : owns
+    CandidateCoordinator --> AecService : inserts optimistic elections
+    CandidateCoordinator --> Ledger : reads head blocks
+    CandidateCoordinator --> ConfirmingSet : checks confirmation status
     OptimisticSchedulerLogic *-- CandidateQueue : owns
     OptimisticSchedulerLogic *-- OptimisticSchedulerParams : owns
 ```
