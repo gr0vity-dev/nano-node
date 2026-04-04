@@ -1,4 +1,5 @@
 use std::cmp::min;
+use std::time::Duration;
 
 use rsnano_nullable_clock::Timestamp;
 use rsnano_types::Account;
@@ -81,6 +82,32 @@ impl OptimisticSchedulerLogic {
     pub fn pop_candidate(&mut self, now: Timestamp) -> Option<Account> {
         self.candidates
             .pop_first(now - self.params.activation_delay)
+    }
+
+    pub fn has_ready_candidate(&self, now: Timestamp) -> bool {
+        self.next_activation_deadline()
+            .is_some_and(|deadline| deadline <= now)
+    }
+
+    pub fn next_activation_delay(&self, now: Timestamp) -> Option<Duration> {
+        self.next_activation_deadline()
+            .map(|deadline| {
+                if deadline <= now {
+                    Duration::ZERO
+                } else {
+                    deadline - now
+                }
+            })
+    }
+
+    pub fn max_elections(&self) -> usize {
+        self.params.max_elections
+    }
+
+    fn next_activation_deadline(&self) -> Option<Timestamp> {
+        self.candidates
+            .oldest_timestamp()
+            .map(|timestamp| timestamp + self.params.activation_delay)
     }
 
     pub fn candidate_count(&self) -> usize {
@@ -191,6 +218,28 @@ mod tests {
         assert_eq!(second, a);
     }
 
+    #[test]
+    fn has_ready_candidate_after_activation_delay_elapsed() {
+        let mut logic = OptimisticSchedulerLogic::new(make_delayed_params(Duration::from_secs(5)));
+        let inserted_at = now();
+        logic.try_activate(&Account::from(1), 100, 0, inserted_at);
+
+        assert!(!logic.has_ready_candidate(inserted_at));
+        assert!(logic.has_ready_candidate(inserted_at + Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn next_activation_delay_uses_oldest_candidate() {
+        let mut logic = OptimisticSchedulerLogic::new(make_delayed_params(Duration::from_secs(5)));
+        let inserted_at = now();
+        logic.try_activate(&Account::from(1), 100, 0, inserted_at);
+
+        assert_eq!(
+            logic.next_activation_delay(inserted_at + Duration::from_secs(2)),
+            Some(Duration::from_secs(3))
+        );
+    }
+
     /* Test helpers */
 
     fn now() -> Timestamp {
@@ -203,6 +252,15 @@ mod tests {
             max_candidates,
             max_elections: 10,
             activation_delay: Duration::ZERO,
+        }
+    }
+
+    fn make_delayed_params(activation_delay: Duration) -> OptimisticSchedulerParams {
+        OptimisticSchedulerParams {
+            gap_threshold: 32,
+            max_candidates: 1024,
+            max_elections: 10,
+            activation_delay,
         }
     }
 }

@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use rsnano_utils::stats::{StatsCollection, StatsSource};
 
 #[derive(Default)]
-pub(super) struct OptimisticSchedulerStats {
+pub(crate) struct OptimisticSchedulerStats {
     pub loop_count: AtomicU64,
     pub activated_count: AtomicU64,
     pub insert_count: AtomicU64,

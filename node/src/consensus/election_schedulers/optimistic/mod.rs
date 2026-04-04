@@ -1,215 +1,30 @@
-use std::{
-    sync::{Arc, atomic::Ordering::Relaxed},
-    time::Duration,
-};
-
-use rsnano_ledger::{AnySet, Ledger, LedgerSet, OwningAnySet};
-use rsnano_nullable_clock::SteadyClock;
-use rsnano_nullable_condvar::NullableCondvarMutex;
-use rsnano_types::Account;
-use rsnano_utils::{
-    container_info::{ContainerInfo, ContainerInfoProvider},
-    stats::{StatsCollection, StatsSource},
-};
-
-use crate::{
-    cementation::ConfirmingSet,
-    consensus::{AecInsertRequest, AecService, election::ElectionBehavior},
-};
-
 mod candidate_queue;
 mod config;
 mod logic;
 mod stats;
 
 pub use config::OptimisticSchedulerParams;
-use logic::OptimisticSchedulerLogic;
-use stats::OptimisticSchedulerStats;
-
-pub struct OptimisticScheduler {
-    logic: NullableCondvarMutex<OptimisticSchedulerLogic>,
-    aec: Arc<AecService>,
-    ledger: Arc<Ledger>,
-    confirming_set: Arc<ConfirmingSet>,
-    clock: Arc<SteadyClock>,
-    max_elections: usize,
-    activation_delay: Duration,
-    stats: OptimisticSchedulerStats,
-}
-
-impl OptimisticScheduler {
-    pub fn new(
-        params: OptimisticSchedulerParams,
-        aec: Arc<AecService>,
-        ledger: Arc<Ledger>,
-        confirming_set: Arc<ConfirmingSet>,
-        clock: Arc<SteadyClock>,
-    ) -> Self {
-        Self {
-            max_elections: params.max_elections,
-            activation_delay: params.activation_delay,
-            logic: NullableCondvarMutex::new(OptimisticSchedulerLogic::new(params)),
-            aec,
-            ledger,
-            confirming_set,
-            clock,
-            stats: OptimisticSchedulerStats::default(),
-        }
-    }
-
-    pub fn max_elections(&self) -> usize {
-        self.max_elections
-    }
-
-    pub fn stop(&self) {
-        self.logic.lock().stop();
-        self.logic.notify_all();
-    }
-
-    /// Notify about changes in AEC vacancy
-    pub fn notify(&self) {
-        self.logic.notify_all();
-    }
-
-    /// Called from backlog population to process accounts with unconfirmed blocks
-    pub fn activate(&self, account: &Account, block_count: u64, confirmation_height: u64) -> bool {
-        let now = self.clock.now();
-        let mut logic = self.logic.lock();
-        let activated = logic.try_activate(account, block_count, confirmation_height, now);
-        if activated {
-            self.stats.activated_count.fetch_add(1, Relaxed);
-        }
-        activated
-    }
-
-    pub fn run_loop(&self) {
-        let mut logic = self.logic.lock();
-        let mut any: Option<OwningAnySet<'_>> = None;
-        while !logic.stopped() {
-            self.stats.loop_count.fetch_add(1, Relaxed);
-
-            while !logic.stopped() && self.has_vacancy(&logic) {
-                let now = self.clock.now();
-                let Some(account) = logic.pop_candidate(now) else {
-                    break;
-                };
-                drop(logic);
-
-                if any.is_none() {
-                    any = Some(self.ledger.any());
-                }
-
-                self.run_one(any.as_ref().unwrap(), account);
-                logic = self.logic.lock();
-            }
-
-            any = None;
-
-            logic = self
-                .logic
-                .wait_timeout_while(logic, self.activation_delay, |i| !i.stopped())
-                .0;
-        }
-    }
-
-    fn run_one(&self, any: &OwningAnySet, account: Account) {
-        let Some(head) = any.account_head(&account) else {
-            return;
-        };
-        let Some(block) = any.get_block(&head) else {
-            return;
-        };
-
-        #[cfg(feature = "ledger_snapshots")]
-        {
-            if any.is_forked(&block.qualified_root()) {
-                // Needed for new consensus algorithm in ledger snapshot.
-                // We never vote for forked blocks.
-                return;
-            }
-        }
-
-        // Ensure block is not already confirmed
-        let is_confirmed = self.confirming_set.contains(&block.hash())
-            || any.confirmed().block_exists(&block.hash());
-
-        if is_confirmed {
-            // No need to schedule an election if already confirmed.
-            return;
-        }
-        // Try to insert it into AEC
-        // We check for AEC vacancy inside our predicate
-        let now = self.clock.now();
-        let priority = any.block_priority(&block);
-        let inserted = self
-            .aec
-            .insert(AecInsertRequest::new_optimistic(block, priority), now)
-            .is_ok();
-
-        if inserted {
-            self.stats.insert_count.fetch_add(1, Relaxed);
-        } else {
-            self.stats.insert_failed_count.fetch_add(1, Relaxed);
-        }
-    }
-
-    fn has_vacancy(&self, logic: &OptimisticSchedulerLogic) -> bool {
-        let optimistic_count = self.aec.count_by_behavior(ElectionBehavior::Optimistic);
-        let aec_vacancy = self.aec.vacancy();
-        logic.has_vacancy(optimistic_count, aec_vacancy)
-    }
-
-    #[cfg(test)]
-    pub fn candidate_count(&self) -> usize {
-        self.logic.lock().candidate_count()
-    }
-}
-
-impl StatsSource for OptimisticScheduler {
-    fn collect_stats(&self, result: &mut StatsCollection) {
-        self.stats.collect_stats(result);
-    }
-}
-
-impl ContainerInfoProvider for OptimisticScheduler {
-    fn container_info(&self) -> ContainerInfo {
-        self.logic.lock().container_info()
-    }
-}
+pub(crate) use logic::OptimisticSchedulerLogic;
+pub(crate) use stats::OptimisticSchedulerStats;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use rsnano_ledger::{ConfirmedSet, test_helpers::UnsavedBlockLatticeBuilder};
-    use rsnano_nullable_condvar::NotifyEvent;
+    use super::OptimisticSchedulerParams;
+    use crate::{
+        cementation::ConfirmingSet,
+        consensus::{AecService, election::ElectionBehavior, election_schedulers::candidate_coordinator::CandidateCoordinator, election_schedulers::priority::PriorityBucketConfig},
+    };
+    use rsnano_ledger::{AnySet, ConfirmedSet, Ledger, LedgerSet, test_helpers::UnsavedBlockLatticeBuilder};
+    use rsnano_nullable_clock::SteadyClock;
     use rsnano_types::PrivateKey;
-
-    #[test]
-    fn stop_sets_stopped_flag_and_notifies() {
-        let scheduler = make_scheduler();
-        let tracker = scheduler.logic.track_notifications();
-
-        scheduler.stop();
-
-        assert!(scheduler.logic.lock().stopped());
-        assert_eq!(tracker.output(), vec![NotifyEvent::NotifyAll]);
-    }
-
-    #[test]
-    fn notify_sends_notify_all() {
-        let scheduler = make_scheduler();
-        let tracker = scheduler.logic.track_notifications();
-
-        scheduler.notify();
-
-        assert_eq!(tracker.output(), vec![NotifyEvent::NotifyAll]);
-    }
+    use rsnano_utils::stats::Stats;
+    use std::{sync::Arc, time::Duration};
 
     #[test]
     fn schedules_election_when_over_gap_threshold() {
         let aec = Arc::new(AecService::new_null());
         let ledger = Arc::new(Ledger::new_null());
-        let scheduler = make_scheduler_with(aec.clone(), ledger.clone());
+        let coordinator = make_coordinator(aec.clone(), ledger.clone());
 
         let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
         for _ in 0..TEST_GAP_THRESHOLD {
@@ -217,25 +32,21 @@ mod tests {
             ledger.process_one(&block).unwrap();
         }
 
-        assert!(activate(&scheduler, ledger.genesis().account()));
+        assert!(activate(&coordinator, ledger.genesis().account()));
 
-        scheduler.run_loop();
+        coordinator.run_optimistic();
 
         let optimistic_count = aec.count_by_behavior(ElectionBehavior::Optimistic);
 
         assert_eq!(optimistic_count, 1, "should schedule the election");
-        assert_eq!(
-            scheduler.candidate_count(),
-            0,
-            "should remove the candidate"
-        );
+        assert_eq!(coordinator.optimistic_candidate_count(), 0);
     }
 
     #[test]
     fn schedules_election_when_account_is_unconfirmed() {
         let aec = Arc::new(AecService::new_null());
         let ledger = Arc::new(Ledger::new_null());
-        let scheduler = make_scheduler_with(aec.clone(), ledger.clone());
+        let coordinator = make_coordinator(aec.clone(), ledger.clone());
 
         let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
         let unconf_account = PrivateKey::from(42);
@@ -257,9 +68,9 @@ mod tests {
         }
         let head = receives.last().unwrap();
 
-        assert!(activate(&scheduler, unconf_account.account()));
+        assert!(activate(&coordinator, unconf_account.account()));
 
-        scheduler.run_loop();
+        coordinator.run_optimistic();
 
         let optimistic_count = aec.count_by_behavior(ElectionBehavior::Optimistic);
 
@@ -271,7 +82,7 @@ mod tests {
     fn does_not_schedule_when_gap_is_under_threshold() {
         let aec = Arc::new(AecService::new_null());
         let ledger = Arc::new(Ledger::new_null());
-        let scheduler = make_scheduler_with(aec.clone(), ledger.clone());
+        let coordinator = make_coordinator(aec.clone(), ledger.clone());
 
         let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
         let account = PrivateKey::from(42);
@@ -289,9 +100,9 @@ mod tests {
         ledger.confirm(open.hash());
 
         // activate should reject: gap = 2 - 1 = 1 < TEST_GAP_THRESHOLD and conf_height > 0
-        assert!(!activate(&scheduler, account.account()));
+        assert!(!activate(&coordinator, account.account()));
 
-        scheduler.run_loop();
+        coordinator.run_optimistic();
 
         let optimistic_count = aec.count_by_behavior(ElectionBehavior::Optimistic);
         assert_eq!(optimistic_count, 0, "should not schedule any election");
@@ -301,7 +112,7 @@ mod tests {
     fn schedules_elections_for_multiple_unconfirmed_accounts() {
         let aec = Arc::new(AecService::new_null());
         let ledger = Arc::new(Ledger::new_null());
-        let scheduler = make_scheduler_with(aec.clone(), ledger.clone());
+        let coordinator = make_coordinator(aec.clone(), ledger.clone());
 
         let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
         let account1 = PrivateKey::from(1);
@@ -338,10 +149,10 @@ mod tests {
             last2 = Some(ledger.process_one(r).unwrap());
         }
 
-        assert!(activate(&scheduler, account1.account()));
-        assert!(activate(&scheduler, account2.account()));
+        assert!(activate(&coordinator, account1.account()));
+        assert!(activate(&coordinator, account2.account()));
 
-        scheduler.run_loop();
+        coordinator.run_optimistic();
 
         let optimistic_count = aec.count_by_behavior(ElectionBehavior::Optimistic);
 
@@ -353,34 +164,70 @@ mod tests {
         assert!(aec.is_active_hash(&last2.unwrap().hash()));
     }
 
+    #[test]
+    fn delays_optimistic_activation_until_candidate_ages() {
+        let aec = Arc::new(AecService::new_null());
+        let ledger = Arc::new(Ledger::new_null());
+        let clock = Arc::new(SteadyClock::new_null());
+        let coordinator = make_coordinator_with(
+            aec.clone(),
+            ledger.clone(),
+            Arc::new(ConfirmingSet::new_null()),
+            clock.clone(),
+            OptimisticSchedulerParams {
+                activation_delay: Duration::from_secs(1),
+                ..test_params()
+            },
+        );
+
+        let mut builder = UnsavedBlockLatticeBuilder::with_stub_work();
+        for _ in 0..TEST_GAP_THRESHOLD {
+            let block = builder.genesis().send(1, 1);
+            ledger.process_one(&block).unwrap();
+        }
+        let head = ledger.any().account_head(&ledger.genesis().account()).unwrap();
+
+        assert!(activate(&coordinator, ledger.genesis().account()));
+
+        coordinator.run_optimistic();
+        assert_eq!(aec.count_by_behavior(ElectionBehavior::Optimistic), 0);
+
+        clock.advance(Duration::from_secs(1));
+        coordinator.run_optimistic();
+        assert_eq!(aec.count_by_behavior(ElectionBehavior::Optimistic), 1);
+        assert!(aec.is_active_hash(&head));
+    }
+
     /* Test helpers */
 
-    fn make_scheduler() -> OptimisticScheduler {
-        OptimisticScheduler::new(
+    fn make_coordinator(aec: Arc<AecService>, ledger: Arc<Ledger>) -> CandidateCoordinator {
+        make_coordinator_with(
+            aec,
+            ledger,
+            Arc::new(ConfirmingSet::new_null()),
+            Arc::new(SteadyClock::new_null()),
             test_params(),
-            Arc::new(AecService::new_null()),
-            Ledger::new_null().into(),
-            ConfirmingSet::new_null().into(),
-            SteadyClock::new_null().into(),
         )
     }
 
-    fn make_scheduler_with(aec: Arc<AecService>, ledger: Arc<Ledger>) -> OptimisticScheduler {
-        let logic =
-            NullableCondvarMutex::null_builder(OptimisticSchedulerLogic::new(test_params()))
-                .wait(|l| l.stop()) // stop after one wait call
-                .finish();
-
-        OptimisticScheduler {
-            logic,
+    fn make_coordinator_with(
+        aec: Arc<AecService>,
+        ledger: Arc<Ledger>,
+        confirming_set: Arc<ConfirmingSet>,
+        clock: Arc<SteadyClock>,
+        params: OptimisticSchedulerParams,
+    ) -> CandidateCoordinator {
+        CandidateCoordinator::new(
+            PriorityBucketConfig::default(),
+            true,
+            params,
+            true,
+            Arc::new(Stats::default()),
             aec,
             ledger,
-            confirming_set: ConfirmingSet::new_null().into(),
-            clock: SteadyClock::new_null().into(),
-            stats: Default::default(),
-            max_elections: 10,
-            activation_delay: Duration::ZERO,
-        }
+            confirming_set,
+            clock,
+        )
     }
 
     fn test_params() -> OptimisticSchedulerParams {
@@ -392,15 +239,15 @@ mod tests {
         }
     }
 
-    fn activate(scheduler: &OptimisticScheduler, account: Account) -> bool {
-        let ledger = &scheduler.ledger;
+    fn activate(coordinator: &CandidateCoordinator, account: rsnano_types::Account) -> bool {
+        let ledger = coordinator.ledger_for_tests();
         let block_count = ledger.any().get_account(&account).unwrap().block_count;
         let conf_height = ledger
             .confirmed()
             .get_conf_info(&account)
             .map(|i| i.height)
             .unwrap_or(0);
-        scheduler.activate(&account, block_count, conf_height)
+        coordinator.activate_optimistic(&account, block_count, conf_height)
     }
 
     const TEST_GAP_THRESHOLD: u64 = 16;

@@ -6,11 +6,10 @@ pub mod priority;
 
 pub(crate) use election_schedulers_plugin::*;
 pub use hinted_scheduler::*;
-pub use optimistic::*;
+pub use optimistic::OptimisticSchedulerParams;
 
 use std::{
     sync::{Arc, Mutex},
-    thread::JoinHandle,
 };
 
 use rsnano_ledger::{AnySet, Ledger, ProcessResult};
@@ -28,13 +27,11 @@ use candidate_coordinator::CandidateCoordinator;
 
 pub struct ElectionSchedulers {
     coordinator: Arc<CandidateCoordinator>,
-    pub optimistic: Arc<OptimisticScheduler>,
     pub hinted: Arc<HintedScheduler>,
     notify_listener: OutputListenerMt<()>,
     config: NodeConfig,
     ledger: Arc<Ledger>,
     activate_successors_listener: OutputListenerMt<SavedBlock>,
-    optimistic_thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl ElectionSchedulers {
@@ -67,32 +64,25 @@ impl ElectionSchedulers {
                 / 100,
             activation_delay: config.optimistic_scheduler.activation_delay,
         };
-        let optimistic = Arc::new(OptimisticScheduler::new(
-            optimistic_params,
-            active_elections.clone(),
-            ledger.clone(),
-            confirming_set.clone(),
-            clock.clone(),
-        ));
-
         let coordinator = Arc::new(CandidateCoordinator::new(
             config.priority_bucket.clone(),
             config.enable_priority_scheduler,
+            optimistic_params,
+            config.enable_optimistic_scheduler,
             stats.clone(),
             active_elections.clone(),
             ledger.clone(),
+            confirming_set,
             clock,
         ));
 
         Self {
             coordinator,
-            optimistic,
             hinted,
             notify_listener: OutputListenerMt::new(),
             config,
             ledger,
             activate_successors_listener: Default::default(),
-            optimistic_thread: Mutex::new(None),
         }
     }
 
@@ -137,8 +127,8 @@ impl ElectionSchedulers {
         account_info: &AccountInfo,
         conf_info: &ConfirmationHeightInfo,
     ) {
-        self.optimistic
-            .activate(account, account_info.block_count, conf_info.height);
+        self.coordinator
+            .activate_optimistic(account, account_info.block_count, conf_info.height);
         self.coordinator
             .activate_priority_with_info(any, account_info, conf_info);
     }
@@ -157,7 +147,6 @@ impl ElectionSchedulers {
         self.notify_listener.emit(());
         self.coordinator.notify();
         self.hinted.notify();
-        self.optimistic.notify();
     }
 
     pub fn add_manual(&self, block: SavedBlock) {
@@ -179,15 +168,11 @@ impl ElectionSchedulers {
         if self.config.enable_hinted_scheduler {
             self.hinted.start();
         }
-        if self.config.enable_optimistic_scheduler {
-            let optimistic = self.optimistic.clone();
-            let handle = std::thread::Builder::new()
-                .name("Sched Opt".to_string())
-                .spawn(move || optimistic.run_loop())
-                .unwrap();
-            *self.optimistic_thread.lock().unwrap() = Some(handle);
-        }
         self.coordinator.start_loop();
+    }
+
+    pub fn max_optimistic_elections(&self) -> usize {
+        self.coordinator.max_optimistic_elections()
     }
 
     pub fn track_notify(&self) -> Arc<OutputTrackerMt<()>> {
@@ -196,10 +181,6 @@ impl ElectionSchedulers {
 
     pub fn stop(&self) {
         self.hinted.stop();
-        self.optimistic.stop();
-        if let Some(handle) = self.optimistic_thread.lock().unwrap().take() {
-            handle.join().unwrap();
-        }
         self.coordinator.stop();
     }
 }
@@ -208,7 +189,7 @@ impl ContainerInfoProvider for ElectionSchedulers {
     fn container_info(&self) -> ContainerInfo {
         ContainerInfo::builder()
             .node("hinted", self.hinted.container_info())
-            .node("optimistic", self.optimistic.container_info())
+            .node("optimistic", self.coordinator.optimistic_container_info())
             .node("priority", self.coordinator.container_info())
             .finish()
     }
@@ -217,7 +198,6 @@ impl ContainerInfoProvider for ElectionSchedulers {
 impl StatsSource for ElectionSchedulers {
     fn collect_stats(&self, result: &mut StatsCollection) {
         self.coordinator.collect_stats(result);
-        self.optimistic.collect_stats(result);
     }
 }
 

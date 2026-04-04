@@ -44,6 +44,13 @@ impl CandidateQueue {
         self.by_gap.keys().next().copied()
     }
 
+    pub fn oldest_timestamp(&self) -> Option<Timestamp> {
+        self.by_gap
+            .values()
+            .flat_map(|entries| entries.iter().map(|(_, inserted)| *inserted))
+            .min()
+    }
+
     pub fn pop_lowest_gap_entry(&mut self) -> Option<Account> {
         let gap = *self.by_gap.keys().next()?;
         let v = self.by_gap.get_mut(&gap).unwrap();
@@ -199,6 +206,23 @@ mod tests {
         q.insert(account, now(), 1);
         q.pop_first(now());
         assert!(!q.contains(&account));
+    }
+
+    #[test]
+    fn oldest_timestamp_is_none_when_empty() {
+        let q = CandidateQueue::default();
+        assert_eq!(q.oldest_timestamp(), None);
+    }
+
+    #[test]
+    fn oldest_timestamp_returns_earliest_entry() {
+        let mut q = CandidateQueue::default();
+        let now = now();
+        let older = now - Duration::from_secs(5);
+        q.insert(Account::from(1), now, 1);
+        q.insert(Account::from(2), older, 2);
+
+        assert_eq!(q.oldest_timestamp(), Some(older));
     }
 
     fn now() -> Timestamp {
