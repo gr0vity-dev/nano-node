@@ -1,21 +1,19 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
 };
 
 use rsnano_nullable_clock::SteadyClock;
 
 use rsnano_ledger::RepWeightCache;
 use rsnano_types::{Amount, BlockHash, VoteError};
-use rsnano_utils::sync::backpressure_channel::Sender;
 
-use super::{AecFact, AecService, FilteredVote, ReceivedVote};
+use super::{AecService, FilteredVote, ReceivedVote};
 use crate::{consensus::ApplyVoteArgs, representatives::OnlineReps};
 
 /// Applies a vote to an election
 pub(crate) struct VoteApplier {
     active_elections: Arc<AecService>,
-    event_senders: RwLock<Vec<Sender<AecFact>>>,
     online_reps: Arc<Mutex<OnlineReps>>,
     clock: Arc<SteadyClock>,
     rep_weights: Arc<RepWeightCache>,
@@ -32,20 +30,11 @@ impl VoteApplier {
     ) -> Self {
         Self {
             active_elections,
-            event_senders: RwLock::new(Vec::new()),
             online_reps,
             clock,
             rep_weights,
             is_dev_network,
         }
-    }
-
-    pub fn add_event_sink(&self, sink: Sender<AecFact>) {
-        self.event_senders.write().unwrap().push(sink);
-    }
-
-    pub fn stop(&self) {
-        self.event_senders.write().unwrap().clear();
     }
 
     /// Route vote to associated elections
@@ -102,13 +91,8 @@ impl VoteApplier {
         voter_weight: Amount,
         results: &HashMap<BlockHash, Result<(), VoteError>>,
     ) {
-        for sender in self.event_senders.read().unwrap().iter() {
-            let _ = sender.send(AecFact::VoteProcessed(
-                vote.clone(),
-                voter_weight,
-                results.clone(),
-            ));
-        }
+        self.active_elections
+            .publish_vote_processed(vote.clone(), voter_weight, results.clone());
     }
 }
 

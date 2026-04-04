@@ -228,6 +228,15 @@ impl AecService {
         self.publish(produced_facts);
     }
 
+    pub fn publish_vote_processed(
+        &self,
+        vote: crate::consensus::ReceivedVote,
+        voter_weight: Amount,
+        results: HashMap<BlockHash, Result<(), VoteError>>,
+    ) {
+        self.publish_fact(AecFact::VoteProcessed(vote, voter_weight, results));
+    }
+
     fn publish(&self, produced_facts: super::ProducedAecFacts) {
         if produced_facts.is_empty() {
             return;
@@ -237,6 +246,12 @@ impl AecService {
             for fact in produced_facts {
                 sender.send(fact).unwrap();
             }
+        }
+    }
+
+    fn publish_fact(&self, fact: AecFact) {
+        if let Some(sender) = self.publisher.read().unwrap().as_ref() {
+            sender.send(fact).unwrap();
         }
     }
 }
@@ -258,7 +273,8 @@ mod tests {
     use super::*;
     use crate::consensus::{BucketInfo, ElectionCandidate, election::ElectionBehavior};
     use rsnano_nullable_clock::Timestamp;
-    use rsnano_types::{BlockPriority, SavedBlock};
+    use rsnano_types::{BlockPriority, SavedBlock, Vote, VoteSource};
+    use std::sync::Arc;
     use rsnano_utils::sync::backpressure_channel;
 
     #[test]
@@ -305,6 +321,31 @@ mod tests {
         assert!(matches!(
             rx.try_recv(),
             Ok(AecFact::ElectionStarted(hash, root)) if hash == block.hash() && root == block.qualified_root()
+        ));
+    }
+
+    #[test]
+    fn vote_processed_uses_service_owned_publication_path() {
+        let service = AecService::new_null();
+        let (tx, rx) = backpressure_channel::channel(1);
+        service.set_observer(tx);
+
+        let vote = crate::consensus::ReceivedVote::new(
+            Arc::new(Vote::new_test_instance()),
+            VoteSource::Live,
+            None,
+        );
+        let results = HashMap::from([(BlockHash::from(1), Ok(()))]);
+        service.publish_vote_processed(vote.clone(), Amount::raw(7), results.clone());
+
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(AecFact::VoteProcessed(published_vote, voter_weight, published_results))
+                if Arc::ptr_eq(&published_vote.vote, &vote.vote)
+                    && published_vote.source == vote.source
+                    && published_vote.channel.is_none()
+                    && voter_weight == Amount::raw(7)
+                    && published_results == results
         ));
     }
 

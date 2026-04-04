@@ -1286,8 +1286,6 @@ impl Node {
 
         spawn_backpressure_processor("Nano ev proc", ledger_rx, ledger_event_processor);
 
-        vote_processor.add_observer(aec_tx);
-
         stats_collector.add_source(stats.clone());
         stats_collector.add_source(online_reps.clone());
         stats_collector.add_source(fork_cache.clone());

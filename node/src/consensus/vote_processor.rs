@@ -12,12 +12,9 @@ use tracing::debug;
 
 use rsnano_network::Channel;
 use rsnano_types::{BlockHash, Vote, VoteError, VoteSource};
-use rsnano_utils::{
-    stats::{DetailType, StatType, Stats},
-    sync::backpressure_channel::Sender,
-};
+use rsnano_utils::stats::{DetailType, StatType, Stats};
 
-use super::{AecFact, FilteredVote, ReceivedVote, VoteApplier, VoteProcessorQueue};
+use super::{FilteredVote, ReceivedVote, VoteApplier, VoteProcessorQueue};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct VoteProcessorConfig {
@@ -70,10 +67,6 @@ impl VoteProcessor {
         }
     }
 
-    pub fn add_observer(&self, sink: Sender<AecFact>) {
-        self.vote_applier.add_event_sink(sink);
-    }
-
     pub fn cool_down(&self) {
         self.cool_down.store(true, Ordering::Relaxed);
     }
@@ -83,7 +76,6 @@ impl VoteProcessor {
     }
 
     pub fn stop(&self) {
-        self.vote_applier.stop();
         self.queue.stop();
 
         let mut handles = Vec::new();
