@@ -1,14 +1,18 @@
 use std::{
+    collections::VecDeque,
+    mem::size_of,
     sync::{Arc, Condvar, Mutex},
     thread::JoinHandle,
 };
 
-use rsnano_ledger::{AnySet, ConfirmedSet};
+use rsnano_ledger::{AnySet, ConfirmedSet, Ledger};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::OutputListenerMt;
 #[cfg(test)]
 use rsnano_output_tracker::OutputTrackerMt;
-use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
+use rsnano_types::{
+    Account, AccountInfo, Amount, Block, BlockHash, ConfirmationHeightInfo, SavedBlock,
+};
 use rsnano_utils::{
     container_info::ContainerInfo,
     stats::{DetailType, StatType, Stats, StatsCollection, StatsSource},
@@ -17,35 +21,43 @@ use rsnano_utils::{
 use super::priority::{
     BucketInsertError, Eviction, PriorityBucketConfig, PriorityBuckets, prio_bucket_count,
 };
-use crate::consensus::AecService;
+use crate::consensus::{AecInsertRequest, AecService, election::ElectionBehavior};
 
 pub(crate) struct CandidateCoordinator {
+    priority_enabled: bool,
     stopped: Mutex<bool>,
     condition: Condvar,
     stats: Arc<Stats>,
     priority_buckets: Mutex<PriorityBuckets>,
+    manual_queue: Mutex<VecDeque<SavedBlock>>,
     priority_thread: Mutex<Option<JoinHandle<()>>>,
     clock: Arc<SteadyClock>,
     aec: Arc<AecService>,
+    ledger: Arc<Ledger>,
     activate_successors_listener: OutputListenerMt<SavedBlock>,
 }
 
 impl CandidateCoordinator {
     pub(crate) fn new(
         priority_config: PriorityBucketConfig,
+        priority_enabled: bool,
         stats: Arc<Stats>,
         active_elections: Arc<AecService>,
+        ledger: Arc<Ledger>,
         clock: Arc<SteadyClock>,
     ) -> Self {
         let priority_buckets = PriorityBuckets::new(prio_bucket_count(), priority_config);
         Self {
+            priority_enabled,
             stopped: Mutex::new(false),
             condition: Condvar::new(),
             stats,
             priority_buckets: Mutex::new(priority_buckets),
+            manual_queue: Mutex::new(VecDeque::new()),
             priority_thread: Mutex::new(None),
             clock,
             aec: active_elections,
+            ledger,
             activate_successors_listener: Default::default(),
         }
     }
@@ -83,6 +95,17 @@ impl CandidateCoordinator {
 
     pub(crate) fn contains(&self, hash: &BlockHash) -> bool {
         self.priority_buckets.lock().unwrap().contains(hash)
+            || self
+                .manual_queue
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|block| block.hash() == *hash)
+    }
+
+    pub(crate) fn push_manual(&self, block: SavedBlock) {
+        self.manual_queue.lock().unwrap().push_back(block);
+        self.condition.notify_all();
     }
 
     pub(crate) fn activate_priority(&self, any: &impl AnySet, account: &Account) {
@@ -178,6 +201,13 @@ impl CandidateCoordinator {
         }
 
         ContainerInfo::builder()
+            .leaf(
+                "manual",
+                self.manual_queue.lock().unwrap().len(),
+                size_of::<Arc<Block>>()
+                    + size_of::<Option<Amount>>()
+                    + size_of::<ElectionBehavior>(),
+            )
             .node("blocks", bucket_infos.finish())
             .finish()
     }
@@ -197,20 +227,55 @@ impl CandidateCoordinator {
         while !*stopped {
             stopped = self
                 .condition
-                .wait_while(stopped, |s| !*s && !self.priority_predicate())
+                .wait_while(stopped, |s| !*s && !self.predicate())
                 .unwrap();
 
             if !*stopped {
                 drop(stopped);
-                self.run_priority_refill();
+                self.run_manual();
+                if self.priority_predicate() {
+                    self.run_priority_refill();
+                }
                 stopped = self.stopped.lock().unwrap();
             }
         }
     }
 
+    fn predicate(&self) -> bool {
+        !self.manual_queue.lock().unwrap().is_empty() || self.priority_predicate()
+    }
+
     fn priority_predicate(&self) -> bool {
+        if !self.priority_enabled {
+            return false;
+        }
         let buckets = self.priority_buckets.lock().unwrap();
         self.aec.check_vacancy(&*buckets)
+    }
+
+    fn run_manual(&self) {
+        loop {
+            let Some(block) = self.manual_queue.lock().unwrap().pop_front() else {
+                return;
+            };
+
+            self.stats
+                .inc(StatType::ElectionScheduler, DetailType::Loop);
+
+            let hash = block.hash();
+            let priority = self.ledger.any().block_priority(&block);
+            self.stats
+                .inc(StatType::ElectionScheduler, DetailType::InsertManual);
+
+            let now = self.clock.now();
+            if self
+                .aec
+                .insert(AecInsertRequest::new_manual(block, priority), now)
+                .is_ok()
+            {
+                self.aec.transition_active(&hash);
+            }
+        }
     }
 
     fn run_priority_refill(&self) {
@@ -279,7 +344,8 @@ mod tests {
         let config = PriorityBucketConfig::default();
         let stats = Arc::new(Stats::default());
         let active_elections = Arc::new(AecService::new_null());
+        let ledger = Arc::new(Ledger::new_null());
         let clock = Arc::new(SteadyClock::new_null());
-        CandidateCoordinator::new(config, stats, active_elections, clock)
+        CandidateCoordinator::new(config, true, stats, active_elections, ledger, clock)
     }
 }

@@ -1,13 +1,11 @@
 mod candidate_coordinator;
 mod election_schedulers_plugin;
 mod hinted_scheduler;
-mod manual_scheduler;
 mod optimistic;
 pub mod priority;
 
 pub(crate) use election_schedulers_plugin::*;
 pub use hinted_scheduler::*;
-pub use manual_scheduler::*;
 pub use optimistic::*;
 
 use std::{
@@ -32,7 +30,6 @@ pub struct ElectionSchedulers {
     coordinator: Arc<CandidateCoordinator>,
     pub optimistic: Arc<OptimisticScheduler>,
     pub hinted: Arc<HintedScheduler>,
-    pub manual: Arc<ManualScheduler>,
     notify_listener: OutputListenerMt<()>,
     config: NodeConfig,
     ledger: Arc<Ledger>,
@@ -62,13 +59,6 @@ impl ElectionSchedulers {
             clock.clone(),
         ));
 
-        let manual = Arc::new(ManualScheduler::new(
-            stats.clone(),
-            active_elections.clone(),
-            clock.clone(),
-            ledger.clone(),
-        ));
-
         let optimistic_params = OptimisticSchedulerParams {
             gap_threshold: config.optimistic_scheduler.gap_threshold,
             max_candidates: config.optimistic_scheduler.max_size,
@@ -87,8 +77,10 @@ impl ElectionSchedulers {
 
         let coordinator = Arc::new(CandidateCoordinator::new(
             config.priority_bucket.clone(),
+            config.enable_priority_scheduler,
             stats.clone(),
             active_elections.clone(),
+            ledger.clone(),
             clock,
         ));
 
@@ -96,7 +88,6 @@ impl ElectionSchedulers {
             coordinator,
             optimistic,
             hinted,
-            manual,
             notify_listener: OutputListenerMt::new(),
             config,
             ledger,
@@ -136,7 +127,7 @@ impl ElectionSchedulers {
 
     /// Does the block exist in any of the schedulers
     pub fn contains(&self, hash: &BlockHash) -> bool {
-        self.manual.contains(hash) || self.coordinator.contains(hash)
+        self.coordinator.contains(hash)
     }
 
     pub fn activate_backlog(
@@ -170,7 +161,7 @@ impl ElectionSchedulers {
     }
 
     pub fn add_manual(&self, block: SavedBlock) {
-        self.manual.push(block);
+        self.coordinator.push_manual(block);
     }
 
     pub fn activate_successors<'a>(&self, confirmed: impl IntoIterator<Item = &'a SavedBlock>) {
@@ -188,7 +179,6 @@ impl ElectionSchedulers {
         if self.config.enable_hinted_scheduler {
             self.hinted.start();
         }
-        self.manual.start();
         if self.config.enable_optimistic_scheduler {
             let optimistic = self.optimistic.clone();
             let handle = std::thread::Builder::new()
@@ -197,9 +187,7 @@ impl ElectionSchedulers {
                 .unwrap();
             *self.optimistic_thread.lock().unwrap() = Some(handle);
         }
-        if self.config.enable_priority_scheduler {
-            self.coordinator.start_loop();
-        }
+        self.coordinator.start_loop();
     }
 
     pub fn track_notify(&self) -> Arc<OutputTrackerMt<()>> {
@@ -208,7 +196,6 @@ impl ElectionSchedulers {
 
     pub fn stop(&self) {
         self.hinted.stop();
-        self.manual.stop();
         self.optimistic.stop();
         if let Some(handle) = self.optimistic_thread.lock().unwrap().take() {
             handle.join().unwrap();
@@ -221,7 +208,6 @@ impl ContainerInfoProvider for ElectionSchedulers {
     fn container_info(&self) -> ContainerInfo {
         ContainerInfo::builder()
             .node("hinted", self.hinted.container_info())
-            .node("manual", self.manual.container_info())
             .node("optimistic", self.optimistic.container_info())
             .node("priority", self.coordinator.container_info())
             .finish()

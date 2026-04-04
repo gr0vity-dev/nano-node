@@ -10,7 +10,7 @@ impl RpcCommandHandler {
         if !any.confirmed().block_exists(&args.hash) {
             // Start new confirmation for unconfirmed (or not being confirmed) block
             if !self.node.confirming_set.contains(&args.hash) {
-                self.node.election_schedulers.manual.push(block);
+                self.node.election_schedulers.add_manual(block);
             }
         }
         Ok(StartedResponse::new(true))
