@@ -25,8 +25,8 @@ use crate::{
 };
 
 use super::{
-    ActiveElectionsConfig, ActiveElectionsInfo, AecFact, AecInsertError, AecInsertRequest, Entry,
-    ProducedAecFacts, RootContainer,
+    ActiveElectionsConfig, ActiveElectionsInfo, AecFact, AecInsertError, AecInsertRequest,
+    AecWriteSession, Entry, RootContainer,
     apply_vote_helper::ApplyVoteHelper,
     cooldown_controller::{AecCooldownReason, CooldownController, CooldownResult},
     recently_confirmed_cache::RecentlyConfirmedCache,
@@ -132,17 +132,17 @@ impl ActiveElectionsContainer {
         &mut self,
         request: AecInsertRequest,
         now: Timestamp,
-    ) -> Result<ProducedAecFacts, AecInsertError> {
+        write_session: &mut AecWriteSession,
+    ) -> Result<(), AecInsertError> {
         self.ensure_not_stopped()?;
         self.ensure_not_recently_confirmed(&request)?;
 
         if self.try_upgrade_priority_election(&request)? {
-            return Ok(ProducedAecFacts::default());
+            return Ok(());
         }
 
-        let mut produced_facts = ProducedAecFacts::default();
-        self.insert_new_election(request, now, &mut produced_facts);
-        Ok(produced_facts)
+        self.insert_new_election(request, now, write_session);
+        Ok(())
     }
 
     fn ensure_not_stopped(&self) -> Result<(), AecInsertError> {
@@ -186,7 +186,7 @@ impl ActiveElectionsContainer {
         &mut self,
         request: AecInsertRequest,
         now: Timestamp,
-        produced_facts: &mut ProducedAecFacts,
+        write_session: &mut AecWriteSession,
     ) {
         let root = request.block.qualified_root();
         let hash = request.block.hash();
@@ -201,33 +201,33 @@ impl ActiveElectionsContainer {
 
         *self.count_by_behavior_mut(request.behavior) += 1;
         self.stats.started(request.behavior);
-        produced_facts.push(AecFact::ElectionStarted(hash, root));
+        write_session.record(AecFact::ElectionStarted(hash, root));
     }
 
     pub(super) fn try_add_fork(
         &mut self,
         fork: &Block,
         fork_tally: Amount,
-    ) -> (bool, ProducedAecFacts) {
-        let mut produced_facts = ProducedAecFacts::default();
+        write_session: &mut AecWriteSession,
+    ) -> bool {
         let Some(entry) = self.roots.get_mut(&fork.qualified_root()) else {
-            return (false, produced_facts);
+            return false;
         };
 
         let result = entry.election.try_add_fork(fork, fork_tally);
         let added = match result {
             AddForkResult::Added => {
-                produced_facts.push(AecFact::BlockAddedToElection(fork.hash()));
+                write_session.record(AecFact::BlockAddedToElection(fork.hash()));
                 true
             }
             AddForkResult::Replaced(removed) => {
                 self.roots.vote_router.disconnect(&removed.hash());
-                produced_facts.push(AecFact::BlockDiscarded(removed.into()));
-                produced_facts.push(AecFact::BlockAddedToElection(fork.hash()));
+                write_session.record(AecFact::BlockDiscarded(removed.into()));
+                write_session.record(AecFact::BlockAddedToElection(fork.hash()));
                 true
             }
             AddForkResult::TallyTooLow => {
-                produced_facts.push(AecFact::BlockDiscarded(fork.clone()));
+                write_session.record(AecFact::BlockDiscarded(fork.clone()));
                 false
             }
             AddForkResult::Duplicate | AddForkResult::ElectionEnded => false,
@@ -240,7 +240,7 @@ impl ActiveElectionsContainer {
             self.stats.conflicts += 1;
         }
 
-        (added, produced_facts)
+        added
     }
 
     /// How many election slots are available
@@ -257,13 +257,12 @@ impl ActiveElectionsContainer {
         &mut self,
         cool_down: bool,
         reason: AecCooldownReason,
-    ) -> ProducedAecFacts {
-        let mut produced_facts = ProducedAecFacts::default();
+        write_session: &mut AecWriteSession,
+    ) {
         let result = self.cooldown.set_cooldown(cool_down, reason);
         if result == CooldownResult::Recovered {
-            produced_facts.push(AecFact::Recovered);
+            write_session.record(AecFact::Recovered);
         }
-        produced_facts
     }
 
     pub fn stop(&mut self) {
@@ -288,12 +287,12 @@ impl ActiveElectionsContainer {
     }
 
     /// Returns the current active elections after transitioning
-    pub(super) fn transition_time(&mut self, now: Timestamp) -> ProducedAecFacts {
+    pub(super) fn transition_time(&mut self, now: Timestamp, write_session: &mut AecWriteSession) {
         self.stats.ticked += 1;
         for entry in self.roots.iter_mut() {
             entry.election.transition_time(now);
         }
-        self.erase_ended_elections()
+        self.erase_ended_elections(write_session)
     }
 
     pub fn election_for_root(&self, root: &QualifiedRoot) -> Option<&Election> {
@@ -312,13 +311,16 @@ impl ActiveElectionsContainer {
         true
     }
 
-    pub(super) fn refill<T>(&mut self, source: &mut T, now: Timestamp) -> ProducedAecFacts
-    where
+    pub(super) fn refill<T>(
+        &mut self,
+        source: &mut T,
+        now: Timestamp,
+        write_session: &mut AecWriteSession,
+    ) where
         T: ElectionCandidateSource,
     {
-        let mut produced_facts = ProducedAecFacts::default();
         if self.cooldown.is_cooling_down() {
-            return produced_facts;
+            return;
         }
 
         // TODO: reuse a buffer!
@@ -340,7 +342,7 @@ impl ActiveElectionsContainer {
                 }
 
                 if self.bucket_len(candidate.bucket_id) >= self.max_elections_per_bucket {
-                    produced_facts.extend(self.erase_lowest_prio_election(candidate.bucket_id));
+                    self.erase_lowest_prio_election(candidate.bucket_id, write_session);
                     // TODO stats
                     //stats.replaced.fetch_add(1, Ordering::Relaxed);
                 }
@@ -353,9 +355,9 @@ impl ActiveElectionsContainer {
                         candidate.bucket_id,
                     ),
                     now,
+                    write_session,
                 ) {
-                    Ok(new_facts) => {
-                        produced_facts.extend(new_facts);
+                    Ok(()) => {
                         //TODO
                         //stats.activate_success.fetch_add(1, Ordering::Relaxed);
                     }
@@ -375,7 +377,6 @@ impl ActiveElectionsContainer {
                 }
             }
         }
-        produced_facts
     }
 
     pub fn remove_votes<'a>(
@@ -391,40 +392,45 @@ impl ActiveElectionsContainer {
         }
     }
 
-    fn erase_ended_elections(&mut self) -> ProducedAecFacts {
-        let mut produced_facts = ProducedAecFacts::default();
+    fn erase_ended_elections(&mut self, write_session: &mut AecWriteSession) {
         let removed = self.roots.drain_filter(|i| i.election.state().has_ended());
 
         for entry in removed {
-            self.cleanup_election(entry, &mut produced_facts);
+            self.cleanup_election(entry, write_session);
         }
-        produced_facts
     }
 
-    pub(super) fn erase(&mut self, root: &QualifiedRoot) -> Option<ProducedAecFacts> {
-        let mut produced_facts = ProducedAecFacts::default();
+    pub(super) fn erase(
+        &mut self,
+        root: &QualifiedRoot,
+        write_session: &mut AecWriteSession,
+    ) -> bool {
         let Some(entry) = self.roots.erase(root) else {
-            return None;
+            return false;
         };
-        self.cleanup_election(entry, &mut produced_facts);
-        Some(produced_facts)
+        self.cleanup_election(entry, write_session);
+        true
     }
 
-    fn erase_lowest_prio_election(&mut self, bucket_id: usize) -> ProducedAecFacts {
+    fn erase_lowest_prio_election(
+        &mut self,
+        bucket_id: usize,
+        write_session: &mut AecWriteSession,
+    ) {
         let Some((root, _)) = self.lowest_priority(bucket_id) else {
-            return ProducedAecFacts::default();
+            return;
         };
-        self.erase(&root).unwrap_or_default()
+        self.erase(&root, write_session);
     }
 
-    fn cleanup_election(&mut self, entry: Entry, produced_facts: &mut ProducedAecFacts) {
+    fn cleanup_election(&mut self, entry: Entry, write_session: &mut AecWriteSession) {
         let election = &entry.election;
 
         // Keep track of election count by election type
         *self.count_by_behavior_mut(election.behavior()) -= 1;
 
         self.stats.stopped(&entry.election);
-        produced_facts.push(AecFact::ElectionEnded(entry.election));
+        write_session.record(AecFact::ElectionEnded(entry.election));
     }
 
     /// Dependent elections are implicitly confirmed when their block is confirmed
@@ -432,15 +438,14 @@ impl ActiveElectionsContainer {
         &mut self,
         confirmed: Vec<(SavedBlock, Option<ConfirmedElection>)>,
         now: Timestamp,
-    ) -> ProducedAecFacts {
-        let mut produced_facts = ProducedAecFacts::default();
+        write_session: &mut AecWriteSession,
+    ) {
         for (confirmed_block, source_election) in confirmed {
             let confirmed_election =
                 self.confirm_dependent_election(&confirmed_block, source_election, now);
 
-            self.block_confirmed(confirmed_block, confirmed_election, &mut produced_facts);
+            self.block_confirmed(confirmed_block, confirmed_election, write_session);
         }
-        produced_facts
     }
 
     fn confirm_dependent_election(
@@ -484,10 +489,10 @@ impl ActiveElectionsContainer {
         &mut self,
         block: SavedBlock,
         election: ConfirmedElection,
-        produced_facts: &mut ProducedAecFacts,
+        write_session: &mut AecWriteSession,
     ) {
         self.stats.block_confirmations[election.confirmation_type as usize] += 1;
-        produced_facts.push(AecFact::BlockConfirmed(block, election));
+        write_session.record(AecFact::BlockConfirmed(block, election));
     }
 
     pub fn remove_recently_confirmed(&mut self, block_hash: &BlockHash) {
@@ -497,36 +502,36 @@ impl ActiveElectionsContainer {
     pub(super) fn apply_vote<'a>(
         &mut self,
         args: ApplyVoteArgs<'a>,
-    ) -> (HashMap<BlockHash, Result<(), VoteError>>, ProducedAecFacts) {
+        write_session: &mut AecWriteSession,
+    ) -> HashMap<BlockHash, Result<(), VoteError>> {
         let mut apply_helper = ApplyVoteHelper {
             args: &args,
             recently_confirmed: &mut self.recently_confirmed,
             vote_counter: &mut self.stats.vote_counter,
             roots: &mut self.roots,
+            write_session,
         };
         let result = apply_helper.apply_vote();
-        let mut produced_facts = result.produced_facts;
         for entry in result.confirmed {
-            self.cleanup_election(entry, &mut produced_facts);
+            self.cleanup_election(entry, write_session);
         }
-        (result.per_block, produced_facts)
+        result.per_block
     }
 
     pub(super) fn force_confirm(
         &mut self,
         block_hash: &BlockHash,
         now: Timestamp,
-    ) -> ProducedAecFacts {
-        let mut produced_facts = ProducedAecFacts::default();
+        write_session: &mut AecWriteSession,
+    ) {
         let Some(election) = self.roots.election_for_block_mut(block_hash) else {
             panic!("Force confirm failed, because no active election was found");
         };
         if election.force_confirm() {
             let confirmed_election =
                 election.into_confirmed_election(now, ConfirmationType::ActiveConfirmedQuorum);
-            produced_facts.push(AecFact::ElectionConfirmed(confirmed_election));
+            write_session.record(AecFact::ElectionConfirmed(confirmed_election));
         }
-        produced_facts
     }
 
     pub fn cancel(&mut self, root: &QualifiedRoot) {
@@ -557,10 +562,6 @@ impl ActiveElectionsContainer {
             hinted: self.count_by_behavior(ElectionBehavior::Hinted),
             optimistic: self.count_by_behavior(ElectionBehavior::Optimistic),
         }
-    }
-
-    pub(super) fn simulate_event(&self, event: AecFact) -> ProducedAecFacts {
-        ProducedAecFacts(vec![event])
     }
 }
 
@@ -638,8 +639,9 @@ mod tests {
             bucket_id: 0,
         };
 
+        let mut write_session = AecWriteSession::default();
         container
-            .insert(request, Timestamp::new_test_instance())
+            .insert(request, Timestamp::new_test_instance(), &mut write_session)
             .unwrap();
 
         assert_eq!(container.len(), 1);
@@ -652,11 +654,11 @@ mod tests {
         let root = block.qualified_root();
         let hash = block.hash();
         let request = AecInsertRequest::new_priority(block, BlockPriority::new_test_instance());
-        let mut produced_facts = ProducedAecFacts::default();
+        let mut write_session = AecWriteSession::default();
 
-        container.insert_new_election(request, Timestamp::new_test_instance(), &mut produced_facts);
+        container.insert_new_election(request, Timestamp::new_test_instance(), &mut write_session);
 
-        let facts: Vec<_> = produced_facts.into_iter().collect();
+        let facts: Vec<_> = write_session.into_iter().collect();
         assert_eq!(facts.len(), 1);
         let AecFact::ElectionStarted(started_hash, started_root) = &facts[0] else {
             panic!("expected election started");
@@ -680,7 +682,8 @@ mod tests {
         };
 
         let now = Timestamp::new_test_instance();
-        container.insert(request, now).unwrap();
+        let mut write_session = AecWriteSession::default();
+        container.insert(request, now, &mut write_session).unwrap();
 
         let rep_key = PrivateKey::from(1);
         let received_vote = test_final_vote(&rep_key, block_hash);
@@ -688,16 +691,20 @@ mod tests {
         let mut rep_weights = RepWeights::default();
         rep_weights.put(rep_key.public_key(), Amount::MAX);
 
-        let (result, produced_facts) = container.apply_vote(ApplyVoteArgs {
-            vote: &received_vote.into(),
-            rep_weights: &rep_weights,
-            quorum_specs: &QuorumSpecs::new_test_instance(),
-            now,
-        });
+        let mut vote_write_session = AecWriteSession::default();
+        let result = container.apply_vote(
+            ApplyVoteArgs {
+                vote: &received_vote.into(),
+                rep_weights: &rep_weights,
+                quorum_specs: &QuorumSpecs::new_test_instance(),
+                now,
+            },
+            &mut vote_write_session,
+        );
 
         assert_eq!(result.get(&block_hash), Some(&Ok(())));
         assert!(
-            produced_facts
+            vote_write_session
                 .into_iter()
                 .any(|fact| matches!(fact, AecFact::ElectionConfirmed(_)))
         );
@@ -719,7 +726,12 @@ mod tests {
             priority,
         }]);
 
-        container.refill(&mut source, Timestamp::new_test_instance());
+        let mut write_session = AecWriteSession::default();
+        container.refill(
+            &mut source,
+            Timestamp::new_test_instance(),
+            &mut write_session,
+        );
 
         assert_eq!(container.find_bucket(&root), Some(manual_bucket));
         assert_eq!(container.count_by_behavior(ElectionBehavior::Priority), 1);
@@ -734,10 +746,12 @@ mod tests {
         let priority_bucket =
             crate::consensus::election_schedulers::priority::prio_bucket_index(priority.balance);
 
+        let mut write_session = AecWriteSession::default();
         container
             .insert(
                 AecInsertRequest::new_optimistic(block.clone(), priority),
                 Timestamp::new_test_instance(),
+                &mut write_session,
             )
             .unwrap();
         assert_eq!(container.find_bucket(&root), Some(prio_bucket_count() + 2));
@@ -746,6 +760,7 @@ mod tests {
             .insert(
                 AecInsertRequest::new(block, ElectionBehavior::Priority, priority, priority_bucket),
                 Timestamp::new_test_instance(),
+                &mut write_session,
             )
             .unwrap();
 
@@ -762,8 +777,8 @@ mod tests {
         let request =
             AecInsertRequest::new_priority(block.clone(), BlockPriority::new_test_instance());
         let now = Timestamp::new_test_instance();
-        let mut produced_facts = ProducedAecFacts::default();
-        container.insert_new_election(request, now, &mut produced_facts);
+        let mut write_session = AecWriteSession::default();
+        container.insert_new_election(request, now, &mut write_session);
 
         let rep_key = PrivateKey::from(1);
         let received_vote = test_final_vote(&rep_key, block_hash);
@@ -780,14 +795,14 @@ mod tests {
             recently_confirmed: &mut container.recently_confirmed,
             vote_counter: &mut container.stats.vote_counter,
             roots: &mut container.roots,
+            write_session: &mut write_session,
         };
 
         let result = apply_helper.apply_vote();
-        let mut facts: Vec<_> = result.produced_facts.into_iter().collect();
         for entry in result.confirmed {
-            container.cleanup_election(entry, &mut produced_facts);
+            container.cleanup_election(entry, &mut write_session);
         }
-        facts.extend(produced_facts);
+        let facts: Vec<_> = write_session.into_iter().collect();
 
         assert!(
             facts
@@ -845,34 +860,40 @@ mod tests {
         let prio_c = BlockPriority::new(Amount::nano(100000), TimePriority::new(99));
 
         let mut container = ActiveElectionsContainer::default();
+        let mut write_session = AecWriteSession::default();
         container
             .insert(
                 AecInsertRequest::new_priority(block_a1.clone(), prio_a1),
                 Timestamp::new_test_instance(),
+                &mut write_session,
             )
             .unwrap();
         container
             .insert(
                 AecInsertRequest::new_priority(block_a2.clone(), prio_a2),
                 Timestamp::new_test_instance(),
+                &mut write_session,
             )
             .unwrap();
         container
             .insert(
                 AecInsertRequest::new_priority(block_a3.clone(), prio_a3),
                 Timestamp::new_test_instance(),
+                &mut write_session,
             )
             .unwrap();
         container
             .insert(
                 AecInsertRequest::new_priority(block_b.clone(), prio_b),
                 Timestamp::new_test_instance(),
+                &mut write_session,
             )
             .unwrap();
         container
             .insert(
                 AecInsertRequest::new_priority(block_c.clone(), prio_c),
                 Timestamp::new_test_instance(),
+                &mut write_session,
             )
             .unwrap();
 
@@ -905,12 +926,13 @@ mod tests {
 
     fn test_iter(blocks: &[(&SavedBlock, BlockPriority)], expected: &[&SavedBlock]) {
         let mut container = ActiveElectionsContainer::default();
+        let mut write_session = AecWriteSession::default();
 
         for (block, prio) in blocks {
             let request = AecInsertRequest::new_priority((**block).clone(), *prio);
 
             container
-                .insert(request, Timestamp::new_test_instance())
+                .insert(request, Timestamp::new_test_instance(), &mut write_session)
                 .unwrap();
         }
 

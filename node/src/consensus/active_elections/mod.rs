@@ -60,15 +60,11 @@ pub enum AecFact {
 }
 
 #[derive(Default)]
-pub(super) struct ProducedAecFacts(Vec<AecFact>);
+pub(super) struct AecWriteSession(Vec<AecFact>);
 
-impl ProducedAecFacts {
-    pub(super) fn push(&mut self, fact: AecFact) {
+impl AecWriteSession {
+    pub(super) fn record(&mut self, fact: AecFact) {
         self.0.push(fact);
-    }
-
-    pub(super) fn extend(&mut self, other: ProducedAecFacts) {
-        self.0.extend(other.0);
     }
 
     pub(super) fn is_empty(&self) -> bool {
@@ -76,7 +72,7 @@ impl ProducedAecFacts {
     }
 }
 
-impl IntoIterator for ProducedAecFacts {
+impl IntoIterator for AecWriteSession {
     type Item = AecFact;
     type IntoIter = std::vec::IntoIter<AecFact>;
 
