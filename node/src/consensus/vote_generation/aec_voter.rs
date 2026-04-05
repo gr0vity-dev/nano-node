@@ -2,15 +2,15 @@ use std::{sync::Arc, time::Duration};
 
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_types::NetworkType;
-use rsnano_utils::{ticker::Tickable, CancellationToken};
+use rsnano_utils::{CancellationToken, ticker::Tickable};
 
 use super::{
-    voting_scheduler::{VoteTarget, VotingScheduler},
     CpsLimiter, VoteGenerators,
+    voting_scheduler::{VoteTarget, VotingScheduler},
 };
 use crate::consensus::{
-    election::VoteType, election_schedulers::priority::bucket_count,
-    vote_generation::voting_scheduler::vote_target, AecService,
+    AecService, election::VoteType, election_schedulers::priority::bucket_count,
+    vote_generation::voting_scheduler::vote_target,
 };
 
 /// Creates votes for blocks within the AEC

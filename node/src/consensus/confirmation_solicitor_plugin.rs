@@ -4,9 +4,8 @@ use std::{
 };
 
 use super::{
-    confirm_req_sender::ConfirmReqSender, election::ElectionState,
-    winner_block_broadcaster::WinnerBlockBroadcaster, AecService, AecTickerPlugin,
-    ConfirmationSolicitor,
+    AecService, AecTickerPlugin, ConfirmationSolicitor, confirm_req_sender::ConfirmReqSender,
+    election::ElectionState, winner_block_broadcaster::WinnerBlockBroadcaster,
 };
 use crate::{representatives::OnlineReps, transport::MessageFlooder};
 
