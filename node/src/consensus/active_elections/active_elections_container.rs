@@ -196,6 +196,7 @@ impl ActiveElectionsContainer {
             root: root.clone(),
             election,
             priority: request.priority,
+            bucket_id: request.bucket_id,
         });
 
         *self.count_by_behavior_mut(request.behavior) += 1;
@@ -344,9 +345,13 @@ impl ActiveElectionsContainer {
                     //stats.replaced.fetch_add(1, Ordering::Relaxed);
                 }
 
-                // TODO: Don't hard code priority election!
                 match self.insert(
-                    AecInsertRequest::new_priority(candidate.block, candidate.priority),
+                    AecInsertRequest::new(
+                        candidate.block,
+                        ElectionBehavior::Priority,
+                        candidate.priority,
+                        candidate.bucket_id,
+                    ),
                     now,
                 ) {
                     Ok(new_facts) => {
@@ -610,7 +615,8 @@ pub struct ApplyVoteArgs<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::ReceivedVote;
+    use crate::consensus::election_schedulers::priority::prio_bucket_count;
+    use crate::consensus::{BucketInfo, ElectionCandidate, ReceivedVote};
     use rsnano_types::{BlockPriority, PrivateKey, TimePriority, Vote, VoteSource};
     use std::sync::Arc;
 
@@ -629,6 +635,7 @@ mod tests {
             block: SavedBlock::new_test_instance(),
             behavior: ElectionBehavior::Priority,
             priority: BlockPriority::new_test_instance(),
+            bucket_id: 0,
         };
 
         container
@@ -669,6 +676,7 @@ mod tests {
             block,
             behavior: ElectionBehavior::Priority,
             priority: BlockPriority::new_test_instance(),
+            bucket_id: 0,
         };
 
         let now = Timestamp::new_test_instance();
@@ -695,6 +703,55 @@ mod tests {
         );
 
         assert!(container.election_for_block(&block_hash).is_none());
+    }
+
+    #[test]
+    fn refill_uses_source_provided_bucket_id() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let root = block.qualified_root();
+        let priority = BlockPriority::new(Amount::raw(1), TimePriority::new(100));
+        let manual_bucket = prio_bucket_count();
+
+        let mut source = TestCandidateSource::new(vec![ElectionCandidate {
+            bucket_id: manual_bucket,
+            block,
+            priority,
+        }]);
+
+        container.refill(&mut source, Timestamp::new_test_instance());
+
+        assert_eq!(container.find_bucket(&root), Some(manual_bucket));
+        assert_eq!(container.count_by_behavior(ElectionBehavior::Priority), 1);
+    }
+
+    #[test]
+    fn priority_upgrade_moves_election_to_request_bucket() {
+        let mut container = ActiveElectionsContainer::default();
+        let block = SavedBlock::new_test_instance();
+        let root = block.qualified_root();
+        let priority = BlockPriority::new(Amount::nano(1), TimePriority::new(100));
+        let priority_bucket =
+            crate::consensus::election_schedulers::priority::prio_bucket_index(priority.balance);
+
+        container
+            .insert(
+                AecInsertRequest::new_optimistic(block.clone(), priority),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+        assert_eq!(container.find_bucket(&root), Some(prio_bucket_count() + 2));
+
+        container
+            .insert(
+                AecInsertRequest::new(block, ElectionBehavior::Priority, priority, priority_bucket),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+
+        assert_eq!(container.find_bucket(&root), Some(priority_bucket));
+        assert_eq!(container.count_by_behavior(ElectionBehavior::Priority), 1);
+        assert_eq!(container.count_by_behavior(ElectionBehavior::Optimistic), 0);
     }
 
     #[test]
@@ -732,8 +789,16 @@ mod tests {
         }
         facts.extend(produced_facts);
 
-        assert!(facts.iter().any(|fact| matches!(fact, AecFact::ElectionConfirmed(_))));
-        assert!(facts.iter().any(|fact| matches!(fact, AecFact::ElectionEnded(_))));
+        assert!(
+            facts
+                .iter()
+                .any(|fact| matches!(fact, AecFact::ElectionConfirmed(_)))
+        );
+        assert!(
+            facts
+                .iter()
+                .any(|fact| matches!(fact, AecFact::ElectionEnded(_)))
+        );
     }
 
     #[test]
@@ -855,5 +920,29 @@ mod tests {
             .collect();
         let expected: Vec<_> = expected.iter().map(|i| i.hash()).collect();
         assert_eq!(result, expected);
+    }
+
+    struct TestCandidateSource {
+        candidates: Vec<ElectionCandidate>,
+    }
+
+    impl TestCandidateSource {
+        fn new(candidates: Vec<ElectionCandidate>) -> Self {
+            Self { candidates }
+        }
+    }
+
+    impl ElectionCandidateSource for TestCandidateSource {
+        fn should_schedule(&self, _buckets: &[BucketInfo]) -> bool {
+            !self.candidates.is_empty()
+        }
+
+        fn gather_candidates(
+            &mut self,
+            _buckets: &[BucketInfo],
+            result: &mut Vec<ElectionCandidate>,
+        ) {
+            result.append(&mut self.candidates);
+        }
     }
 }

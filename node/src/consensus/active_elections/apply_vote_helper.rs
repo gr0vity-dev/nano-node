@@ -355,6 +355,7 @@ mod tests {
                 root: self.root.clone(),
                 election,
                 priority: BlockPriority::new_test_instance(),
+                bucket_id: 0,
             });
         }
 

@@ -182,6 +182,7 @@ mod tests {
             block: block.clone(),
             behavior: ElectionBehavior::Priority,
             priority: BlockPriority::new_test_instance(),
+            bucket_id: 0,
         };
 
         aec.insert(request, Timestamp::new_test_instance()).unwrap();

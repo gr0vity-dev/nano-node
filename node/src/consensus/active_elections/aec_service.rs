@@ -13,8 +13,8 @@ use super::{
     AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs,
 };
 use crate::consensus::{
-    election::{ConfirmedElection, Election, ElectionBehavior},
     ElectionCandidateSource,
+    election::{ConfirmedElection, Election, ElectionBehavior},
 };
 
 pub struct AecService {
@@ -274,17 +274,13 @@ mod tests {
     use crate::consensus::{BucketInfo, ElectionCandidate, election::ElectionBehavior};
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{BlockPriority, SavedBlock, Vote, VoteSource};
-    use std::sync::Arc;
     use rsnano_utils::sync::backpressure_channel;
+    use std::sync::Arc;
 
     #[test]
     fn insert_publishes_container_facts_through_service_owned_sender() {
         let (tx, rx) = backpressure_channel::channel(1);
-        let service = AecService::new(
-            ActiveElectionsConfig::default(),
-            Duration::ZERO,
-            tx,
-        );
+        let service = AecService::new(ActiveElectionsConfig::default(), Duration::ZERO, tx);
 
         service
             .insert(
@@ -292,6 +288,7 @@ mod tests {
                     block: SavedBlock::new_test_instance(),
                     behavior: ElectionBehavior::Priority,
                     priority: BlockPriority::new_test_instance(),
+                    bucket_id: 0,
                 },
                 Timestamp::new_test_instance(),
             )
@@ -303,11 +300,7 @@ mod tests {
     #[test]
     fn simulate_event_uses_service_owned_publication_path() {
         let (tx, rx) = backpressure_channel::channel(1);
-        let service = AecService::new(
-            ActiveElectionsConfig::default(),
-            Duration::ZERO,
-            tx,
-        );
+        let service = AecService::new(ActiveElectionsConfig::default(), Duration::ZERO, tx);
 
         service.simulate_event(AecFact::Recovered);
 
@@ -317,14 +310,11 @@ mod tests {
     #[test]
     fn refill_publishes_scheduler_driven_activation_through_service_owned_sender() {
         let (tx, rx) = backpressure_channel::channel(1);
-        let service = AecService::new(
-            ActiveElectionsConfig::default(),
-            Duration::ZERO,
-            tx,
-        );
+        let service = AecService::new(ActiveElectionsConfig::default(), Duration::ZERO, tx);
 
         let block = SavedBlock::new_test_instance();
-        let mut source = StubCandidateSource::new(block.clone(), BlockPriority::new_test_instance());
+        let mut source =
+            StubCandidateSource::new(block.clone(), BlockPriority::new_test_instance());
         service.refill(&mut source, Timestamp::new_test_instance());
 
         assert!(matches!(
@@ -336,11 +326,7 @@ mod tests {
     #[test]
     fn vote_processed_uses_service_owned_publication_path() {
         let (tx, rx) = backpressure_channel::channel(1);
-        let service = AecService::new(
-            ActiveElectionsConfig::default(),
-            Duration::ZERO,
-            tx,
-        );
+        let service = AecService::new(ActiveElectionsConfig::default(), Duration::ZERO, tx);
 
         let vote = crate::consensus::ReceivedVote::new(
             Arc::new(Vote::new_test_instance()),

@@ -15,6 +15,7 @@ use super::{
     ReceivedVote,
     election::{ConfirmedElection, Election, ElectionBehavior},
 };
+use crate::consensus::election_schedulers::priority::{prio_bucket_count, prio_bucket_index};
 pub use active_elections_container::*;
 pub use aec_service::AecService;
 pub use cooldown_controller::AecCooldownReason;
@@ -106,39 +107,58 @@ pub struct AecInsertRequest {
     pub block: SavedBlock,
     pub behavior: ElectionBehavior,
     pub priority: BlockPriority,
+    pub bucket_id: usize,
 }
 
 impl AecInsertRequest {
-    pub fn new_hinted(block: SavedBlock, priority: BlockPriority) -> Self {
+    pub fn new(
+        block: SavedBlock,
+        behavior: ElectionBehavior,
+        priority: BlockPriority,
+        bucket_id: usize,
+    ) -> Self {
         Self {
             block,
-            behavior: ElectionBehavior::Hinted,
+            behavior,
             priority,
+            bucket_id,
         }
+    }
+
+    pub fn new_hinted(block: SavedBlock, priority: BlockPriority) -> Self {
+        Self::new(
+            block,
+            ElectionBehavior::Hinted,
+            priority,
+            prio_bucket_count() + 1,
+        )
     }
 
     pub fn new_optimistic(block: SavedBlock, priority: BlockPriority) -> Self {
-        Self {
+        Self::new(
             block,
-            behavior: ElectionBehavior::Optimistic,
+            ElectionBehavior::Optimistic,
             priority,
-        }
+            prio_bucket_count() + 2,
+        )
     }
 
     pub fn new_manual(block: SavedBlock, priority: BlockPriority) -> Self {
-        Self {
+        Self::new(
             block,
-            behavior: ElectionBehavior::Manual,
+            ElectionBehavior::Manual,
             priority,
-        }
+            prio_bucket_count(),
+        )
     }
 
     pub fn new_priority(block: SavedBlock, priority: BlockPriority) -> Self {
-        Self {
+        Self::new(
             block,
-            behavior: ElectionBehavior::Priority,
+            ElectionBehavior::Priority,
             priority,
-        }
+            prio_bucket_index(priority.balance),
+        )
     }
 }
 
