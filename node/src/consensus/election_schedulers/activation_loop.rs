@@ -62,7 +62,6 @@ impl ActivationLoop {
             guard.stopped = true;
             guard.notified = true;
         }
-        self.optimistic.stop();
         self.condition.notify_all();
 
         if let Some(handle) = self.thread.lock().unwrap().take() {

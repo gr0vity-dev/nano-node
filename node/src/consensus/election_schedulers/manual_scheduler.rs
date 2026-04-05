@@ -20,7 +20,6 @@ pub struct ManualScheduler {
     aec: Arc<AecService>,
     clock: Arc<SteadyClock>,
     ledger: Arc<Ledger>,
-    wakeup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl ManualScheduler {
@@ -38,12 +37,7 @@ impl ManualScheduler {
             mutex: Mutex::new(ManualSchedulerImpl {
                 queue: Default::default(),
             }),
-            wakeup: Mutex::new(None),
         }
-    }
-
-    pub fn set_wakeup(&self, wakeup: Arc<dyn Fn() + Send + Sync>) {
-        *self.wakeup.lock().unwrap() = Some(wakeup);
     }
 
     pub fn contains(&self, hash: &BlockHash) -> bool {
@@ -56,13 +50,7 @@ impl ManualScheduler {
     }
 
     pub fn push(&self, block: SavedBlock) {
-        {
-            let mut guard = self.mutex.lock().unwrap();
-            guard.queue.push_back(block);
-        }
-        if let Some(wakeup) = self.wakeup.lock().unwrap().as_ref() {
-            wakeup();
-        }
+        self.mutex.lock().unwrap().queue.push_back(block);
     }
 
     pub fn run_one(&self) -> bool {

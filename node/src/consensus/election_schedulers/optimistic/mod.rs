@@ -65,17 +65,10 @@ impl OptimisticScheduler {
         self.logic.activation_delay()
     }
 
-    pub fn stop(&self) {
-        self.state.lock().unwrap().stopped = true;
-    }
-
     /// Called from backlog population to process accounts with unconfirmed blocks
     pub fn activate(&self, account: &Account, block_count: u64, confirmation_height: u64) -> bool {
         let now = self.clock.now();
         let mut state = self.state.lock().unwrap();
-        if state.stopped {
-            return false;
-        }
         let activated = self.logic.try_activate(
             &mut state.candidates,
             account,
@@ -94,7 +87,7 @@ impl OptimisticScheduler {
 
         let account = {
             let mut state = self.state.lock().unwrap();
-            if state.stopped || !self.has_vacancy() {
+            if !self.has_vacancy() {
                 return false;
             }
 
@@ -174,7 +167,6 @@ impl ContainerInfoProvider for OptimisticScheduler {
 
 #[derive(Default)]
 struct OptimisticSchedulerState {
-    stopped: bool,
     candidates: CandidateQueue,
 }
 
@@ -183,16 +175,6 @@ mod tests {
     use super::*;
     use rsnano_ledger::{ConfirmedSet, test_helpers::UnsavedBlockLatticeBuilder};
     use rsnano_types::PrivateKey;
-
-    #[test]
-    fn stop_sets_stopped_flag() {
-        let scheduler = make_scheduler();
-
-        scheduler.stop();
-
-        assert!(!scheduler.activate(&Account::from(1), TEST_GAP_THRESHOLD + 1, 0));
-        assert_eq!(scheduler.candidate_count(), 0);
-    }
 
     #[test]
     fn schedules_election_when_over_gap_threshold() {
@@ -335,16 +317,6 @@ mod tests {
         );
         assert!(aec.is_active_hash(&last1.unwrap().hash()));
         assert!(aec.is_active_hash(&last2.unwrap().hash()));
-    }
-
-    fn make_scheduler() -> OptimisticScheduler {
-        OptimisticScheduler::new(
-            test_params(),
-            Arc::new(AecService::new_null()),
-            Ledger::new_null().into(),
-            ConfirmingSet::new_null().into(),
-            SteadyClock::new_null().into(),
-        )
     }
 
     fn make_scheduler_with(aec: Arc<AecService>, ledger: Arc<Ledger>) -> OptimisticScheduler {

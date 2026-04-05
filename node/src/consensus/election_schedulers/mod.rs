@@ -95,10 +95,6 @@ impl ElectionSchedulers {
             config.enable_optimistic_scheduler,
             config.enable_hinted_scheduler,
         ));
-        manual.set_wakeup({
-            let activation_loop = activation_loop.clone();
-            Arc::new(move || activation_loop.notify())
-        });
 
         Self {
             priority,
@@ -167,6 +163,7 @@ impl ElectionSchedulers {
 
     pub fn add_manual(&self, block: SavedBlock) {
         self.manual.push(block);
+        self.activation_loop.notify();
     }
 
     pub fn activate_successors<'a>(&self, confirmed: impl IntoIterator<Item = &'a SavedBlock>) {
@@ -208,18 +205,6 @@ mod tests {
 
     #[test]
     fn activate_successors() {
-        let schedulers = ElectionSchedulers::new_null();
-        let tracker = schedulers.priority.track_activate_successors();
-        let block = SavedBlock::new_test_instance();
-
-        schedulers.activate_successors([&block]);
-
-        let output = tracker.output();
-        assert_eq!(output, [block]);
-    }
-
-    #[test]
-    fn can_track_successor_activation() {
         let schedulers = ElectionSchedulers::new_null();
         let tracker = schedulers.priority.track_activate_successors();
         let block = SavedBlock::new_test_instance();
