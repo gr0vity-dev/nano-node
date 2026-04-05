@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use rsnano_ledger::{AnySet, ConfirmedSet};
+use rsnano_ledger::{AnySet, ConfirmedSet, ProcessResult};
 use rsnano_nullable_clock::SteadyClock;
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
@@ -130,6 +130,29 @@ impl PriorityScheduler {
         }
     }
 
+    pub fn activate_backlog(
+        &self,
+        any: &impl AnySet,
+        account_info: &AccountInfo,
+        conf_info: &ConfirmationHeightInfo,
+    ) {
+        self.activate_with_info(any, account_info, conf_info);
+    }
+
+    pub fn activate_accounts_with_fresh_blocks(
+        &self,
+        any: &impl AnySet,
+        processed: &[ProcessResult],
+    ) {
+        for result in processed {
+            if result.status.is_ok()
+                && let Some(saved_block) = result.saved_block.as_ref()
+            {
+                self.activate(any, &saved_block.account());
+            }
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.buckets.lock().unwrap().len()
     }
@@ -157,12 +180,18 @@ impl PriorityScheduler {
         true
     }
 
-    pub fn activate_successors(&self, any: &impl AnySet, block: &SavedBlock) {
-        if self.activate_successors_listener.is_tracked() {
-            self.activate_successors_listener.emit(block.clone());
+    pub fn activate_successors<'a>(
+        &self,
+        any: &impl AnySet,
+        confirmed: impl IntoIterator<Item = &'a SavedBlock>,
+    ) {
+        for block in confirmed {
+            if self.activate_successors_listener.is_tracked() {
+                self.activate_successors_listener.emit(block.clone());
+            }
+            self.activate(any, &block.account());
+            self.activate_destination_account(any, block);
         }
-        self.activate(any, &block.account());
-        self.activate_destination_account(any, block);
     }
 
     fn activate_destination_account(&self, any: &impl AnySet, block: &SavedBlock) {
@@ -209,7 +238,7 @@ mod tests {
         let ledger = Ledger::new_null();
         let tracker = scheduler.track_activate_successors();
 
-        scheduler.activate_successors(&ledger.any(), &block);
+        scheduler.activate_successors(&ledger.any(), [&block]);
 
         let output = tracker.output();
         assert_eq!(output, [block]);
@@ -227,7 +256,7 @@ mod tests {
         let open = inserter.account(&destination).receive(send1.hash());
 
         ledger.confirm(send1.hash());
-        scheduler.activate_successors(&ledger.any(), &send1);
+        scheduler.activate_successors(&ledger.any(), [&send1]);
         scheduler.run_one();
 
         assert!(scheduler.aec.is_active_hash(&send2.hash()));

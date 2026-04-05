@@ -43,7 +43,7 @@ mod tests {
     fn when_blocks_confirmed_should_activate_elections_for_sucessors() {
         let schedulers = Arc::new(ElectionSchedulers::new_null());
         let mut processor = ElectionSchedulersPlugin::new(schedulers.clone());
-        let activation_tracker = schedulers.track_activate_successors();
+        let activation_tracker = schedulers.priority.track_activate_successors();
 
         let block = SavedBlock::new_test_instance();
         let confirmed_blocks = vec![(block.clone(), BlockHash::from(123))];

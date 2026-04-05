@@ -15,7 +15,6 @@ use std::sync::{Arc, Mutex};
 
 use rsnano_ledger::{AnySet, Ledger, ProcessResult};
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_output_tracker::OutputTrackerMt;
 use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -27,10 +26,10 @@ use crate::{cementation::ConfirmingSet, config::NodeConfig, representatives::Onl
 use priority::PriorityScheduler;
 
 pub struct ElectionSchedulers {
-    pub priority: Arc<PriorityScheduler>,
-    pub optimistic: Arc<OptimisticScheduler>,
-    pub hinted: Arc<HintedScheduler>,
-    pub manual: Arc<ManualScheduler>,
+    pub(crate) priority: Arc<PriorityScheduler>,
+    pub(crate) optimistic: Arc<OptimisticScheduler>,
+    pub(crate) hinted: Arc<HintedScheduler>,
+    pub(crate) manual: Arc<ManualScheduler>,
     activation_loop: Arc<ActivationLoop>,
     ledger: Arc<Ledger>,
 }
@@ -136,10 +135,6 @@ impl ElectionSchedulers {
         )
     }
 
-    pub fn track_activate_successors(&self) -> Arc<OutputTrackerMt<SavedBlock>> {
-        self.priority.track_activate_successors()
-    }
-
     /// Does the block exist in any of the schedulers
     pub fn contains(&self, hash: &BlockHash) -> bool {
         self.manual.contains(hash) || self.priority.contains(hash)
@@ -155,18 +150,14 @@ impl ElectionSchedulers {
         self.optimistic
             .activate(account, account_info.block_count, conf_info.height);
         self.priority
-            .activate_with_info(any, account_info, conf_info);
+            .activate_backlog(any, account_info, conf_info);
         self.activation_loop.notify();
     }
 
     pub fn activate_accounts_with_fresh_blocks(&self, processed: &[ProcessResult]) {
         let any = self.ledger.any();
-        for result in processed {
-            if result.status.is_ok() {
-                let account = result.saved_block.as_ref().unwrap().account();
-                self.priority.activate(&any, &account);
-            }
-        }
+        self.priority
+            .activate_accounts_with_fresh_blocks(&any, processed);
         self.activation_loop.notify();
     }
 
@@ -179,11 +170,8 @@ impl ElectionSchedulers {
     }
 
     pub fn activate_successors<'a>(&self, confirmed: impl IntoIterator<Item = &'a SavedBlock>) {
-        // Activate successors of confirmed blocks
         let any = self.ledger.any();
-        for block in confirmed {
-            self.priority.activate_successors(&any, block);
-        }
+        self.priority.activate_successors(&any, confirmed);
         self.activation_loop.notify();
     }
 
@@ -233,7 +221,7 @@ mod tests {
     #[test]
     fn can_track_successor_activation() {
         let schedulers = ElectionSchedulers::new_null();
-        let tracker = schedulers.track_activate_successors();
+        let tracker = schedulers.priority.track_activate_successors();
         let block = SavedBlock::new_test_instance();
 
         schedulers.activate_successors([&block]);
