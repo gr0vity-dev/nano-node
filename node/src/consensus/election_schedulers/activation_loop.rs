@@ -11,10 +11,6 @@ pub(crate) struct SchedulerWakeSignal {
     condition: Condvar,
 }
 
-pub(crate) struct HintedSchedulerWakeHandle {
-    wake_signal: Arc<SchedulerWakeSignal>,
-}
-
 impl SchedulerWakeSignal {
     pub(crate) fn new() -> Self {
         Self {
@@ -70,16 +66,6 @@ impl SchedulerWakeSignal {
 
         guard_after_wait.notified = false;
         false
-    }
-}
-
-impl HintedSchedulerWakeHandle {
-    pub(crate) fn new(wake_signal: Arc<SchedulerWakeSignal>) -> Self {
-        Self { wake_signal }
-    }
-
-    pub(crate) fn wake_hinted(&self) {
-        self.wake_signal.wake();
     }
 }
 

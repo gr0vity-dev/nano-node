@@ -25,7 +25,7 @@ use crate::consensus::{
 pub struct AecService {
     aec: RwLock<ActiveElectionsContainer>,
     publisher: RwLock<Option<Sender<AecFact>>>,
-    scheduler_wakeup: Option<Arc<SchedulerWakeSignal>>,
+    wake_signal: Option<Arc<SchedulerWakeSignal>>,
 }
 
 impl AecService {
@@ -38,7 +38,7 @@ impl AecService {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::new(config, base_latency)),
             publisher: RwLock::new(Some(publisher)),
-            scheduler_wakeup: Some(scheduler_wakeup),
+            wake_signal: Some(scheduler_wakeup),
         }
     }
 
@@ -46,7 +46,7 @@ impl AecService {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::default()),
             publisher: RwLock::new(None),
-            scheduler_wakeup: None,
+            wake_signal: None,
         }
     }
 
@@ -244,7 +244,7 @@ impl AecService {
             self.publish_fact(fact);
         }
         if should_wake_scheduler {
-            if let Some(wake_signal) = &self.scheduler_wakeup {
+            if let Some(wake_signal) = &self.wake_signal {
                 wake_signal.wake();
             }
         }
