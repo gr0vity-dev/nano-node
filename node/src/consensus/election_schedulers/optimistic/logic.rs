@@ -4,65 +4,47 @@ use rsnano_nullable_clock::Timestamp;
 use rsnano_types::Account;
 
 use super::{candidate_queue::CandidateQueue, config::OptimisticSchedulerParams};
-use rsnano_utils::container_info::{ContainerInfo, ContainerInfoProvider};
 
 /// Pure scheduling logic — no infrastructure dependencies.
-/// Manages the candidate queue and decides when activation is appropriate.
+/// Encodes optimistic ranking and timing rules without owning runtime state.
 pub struct OptimisticSchedulerLogic {
-    stopped: bool,
     params: OptimisticSchedulerParams,
-    candidates: CandidateQueue,
 }
 
 impl OptimisticSchedulerLogic {
     pub fn new(params: OptimisticSchedulerParams) -> Self {
-        Self {
-            stopped: false,
-            params,
-            candidates: CandidateQueue::default(),
-        }
-    }
-
-    pub fn stopped(&self) -> bool {
-        self.stopped
-    }
-
-    pub fn stop(&mut self) {
-        self.stopped = true;
+        Self { params }
     }
 
     /// Attempts to enqueue the account as an optimistic candidate.
     /// Returns true if the account was newly added.
     pub fn try_activate(
-        &mut self,
+        &self,
+        candidates: &mut CandidateQueue,
         account: &Account,
         block_count: u64,
         confirmation_height: u64,
         now: Timestamp,
     ) -> bool {
-        if self.stopped() {
-            return false;
-        }
-
         let gap = self.get_gap(block_count, confirmation_height);
         if gap < self.params.gap_threshold {
             return false;
         }
 
-        let already_queued = self.candidates.contains(account);
+        let already_queued = candidates.contains(account);
 
-        if !already_queued && self.candidates.len() >= self.params.max_candidates {
+        if !already_queued && candidates.len() >= self.params.max_candidates {
             // Evict the lowest gap entry if the new one has a strictly higher gap
-            let Some(min_gap) = self.candidates.min_gap() else {
+            let Some(min_gap) = candidates.min_gap() else {
                 return false;
             };
             if gap <= min_gap {
                 return false;
             }
-            self.candidates.pop_lowest_gap_entry();
+            candidates.pop_lowest_gap_entry();
         }
 
-        self.candidates.insert(*account, now, gap);
+        candidates.insert(*account, now, gap);
         !already_queued
     }
 
@@ -78,19 +60,16 @@ impl OptimisticSchedulerLogic {
         vacancy > 0
     }
 
-    pub fn pop_candidate(&mut self, now: Timestamp) -> Option<Account> {
-        self.candidates
-            .pop_first(now - self.params.activation_delay)
+    pub fn activation_delay(&self) -> std::time::Duration {
+        self.params.activation_delay
     }
 
-    pub fn candidate_count(&self) -> usize {
-        self.candidates.len()
-    }
-}
-
-impl ContainerInfoProvider for OptimisticSchedulerLogic {
-    fn container_info(&self) -> ContainerInfo {
-        [("candidates", self.candidate_count(), 1)].into()
+    pub fn pop_candidate(
+        &self,
+        candidates: &mut CandidateQueue,
+        now: Timestamp,
+    ) -> Option<Account> {
+        candidates.pop_first(now - self.params.activation_delay)
     }
 }
 
@@ -99,34 +78,24 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
-    #[test]
-    fn stopped_initially_false() {
-        assert!(!OptimisticSchedulerLogic::new(make_params(32, 1024)).stopped());
-    }
-
-    #[test]
-    fn stop_sets_flag() {
-        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        logic.stop();
-        assert!(logic.stopped());
-    }
-
     /*
      * try_activate accepts
      */
 
     #[test]
     fn try_activate_adds_candidate_when_gap_above_threshold() {
-        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        assert!(logic.try_activate(&Account::from(1), 100, 10, now()));
-        assert_eq!(logic.candidate_count(), 1);
+        let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
+        let mut candidates = CandidateQueue::default();
+        assert!(logic.try_activate(&mut candidates, &Account::from(1), 100, 10, now()));
+        assert_eq!(candidates.len(), 1);
     }
 
     #[test]
     fn try_activate_adds_when_account_fully_unconfirmed() {
-        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        assert!(logic.try_activate(&Account::from(1), 100, 0, now()));
-        assert_eq!(logic.candidate_count(), 1);
+        let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
+        let mut candidates = CandidateQueue::default();
+        assert!(logic.try_activate(&mut candidates, &Account::from(1), 100, 0, now()));
+        assert_eq!(candidates.len(), 1);
     }
 
     /*
@@ -135,42 +104,46 @@ mod tests {
 
     #[test]
     fn try_activate_updates_gap_on_duplicate() {
-        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
+        let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
+        let mut candidates = CandidateQueue::default();
         let account = Account::from(1);
-        assert!(logic.try_activate(&account, 100, 0, now())); // newly added
-        assert!(!logic.try_activate(&account, 200, 0, now())); // gap updated, not newly added
-        assert_eq!(logic.candidate_count(), 1);
+        assert!(logic.try_activate(&mut candidates, &account, 100, 0, now())); // newly added
+        assert!(!logic.try_activate(&mut candidates, &account, 200, 0, now())); // gap updated, not newly added
+        assert_eq!(candidates.len(), 1);
     }
 
     #[test]
     fn try_activate_rejects_when_full_and_gap_not_higher() {
-        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 2));
-        assert!(logic.try_activate(&Account::from(1), 100, 0, now())); // gap = 32
-        assert!(logic.try_activate(&Account::from(2), 100, 0, now())); // gap = 32
-        assert!(!logic.try_activate(&Account::from(3), 100, 0, now())); // gap = 32, not higher
-        assert_eq!(logic.candidate_count(), 2);
+        let logic = OptimisticSchedulerLogic::new(make_params(32, 2));
+        let mut candidates = CandidateQueue::default();
+        assert!(logic.try_activate(&mut candidates, &Account::from(1), 100, 0, now())); // gap = 32
+        assert!(logic.try_activate(&mut candidates, &Account::from(2), 100, 0, now())); // gap = 32
+        assert!(!logic.try_activate(&mut candidates, &Account::from(3), 100, 0, now())); // gap = 32, not higher
+        assert_eq!(candidates.len(), 2);
     }
 
     #[test]
     fn try_activate_evicts_lowest_gap_when_full_and_new_gap_is_higher() {
-        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 2));
+        let logic = OptimisticSchedulerLogic::new(make_params(32, 2));
+        let mut candidates = CandidateQueue::default();
         let low = Account::from(1);
         let mid = Account::from(2);
         let high = Account::from(3);
-        logic.try_activate(&low, 132, 100, now()); // gap = 32 (threshold, lowest)
-        logic.try_activate(&mid, 164, 100, now()); // gap = 64
-        logic.try_activate(&high, 200, 100, now()); // gap = 100, evicts low
+        logic.try_activate(&mut candidates, &low, 132, 100, now()); // gap = 32 (threshold, lowest)
+        logic.try_activate(&mut candidates, &mid, 164, 100, now()); // gap = 64
+        logic.try_activate(&mut candidates, &high, 200, 100, now()); // gap = 100, evicts low
 
-        assert_eq!(logic.candidate_count(), 2);
-        assert_eq!(logic.pop_candidate(now()), Some(high));
-        assert_eq!(logic.pop_candidate(now()), Some(mid));
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(logic.pop_candidate(&mut candidates, now()), Some(high));
+        assert_eq!(logic.pop_candidate(&mut candidates, now()), Some(mid));
     }
 
     #[test]
     fn try_activate_rejects_when_gap_too_small() {
-        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
-        assert!(!logic.try_activate(&Account::from(1), 100, 80, now())); // gap = 20, below threshold
-        assert_eq!(logic.candidate_count(), 0);
+        let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
+        let mut candidates = CandidateQueue::default();
+        assert!(!logic.try_activate(&mut candidates, &Account::from(1), 100, 80, now())); // gap = 20, below threshold
+        assert_eq!(candidates.len(), 0);
     }
 
     /*
@@ -179,15 +152,16 @@ mod tests {
 
     #[test]
     fn pop_candidate_returns_highest_gap_first() {
-        let mut logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
+        let logic = OptimisticSchedulerLogic::new(make_params(32, 1024));
+        let mut candidates = CandidateQueue::default();
         let a = Account::from(1);
         let b = Account::from(2);
-        logic.try_activate(&a, 100, 0, now()); // gap = 100
-        logic.try_activate(&b, 200, 0, now()); // gap = 200
+        logic.try_activate(&mut candidates, &a, 100, 0, now()); // gap = 100
+        logic.try_activate(&mut candidates, &b, 200, 0, now()); // gap = 200
 
-        let first = logic.pop_candidate(now()).unwrap();
+        let first = logic.pop_candidate(&mut candidates, now()).unwrap();
         assert_eq!(first, b);
-        let second = logic.pop_candidate(now()).unwrap();
+        let second = logic.pop_candidate(&mut candidates, now()).unwrap();
         assert_eq!(second, a);
     }
 

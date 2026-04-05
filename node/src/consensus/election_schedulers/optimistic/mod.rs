@@ -21,18 +21,19 @@ mod config;
 mod logic;
 mod stats;
 
+use candidate_queue::CandidateQueue;
 pub use config::OptimisticSchedulerParams;
 use logic::OptimisticSchedulerLogic;
 use stats::OptimisticSchedulerStats;
 
 pub struct OptimisticScheduler {
-    logic: Mutex<OptimisticSchedulerLogic>,
+    state: Mutex<OptimisticSchedulerState>,
+    logic: OptimisticSchedulerLogic,
     aec: Arc<AecService>,
     ledger: Arc<Ledger>,
     confirming_set: Arc<ConfirmingSet>,
     clock: Arc<SteadyClock>,
     max_elections: usize,
-    activation_delay: Duration,
     stats: OptimisticSchedulerStats,
 }
 
@@ -46,8 +47,8 @@ impl OptimisticScheduler {
     ) -> Self {
         Self {
             max_elections: params.max_elections,
-            activation_delay: params.activation_delay,
-            logic: Mutex::new(OptimisticSchedulerLogic::new(params)),
+            logic: OptimisticSchedulerLogic::new(params),
+            state: Mutex::new(OptimisticSchedulerState::default()),
             aec,
             ledger,
             confirming_set,
@@ -61,18 +62,27 @@ impl OptimisticScheduler {
     }
 
     pub fn activation_delay(&self) -> Duration {
-        self.activation_delay
+        self.logic.activation_delay()
     }
 
     pub fn stop(&self) {
-        self.logic.lock().unwrap().stop();
+        self.state.lock().unwrap().stopped = true;
     }
 
     /// Called from backlog population to process accounts with unconfirmed blocks
     pub fn activate(&self, account: &Account, block_count: u64, confirmation_height: u64) -> bool {
         let now = self.clock.now();
-        let mut logic = self.logic.lock().unwrap();
-        let activated = logic.try_activate(account, block_count, confirmation_height, now);
+        let mut state = self.state.lock().unwrap();
+        if state.stopped {
+            return false;
+        }
+        let activated = self.logic.try_activate(
+            &mut state.candidates,
+            account,
+            block_count,
+            confirmation_height,
+            now,
+        );
         if activated {
             self.stats.activated_count.fetch_add(1, Relaxed);
         }
@@ -83,13 +93,13 @@ impl OptimisticScheduler {
         self.stats.loop_count.fetch_add(1, Relaxed);
 
         let account = {
-            let mut logic = self.logic.lock().unwrap();
-            if logic.stopped() || !self.has_vacancy(&logic) {
+            let mut state = self.state.lock().unwrap();
+            if state.stopped || !self.has_vacancy() {
                 return false;
             }
 
             let now = self.clock.now();
-            let Some(account) = logic.pop_candidate(now) else {
+            let Some(account) = self.logic.pop_candidate(&mut state.candidates, now) else {
                 return false;
             };
             account
@@ -138,15 +148,15 @@ impl OptimisticScheduler {
         }
     }
 
-    fn has_vacancy(&self, logic: &OptimisticSchedulerLogic) -> bool {
+    fn has_vacancy(&self) -> bool {
         let optimistic_count = self.aec.count_by_behavior(ElectionBehavior::Optimistic);
         let aec_vacancy = self.aec.vacancy();
-        logic.has_vacancy(optimistic_count, aec_vacancy)
+        self.logic.has_vacancy(optimistic_count, aec_vacancy)
     }
 
     #[cfg(test)]
     pub fn candidate_count(&self) -> usize {
-        self.logic.lock().unwrap().candidate_count()
+        self.state.lock().unwrap().candidates.len()
     }
 }
 
@@ -158,8 +168,14 @@ impl StatsSource for OptimisticScheduler {
 
 impl ContainerInfoProvider for OptimisticScheduler {
     fn container_info(&self) -> ContainerInfo {
-        self.logic.lock().unwrap().container_info()
+        [("candidates", self.state.lock().unwrap().candidates.len(), 1)].into()
     }
+}
+
+#[derive(Default)]
+struct OptimisticSchedulerState {
+    stopped: bool,
+    candidates: CandidateQueue,
 }
 
 #[cfg(test)]
@@ -174,7 +190,8 @@ mod tests {
 
         scheduler.stop();
 
-        assert!(scheduler.logic.lock().unwrap().stopped());
+        assert!(!scheduler.activate(&Account::from(1), TEST_GAP_THRESHOLD + 1, 0));
+        assert_eq!(scheduler.candidate_count(), 0);
     }
 
     #[test]

@@ -11,6 +11,7 @@ mod election_scheduler {
         },
     };
     use rsnano_types::{Amount, BlockPriority, DEV_GENESIS_KEY, PrivateKey};
+    use std::time::Duration;
     use test_helpers::{setup_chains, setup_rep};
 
     #[test]
@@ -173,5 +174,38 @@ mod election_scheduler {
             ElectionBehavior::Priority
         );
         assert!(node.is_active_root(&block.qualified_root()));
+    }
+
+    #[test]
+    fn optimistic_activation_delay_wakes_through_activation_loop() {
+        let mut system = System::new();
+
+        let node = system
+            .build_node()
+            .config(NodeConfig {
+                optimistic_scheduler: OptimisticSchedulerConfig {
+                    gap_threshold: 1,
+                    activation_delay: Duration::from_millis(200),
+                    ..Default::default()
+                },
+                enable_voting: true,
+                enable_hinted_scheduler: false,
+                ..System::default_config()
+            })
+            .finish();
+
+        let chains = setup_chains(&node, 1, 2, &DEV_GENESIS_KEY, false);
+        let (_account, blocks) = &chains[0];
+        let block = blocks.last().unwrap();
+
+        assert!(!node.is_active_hash(&block.hash()));
+        assert_timely2(|| node.is_active_hash(&block.hash()));
+        assert_eq!(
+            node.aec
+                .election_for_block(&block.hash())
+                .unwrap()
+                .behavior(),
+            ElectionBehavior::Optimistic
+        );
     }
 }
