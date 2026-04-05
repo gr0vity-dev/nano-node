@@ -201,12 +201,9 @@ impl HintedScheduler {
     }
 
     fn run_interactive(&self) -> bool {
-        let minimum_tally = self.logic.tally_threshold(
-            self.online_reps
-                .lock()
-                .unwrap()
-                .trended_or_minimum_weight(),
-        );
+        let minimum_tally = self
+            .logic
+            .tally_threshold(self.online_reps.lock().unwrap().trended_or_minimum_weight());
         let minimum_final_tally = self.online_reps.lock().unwrap().quorum_delta();
 
         // Get the list before db transaction starts to avoid unnecessary slowdowns
@@ -298,12 +295,7 @@ impl HintedSchedulerLogic {
         final_tally < final_tally_threshold
     }
 
-    fn cooldown(
-        &self,
-        state: &mut HintedSchedulerState,
-        hash: BlockHash,
-        now: Timestamp,
-    ) -> bool {
+    fn cooldown(&self, state: &mut HintedSchedulerState, hash: BlockHash, now: Timestamp) -> bool {
         let cooldowns = &mut state.cooldowns;
         if let Some(timeout) = cooldowns.get(&hash) {
             if *timeout > now {

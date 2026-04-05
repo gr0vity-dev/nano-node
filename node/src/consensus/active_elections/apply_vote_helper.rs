@@ -3,8 +3,7 @@ use std::{collections::HashMap, ops::Deref};
 use rsnano_types::{Amount, BlockHash, VoteError, VoteSource};
 
 use super::{
-    AecFact, ApplyVoteArgs,
-    aec_service::AecWriteSession,
+    AecFact, AecFactRecorder, ApplyVoteArgs,
     recently_confirmed_cache::RecentlyConfirmedCache,
     root_container::{Entry, RootContainer},
     stats::VoteCounter,
@@ -16,7 +15,7 @@ pub(super) struct ApplyVoteHelper<'a> {
     pub recently_confirmed: &'a mut RecentlyConfirmedCache,
     pub vote_counter: &'a mut VoteCounter,
     pub roots: &'a mut RootContainer,
-    pub session: &'a mut AecWriteSession,
+    pub session: &'a mut AecFactRecorder,
 }
 
 impl<'a> ApplyVoteHelper<'a> {
@@ -71,7 +70,7 @@ struct ApplyVoteToElectionHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
     pub recently_confirmed: &'a mut RecentlyConfirmedCache,
     pub vote_counter: &'a mut VoteCounter,
-    pub session: &'a mut AecWriteSession,
+    pub session: &'a mut AecFactRecorder,
     pub election: &'a mut Election,
     pub block_hash: &'a BlockHash,
 }
@@ -151,7 +150,8 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             .election
             .into_confirmed_election(self.args.now, ConfirmationType::ActiveConfirmedQuorum);
 
-        self.session.record(AecFact::ElectionConfirmed(confirmed_election));
+        self.session
+            .record(AecFact::ElectionConfirmed(confirmed_election));
     }
 
     fn insert_recently_confirmed(&mut self) {
@@ -386,7 +386,7 @@ mod tests {
             };
 
             let mut vote_counter = VoteCounter::default();
-            let mut session = AecWriteSession::default();
+            let mut session = AecFactRecorder::default();
 
             let mut helper = ApplyVoteHelper {
                 args: &args,
@@ -457,7 +457,7 @@ mod tests {
             let quorum_specs = QuorumSpecs::new_test_instance();
             let mut recently_confirmed = RecentlyConfirmedCache::default();
             let mut vote_counter = VoteCounter::default();
-            let mut session = AecWriteSession::default();
+            let mut session = AecFactRecorder::default();
 
             let result = {
                 ApplyVoteToElectionHelper {

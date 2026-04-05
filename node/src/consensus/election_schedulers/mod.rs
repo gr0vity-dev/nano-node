@@ -6,11 +6,11 @@ mod optimistic;
 pub mod priority;
 
 use activation_loop::ActivationLoop;
+pub(crate) use activation_loop::{HintedSchedulerWakeHandle, SchedulerWakeSignal};
 pub(crate) use election_schedulers_plugin::*;
 pub use hinted_scheduler::*;
 pub use manual_scheduler::*;
 pub use optimistic::*;
-pub(crate) use activation_loop::{HintedSchedulerWakeHandle, SchedulerWakeSignal};
 
 use std::sync::{Arc, Mutex};
 

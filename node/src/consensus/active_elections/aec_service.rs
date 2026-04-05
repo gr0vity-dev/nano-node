@@ -14,7 +14,7 @@ use rsnano_utils::{
 
 use super::{
     ActiveElectionsConfig, ActiveElectionsContainer, ActiveElectionsInfo, AecCooldownReason,
-    AecFact, AecInsertError, AecInsertRequest, ApplyVoteArgs,
+    AecFact, AecFactRecorder, AecInsertError, AecInsertRequest, ApplyVoteArgs,
 };
 use crate::consensus::{
     ElectionCandidateSource,
@@ -26,52 +26,6 @@ pub struct AecService {
     aec: RwLock<ActiveElectionsContainer>,
     publisher: RwLock<Option<Sender<AecFact>>>,
     scheduler_wakeup: Option<Arc<SchedulerWakeSignal>>,
-}
-
-#[derive(Default)]
-pub(super) struct AecWriteSession {
-    facts: Vec<AecFact>,
-    vacancy_before: Option<i64>,
-    should_wake_scheduler: bool,
-}
-
-impl AecWriteSession {
-    pub(super) fn record(&mut self, fact: AecFact) {
-        self.facts.push(fact);
-    }
-
-    fn begin_mutation(&mut self, vacancy_before: i64) {
-        self.vacancy_before = Some(vacancy_before);
-    }
-
-    fn finish_mutation(&mut self, vacancy_after: i64) {
-        let vacancy_before = self
-            .vacancy_before
-            .take()
-            .expect("AEC write session must snapshot vacancy before mutation");
-        self.should_wake_scheduler = vacancy_before <= 0 && vacancy_after > 0;
-    }
-
-    #[cfg(test)]
-    pub(super) fn into_facts(self) -> Vec<AecFact> {
-        self.facts
-    }
-
-    fn publish(&mut self, publisher: &RwLock<Option<Sender<AecFact>>>) {
-        if self.facts.is_empty() {
-            return;
-        }
-
-        if let Some(sender) = publisher.read().unwrap().as_ref() {
-            for fact in std::mem::take(&mut self.facts) {
-                sender.send(fact).unwrap();
-            }
-        }
-    }
-
-    fn should_wake_scheduler(&self) -> bool {
-        self.should_wake_scheduler
-    }
 }
 
 impl AecService {
@@ -275,18 +229,21 @@ impl AecService {
 
     fn write_session<T>(
         &self,
-        mutator: impl FnOnce(&mut ActiveElectionsContainer, &mut AecWriteSession) -> T,
+        mutator: impl FnOnce(&mut ActiveElectionsContainer, &mut AecFactRecorder) -> T,
     ) -> T {
-        let mut session = AecWriteSession::default();
-        let result = {
+        let mut recorder = AecFactRecorder::default();
+        let (result, should_wake_scheduler) = {
             let mut aec = self.aec.write().unwrap();
-            session.begin_mutation(aec.vacancy());
-            let result = mutator(&mut aec, &mut session);
-            session.finish_mutation(aec.vacancy());
-            result
+            let vacancy_before = aec.vacancy();
+            let result = mutator(&mut aec, &mut recorder);
+            let vacancy_after = aec.vacancy();
+            let should_wake_scheduler = vacancy_before <= 0 && vacancy_after > 0;
+            (result, should_wake_scheduler)
         };
-        session.publish(&self.publisher);
-        if session.should_wake_scheduler() {
+        for fact in recorder.into_facts() {
+            self.publish_fact(fact);
+        }
+        if should_wake_scheduler {
             if let Some(wake_signal) = &self.scheduler_wakeup {
                 wake_signal.wake();
             }

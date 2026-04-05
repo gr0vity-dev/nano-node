@@ -1,7 +1,13 @@
 #[cfg(not(test))]
 use std::time::Instant;
 
-use std::{collections::{BTreeMap, HashMap}, fmt::Debug, mem::size_of, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt::Debug,
+    mem::size_of,
+    sync::Arc,
+    time::Duration,
+};
 
 #[cfg(test)]
 use mock_instant::thread_local::Instant;
@@ -926,7 +932,12 @@ mod tests {
         let rep = PrivateKey::new();
         let hash1 = BlockHash::from(1);
         let hash2 = BlockHash::from(2);
-        let vote = Arc::new(Vote::new(&rep, UnixMillisTimestamp::ZERO, 0, vec![hash1, hash2]));
+        let vote = Arc::new(Vote::new(
+            &rep,
+            UnixMillisTimestamp::ZERO,
+            0,
+            vec![hash1, hash2],
+        ));
         let results = HashMap::from([(hash1, Ok(())), (hash2, Ok(()))]);
 
         cache.insert(&vote, Amount::raw(7), &results);

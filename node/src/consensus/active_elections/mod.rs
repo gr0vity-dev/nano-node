@@ -59,6 +59,21 @@ pub enum AecFact {
     Recovered,
 }
 
+#[derive(Default)]
+pub(super) struct AecFactRecorder {
+    facts: Vec<AecFact>,
+}
+
+impl AecFactRecorder {
+    pub(super) fn record(&mut self, fact: AecFact) {
+        self.facts.push(fact);
+    }
+
+    pub(super) fn into_facts(self) -> Vec<AecFact> {
+        self.facts
+    }
+}
+
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum AecInsertError {
     Stopped,
