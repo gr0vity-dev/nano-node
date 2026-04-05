@@ -17,7 +17,7 @@ use crate::{
         AecCooldownReason, AecFact, AecForkInserter, AecService, BootstrapElectionActivator,
         LocalVotesRemover, ReceivedVote, VoteCache, VoteCacheProcessor, VoteProcessor,
         VoteRebroadcastQueue, WinnerBlockBroadcaster, aggregate_vote_results,
-        election_schedulers::SchedulerWakeHandle,
+        election_schedulers::HintedSchedulerWaker,
     },
     recently_cemented_inserter::RecentlyCementedInserter,
     representatives::{OnlineReps, RepCrawler},
@@ -38,7 +38,7 @@ pub(crate) struct AecFactProcessor {
     pub(crate) confirming_set: Arc<ConfirmingSet>,
     pub(crate) online_reps: Arc<Mutex<OnlineReps>>,
     pub(crate) active_elections: Arc<AecService>,
-    pub(crate) scheduler_wake: SchedulerWakeHandle,
+    pub(crate) hinted_scheduler_waker: HintedSchedulerWaker,
     pub(crate) rep_crawler: Arc<RepCrawler>,
     pub(crate) clock: Arc<SteadyClock>,
     pub(crate) local_votes_remover: LocalVotesRemover,
@@ -120,13 +120,13 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
             AecFact::VoteProcessed(vote, voter_weight, results) => {
                 // Cache the votes that didn't match any election
                 if vote.source != VoteSource::Cache {
-                    let changed_vote_cache = self
-                        .vote_cache
-                        .lock()
-                        .unwrap()
-                        .insert(&vote.vote, voter_weight, &results);
+                    let changed_vote_cache =
+                        self.vote_cache
+                            .lock()
+                            .unwrap()
+                            .insert(&vote.vote, voter_weight, &results);
                     if changed_vote_cache {
-                        self.scheduler_wake.wake();
+                        self.hinted_scheduler_waker.wake_after_vote_cache_change();
                     }
                 }
 

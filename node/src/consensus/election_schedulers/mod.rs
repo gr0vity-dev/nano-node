@@ -6,7 +6,7 @@ mod optimistic;
 pub mod priority;
 
 use activation_loop::ActivationLoop;
-pub(crate) use activation_loop::SchedulerWakeHandle;
+use activation_loop::SchedulerRuntimeWakeHandle;
 pub(crate) use election_schedulers_plugin::*;
 pub use hinted_scheduler::*;
 pub use manual_scheduler::*;
@@ -26,13 +26,63 @@ use super::{AecService, VoteCache};
 use crate::{cementation::ConfirmingSet, config::NodeConfig, representatives::OnlineReps};
 use priority::PriorityScheduler;
 
+#[derive(Clone)]
+pub(crate) struct AecSchedulerWaker {
+    runtime_wake: SchedulerRuntimeWakeHandle,
+}
+
+impl AecSchedulerWaker {
+    pub(crate) fn wake_after_vacancy_release_or_recovery(&self) {
+        self.runtime_wake.wake();
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct HintedSchedulerWaker {
+    runtime_wake: SchedulerRuntimeWakeHandle,
+}
+
+impl HintedSchedulerWaker {
+    pub(crate) fn wake_after_vote_cache_change(&self) {
+        self.runtime_wake.wake();
+    }
+}
+
+pub(crate) struct ElectionSchedulerWakers {
+    runtime_wake: SchedulerRuntimeWakeHandle,
+}
+
+impl ElectionSchedulerWakers {
+    pub(crate) fn new() -> Self {
+        Self {
+            runtime_wake: SchedulerRuntimeWakeHandle::new(),
+        }
+    }
+
+    pub(crate) fn aec(&self) -> AecSchedulerWaker {
+        AecSchedulerWaker {
+            runtime_wake: self.runtime_wake.clone(),
+        }
+    }
+
+    pub(crate) fn hinted(&self) -> HintedSchedulerWaker {
+        HintedSchedulerWaker {
+            runtime_wake: self.runtime_wake.clone(),
+        }
+    }
+
+    fn runtime(&self) -> SchedulerRuntimeWakeHandle {
+        self.runtime_wake.clone()
+    }
+}
+
 pub struct ElectionSchedulers {
     pub(crate) priority: Arc<PriorityScheduler>,
     pub(crate) optimistic: Arc<OptimisticScheduler>,
     pub(crate) hinted: Arc<HintedScheduler>,
     pub(crate) manual: Arc<ManualScheduler>,
     activation_loop: Arc<ActivationLoop>,
-    wake_handle: SchedulerWakeHandle,
+    wake_handle: SchedulerRuntimeWakeHandle,
     ledger: Arc<Ledger>,
 }
 
@@ -46,7 +96,7 @@ impl ElectionSchedulers {
         confirming_set: Arc<ConfirmingSet>,
         online_reps: Arc<Mutex<OnlineReps>>,
         clock: Arc<SteadyClock>,
-        wake_handle: SchedulerWakeHandle,
+        wakers: &ElectionSchedulerWakers,
     ) -> Self {
         let hinted = Arc::new(HintedScheduler::new(
             config.hinted_scheduler.clone(),
@@ -90,7 +140,7 @@ impl ElectionSchedulers {
         ));
 
         let activation_loop = Arc::new(ActivationLoop::new(
-            wake_handle.clone(),
+            wakers.runtime(),
             priority.clone(),
             optimistic.clone(),
             hinted.clone(),
@@ -106,7 +156,7 @@ impl ElectionSchedulers {
             hinted,
             manual,
             activation_loop,
-            wake_handle,
+            wake_handle: wakers.runtime(),
             ledger,
         }
     }
@@ -123,7 +173,7 @@ impl ElectionSchedulers {
         let confirming_set = Arc::new(ConfirmingSet::new_null());
         let online_reps = Arc::new(Mutex::new(OnlineReps::new_test_instance()));
         let clock = Arc::new(SteadyClock::new_null());
-        let wake_handle = SchedulerWakeHandle::new();
+        let wakers = ElectionSchedulerWakers::new();
 
         Self::new(
             config,
@@ -134,7 +184,7 @@ impl ElectionSchedulers {
             confirming_set,
             online_reps,
             clock,
-            wake_handle,
+            &wakers,
         )
     }
 

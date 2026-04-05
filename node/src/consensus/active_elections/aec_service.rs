@@ -15,13 +15,13 @@ use super::{
 use crate::consensus::{
     ElectionCandidateSource,
     election::{ConfirmedElection, Election, ElectionBehavior},
-    election_schedulers::SchedulerWakeHandle,
+    election_schedulers::AecSchedulerWaker,
 };
 
 pub struct AecService {
     aec: RwLock<ActiveElectionsContainer>,
     publisher: RwLock<Option<Sender<AecFact>>>,
-    scheduler_wake: Option<SchedulerWakeHandle>,
+    scheduler_wake: Option<AecSchedulerWaker>,
 }
 
 impl AecService {
@@ -29,7 +29,7 @@ impl AecService {
         config: ActiveElectionsConfig,
         base_latency: Duration,
         publisher: Sender<AecFact>,
-        scheduler_wake: SchedulerWakeHandle,
+        scheduler_wake: AecSchedulerWaker,
     ) -> Self {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::new(config, base_latency)),
@@ -136,8 +136,9 @@ impl AecService {
     }
 
     pub fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {
-        let (added, write_session) = self
-            .write_with_session(|aec, write_session| aec.try_add_fork(fork, fork_tally, write_session));
+        let (added, write_session) = self.write_with_session(|aec, write_session| {
+            aec.try_add_fork(fork, fork_tally, write_session)
+        });
         self.publish(write_session);
         added
     }
@@ -284,7 +285,7 @@ impl AecService {
 
     fn wake_scheduler(&self) {
         if let Some(wake_handle) = &self.scheduler_wake {
-            wake_handle.wake();
+            wake_handle.wake_after_vacancy_release_or_recovery();
         }
     }
 }
@@ -306,12 +307,16 @@ mod tests {
     use super::*;
     use crate::consensus::{
         BucketInfo, ElectionCandidate, election::ElectionBehavior,
-        election_schedulers::SchedulerWakeHandle,
+        election_schedulers::ElectionSchedulerWakers,
     };
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{BlockPriority, SavedBlock, Vote, VoteSource};
     use rsnano_utils::sync::backpressure_channel;
     use std::sync::Arc;
+
+    fn test_scheduler_waker() -> AecSchedulerWaker {
+        ElectionSchedulerWakers::new().aec()
+    }
 
     #[test]
     fn insert_publishes_container_facts_through_service_owned_sender() {
@@ -320,7 +325,7 @@ mod tests {
             ActiveElectionsConfig::default(),
             Duration::ZERO,
             tx,
-            SchedulerWakeHandle::new(),
+            test_scheduler_waker(),
         );
 
         service
@@ -345,7 +350,7 @@ mod tests {
             ActiveElectionsConfig::default(),
             Duration::ZERO,
             tx,
-            SchedulerWakeHandle::new(),
+            test_scheduler_waker(),
         );
 
         service.simulate_event(AecFact::Recovered);
@@ -360,7 +365,7 @@ mod tests {
             ActiveElectionsConfig::default(),
             Duration::ZERO,
             tx,
-            SchedulerWakeHandle::new(),
+            test_scheduler_waker(),
         );
 
         let block = SavedBlock::new_test_instance();
@@ -381,7 +386,7 @@ mod tests {
             ActiveElectionsConfig::default(),
             Duration::ZERO,
             tx,
-            SchedulerWakeHandle::new(),
+            test_scheduler_waker(),
         );
 
         let vote = crate::consensus::ReceivedVote::new(

@@ -68,18 +68,18 @@ impl SchedulerWakeSignal {
 }
 
 #[derive(Clone)]
-pub(crate) struct SchedulerWakeHandle {
+pub(super) struct SchedulerRuntimeWakeHandle {
     signal: Arc<SchedulerWakeSignal>,
 }
 
-impl SchedulerWakeHandle {
-    pub(crate) fn new() -> Self {
+impl SchedulerRuntimeWakeHandle {
+    pub(super) fn new() -> Self {
         Self {
             signal: Arc::new(SchedulerWakeSignal::new()),
         }
     }
 
-    pub(crate) fn wake(&self) {
+    pub(super) fn wake(&self) {
         self.signal.wake();
     }
 
@@ -98,7 +98,7 @@ impl SchedulerWakeHandle {
 
 pub(crate) struct ActivationLoop {
     thread: Mutex<Option<JoinHandle<()>>>,
-    wake_handle: SchedulerWakeHandle,
+    wake_handle: SchedulerRuntimeWakeHandle,
     priority: Arc<PriorityScheduler>,
     optimistic: Arc<OptimisticScheduler>,
     hinted: Arc<HintedScheduler>,
@@ -110,7 +110,7 @@ pub(crate) struct ActivationLoop {
 
 impl ActivationLoop {
     pub(crate) fn new(
-        wake_handle: SchedulerWakeHandle,
+        wake_handle: SchedulerRuntimeWakeHandle,
         priority: Arc<PriorityScheduler>,
         optimistic: Arc<OptimisticScheduler>,
         hinted: Arc<HintedScheduler>,
