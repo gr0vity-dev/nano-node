@@ -19,13 +19,13 @@ use super::{
 use crate::consensus::{
     ElectionCandidateSource,
     election::{ConfirmedElection, Election, ElectionBehavior},
-    election_schedulers::SchedulerWakeSignal,
+    election_schedulers::{SchedulerChange, SchedulerWakePolicy},
 };
 
 pub struct AecService {
     aec: RwLock<ActiveElectionsContainer>,
     publisher: RwLock<Option<Sender<AecFact>>>,
-    wake_signal: Option<Arc<SchedulerWakeSignal>>,
+    wake_policy: Option<Arc<SchedulerWakePolicy>>,
 }
 
 impl AecService {
@@ -33,12 +33,12 @@ impl AecService {
         config: ActiveElectionsConfig,
         base_latency: Duration,
         publisher: Sender<AecFact>,
-        scheduler_wakeup: Arc<SchedulerWakeSignal>,
+        wake_policy: Arc<SchedulerWakePolicy>,
     ) -> Self {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::new(config, base_latency)),
             publisher: RwLock::new(Some(publisher)),
-            wake_signal: Some(scheduler_wakeup),
+            wake_policy: Some(wake_policy),
         }
     }
 
@@ -46,7 +46,7 @@ impl AecService {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::default()),
             publisher: RwLock::new(None),
-            wake_signal: None,
+            wake_policy: None,
         }
     }
 
@@ -240,8 +240,8 @@ impl AecService {
             self.publish_fact(fact);
         }
         if should_wake_scheduler {
-            if let Some(wake_signal) = &self.wake_signal {
-                wake_signal.wake();
+            if let Some(wake_policy) = &self.wake_policy {
+                wake_policy.notify(SchedulerChange::VacancyReleased);
             }
         }
         result
@@ -269,7 +269,10 @@ impl ContainerInfoProvider for AecService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::{BucketInfo, ElectionCandidate, election::ElectionBehavior};
+    use crate::consensus::{
+        BucketInfo, ElectionCandidate, election::ElectionBehavior,
+        election_schedulers::{SchedulerWakePolicy, SchedulerWakeSignal},
+    };
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{BlockPriority, SavedBlock, Vote, VoteSource};
     use rsnano_utils::sync::backpressure_channel;
@@ -278,11 +281,12 @@ mod tests {
     #[test]
     fn insert_publishes_container_facts_through_service_owned_sender() {
         let (tx, rx) = backpressure_channel::channel(1);
+        let wake_policy = Arc::new(SchedulerWakePolicy::new(Arc::new(SchedulerWakeSignal::new())));
         let service = AecService::new(
             ActiveElectionsConfig::default(),
             Duration::ZERO,
             tx,
-            Arc::new(SchedulerWakeSignal::new()),
+            wake_policy,
         );
 
         service
@@ -303,11 +307,12 @@ mod tests {
     #[test]
     fn refill_publishes_scheduler_driven_activation_through_service_owned_sender() {
         let (tx, rx) = backpressure_channel::channel(1);
+        let wake_policy = Arc::new(SchedulerWakePolicy::new(Arc::new(SchedulerWakeSignal::new())));
         let service = AecService::new(
             ActiveElectionsConfig::default(),
             Duration::ZERO,
             tx,
-            Arc::new(SchedulerWakeSignal::new()),
+            wake_policy,
         );
 
         let block = SavedBlock::new_test_instance();
@@ -324,11 +329,12 @@ mod tests {
     #[test]
     fn vote_processed_uses_service_owned_publication_path() {
         let (tx, rx) = backpressure_channel::channel(1);
+        let wake_policy = Arc::new(SchedulerWakePolicy::new(Arc::new(SchedulerWakeSignal::new())));
         let service = AecService::new(
             ActiveElectionsConfig::default(),
             Duration::ZERO,
             tx,
-            Arc::new(SchedulerWakeSignal::new()),
+            wake_policy,
         );
 
         let vote = crate::consensus::ReceivedVote::new(
@@ -354,6 +360,7 @@ mod tests {
     fn erase_wakes_scheduler_when_vacancy_is_released() {
         let (tx, _rx) = backpressure_channel::channel(8);
         let wake_signal = Arc::new(SchedulerWakeSignal::new());
+        let wake_policy = Arc::new(SchedulerWakePolicy::new(wake_signal.clone()));
         let service = AecService::new(
             ActiveElectionsConfig {
                 max_elections: 1,
@@ -361,7 +368,7 @@ mod tests {
             },
             Duration::ZERO,
             tx,
-            wake_signal.clone(),
+            wake_policy,
         );
 
         let block = SavedBlock::new_test_instance();
@@ -382,6 +389,7 @@ mod tests {
     fn recovered_wakes_scheduler_when_cooldown_releases_vacancy() {
         let (tx, _rx) = backpressure_channel::channel(8);
         let wake_signal = Arc::new(SchedulerWakeSignal::new());
+        let wake_policy = Arc::new(SchedulerWakePolicy::new(wake_signal.clone()));
         let service = AecService::new(
             ActiveElectionsConfig {
                 max_elections: 1,
@@ -389,7 +397,7 @@ mod tests {
             },
             Duration::ZERO,
             tx,
-            wake_signal.clone(),
+            wake_policy,
         );
 
         service.set_cooldown(true, AecCooldownReason::AecFactQueueFull);
@@ -403,11 +411,12 @@ mod tests {
     fn publish_vote_processed_does_not_wake_scheduler() {
         let (tx, _rx) = backpressure_channel::channel(8);
         let wake_signal = Arc::new(SchedulerWakeSignal::new());
+        let wake_policy = Arc::new(SchedulerWakePolicy::new(wake_signal.clone()));
         let service = AecService::new(
             ActiveElectionsConfig::default(),
             Duration::ZERO,
             tx,
-            wake_signal.clone(),
+            wake_policy,
         );
 
         let vote = crate::consensus::ReceivedVote::new(

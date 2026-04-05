@@ -69,6 +69,27 @@ impl SchedulerWakeSignal {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SchedulerChange {
+    SourceQueueGainedWork,
+    VacancyReleased,
+    SchedulingRelevantVoteObserved,
+}
+
+pub(crate) struct SchedulerWakePolicy {
+    wake_signal: Arc<SchedulerWakeSignal>,
+}
+
+impl SchedulerWakePolicy {
+    pub(crate) fn new(wake_signal: Arc<SchedulerWakeSignal>) -> Self {
+        Self { wake_signal }
+    }
+
+    pub(crate) fn notify(&self, _change: SchedulerChange) {
+        self.wake_signal.wake();
+    }
+}
+
 pub(crate) struct ActivationLoop {
     thread: Mutex<Option<JoinHandle<()>>>,
     wake_signal: Arc<SchedulerWakeSignal>,

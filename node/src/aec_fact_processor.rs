@@ -17,7 +17,7 @@ use crate::{
         AecCooldownReason, AecFact, AecForkInserter, AecService, BootstrapElectionActivator,
         LocalVotesRemover, ReceivedVote, VoteCache, VoteCacheProcessor, VoteProcessor,
         VoteRebroadcastQueue, WinnerBlockBroadcaster, aggregate_vote_results,
-        election_schedulers::SchedulerWakeSignal,
+        election_schedulers::{SchedulerChange, SchedulerWakePolicy},
     },
     recently_cemented_inserter::RecentlyCementedInserter,
     representatives::{OnlineReps, RepCrawler},
@@ -38,7 +38,7 @@ pub(crate) struct AecFactProcessor {
     pub(crate) confirming_set: Arc<ConfirmingSet>,
     pub(crate) online_reps: Arc<Mutex<OnlineReps>>,
     pub(crate) active_elections: Arc<AecService>,
-    pub(crate) wake_signal: Arc<SchedulerWakeSignal>,
+    pub(crate) wake_policy: Arc<SchedulerWakePolicy>,
     pub(crate) rep_crawler: Arc<RepCrawler>,
     pub(crate) clock: Arc<SteadyClock>,
     pub(crate) local_votes_remover: LocalVotesRemover,
@@ -126,7 +126,8 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                         .unwrap()
                         .insert(&vote.vote, voter_weight, &results)
                 {
-                    self.wake_signal.wake();
+                    self.wake_policy
+                        .notify(SchedulerChange::SchedulingRelevantVoteObserved);
                 }
 
                 self.vote_rebroadcast_queue

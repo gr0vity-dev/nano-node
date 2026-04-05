@@ -6,7 +6,7 @@ mod optimistic;
 pub mod priority;
 
 use activation_loop::ActivationLoop;
-pub(crate) use activation_loop::SchedulerWakeSignal;
+pub(crate) use activation_loop::{SchedulerChange, SchedulerWakePolicy, SchedulerWakeSignal};
 pub(crate) use election_schedulers_plugin::*;
 pub use hinted_scheduler::*;
 pub use manual_scheduler::*;
@@ -32,7 +32,7 @@ pub struct ElectionSchedulers {
     pub(crate) hinted: Arc<HintedScheduler>,
     pub(crate) manual: Arc<ManualScheduler>,
     activation_loop: Arc<ActivationLoop>,
-    wake_signal: Arc<SchedulerWakeSignal>,
+    wake_policy: Arc<SchedulerWakePolicy>,
     ledger: Arc<Ledger>,
 }
 
@@ -46,6 +46,7 @@ impl ElectionSchedulers {
         confirming_set: Arc<ConfirmingSet>,
         online_reps: Arc<Mutex<OnlineReps>>,
         clock: Arc<SteadyClock>,
+        wake_policy: Arc<SchedulerWakePolicy>,
         wake_signal: Arc<SchedulerWakeSignal>,
     ) -> Self {
         let hinted = Arc::new(HintedScheduler::new(
@@ -106,7 +107,7 @@ impl ElectionSchedulers {
             hinted,
             manual,
             activation_loop,
-            wake_signal,
+            wake_policy,
             ledger,
         }
     }
@@ -123,6 +124,8 @@ impl ElectionSchedulers {
         let confirming_set = Arc::new(ConfirmingSet::new_null());
         let online_reps = Arc::new(Mutex::new(OnlineReps::new_test_instance()));
         let clock = Arc::new(SteadyClock::new_null());
+        let wake_signal = Arc::new(SchedulerWakeSignal::new());
+        let wake_policy = Arc::new(SchedulerWakePolicy::new(wake_signal.clone()));
 
         Self::new(
             config,
@@ -133,7 +136,8 @@ impl ElectionSchedulers {
             confirming_set,
             online_reps,
             clock,
-            Arc::new(SchedulerWakeSignal::new()),
+            wake_policy,
+            wake_signal,
         )
     }
 
@@ -152,25 +156,25 @@ impl ElectionSchedulers {
         self.optimistic
             .activate(account, account_info.block_count, conf_info.height);
         self.priority.activate_backlog(any, account_info, conf_info);
-        self.wake_signal.wake();
+        self.wake_policy.notify(SchedulerChange::SourceQueueGainedWork);
     }
 
     pub fn activate_accounts_with_fresh_blocks(&self, processed: &[ProcessResult]) {
         let any = self.ledger.any();
         self.priority
             .activate_accounts_with_fresh_blocks(&any, processed);
-        self.wake_signal.wake();
+        self.wake_policy.notify(SchedulerChange::SourceQueueGainedWork);
     }
 
     pub fn add_manual(&self, block: SavedBlock) {
         self.manual.push(block);
-        self.wake_signal.wake();
+        self.wake_policy.notify(SchedulerChange::SourceQueueGainedWork);
     }
 
     pub fn activate_successors<'a>(&self, confirmed: impl IntoIterator<Item = &'a SavedBlock>) {
         let any = self.ledger.any();
         self.priority.activate_successors(&any, confirmed);
-        self.wake_signal.wake();
+        self.wake_policy.notify(SchedulerChange::SourceQueueGainedWork);
     }
 
     pub fn start(&self) {
