@@ -1252,6 +1252,7 @@ impl Node {
             confirming_set: confirming_set.clone(),
             online_reps: online_reps.clone(),
             active_elections: active_elections.clone(),
+            election_schedulers: election_schedulers.clone(),
             rep_crawler: rep_crawler.clone(),
             clock: steady_clock.clone(),
             local_votes_remover,

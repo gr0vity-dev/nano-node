@@ -162,9 +162,7 @@ impl ElectionSchedulers {
         self.wake_signal.wake();
     }
 
-    // Temporary compatibility bridge for the remaining non-owner test:
-    // `hinted_slot_release_wakes_through_notify`.
-    pub fn notify(&self) {
+    pub(crate) fn wake_hinted(&self) {
         self.wake_signal.wake();
     }
 

@@ -529,7 +529,7 @@ fn inactive_votes_cache_election_start() {
 }
 
 #[test]
-fn hinted_slot_release_wakes_through_notify() {
+fn hinted_scheduler_wakes_from_live_vote_and_slot_release() {
     let mut system = System::new();
     let mut config = System::default_config_without_backlog_scan();
     config.enable_priority_scheduler = false;
@@ -604,7 +604,6 @@ fn hinted_slot_release_wakes_through_notify() {
         .enqueue(vote2, None, VoteSource::Live, None);
 
     assert_timely_eq2(|| node.vote_cache.lock().unwrap().size(), 2);
-    node.election_schedulers.notify();
 
     assert_timely2(|| node.is_active_hash(&candidate1.hash()));
     assert_eq!(
@@ -667,6 +666,9 @@ fn hinted_scheduler_wakes_after_cooldown_recovery_without_notify() {
     .into();
     node.process(candidate.clone());
 
+    node.aec
+        .set_cooldown(true, AecCooldownReason::AecFactQueueFull);
+
     let vote = Arc::new(Vote::new(
         &rep,
         UnixMillisTimestamp::ZERO,
@@ -677,10 +679,6 @@ fn hinted_scheduler_wakes_after_cooldown_recovery_without_notify() {
         .enqueue(vote, None, VoteSource::Live, None);
 
     assert_timely_eq2(|| node.vote_cache.lock().unwrap().size(), 1);
-
-    node.aec
-        .set_cooldown(true, AecCooldownReason::AecFactQueueFull);
-    node.election_schedulers.notify();
     assert_never(Duration::from_millis(500), || {
         node.is_active_hash(&candidate.hash())
     });

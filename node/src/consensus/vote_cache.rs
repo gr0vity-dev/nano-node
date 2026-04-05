@@ -64,50 +64,60 @@ impl VoteCache {
         self.cache.contains(hash)
     }
 
-    /// Adds a new vote to cache
+    /// Adds a new vote to cache.
+    /// Returns true when cache state changed, false for no-op inserts.
     pub fn insert(
         &mut self,
         vote: &Arc<Vote>,
         rep_weight: Amount,
         results: &HashMap<BlockHash, Result<(), VoteError>>,
-    ) {
+    ) -> bool {
         // Results map should be empty or have the same hashes as the vote
         debug_assert!(results.is_empty() || vote.hashes.iter().all(|h| results.contains_key(h)));
+
+        let mut changed = false;
 
         // If results map is empty, insert all hashes (meant for testing)
         if results.is_empty() {
             for hash in &vote.hashes {
-                self.insert_impl(vote, hash, rep_weight);
+                changed |= self.insert_impl(vote, hash, rep_weight);
             }
         } else {
             for (hash, code) in results {
                 // Cache votes with a corresponding active election (indicated by `vote_code::vote`) in case that election gets dropped
                 if matches!(code, Ok(()) | Err(VoteError::Indeterminate)) {
-                    self.insert_impl(vote, hash, rep_weight)
+                    changed |= self.insert_impl(vote, hash, rep_weight);
                 }
             }
         }
+
+        changed
     }
 
-    fn insert_impl(&mut self, vote: &Arc<Vote>, hash: &BlockHash, rep_weight: Amount) {
+    fn insert_impl(&mut self, vote: &Arc<Vote>, hash: &BlockHash, rep_weight: Amount) -> bool {
+        let mut changed = false;
         let cache_entry_exists = self.cache.modify_by_hash(hash, |existing| {
             self.stats.inc(StatType::VoteCache, DetailType::Update);
-            existing.vote(vote, rep_weight, self.config.max_voters);
+            changed = existing.vote(vote, rep_weight, self.config.max_voters);
         });
 
-        if !cache_entry_exists {
-            self.stats.inc(StatType::VoteCache, DetailType::Insert);
-            let id = self.next_id;
-            self.next_id += 1;
-            let mut cache_entry = CacheEntry::new(id, *hash);
-            cache_entry.vote(vote, rep_weight, self.config.max_voters);
-            self.cache.insert(cache_entry);
-
-            // Remove the oldest entry if we have reached the capacity limit
-            if self.cache.len() > self.config.max_size {
-                self.cache.pop_front();
-            }
+        if cache_entry_exists {
+            return changed;
         }
+
+        self.stats.inc(StatType::VoteCache, DetailType::Insert);
+        let id = self.next_id;
+        self.next_id += 1;
+        let mut cache_entry = CacheEntry::new(id, *hash);
+        cache_entry.vote(vote, rep_weight, self.config.max_voters);
+        self.cache.insert(cache_entry);
+
+        // Remove the oldest entry if we have reached the capacity limit
+        if self.cache.len() > self.config.max_size {
+            self.cache.pop_front();
+        }
+
+        true
     }
 
     pub fn empty(&self) -> bool {
@@ -276,8 +286,8 @@ impl CacheEntry {
             .collect()
     }
 
-    /// Adds a vote into a list, checks for duplicates and updates timestamp if new one is greater
-    /// returns true if current tally changed, false otherwise
+    /// Adds a vote into a list, checks for duplicates and updates timestamp if new one is greater.
+    /// Returns true if this cache entry changed, false otherwise.
     pub fn vote(&mut self, vote: &Arc<Vote>, rep_weight: Amount, max_voters: usize) -> bool {
         let updated = self.vote_impl(vote, rep_weight, max_voters);
         if updated {
@@ -295,10 +305,9 @@ impl CacheEntry {
             // Update timestamp if newer but tally remains unchanged as we already counted this rep weight
             // It is not essential to keep tally up to date if rep voting weight changes, elections do tally calculations independently, so in the worst case scenario only our queue ordering will be a bit off
             if vote.timestamp() > existing.vote.timestamp() {
-                let was_final = existing.vote.is_final();
                 self.voters
                     .modify(&representative, Arc::clone(vote), rep_weight);
-                return !was_final && vote.is_final(); // Tally changed only if the vote became final
+                return true;
             } else {
                 return false;
             }
