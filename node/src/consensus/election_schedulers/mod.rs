@@ -158,6 +158,10 @@ impl ElectionSchedulers {
         self.coordinator.max_optimistic_elections()
     }
 
+    pub fn max_hinted_elections(&self) -> usize {
+        self.coordinator.max_hinted_elections()
+    }
+
     pub fn track_notify(&self) -> Arc<OutputTrackerMt<()>> {
         self.notify_listener.track()
     }

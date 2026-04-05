@@ -159,6 +159,10 @@ impl CandidateCoordinator {
         self.optimistic.lock().unwrap().max_elections()
     }
 
+    pub(crate) fn max_hinted_elections(&self) -> usize {
+        self.hinted.lock().unwrap().max_elections()
+    }
+
     pub(crate) fn push_manual(&self, block: SavedBlock) {
         self.manual_queue.lock().unwrap().push_back(block);
         self.condition.notify_all();

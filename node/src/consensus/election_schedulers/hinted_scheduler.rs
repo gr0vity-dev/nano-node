@@ -67,6 +67,10 @@ impl HintedSchedulerState {
         self.config.check_interval
     }
 
+    pub(crate) fn max_elections(&self) -> usize {
+        self.max_elections
+    }
+
     pub(crate) fn should_run(&self, hinted_count: usize, aec_vacancy: i64) -> bool {
         self.vacancy(hinted_count, aec_vacancy) > 0
     }
