@@ -3,11 +3,11 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     mem::size_of,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use rsnano_ledger::{AnySet, Ledger, LedgerSet};
-use rsnano_nullable_clock::SteadyClock;
+use rsnano_nullable_clock::{SteadyClock, Timestamp};
 use rsnano_types::{Amount, BlockHash};
 use rsnano_utils::{
     container_info::ContainerInfo,
@@ -55,7 +55,8 @@ impl Default for HintedSchedulerConfig {
 
 /// Monitors inactive vote cache and schedules elections with the highest observed vote tally.
 pub struct HintedScheduler {
-    config: HintedSchedulerConfig,
+    logic: HintedSchedulerLogic,
+    state: Mutex<HintedSchedulerState>,
     active_elections: Arc<AecService>,
     ledger: Arc<Ledger>,
     confirming_set: Arc<ConfirmingSet>,
@@ -63,7 +64,6 @@ pub struct HintedScheduler {
     vote_cache: Arc<Mutex<VoteCache>>,
     online_reps: Arc<Mutex<OnlineReps>>,
     clock: Arc<SteadyClock>,
-    cooldowns: Mutex<OrderedCooldowns>,
     pub max_elections: usize,
 }
 
@@ -81,7 +81,8 @@ impl HintedScheduler {
         let max_elections = active_elections.max_len() * config.hinted_limit_percentage / 100;
 
         Self {
-            config,
+            logic: HintedSchedulerLogic::new(config, max_elections),
+            state: Mutex::new(HintedSchedulerState::default()),
             active_elections,
             ledger,
             stats,
@@ -89,36 +90,35 @@ impl HintedScheduler {
             confirming_set,
             online_reps,
             clock,
-            cooldowns: Mutex::new(OrderedCooldowns::new()),
             max_elections,
         }
     }
 
-    fn aec_vacancy(&self) -> i64 {
-        let vacancy = self.max_elections as i64
-            - self
-                .active_elections
-                .count_by_behavior(ElectionBehavior::Hinted) as i64;
-        min(vacancy, self.active_elections.vacancy())
+    fn hinted_vacancy(&self) -> i64 {
+        self.logic.hinted_vacancy(
+            self.active_elections
+                .count_by_behavior(ElectionBehavior::Hinted),
+            self.active_elections.vacancy(),
+        )
     }
 
     pub fn container_info(&self) -> ContainerInfo {
-        let guard = self.cooldowns.lock().unwrap();
+        let guard = self.state.lock().unwrap();
         [(
             "cooldowns",
-            guard.len(),
-            (size_of::<BlockHash>() + size_of::<Instant>()) * 2,
+            guard.cooldowns.len(),
+            (size_of::<BlockHash>() + size_of::<Timestamp>()) * 2,
         )]
         .into()
     }
 
     pub fn check_interval(&self) -> Duration {
-        self.config.check_interval
+        self.logic.check_interval()
     }
 
     fn predicate(&self) -> bool {
         // Check if there is space inside AEC for a new hinted election
-        self.aec_vacancy() > 0
+        self.hinted_vacancy() > 0
     }
 
     fn activate(&self, any: &impl AnySet, hash: BlockHash, check_dependents: bool) -> bool {
@@ -201,21 +201,30 @@ impl HintedScheduler {
     }
 
     fn run_interactive(&self) -> bool {
-        let minimum_tally = self.tally_threshold();
-        let minimum_final_tally = self.final_tally_threshold();
+        let minimum_tally = self.logic.tally_threshold(
+            self.online_reps
+                .lock()
+                .unwrap()
+                .trended_or_minimum_weight(),
+        );
+        let minimum_final_tally = self.online_reps.lock().unwrap().quorum_delta();
 
         // Get the list before db transaction starts to avoid unnecessary slowdowns
         let tops = self.vote_cache.lock().unwrap().top(minimum_tally);
 
         let mut any = self.ledger.any();
         let mut inserted_any = false;
+        let mut state = self.state.lock().unwrap();
 
         for entry in tops {
             if !self.predicate() {
                 return inserted_any;
             }
 
-            if self.cooldown(entry.hash) {
+            if self
+                .logic
+                .cooldown(&mut state, entry.hash, self.clock.now())
+            {
                 continue;
             }
 
@@ -224,7 +233,10 @@ impl HintedScheduler {
             }
 
             // Check dependents only if cached tally is lower than quorum
-            if entry.final_tally < minimum_final_tally {
+            if self
+                .logic
+                .should_check_dependents(entry.final_tally, minimum_final_tally)
+            {
                 // Ensure all dependent blocks are already confirmed before activating
                 self.stats.inc(StatType::Hinting, DetailType::Activate);
                 inserted_any |=
@@ -246,56 +258,81 @@ impl HintedScheduler {
         }
         self.run_interactive()
     }
+}
 
-    fn tally_threshold(&self) -> Amount {
-        (self.online_reps.lock().unwrap().trended_or_minimum_weight() / 100)
-            * self.config.hinting_threshold_percent as u128
+#[derive(Default)]
+struct HintedSchedulerState {
+    cooldowns: OrderedCooldowns,
+}
+
+struct HintedSchedulerLogic {
+    check_interval: Duration,
+    block_cooldown: Duration,
+    hinting_threshold_percent: u32,
+    max_elections: usize,
+}
+
+impl HintedSchedulerLogic {
+    fn new(config: HintedSchedulerConfig, max_elections: usize) -> Self {
+        Self {
+            check_interval: config.check_interval,
+            block_cooldown: config.block_cooldown,
+            hinting_threshold_percent: config.hinting_threshold_percent,
+            max_elections,
+        }
     }
 
-    fn final_tally_threshold(&self) -> Amount {
-        self.online_reps.lock().unwrap().quorum_delta()
+    fn check_interval(&self) -> Duration {
+        self.check_interval
     }
 
-    fn cooldown(&self, hash: BlockHash) -> bool {
-        let mut guard = self.cooldowns.lock().unwrap();
-        let now = Instant::now();
-        // Check if the hash is still in the cooldown period using the hashed index
-        if let Some(timeout) = guard.get(&hash) {
+    fn hinted_vacancy(&self, hinted_count: usize, aec_vacancy: i64) -> i64 {
+        min(self.max_elections as i64 - hinted_count as i64, aec_vacancy)
+    }
+
+    fn tally_threshold(&self, online_weight: Amount) -> Amount {
+        (online_weight / 100) * self.hinting_threshold_percent as u128
+    }
+
+    fn should_check_dependents(&self, final_tally: Amount, final_tally_threshold: Amount) -> bool {
+        final_tally < final_tally_threshold
+    }
+
+    fn cooldown(
+        &self,
+        state: &mut HintedSchedulerState,
+        hash: BlockHash,
+        now: Timestamp,
+    ) -> bool {
+        let cooldowns = &mut state.cooldowns;
+        if let Some(timeout) = cooldowns.get(&hash) {
             if *timeout > now {
-                return true; // Needs cooldown
+                return true;
             }
-            guard.remove(&hash); // Entry is outdated, so remove it
+            cooldowns.remove(&hash);
         }
 
-        // Insert the new entry
-        guard.insert(hash, now + self.config.block_cooldown);
-
-        // Trim old entries
-        guard.trim(now);
-        false // No need to cooldown
+        cooldowns.insert(hash, now + self.block_cooldown);
+        cooldowns.trim(now);
+        false
     }
 }
 
+#[derive(Default)]
 struct OrderedCooldowns {
-    by_hash: HashMap<BlockHash, Instant>,
-    by_time: BTreeMap<Instant, Vec<BlockHash>>,
+    by_hash: HashMap<BlockHash, Timestamp>,
+    by_time: BTreeMap<Timestamp, Vec<BlockHash>>,
 }
 
 impl OrderedCooldowns {
-    fn new() -> Self {
-        Self {
-            by_hash: HashMap::new(),
-            by_time: BTreeMap::new(),
-        }
-    }
-    fn insert(&mut self, hash: BlockHash, timeout: Instant) {
+    fn insert(&mut self, hash: BlockHash, timeout: Timestamp) {
         if let Some(old_timeout) = self.by_hash.insert(hash, timeout) {
             self.remove_timeout_entry(&hash, old_timeout);
         }
         self.by_time.entry(timeout).or_default().push(hash);
     }
 
-    fn get(&self, hash: &BlockHash) -> Option<&Instant> {
+    fn get(&self, hash: &BlockHash) -> Option<&Timestamp> {
         self.by_hash.get(hash)
     }
 
@@ -305,7 +342,7 @@ impl OrderedCooldowns {
         }
     }
 
-    fn remove_timeout_entry(&mut self, hash: &BlockHash, timeout: Instant) {
+    fn remove_timeout_entry(&mut self, hash: &BlockHash, timeout: Timestamp) {
         if let Some(hashes) = self.by_time.get_mut(&timeout) {
             if hashes.len() == 1 {
                 self.by_time.remove(&timeout);
@@ -315,7 +352,7 @@ impl OrderedCooldowns {
         }
     }
 
-    fn trim(&mut self, now: Instant) {
+    fn trim(&mut self, now: Timestamp) {
         while let Some(entry) = self.by_time.first_entry() {
             if *entry.key() <= now {
                 let hashes = entry.remove();

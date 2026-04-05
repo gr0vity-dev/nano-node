@@ -7,17 +7,21 @@ use rsnano_ledger::{
 use rsnano_node::{
     bootstrap::BootstrapConfig,
     config::{NodeConfig, NodeFlags},
-    consensus::{FilteredVote, ReceivedVote},
+    consensus::{
+        FilteredVote, ReceivedVote, election::ElectionBehavior,
+        election_schedulers::priority::bucket_count,
+    },
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
-    Account, Amount, DEV_GENESIS_KEY, PrivateKey, UnixMillisTimestamp, Vote, VoteError, VoteSource,
+    Account, Amount, DEV_GENESIS_KEY, PrivateKey, StateBlockArgs, UnixMillisTimestamp, Vote,
+    VoteError, VoteSource,
 };
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{
     System, assert_always_eq, assert_never, assert_timely_eq, assert_timely_eq2, assert_timely2,
     process_open_block, process_send_block, setup_independent_blocks, start_election,
-    start_elections,
+    start_elections, setup_new_account, setup_rep,
 };
 
 /// What this test is doing:
@@ -525,6 +529,109 @@ fn inactive_votes_cache_election_start() {
     // send7 cannot be voted on but an election should be started from inactive votes
     node.process_active(send4);
     assert_timely_eq2(|| node.ledger.confirmed_count(), 7);
+}
+
+#[test]
+fn hinted_slot_release_wakes_through_notify() {
+    let mut system = System::new();
+    let mut config = System::default_config_without_backlog_scan();
+    config.enable_priority_scheduler = false;
+    config.enable_optimistic_scheduler = false;
+    config.active_elections.max_elections = bucket_count();
+    config.hinted_scheduler.check_interval = Duration::from_secs(60);
+    config.hinted_scheduler.hinting_threshold_percent = 0;
+    config.hinted_scheduler.hinted_limit_percentage = 2;
+    let node = system.build_node().config(config).finish();
+
+    let rep_weight = node.online_reps.lock().unwrap().minimum_principal_weight() + Amount::raw(1);
+    let rep1 = setup_rep(&node, rep_weight, &DEV_GENESIS_KEY);
+    let rep2 = setup_rep(&node, rep_weight, &DEV_GENESIS_KEY);
+
+    let key1 = PrivateKey::new();
+    let key2 = PrivateKey::new();
+
+    setup_new_account(
+        &node,
+        Amount::nano(100_000),
+        &DEV_GENESIS_KEY,
+        &key1,
+        key1.public_key(),
+        true,
+    );
+    setup_new_account(
+        &node,
+        Amount::nano(100_000),
+        &DEV_GENESIS_KEY,
+        &key2,
+        key2.public_key(),
+        true,
+    );
+
+    let candidate1: rsnano_types::Block = StateBlockArgs {
+        key: &key1,
+        previous: node.latest(&key1.account()),
+        representative: key1.public_key(),
+        balance: node.balance(&key1.account()) - Amount::raw(1),
+        link: Account::from(100).into(),
+        work: node.work_generate_dev(node.latest(&key1.account())),
+    }
+    .into();
+    let candidate2: rsnano_types::Block = StateBlockArgs {
+        key: &key2,
+        previous: node.latest(&key2.account()),
+        representative: key2.public_key(),
+        balance: node.balance(&key2.account()) - Amount::raw(1),
+        link: Account::from(200).into(),
+        work: node.work_generate_dev(node.latest(&key2.account())),
+    }
+    .into();
+    node.process(candidate1.clone());
+    node.process(candidate2.clone());
+
+    let vote1 = Arc::new(Vote::new(
+        &rep1,
+        UnixMillisTimestamp::ZERO,
+        0,
+        vec![candidate1.hash(), candidate2.hash()],
+    ));
+    node.vote_processor_queue
+        .enqueue(vote1, None, VoteSource::Live, None);
+
+    let vote2 = Arc::new(Vote::new(
+        &rep2,
+        UnixMillisTimestamp::ZERO,
+        0,
+        vec![candidate1.hash()],
+    ));
+    node.vote_processor_queue
+        .enqueue(vote2, None, VoteSource::Live, None);
+
+    assert_timely_eq2(|| node.vote_cache.lock().unwrap().size(), 2);
+    node.election_schedulers.notify();
+
+    assert_timely2(|| node.is_active_hash(&candidate1.hash()));
+    assert_eq!(
+        node.aec
+            .election_for_block(&candidate1.hash())
+            .unwrap()
+            .behavior(),
+        ElectionBehavior::Hinted
+    );
+    assert_never(Duration::from_millis(500), || {
+        node.is_active_hash(&candidate2.hash())
+    });
+
+    node.force_confirm(&candidate1.hash());
+
+    assert_timely2(|| !node.is_active_hash(&candidate1.hash()));
+    assert_timely2(|| node.is_active_hash(&candidate2.hash()));
+    assert_eq!(
+        node.aec
+            .election_for_block(&candidate2.hash())
+            .unwrap()
+            .behavior(),
+        ElectionBehavior::Hinted
+    );
 }
 
 #[test]
