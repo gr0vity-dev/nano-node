@@ -264,8 +264,6 @@ mod election_scheduler {
         node.vote_processor_queue
             .enqueue(vote, None, VoteSource::Live, None);
 
-        node.election_schedulers.notify();
-
         assert!(!node.is_active_hash(&candidate.hash()));
         assert_never(Duration::from_millis(500), || {
             node.is_active_hash(&candidate.hash())

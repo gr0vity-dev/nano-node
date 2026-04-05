@@ -532,7 +532,7 @@ fn inactive_votes_cache_election_start() {
 }
 
 #[test]
-fn hinted_slot_release_wakes_through_notify() {
+fn hinted_vote_cache_mutation_wakes_scheduler_without_notify_bridge() {
     let mut system = System::new();
     let mut config = System::default_config_without_backlog_scan();
     config.enable_priority_scheduler = false;
@@ -607,7 +607,6 @@ fn hinted_slot_release_wakes_through_notify() {
         .enqueue(vote2, None, VoteSource::Live, None);
 
     assert_timely_eq2(|| node.vote_cache.lock().unwrap().size(), 2);
-    node.election_schedulers.notify();
 
     assert_timely2(|| node.is_active_hash(&candidate1.hash()));
     assert_eq!(

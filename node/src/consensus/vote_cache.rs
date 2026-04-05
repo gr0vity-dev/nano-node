@@ -70,29 +70,34 @@ impl VoteCache {
         vote: &Arc<Vote>,
         rep_weight: Amount,
         results: &HashMap<BlockHash, Result<(), VoteError>>,
-    ) {
+    ) -> bool {
         // Results map should be empty or have the same hashes as the vote
         debug_assert!(results.is_empty() || vote.hashes.iter().all(|h| results.contains_key(h)));
+
+        let mut changed = false;
 
         // If results map is empty, insert all hashes (meant for testing)
         if results.is_empty() {
             for hash in &vote.hashes {
-                self.insert_impl(vote, hash, rep_weight);
+                changed |= self.insert_impl(vote, hash, rep_weight);
             }
         } else {
             for (hash, code) in results {
                 // Cache votes with a corresponding active election (indicated by `vote_code::vote`) in case that election gets dropped
                 if matches!(code, Ok(()) | Err(VoteError::Indeterminate)) {
-                    self.insert_impl(vote, hash, rep_weight)
+                    changed |= self.insert_impl(vote, hash, rep_weight);
                 }
             }
         }
+
+        changed
     }
 
-    fn insert_impl(&mut self, vote: &Arc<Vote>, hash: &BlockHash, rep_weight: Amount) {
+    fn insert_impl(&mut self, vote: &Arc<Vote>, hash: &BlockHash, rep_weight: Amount) -> bool {
+        let mut changed = false;
         let cache_entry_exists = self.cache.modify_by_hash(hash, |existing| {
             self.stats.inc(StatType::VoteCache, DetailType::Update);
-            existing.vote(vote, rep_weight, self.config.max_voters);
+            changed = existing.vote(vote, rep_weight, self.config.max_voters);
         });
 
         if !cache_entry_exists {
@@ -107,7 +112,11 @@ impl VoteCache {
             if self.cache.len() > self.config.max_size {
                 self.cache.pop_front();
             }
+
+            return true;
         }
+
+        changed
     }
 
     pub fn empty(&self) -> bool {
@@ -673,8 +682,8 @@ mod tests {
         let vote1 = create_vote(&rep, &hash, 1);
         let vote2 = create_vote(&rep, &hash, 1);
 
-        cache.insert(&vote1, Amount::raw(9), &HashMap::new());
-        cache.insert(&vote2, Amount::raw(9), &HashMap::new());
+        assert!(cache.insert(&vote1, Amount::raw(9), &HashMap::new()));
+        assert!(!cache.insert(&vote2, Amount::raw(9), &HashMap::new()));
 
         assert_eq!(cache.size(), 1)
     }
@@ -689,7 +698,7 @@ mod tests {
         let hash = BlockHash::from(1);
         let rep = PrivateKey::new();
         let vote1 = create_vote(&rep, &hash, 1);
-        cache.insert(&vote1, Amount::raw(9), &HashMap::new());
+        assert!(cache.insert(&vote1, Amount::raw(9), &HashMap::new()));
 
         let vote2 = Arc::new(Vote::new(
             &rep,
@@ -697,7 +706,7 @@ mod tests {
             Vote::DURATION_MAX,
             vec![hash],
         ));
-        cache.insert(&vote2, Amount::raw(9), &HashMap::new());
+        assert!(cache.insert(&vote2, Amount::raw(9), &HashMap::new()));
 
         let peek2 = cache.find(&hash);
         assert_eq!(peek2.len(), 1);
@@ -713,11 +722,11 @@ mod tests {
         let hash = BlockHash::from(1);
         let rep = PrivateKey::new();
         let vote1 = create_vote(&rep, &hash, 2);
-        cache.insert(&vote1, Amount::raw(9), &HashMap::new());
+        assert!(cache.insert(&vote1, Amount::raw(9), &HashMap::new()));
         let peek1 = cache.find(&hash);
 
         let vote2 = create_vote(&rep, &hash, 1);
-        cache.insert(&vote2, Amount::raw(9), &HashMap::new());
+        assert!(!cache.insert(&vote2, Amount::raw(9), &HashMap::new()));
         let peek2 = cache.find(&hash);
 
         assert_eq!(cache.size(), 1);

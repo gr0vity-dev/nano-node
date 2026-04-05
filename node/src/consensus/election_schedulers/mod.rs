@@ -163,13 +163,6 @@ impl ElectionSchedulers {
         self.wake_handle.wake();
     }
 
-    pub fn notify(&self) {
-        // Temporary compatibility bridge for non-owner wake callers.
-        // Remaining production caller: AecFactProcessor.
-        // Remaining test caller: hinted_slot_release_wakes_through_notify.
-        self.wake_handle.wake();
-    }
-
     pub fn add_manual(&self, block: SavedBlock) {
         self.manual.push(block);
         self.wake_handle.wake();
