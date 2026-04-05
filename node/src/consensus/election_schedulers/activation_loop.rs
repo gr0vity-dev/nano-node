@@ -6,10 +6,70 @@ use std::{
 
 use super::{HintedScheduler, ManualScheduler, OptimisticScheduler, PriorityScheduler};
 
+pub(super) struct SchedulerWakeSignal {
+    state: Mutex<SchedulerWakeState>,
+    condition: Condvar,
+}
+
+impl SchedulerWakeSignal {
+    pub(super) fn new() -> Self {
+        Self {
+            state: Mutex::new(SchedulerWakeState::default()),
+            condition: Condvar::new(),
+        }
+    }
+
+    pub(super) fn wake(&self) {
+        {
+            let mut guard = self.state.lock().unwrap();
+            guard.notified = true;
+        }
+        self.condition.notify_all();
+    }
+
+    pub(super) fn stop(&self) {
+        {
+            let mut guard = self.state.lock().unwrap();
+            guard.stopped = true;
+            guard.notified = true;
+        }
+        self.condition.notify_all();
+    }
+
+    fn reset_for_start(&self) {
+        let mut guard = self.state.lock().unwrap();
+        *guard = SchedulerWakeState::default();
+    }
+
+    fn wait(&self, timeout: Duration) -> bool {
+        let mut guard = self.state.lock().unwrap();
+        if guard.stopped {
+            return false;
+        }
+
+        if guard.notified {
+            guard.notified = false;
+            return true;
+        }
+
+        let (mut guard_after_wait, _) = self
+            .condition
+            .wait_timeout_while(guard, timeout, |state| !state.stopped && !state.notified)
+            .unwrap();
+
+        if guard_after_wait.stopped {
+            return false;
+        }
+
+        let was_notified = guard_after_wait.notified;
+        guard_after_wait.notified = false;
+        was_notified
+    }
+}
+
 pub(crate) struct ActivationLoop {
     thread: Mutex<Option<JoinHandle<()>>>,
-    state: Mutex<ActivationLoopState>,
-    condition: Condvar,
+    wake_signal: Arc<SchedulerWakeSignal>,
     priority: Arc<PriorityScheduler>,
     optimistic: Arc<OptimisticScheduler>,
     hinted: Arc<HintedScheduler>,
@@ -21,6 +81,7 @@ pub(crate) struct ActivationLoop {
 
 impl ActivationLoop {
     pub(crate) fn new(
+        wake_signal: Arc<SchedulerWakeSignal>,
         priority: Arc<PriorityScheduler>,
         optimistic: Arc<OptimisticScheduler>,
         hinted: Arc<HintedScheduler>,
@@ -31,8 +92,7 @@ impl ActivationLoop {
     ) -> Self {
         Self {
             thread: Mutex::new(None),
-            state: Mutex::new(ActivationLoopState::default()),
-            condition: Condvar::new(),
+            wake_signal,
             priority,
             optimistic,
             hinted,
@@ -45,7 +105,7 @@ impl ActivationLoop {
 
     pub(crate) fn start(self: &Arc<Self>) {
         debug_assert!(self.thread.lock().unwrap().is_none());
-        self.state.lock().unwrap().stopped = false;
+        self.wake_signal.reset_for_start();
 
         let activation_loop = Arc::clone(self);
         *self.thread.lock().unwrap() = Some(
@@ -57,51 +117,24 @@ impl ActivationLoop {
     }
 
     pub(crate) fn stop(&self) {
-        {
-            let mut guard = self.state.lock().unwrap();
-            guard.stopped = true;
-            guard.notified = true;
-        }
-        self.condition.notify_all();
+        self.wake_signal.stop();
 
         if let Some(handle) = self.thread.lock().unwrap().take() {
             handle.join().unwrap();
         }
     }
 
-    pub(crate) fn notify(&self) {
-        {
-            let mut guard = self.state.lock().unwrap();
-            guard.notified = true;
-        }
-        self.condition.notify_all();
-    }
-
     fn run(&self) {
         loop {
             let made_progress = self.run_ready_sources();
-
-            let mut guard = self.state.lock().unwrap();
-            if guard.stopped {
-                break;
-            }
-
-            if made_progress || guard.notified {
-                guard.notified = false;
+            if made_progress {
                 continue;
             }
 
             let timeout = self.wait_timeout();
-            let (mut guard_after_wait, _) = self
-                .condition
-                .wait_timeout_while(guard, timeout, |state| !state.stopped && !state.notified)
-                .unwrap();
-
-            if guard_after_wait.stopped {
+            if !self.wake_signal.wait(timeout) {
                 break;
             }
-
-            guard_after_wait.notified = false;
         }
     }
 
@@ -151,7 +184,7 @@ impl ActivationLoop {
 }
 
 #[derive(Default)]
-struct ActivationLoopState {
+struct SchedulerWakeState {
     stopped: bool,
     notified: bool,
 }
