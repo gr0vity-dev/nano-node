@@ -60,28 +60,34 @@ impl Tickable for AecVoter {
         let scheduler = &self.scheduler;
 
         // Collect all vote targets in a single lock acquisition
-        let targets: Vec<(usize, VoteTarget)> = self.aec.pick_one_election_per_bucket(
-            self.current_bucket,
-            |e| scheduler.can_vote(&vote_target(e), now),
-            |iter| iter.map(|(bucket, e)| (bucket, vote_target(e))).collect(),
-        );
+        let targets: Vec<(usize, VoteTarget)> =
+            self.aec
+                .with_elections_starting_from_bucket(self.current_bucket, |elections| {
+                    elections
+                        .filter_map(|(bucket, e)| {
+                            let target = vote_target(e);
+                            if scheduler.can_vote(&target, now) {
+                                Some((bucket, target))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                });
 
         let mut vote_queue = Vec::new();
-        let mut skip_non_final = false;
         for (bucket, target) in targets {
-            if target.vote_type == VoteType::NonFinal {
-                if skip_non_final {
-                    continue;
-                }
-                // we limit non final votes to reduce CPS
-                if !self.cps_limiter.try_vote(now) {
-                    // remember the bucket where we left, so that we
-                    // can continue from it on the next tick
-                    self.current_bucket = bucket;
-                    skip_non_final = true;
-                    continue;
-                }
+            if target.vote_type == VoteType::NonFinal && !self.cps_limiter.try_vote(now) {
+                self.current_bucket = bucket;
+                self.flush(&mut vote_queue);
+                return;
             }
+
+            self.current_bucket = if bucket == 0 {
+                bucket_count() - 1
+            } else {
+                bucket - 1
+            };
 
             self.scheduler.mark_voted(&target, now);
             vote_queue.push(target);
@@ -92,9 +98,7 @@ impl Tickable for AecVoter {
             }
         }
 
-        if !skip_non_final {
-            self.current_bucket = bucket_count() - 1;
-        }
+        self.current_bucket = bucket_count() - 1;
         self.scheduler.cleanup(now);
         self.flush(&mut vote_queue);
     }

@@ -101,29 +101,18 @@ impl ActiveElectionsContainer {
         self.roots.iter_bucket(bucket_id).map(|i| &i.election)
     }
 
-    pub fn pick_one_per_bucket_from<F>(
-        &self,
-        starting_bucket: usize,
-        filter: F,
-    ) -> impl Iterator<Item = (usize, &Election)>
-    where
-        F: Fn(&Election) -> bool,
-    {
+    pub fn iter_from_bucket(&self, starting_bucket: usize) -> impl Iterator<Item = (usize, &Election)> {
         let total = bucket_count();
-        (0..total).filter_map(move |i| {
+        (0..total).flat_map(move |i| {
             let bucket_id = if i <= starting_bucket {
                 starting_bucket - i
             } else {
                 // wrapping around
                 starting_bucket + total - i
             };
-            self.roots.iter_bucket(bucket_id).find_map(|entry| {
-                if filter(&entry.election) {
-                    Some((bucket_id, &entry.election))
-                } else {
-                    None
-                }
-            })
+            self.roots
+                .iter_bucket(bucket_id)
+                .map(move |entry| (bucket_id, &entry.election))
         })
     }
 
@@ -679,17 +668,15 @@ mod tests {
     }
 
     #[test]
-    fn pick_one_per_bucket() {
+    fn iter_from_bucket() {
         let block_a1 = SavedBlock::new_test_instance_with_key(1);
         let block_a2 = SavedBlock::new_test_instance_with_key(2);
-        let block_a3 = SavedBlock::new_test_instance_with_key(3);
-        let block_b = SavedBlock::new_test_instance_with_key(4);
-        let block_c = SavedBlock::new_test_instance_with_key(5);
+        let block_b = SavedBlock::new_test_instance_with_key(3);
+        let block_c = SavedBlock::new_test_instance_with_key(4);
 
         // Same amount → same bucket; different TimePriority to get two distinct elections
         let prio_a1 = BlockPriority::new(Amount::nano(10), TimePriority::new(100));
         let prio_a2 = BlockPriority::new(Amount::nano(10), TimePriority::new(99));
-        let prio_a3 = BlockPriority::new(Amount::nano(10), TimePriority::new(98));
 
         let prio_b = BlockPriority::new(Amount::nano(1000), TimePriority::new(99));
         let prio_c = BlockPriority::new(Amount::nano(100000), TimePriority::new(99));
@@ -704,12 +691,6 @@ mod tests {
         container
             .insert(
                 AecInsertRequest::new_priority(block_a2.clone(), prio_a2),
-                Timestamp::new_test_instance(),
-            )
-            .unwrap();
-        container
-            .insert(
-                AecInsertRequest::new_priority(block_a3.clone(), prio_a3),
                 Timestamp::new_test_instance(),
             )
             .unwrap();
@@ -733,19 +714,21 @@ mod tests {
 
         assert_eq!(bucket_a, bucket_a2);
 
-        // iter_from_bucket must yield at most one election per bucket
+        // iter_from_bucket must yield all elections bucket by bucket
         let results: Vec<(usize, BlockHash)> = container
-            .pick_one_per_bucket_from(bucket_b, |e| e.winner().hash() != block_a3.hash())
+            .iter_from_bucket(bucket_b)
             .map(|(bucket, e)| (bucket, e.winner().hash()))
             .collect();
 
-        assert_eq!(results.len(), 3);
+        assert_eq!(results.len(), 4);
         assert_eq!(results[0].0, bucket_b);
         assert_eq!(results[0].1, block_b.hash());
         assert_eq!(results[1].0, bucket_a);
         assert_eq!(results[1].1, block_a2.hash());
-        assert_eq!(results[2].0, bucket_c);
-        assert_eq!(results[2].1, block_c.hash());
+        assert_eq!(results[2].0, bucket_a);
+        assert_eq!(results[2].1, block_a1.hash());
+        assert_eq!(results[3].0, bucket_c);
+        assert_eq!(results[3].1, block_c.hash());
     }
 
     fn test_final_vote(rep_key: &PrivateKey, block_hash: BlockHash) -> ReceivedVote {
