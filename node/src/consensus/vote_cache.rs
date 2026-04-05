@@ -65,7 +65,7 @@ impl VoteCache {
     }
 
     /// Adds a new vote to cache.
-    /// Returns true when cache state changed, false for no-op inserts.
+    /// Returns true when scheduling-relevant cache state changed, false otherwise.
     pub fn insert(
         &mut self,
         vote: &Arc<Vote>,
@@ -287,7 +287,7 @@ impl CacheEntry {
     }
 
     /// Adds a vote into a list, checks for duplicates and updates timestamp if new one is greater.
-    /// Returns true if this cache entry changed, false otherwise.
+    /// Returns true if this cache entry changed in a scheduling-relevant way, false otherwise.
     pub fn vote(&mut self, vote: &Arc<Vote>, rep_weight: Amount, max_voters: usize) -> bool {
         let updated = self.vote_impl(vote, rep_weight, max_voters);
         if updated {
@@ -307,7 +307,7 @@ impl CacheEntry {
             if vote.timestamp() > existing.vote.timestamp() {
                 self.voters
                     .modify(&representative, Arc::clone(vote), rep_weight);
-                return true;
+                return false;
             } else {
                 return false;
             }
@@ -711,6 +711,19 @@ mod tests {
         let peek2 = cache.find(&hash);
         assert_eq!(peek2.len(), 1);
         assert!(peek2.first().unwrap().is_final());
+    }
+
+    #[test]
+    fn insert_newer_timestamp_is_not_scheduling_relevant() {
+        let mut cache = create_vote_cache();
+
+        let hash = BlockHash::from(1);
+        let rep = PrivateKey::new();
+        let vote1 = create_vote(&rep, &hash, 1);
+        let vote2 = create_vote(&rep, &hash, 2);
+
+        assert!(cache.insert(&vote1, Amount::raw(9), &HashMap::new()));
+        assert!(!cache.insert(&vote2, Amount::raw(9), &HashMap::new()));
     }
 
     /*
