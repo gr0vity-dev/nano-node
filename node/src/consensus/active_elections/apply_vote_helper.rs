@@ -3,7 +3,8 @@ use std::{collections::HashMap, ops::Deref};
 use rsnano_types::{Amount, BlockHash, VoteError, VoteSource};
 
 use super::{
-    AecFact, ApplyVoteArgs, ProducedAecFacts,
+    AecFact, ApplyVoteArgs,
+    aec_service::AecWriteSession,
     recently_confirmed_cache::RecentlyConfirmedCache,
     root_container::{Entry, RootContainer},
     stats::VoteCounter,
@@ -15,6 +16,7 @@ pub(super) struct ApplyVoteHelper<'a> {
     pub recently_confirmed: &'a mut RecentlyConfirmedCache,
     pub vote_counter: &'a mut VoteCounter,
     pub roots: &'a mut RootContainer,
+    pub session: &'a mut AecWriteSession,
 }
 
 impl<'a> ApplyVoteHelper<'a> {
@@ -32,7 +34,7 @@ impl<'a> ApplyVoteHelper<'a> {
                         args: self.args,
                         recently_confirmed: self.recently_confirmed,
                         vote_counter: self.vote_counter,
-                        produced_facts: &mut result.produced_facts,
+                        session: self.session,
                         election,
                         block_hash,
                     };
@@ -63,14 +65,13 @@ impl<'a> ApplyVoteHelper<'a> {
 pub(crate) struct ApplyVoteResult {
     pub per_block: HashMap<BlockHash, Result<(), VoteError>>,
     pub confirmed: Vec<Entry>,
-    pub produced_facts: ProducedAecFacts,
 }
 
 struct ApplyVoteToElectionHelper<'a> {
     pub args: &'a ApplyVoteArgs<'a>,
     pub recently_confirmed: &'a mut RecentlyConfirmedCache,
     pub vote_counter: &'a mut VoteCounter,
-    pub produced_facts: &'a mut ProducedAecFacts,
+    pub session: &'a mut AecWriteSession,
     pub election: &'a mut Election,
     pub block_hash: &'a BlockHash,
 }
@@ -136,7 +137,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
     fn notify_winner_changed(&mut self, old_winner: BlockHash) {
         let winner_changed = self.election.winner().hash() != old_winner;
         if winner_changed {
-            self.produced_facts.push(AecFact::WinnerChanged(
+            self.session.record(AecFact::WinnerChanged(
                 old_winner,
                 self.election.winner().deref().clone(),
             ));
@@ -150,8 +151,7 @@ impl<'a> ApplyVoteToElectionHelper<'a> {
             .election
             .into_confirmed_election(self.args.now, ConfirmationType::ActiveConfirmedQuorum);
 
-        self.produced_facts
-            .push(AecFact::ElectionConfirmed(confirmed_election));
+        self.session.record(AecFact::ElectionConfirmed(confirmed_election));
     }
 
     fn insert_recently_confirmed(&mut self) {
@@ -386,12 +386,14 @@ mod tests {
             };
 
             let mut vote_counter = VoteCounter::default();
+            let mut session = AecWriteSession::default();
 
             let mut helper = ApplyVoteHelper {
                 args: &args,
                 recently_confirmed: &mut self.recently_confirmed,
                 vote_counter: &mut vote_counter,
                 roots: &mut self.roots,
+                session: &mut session,
             };
 
             let result = helper.apply_vote();
@@ -455,7 +457,7 @@ mod tests {
             let quorum_specs = QuorumSpecs::new_test_instance();
             let mut recently_confirmed = RecentlyConfirmedCache::default();
             let mut vote_counter = VoteCounter::default();
-            let mut produced_facts = ProducedAecFacts::default();
+            let mut session = AecWriteSession::default();
 
             let result = {
                 ApplyVoteToElectionHelper {
@@ -467,14 +469,14 @@ mod tests {
                     },
                     recently_confirmed: &mut recently_confirmed,
                     vote_counter: &mut vote_counter,
-                    produced_facts: &mut produced_facts,
+                    session: &mut session,
                     election: &mut self.election,
                     block_hash: &vote.hashes[0],
                 }
                 .apply_vote()
             };
 
-            self.events.extend(produced_facts);
+            self.events.extend(session.into_facts());
 
             result
         }

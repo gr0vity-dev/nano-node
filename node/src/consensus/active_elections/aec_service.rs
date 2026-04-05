@@ -22,6 +22,34 @@ pub struct AecService {
     publisher: RwLock<Option<Sender<AecFact>>>,
 }
 
+#[derive(Default)]
+pub(super) struct AecWriteSession {
+    facts: Vec<AecFact>,
+}
+
+impl AecWriteSession {
+    pub(super) fn record(&mut self, fact: AecFact) {
+        self.facts.push(fact);
+    }
+
+    #[cfg(test)]
+    pub(super) fn into_facts(self) -> Vec<AecFact> {
+        self.facts
+    }
+
+    fn publish(self, publisher: &RwLock<Option<Sender<AecFact>>>) {
+        if self.facts.is_empty() {
+            return;
+        }
+
+        if let Some(sender) = publisher.read().unwrap().as_ref() {
+            for fact in self.facts {
+                sender.send(fact).unwrap();
+            }
+        }
+    }
+}
+
 impl AecService {
     pub fn new(
         config: ActiveElectionsConfig,
@@ -123,29 +151,23 @@ impl AecService {
     // --- Write forwarding ---
 
     pub fn insert(&self, request: AecInsertRequest, now: Timestamp) -> Result<(), AecInsertError> {
-        let produced_facts = self.aec.write().unwrap().insert(request, now)?;
-        self.publish(produced_facts);
+        self.write_session(|aec, session| aec.insert(request, now, session))?;
         Ok(())
     }
 
     pub fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {
-        let (added, produced_facts) = self.aec.write().unwrap().try_add_fork(fork, fork_tally);
-        self.publish(produced_facts);
-        added
+        self.write_session(|aec, session| aec.try_add_fork(fork, fork_tally, session))
     }
 
     pub fn apply_vote<'a>(
         &self,
         args: ApplyVoteArgs<'a>,
     ) -> HashMap<BlockHash, Result<(), VoteError>> {
-        let (results, produced_facts) = self.aec.write().unwrap().apply_vote(args);
-        self.publish(produced_facts);
-        results
+        self.write_session(|aec, session| aec.apply_vote(args, session))
     }
 
     pub fn transition_time(&self, now: Timestamp) {
-        let produced_facts = self.aec.write().unwrap().transition_time(now);
-        self.publish(produced_facts);
+        self.write_session(|aec, session| aec.transition_time(now, session));
     }
 
     pub fn transition_active(&self, block_hash: &BlockHash) -> bool {
@@ -156,8 +178,7 @@ impl AecService {
     where
         T: ElectionCandidateSource,
     {
-        let produced_facts = self.aec.write().unwrap().refill(source, now);
-        self.publish(produced_facts);
+        self.write_session(|aec, session| aec.refill(source, now, session));
     }
 
     pub fn remove_votes<'a>(
@@ -169,11 +190,7 @@ impl AecService {
     }
 
     pub fn erase(&self, root: &QualifiedRoot) -> bool {
-        let Some(produced_facts) = self.aec.write().unwrap().erase(root) else {
-            return false;
-        };
-        self.publish(produced_facts);
-        true
+        self.write_session(|aec, session| aec.erase(root, session))
     }
 
     pub fn confirm_dependent_elections(
@@ -181,12 +198,7 @@ impl AecService {
         confirmed: Vec<(SavedBlock, Option<ConfirmedElection>)>,
         now: Timestamp,
     ) {
-        let produced_facts = self
-            .aec
-            .write()
-            .unwrap()
-            .confirm_dependent_elections(confirmed, now);
-        self.publish(produced_facts);
+        self.write_session(|aec, session| aec.confirm_dependent_elections(confirmed, now, session));
     }
 
     pub fn remove_recently_confirmed(&self, block_hash: &BlockHash) {
@@ -197,8 +209,7 @@ impl AecService {
     }
 
     pub fn set_cooldown(&self, cool_down: bool, reason: AecCooldownReason) {
-        let produced_facts = self.aec.write().unwrap().set_cooldown(cool_down, reason);
-        self.publish(produced_facts);
+        self.write_session(|aec, session| aec.set_cooldown(cool_down, reason, session));
     }
 
     pub fn cancel(&self, root: &QualifiedRoot) {
@@ -219,13 +230,11 @@ impl AecService {
     }
 
     pub fn force_confirm(&self, block_hash: &BlockHash, now: Timestamp) {
-        let produced_facts = self.aec.write().unwrap().force_confirm(block_hash, now);
-        self.publish(produced_facts);
+        self.write_session(|aec, session| aec.force_confirm(block_hash, now, session));
     }
 
     pub fn simulate_event(&self, event: AecFact) {
-        let produced_facts = self.aec.read().unwrap().simulate_event(event);
-        self.publish(produced_facts);
+        self.publish_fact(event);
     }
 
     pub fn publish_vote_processed(
@@ -237,16 +246,17 @@ impl AecService {
         self.publish_fact(AecFact::VoteProcessed(vote, voter_weight, results));
     }
 
-    fn publish(&self, produced_facts: super::ProducedAecFacts) {
-        if produced_facts.is_empty() {
-            return;
-        }
-
-        if let Some(sender) = self.publisher.read().unwrap().as_ref() {
-            for fact in produced_facts {
-                sender.send(fact).unwrap();
-            }
-        }
+    fn write_session<T>(
+        &self,
+        mutator: impl FnOnce(&mut ActiveElectionsContainer, &mut AecWriteSession) -> T,
+    ) -> T {
+        let mut session = AecWriteSession::default();
+        let result = {
+            let mut aec = self.aec.write().unwrap();
+            mutator(&mut aec, &mut session)
+        };
+        session.publish(&self.publisher);
+        result
     }
 
     fn publish_fact(&self, fact: AecFact) {
