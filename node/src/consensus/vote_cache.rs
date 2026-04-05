@@ -1,14 +1,7 @@
 #[cfg(not(test))]
 use std::time::Instant;
 
-use std::{
-    cmp::Ordering,
-    collections::{BTreeMap, HashMap},
-    fmt::Debug,
-    mem::size_of,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::{BTreeMap, HashMap}, fmt::Debug, mem::size_of, sync::Arc, time::Duration};
 
 #[cfg(test)]
 use mock_instant::thread_local::Instant;
@@ -83,7 +76,10 @@ impl VoteCache {
                 changed |= self.insert_impl(vote, hash, rep_weight);
             }
         } else {
-            for (hash, code) in results {
+            for hash in &vote.hashes {
+                let Some(code) = results.get(hash) else {
+                    continue;
+                };
                 // Cache votes with a corresponding active election (indicated by `vote_code::vote`) in case that election gets dropped
                 if matches!(code, Ok(()) | Err(VoteError::Indeterminate)) {
                     changed |= self.insert_impl(vote, hash, rep_weight);
@@ -164,24 +160,25 @@ impl VoteCache {
             if tally < min_tally {
                 break;
             }
-            results.push(TopEntry {
-                hash: entry.hash,
-                tally,
-                final_tally: entry.final_tally(),
-            })
+            results.push((
+                entry.id,
+                TopEntry {
+                    hash: entry.hash,
+                    tally,
+                    final_tally: entry.final_tally(),
+                },
+            ))
         }
 
-        // Sort by final tally then by normal tally, descending
-        results.sort_by(|a, b| {
-            let res = b.final_tally.cmp(&b.final_tally);
-            if res == Ordering::Equal {
-                b.tally.cmp(&a.tally)
-            } else {
-                res
-            }
+        // Sort by final tally, then by tally, and preserve deterministic cache order on ties.
+        results.sort_by(|(a_id, a), (b_id, b)| {
+            b.final_tally
+                .cmp(&a.final_tally)
+                .then_with(|| b.tally.cmp(&a.tally))
+                .then_with(|| a_id.cmp(b_id))
         });
 
-        results
+        results.into_iter().map(|(_, entry)| entry).collect()
     }
 
     fn cleanup(&mut self) {
@@ -921,6 +918,24 @@ mod tests {
         assert_eq!(top[0].hash, hash2);
         assert_eq!(top[1].hash, hash3);
         assert_eq!(top[2].hash, hash1);
+    }
+
+    #[test]
+    fn top_equal_tally_uses_vote_order() {
+        let mut cache = create_vote_cache();
+        let rep = PrivateKey::new();
+        let hash1 = BlockHash::from(1);
+        let hash2 = BlockHash::from(2);
+        let vote = Arc::new(Vote::new(&rep, UnixMillisTimestamp::ZERO, 0, vec![hash1, hash2]));
+        let results = HashMap::from([(hash1, Ok(())), (hash2, Ok(()))]);
+
+        cache.insert(&vote, Amount::raw(7), &results);
+
+        let top = cache.top(0);
+
+        assert_eq!(top.len(), 2);
+        assert_eq!(top[0].hash, hash1);
+        assert_eq!(top[1].hash, hash2);
     }
 
     #[test]
