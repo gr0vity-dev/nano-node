@@ -17,7 +17,6 @@ use crate::{
         AecCooldownReason, AecFact, AecForkInserter, AecService, BootstrapElectionActivator,
         LocalVotesRemover, ReceivedVote, VoteCache, VoteCacheProcessor, VoteProcessor,
         VoteRebroadcastQueue, WinnerBlockBroadcaster, aggregate_vote_results,
-        election_schedulers::ElectionSchedulers,
     },
     recently_cemented_inserter::RecentlyCementedInserter,
     representatives::{OnlineReps, RepCrawler},
@@ -30,7 +29,6 @@ pub(crate) struct AecFactProcessor {
     pub(crate) vote_processor: Arc<VoteProcessor>,
     pub(crate) vote_cache: Arc<Mutex<VoteCache>>,
     pub(crate) node_observer: Option<SyncSender<NodeEvent>>,
-    pub(crate) election_schedulers: Arc<ElectionSchedulers>,
     pub(crate) network_filter: Arc<NetworkFilter>,
     pub(crate) bootstrap_election_activator: BootstrapElectionActivator,
     pub(crate) recently_cemented_inserter: RecentlyCementedInserter,
@@ -79,8 +77,6 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                     .try_broadcast_winner(&election.winner, &election.votes);
             }
             AecFact::ElectionEnded(election) => {
-                self.election_schedulers.notify();
-
                 let now = self.clock.now();
                 let elapsed = election.start().elapsed(now);
                 // Track election duration
@@ -146,7 +142,7 @@ impl BackpressureEventProcessor<AecFact> for AecFactProcessor {
                 }
                 self.recently_cemented_inserter.insert(election);
             }
-            AecFact::Recovered => self.election_schedulers.notify(),
+            AecFact::Recovered => {}
         }
     }
 }

@@ -7,10 +7,7 @@ use rsnano_ledger::{
 use rsnano_node::{
     bootstrap::BootstrapConfig,
     config::{NodeConfig, NodeFlags},
-    consensus::{
-        FilteredVote, ReceivedVote, election::ElectionBehavior,
-        election_schedulers::priority::bucket_count,
-    },
+    consensus::{AecCooldownReason, FilteredVote, ReceivedVote, election::ElectionBehavior},
 };
 use rsnano_nullable_tcp::get_available_port;
 use rsnano_types::{
@@ -20,8 +17,8 @@ use rsnano_types::{
 use rsnano_utils::stats::{DetailType, Direction, StatType};
 use test_helpers::{
     System, assert_always_eq, assert_never, assert_timely_eq, assert_timely_eq2, assert_timely2,
-    process_open_block, process_send_block, setup_independent_blocks, start_election,
-    start_elections, setup_new_account, setup_rep,
+    process_open_block, process_send_block, setup_independent_blocks, setup_new_account, setup_rep,
+    start_election, start_elections,
 };
 
 /// What this test is doing:
@@ -537,10 +534,10 @@ fn hinted_slot_release_wakes_through_notify() {
     let mut config = System::default_config_without_backlog_scan();
     config.enable_priority_scheduler = false;
     config.enable_optimistic_scheduler = false;
-    config.active_elections.max_elections = bucket_count();
+    config.active_elections.max_elections = 1;
     config.hinted_scheduler.check_interval = Duration::from_secs(60);
     config.hinted_scheduler.hinting_threshold_percent = 0;
-    config.hinted_scheduler.hinted_limit_percentage = 2;
+    config.hinted_scheduler.hinted_limit_percentage = 100;
     let node = system.build_node().config(config).finish();
 
     let rep_weight = node.online_reps.lock().unwrap().minimum_principal_weight() + Amount::raw(1);
@@ -628,6 +625,73 @@ fn hinted_slot_release_wakes_through_notify() {
     assert_eq!(
         node.aec
             .election_for_block(&candidate2.hash())
+            .unwrap()
+            .behavior(),
+        ElectionBehavior::Hinted
+    );
+}
+
+#[test]
+fn hinted_scheduler_wakes_after_cooldown_recovery_without_notify() {
+    let mut system = System::new();
+    let mut config = System::default_config_without_backlog_scan();
+    config.enable_priority_scheduler = false;
+    config.enable_optimistic_scheduler = false;
+    config.active_elections.max_elections = 1;
+    config.hinted_scheduler.check_interval = Duration::from_secs(60);
+    config.hinted_scheduler.hinting_threshold_percent = 0;
+    config.hinted_scheduler.hinted_limit_percentage = 100;
+    let node = system.build_node().config(config).finish();
+
+    let rep_weight = node.online_reps.lock().unwrap().minimum_principal_weight() + Amount::raw(1);
+    let rep = setup_rep(&node, rep_weight, &DEV_GENESIS_KEY);
+
+    let key = PrivateKey::new();
+    setup_new_account(
+        &node,
+        Amount::nano(100_000),
+        &DEV_GENESIS_KEY,
+        &key,
+        key.public_key(),
+        true,
+    );
+
+    let candidate: rsnano_types::Block = StateBlockArgs {
+        key: &key,
+        previous: node.latest(&key.account()),
+        representative: key.public_key(),
+        balance: node.balance(&key.account()) - Amount::raw(1),
+        link: Account::from(300).into(),
+        work: node.work_generate_dev(node.latest(&key.account())),
+    }
+    .into();
+    node.process(candidate.clone());
+
+    let vote = Arc::new(Vote::new(
+        &rep,
+        UnixMillisTimestamp::ZERO,
+        0,
+        vec![candidate.hash()],
+    ));
+    node.vote_processor_queue
+        .enqueue(vote, None, VoteSource::Live, None);
+
+    assert_timely_eq2(|| node.vote_cache.lock().unwrap().size(), 1);
+
+    node.aec
+        .set_cooldown(true, AecCooldownReason::AecFactQueueFull);
+    node.election_schedulers.notify();
+    assert_never(Duration::from_millis(500), || {
+        node.is_active_hash(&candidate.hash())
+    });
+
+    node.aec
+        .set_cooldown(false, AecCooldownReason::AecFactQueueFull);
+
+    assert_timely2(|| node.is_active_hash(&candidate.hash()));
+    assert_eq!(
+        node.aec
+            .election_for_block(&candidate.hash())
             .unwrap()
             .behavior(),
         ElectionBehavior::Hinted

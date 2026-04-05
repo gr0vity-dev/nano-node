@@ -5,11 +5,12 @@ mod manual_scheduler;
 mod optimistic;
 pub mod priority;
 
-use activation_loop::{ActivationLoop, SchedulerWakeSignal};
+use activation_loop::ActivationLoop;
 pub(crate) use election_schedulers_plugin::*;
 pub use hinted_scheduler::*;
 pub use manual_scheduler::*;
 pub use optimistic::*;
+pub(crate) use activation_loop::SchedulerWakeSignal;
 
 use std::sync::{Arc, Mutex};
 
@@ -36,7 +37,7 @@ pub struct ElectionSchedulers {
 }
 
 impl ElectionSchedulers {
-    pub fn new(
+    pub(crate) fn new(
         config: NodeConfig,
         active_elections: Arc<AecService>,
         ledger: Arc<Ledger>,
@@ -45,6 +46,7 @@ impl ElectionSchedulers {
         confirming_set: Arc<ConfirmingSet>,
         online_reps: Arc<Mutex<OnlineReps>>,
         clock: Arc<SteadyClock>,
+        wake_signal: Arc<SchedulerWakeSignal>,
     ) -> Self {
         let hinted = Arc::new(HintedScheduler::new(
             config.hinted_scheduler.clone(),
@@ -87,7 +89,6 @@ impl ElectionSchedulers {
             clock,
         ));
 
-        let wake_signal = Arc::new(SchedulerWakeSignal::new());
         let activation_loop = Arc::new(ActivationLoop::new(
             wake_signal.clone(),
             priority.clone(),
@@ -132,6 +133,7 @@ impl ElectionSchedulers {
             confirming_set,
             online_reps,
             clock,
+            Arc::new(SchedulerWakeSignal::new()),
         )
     }
 
@@ -160,8 +162,8 @@ impl ElectionSchedulers {
         self.wake_signal.wake();
     }
 
-    // Temporary compatibility bridge for the remaining non-owner callers:
-    // `AecFactProcessor` and `hinted_slot_release_wakes_through_notify`.
+    // Temporary compatibility bridge for the remaining non-owner test:
+    // `hinted_slot_release_wakes_through_notify`.
     pub fn notify(&self) {
         self.wake_signal.wake();
     }
