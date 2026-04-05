@@ -55,7 +55,6 @@ pub(crate) struct RootContainer {
     buckets: Vec<BTreeSet<BucketEntry>>,
     bucket_infos: Vec<BucketInfo>,
     pub vote_router: VoteRouter,
-    max_elections: usize,
     max_elections_per_bucket: usize,
 }
 
@@ -76,7 +75,6 @@ impl RootContainer {
             vote_router: Default::default(),
             buckets: vec![BTreeSet::new(); bucket_count],
             bucket_infos: vec![BucketInfo::new(max_elections_per_bucket); bucket_count],
-            max_elections,
             max_elections_per_bucket,
         }
     }
