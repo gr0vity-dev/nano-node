@@ -6,20 +6,20 @@ use std::{
 
 use super::{HintedScheduler, ManualScheduler, OptimisticScheduler, PriorityScheduler};
 
-pub(super) struct SchedulerWakeSignal {
+struct SchedulerWakeSignal {
     state: Mutex<SchedulerWakeState>,
     condition: Condvar,
 }
 
 impl SchedulerWakeSignal {
-    pub(super) fn new() -> Self {
+    fn new() -> Self {
         Self {
             state: Mutex::new(SchedulerWakeState::default()),
             condition: Condvar::new(),
         }
     }
 
-    pub(super) fn wake(&self) {
+    fn wake(&self) {
         {
             let mut guard = self.state.lock().unwrap();
             guard.notified = true;
@@ -27,7 +27,7 @@ impl SchedulerWakeSignal {
         self.condition.notify_all();
     }
 
-    pub(super) fn stop(&self) {
+    fn stop(&self) {
         {
             let mut guard = self.state.lock().unwrap();
             guard.stopped = true;
@@ -67,9 +67,38 @@ impl SchedulerWakeSignal {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct SchedulerWakeHandle {
+    signal: Arc<SchedulerWakeSignal>,
+}
+
+impl SchedulerWakeHandle {
+    pub(crate) fn new() -> Self {
+        Self {
+            signal: Arc::new(SchedulerWakeSignal::new()),
+        }
+    }
+
+    pub(crate) fn wake(&self) {
+        self.signal.wake();
+    }
+
+    fn reset_for_start(&self) {
+        self.signal.reset_for_start();
+    }
+
+    fn stop(&self) {
+        self.signal.stop();
+    }
+
+    fn wait(&self, timeout: Duration) -> bool {
+        self.signal.wait(timeout)
+    }
+}
+
 pub(crate) struct ActivationLoop {
     thread: Mutex<Option<JoinHandle<()>>>,
-    wake_signal: Arc<SchedulerWakeSignal>,
+    wake_handle: SchedulerWakeHandle,
     priority: Arc<PriorityScheduler>,
     optimistic: Arc<OptimisticScheduler>,
     hinted: Arc<HintedScheduler>,
@@ -81,7 +110,7 @@ pub(crate) struct ActivationLoop {
 
 impl ActivationLoop {
     pub(crate) fn new(
-        wake_signal: Arc<SchedulerWakeSignal>,
+        wake_handle: SchedulerWakeHandle,
         priority: Arc<PriorityScheduler>,
         optimistic: Arc<OptimisticScheduler>,
         hinted: Arc<HintedScheduler>,
@@ -92,7 +121,7 @@ impl ActivationLoop {
     ) -> Self {
         Self {
             thread: Mutex::new(None),
-            wake_signal,
+            wake_handle,
             priority,
             optimistic,
             hinted,
@@ -105,7 +134,7 @@ impl ActivationLoop {
 
     pub(crate) fn start(self: &Arc<Self>) {
         debug_assert!(self.thread.lock().unwrap().is_none());
-        self.wake_signal.reset_for_start();
+        self.wake_handle.reset_for_start();
 
         let activation_loop = Arc::clone(self);
         *self.thread.lock().unwrap() = Some(
@@ -117,7 +146,7 @@ impl ActivationLoop {
     }
 
     pub(crate) fn stop(&self) {
-        self.wake_signal.stop();
+        self.wake_handle.stop();
 
         if let Some(handle) = self.thread.lock().unwrap().take() {
             handle.join().unwrap();
@@ -132,7 +161,7 @@ impl ActivationLoop {
             }
 
             let timeout = self.wait_timeout();
-            if !self.wake_signal.wait(timeout) {
+            if !self.wake_handle.wait(timeout) {
                 break;
             }
         }

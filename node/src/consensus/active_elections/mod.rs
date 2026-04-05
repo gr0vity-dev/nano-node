@@ -60,15 +60,38 @@ pub enum AecFact {
 }
 
 #[derive(Default)]
-pub(super) struct AecWriteSession(Vec<AecFact>);
+pub(super) struct AecWriteSession {
+    facts: Vec<AecFact>,
+    vacancy_before: i64,
+    scheduler_wake_candidate: bool,
+    should_wake_scheduler: bool,
+}
 
 impl AecWriteSession {
-    pub(super) fn record(&mut self, fact: AecFact) {
-        self.0.push(fact);
+    pub(super) fn new(vacancy_before: i64) -> Self {
+        Self {
+            facts: Vec::new(),
+            vacancy_before,
+            scheduler_wake_candidate: false,
+            should_wake_scheduler: false,
+        }
     }
 
-    pub(super) fn is_empty(&self) -> bool {
-        self.0.is_empty()
+    pub(super) fn record(&mut self, fact: AecFact) {
+        if matches!(fact, AecFact::ElectionEnded(_) | AecFact::Recovered) {
+            self.scheduler_wake_candidate = true;
+        }
+        self.facts.push(fact);
+    }
+
+    pub(super) fn finalize(&mut self, vacancy_after: i64) {
+        self.should_wake_scheduler = self.scheduler_wake_candidate
+            && vacancy_after > 0
+            && vacancy_after > self.vacancy_before;
+    }
+
+    pub(super) fn should_wake_scheduler(&self) -> bool {
+        self.should_wake_scheduler
     }
 }
 
@@ -77,7 +100,7 @@ impl IntoIterator for AecWriteSession {
     type IntoIter = std::vec::IntoIter<AecFact>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
+        self.facts.into_iter()
     }
 }
 

@@ -6,13 +6,16 @@ mod election_scheduler {
     use rsnano_node::{
         config::{NodeConfig, OptimisticSchedulerConfig},
         consensus::{
-            AecInsertRequest, election::ElectionBehavior,
+            AecCooldownReason, AecInsertRequest, election::ElectionBehavior,
             election_schedulers::priority::bucket_count,
         },
     };
-    use rsnano_types::{Amount, BlockPriority, DEV_GENESIS_KEY, PrivateKey};
+    use rsnano_types::{
+        Account, Amount, BlockPriority, DEV_GENESIS_KEY, PrivateKey, StateBlockArgs,
+        UnixMillisTimestamp, Vote, VoteSource,
+    };
     use std::time::Duration;
-    use test_helpers::{setup_chains, setup_rep};
+    use test_helpers::{assert_never, setup_chains, setup_rep};
 
     #[test]
     fn activate_one_timely() {
@@ -206,6 +209,78 @@ mod election_scheduler {
                 .unwrap()
                 .behavior(),
             ElectionBehavior::Optimistic
+        );
+    }
+
+    #[test]
+    fn cooldown_recovery_wakes_hinted_scheduler_through_aec_service() {
+        let mut system = System::new();
+        let mut config = System::default_config_without_backlog_scan();
+        config.enable_priority_scheduler = false;
+        config.enable_optimistic_scheduler = false;
+        config.active_elections.max_elections = bucket_count();
+        config.hinted_scheduler.check_interval = Duration::from_secs(60);
+        config.hinted_scheduler.hinting_threshold_percent = 0;
+        config.hinted_scheduler.hinted_limit_percentage = 2;
+
+        let node = system
+            .build_node()
+            .config(config)
+            .finish();
+
+        node.aec
+            .set_cooldown(true, AecCooldownReason::ConfirmingSetFull);
+
+        let rep_weight = node.online_reps.lock().unwrap().minimum_principal_weight() + Amount::raw(1);
+        let rep = setup_rep(&node, rep_weight, &DEV_GENESIS_KEY);
+        let key = PrivateKey::new();
+
+        test_helpers::setup_new_account(
+            &node,
+            Amount::nano(100_000),
+            &DEV_GENESIS_KEY,
+            &key,
+            key.public_key(),
+            true,
+        );
+
+        let candidate: rsnano_types::Block = StateBlockArgs {
+            key: &key,
+            previous: node.latest(&key.account()),
+            representative: key.public_key(),
+            balance: node.balance(&key.account()) - Amount::raw(1),
+            link: Account::from(100).into(),
+            work: node.work_generate_dev(node.latest(&key.account())),
+        }
+        .into();
+        node.process(candidate.clone());
+
+        let vote = std::sync::Arc::new(Vote::new(
+            &rep,
+            UnixMillisTimestamp::ZERO,
+            0,
+            vec![candidate.hash()],
+        ));
+        node.vote_processor_queue
+            .enqueue(vote, None, VoteSource::Live, None);
+
+        node.election_schedulers.notify();
+
+        assert!(!node.is_active_hash(&candidate.hash()));
+        assert_never(Duration::from_millis(500), || {
+            node.is_active_hash(&candidate.hash())
+        });
+
+        node.aec
+            .set_cooldown(false, AecCooldownReason::ConfirmingSetFull);
+
+        assert_timely2(|| node.is_active_hash(&candidate.hash()));
+        assert_eq!(
+            node.aec
+                .election_for_block(&candidate.hash())
+                .unwrap()
+                .behavior(),
+            ElectionBehavior::Hinted
         );
     }
 }

@@ -5,7 +5,8 @@ mod manual_scheduler;
 mod optimistic;
 pub mod priority;
 
-use activation_loop::{ActivationLoop, SchedulerWakeSignal};
+use activation_loop::ActivationLoop;
+pub(crate) use activation_loop::SchedulerWakeHandle;
 pub(crate) use election_schedulers_plugin::*;
 pub use hinted_scheduler::*;
 pub use manual_scheduler::*;
@@ -31,12 +32,12 @@ pub struct ElectionSchedulers {
     pub(crate) hinted: Arc<HintedScheduler>,
     pub(crate) manual: Arc<ManualScheduler>,
     activation_loop: Arc<ActivationLoop>,
-    wake_signal: Arc<SchedulerWakeSignal>,
+    wake_handle: SchedulerWakeHandle,
     ledger: Arc<Ledger>,
 }
 
 impl ElectionSchedulers {
-    pub fn new(
+    pub(crate) fn new(
         config: NodeConfig,
         active_elections: Arc<AecService>,
         ledger: Arc<Ledger>,
@@ -45,6 +46,7 @@ impl ElectionSchedulers {
         confirming_set: Arc<ConfirmingSet>,
         online_reps: Arc<Mutex<OnlineReps>>,
         clock: Arc<SteadyClock>,
+        wake_handle: SchedulerWakeHandle,
     ) -> Self {
         let hinted = Arc::new(HintedScheduler::new(
             config.hinted_scheduler.clone(),
@@ -87,9 +89,8 @@ impl ElectionSchedulers {
             clock,
         ));
 
-        let wake_signal = Arc::new(SchedulerWakeSignal::new());
         let activation_loop = Arc::new(ActivationLoop::new(
-            wake_signal.clone(),
+            wake_handle.clone(),
             priority.clone(),
             optimistic.clone(),
             hinted.clone(),
@@ -105,7 +106,7 @@ impl ElectionSchedulers {
             hinted,
             manual,
             activation_loop,
-            wake_signal,
+            wake_handle,
             ledger,
         }
     }
@@ -122,6 +123,7 @@ impl ElectionSchedulers {
         let confirming_set = Arc::new(ConfirmingSet::new_null());
         let online_reps = Arc::new(Mutex::new(OnlineReps::new_test_instance()));
         let clock = Arc::new(SteadyClock::new_null());
+        let wake_handle = SchedulerWakeHandle::new();
 
         Self::new(
             config,
@@ -132,6 +134,7 @@ impl ElectionSchedulers {
             confirming_set,
             online_reps,
             clock,
+            wake_handle,
         )
     }
 
@@ -150,32 +153,32 @@ impl ElectionSchedulers {
         self.optimistic
             .activate(account, account_info.block_count, conf_info.height);
         self.priority.activate_backlog(any, account_info, conf_info);
-        self.wake_signal.wake();
+        self.wake_handle.wake();
     }
 
     pub fn activate_accounts_with_fresh_blocks(&self, processed: &[ProcessResult]) {
         let any = self.ledger.any();
         self.priority
             .activate_accounts_with_fresh_blocks(&any, processed);
-        self.wake_signal.wake();
+        self.wake_handle.wake();
     }
 
     pub fn notify(&self) {
         // Temporary compatibility bridge for non-owner wake callers.
         // Remaining production caller: AecFactProcessor.
         // Remaining test caller: hinted_slot_release_wakes_through_notify.
-        self.wake_signal.wake();
+        self.wake_handle.wake();
     }
 
     pub fn add_manual(&self, block: SavedBlock) {
         self.manual.push(block);
-        self.wake_signal.wake();
+        self.wake_handle.wake();
     }
 
     pub fn activate_successors<'a>(&self, confirmed: impl IntoIterator<Item = &'a SavedBlock>) {
         let any = self.ledger.any();
         self.priority.activate_successors(&any, confirmed);
-        self.wake_signal.wake();
+        self.wake_handle.wake();
     }
 
     pub fn start(&self) {

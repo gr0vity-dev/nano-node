@@ -15,22 +15,26 @@ use super::{
 use crate::consensus::{
     ElectionCandidateSource,
     election::{ConfirmedElection, Election, ElectionBehavior},
+    election_schedulers::SchedulerWakeHandle,
 };
 
 pub struct AecService {
     aec: RwLock<ActiveElectionsContainer>,
     publisher: RwLock<Option<Sender<AecFact>>>,
+    scheduler_wake: Option<SchedulerWakeHandle>,
 }
 
 impl AecService {
-    pub fn new(
+    pub(crate) fn new(
         config: ActiveElectionsConfig,
         base_latency: Duration,
         publisher: Sender<AecFact>,
+        scheduler_wake: SchedulerWakeHandle,
     ) -> Self {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::new(config, base_latency)),
             publisher: RwLock::new(Some(publisher)),
+            scheduler_wake: Some(scheduler_wake),
         }
     }
 
@@ -38,6 +42,7 @@ impl AecService {
         Self {
             aec: RwLock::new(ActiveElectionsContainer::default()),
             publisher: RwLock::new(None),
+            scheduler_wake: None,
         }
     }
 
@@ -123,22 +128,16 @@ impl AecService {
     // --- Write forwarding ---
 
     pub fn insert(&self, request: AecInsertRequest, now: Timestamp) -> Result<(), AecInsertError> {
-        let mut write_session = AecWriteSession::default();
-        self.aec
-            .write()
-            .unwrap()
-            .insert(request, now, &mut write_session)?;
+        let (result, write_session) =
+            self.write_with_session(|aec, write_session| aec.insert(request, now, write_session));
+        result?;
         self.publish(write_session);
         Ok(())
     }
 
     pub fn try_add_fork(&self, fork: &Block, fork_tally: Amount) -> bool {
-        let mut write_session = AecWriteSession::default();
-        let added = self
-            .aec
-            .write()
-            .unwrap()
-            .try_add_fork(fork, fork_tally, &mut write_session);
+        let (added, write_session) = self
+            .write_with_session(|aec, write_session| aec.try_add_fork(fork, fork_tally, write_session));
         self.publish(write_session);
         added
     }
@@ -147,22 +146,15 @@ impl AecService {
         &self,
         args: ApplyVoteArgs<'a>,
     ) -> HashMap<BlockHash, Result<(), VoteError>> {
-        let mut write_session = AecWriteSession::default();
-        let results = self
-            .aec
-            .write()
-            .unwrap()
-            .apply_vote(args, &mut write_session);
+        let (results, write_session) =
+            self.write_with_session(|aec, write_session| aec.apply_vote(args, write_session));
         self.publish(write_session);
         results
     }
 
     pub fn transition_time(&self, now: Timestamp) {
-        let mut write_session = AecWriteSession::default();
-        self.aec
-            .write()
-            .unwrap()
-            .transition_time(now, &mut write_session);
+        let (_, write_session) =
+            self.write_with_session(|aec, write_session| aec.transition_time(now, write_session));
         self.publish(write_session);
     }
 
@@ -174,11 +166,8 @@ impl AecService {
     where
         T: ElectionCandidateSource,
     {
-        let mut write_session = AecWriteSession::default();
-        self.aec
-            .write()
-            .unwrap()
-            .refill(source, now, &mut write_session);
+        let (_, write_session) =
+            self.write_with_session(|aec, write_session| aec.refill(source, now, write_session));
         self.publish(write_session);
     }
 
@@ -191,8 +180,9 @@ impl AecService {
     }
 
     pub fn erase(&self, root: &QualifiedRoot) -> bool {
-        let mut write_session = AecWriteSession::default();
-        if !self.aec.write().unwrap().erase(root, &mut write_session) {
+        let (erased, write_session) =
+            self.write_with_session(|aec, write_session| aec.erase(root, write_session));
+        if !erased {
             return false;
         }
         self.publish(write_session);
@@ -204,11 +194,9 @@ impl AecService {
         confirmed: Vec<(SavedBlock, Option<ConfirmedElection>)>,
         now: Timestamp,
     ) {
-        let mut write_session = AecWriteSession::default();
-        self.aec
-            .write()
-            .unwrap()
-            .confirm_dependent_elections(confirmed, now, &mut write_session);
+        let (_, write_session) = self.write_with_session(|aec, write_session| {
+            aec.confirm_dependent_elections(confirmed, now, write_session)
+        });
         self.publish(write_session);
     }
 
@@ -220,11 +208,9 @@ impl AecService {
     }
 
     pub fn set_cooldown(&self, cool_down: bool, reason: AecCooldownReason) {
-        let mut write_session = AecWriteSession::default();
-        self.aec
-            .write()
-            .unwrap()
-            .set_cooldown(cool_down, reason, &mut write_session);
+        let (_, write_session) = self.write_with_session(|aec, write_session| {
+            aec.set_cooldown(cool_down, reason, write_session)
+        });
         self.publish(write_session);
     }
 
@@ -246,11 +232,9 @@ impl AecService {
     }
 
     pub fn force_confirm(&self, block_hash: &BlockHash, now: Timestamp) {
-        let mut write_session = AecWriteSession::default();
-        self.aec
-            .write()
-            .unwrap()
-            .force_confirm(block_hash, now, &mut write_session);
+        let (_, write_session) = self.write_with_session(|aec, write_session| {
+            aec.force_confirm(block_hash, now, write_session)
+        });
         self.publish(write_session);
     }
 
@@ -268,20 +252,39 @@ impl AecService {
     }
 
     fn publish(&self, write_session: AecWriteSession) {
-        if write_session.is_empty() {
-            return;
-        }
+        let should_wake_scheduler = write_session.should_wake_scheduler();
 
         if let Some(sender) = self.publisher.read().unwrap().as_ref() {
             for fact in write_session {
                 sender.send(fact).unwrap();
             }
         }
+
+        if should_wake_scheduler {
+            self.wake_scheduler();
+        }
     }
 
     fn publish_fact(&self, fact: AecFact) {
         if let Some(sender) = self.publisher.read().unwrap().as_ref() {
             sender.send(fact).unwrap();
+        }
+    }
+
+    fn write_with_session<T>(
+        &self,
+        mutate: impl FnOnce(&mut ActiveElectionsContainer, &mut AecWriteSession) -> T,
+    ) -> (T, AecWriteSession) {
+        let mut guard = self.aec.write().unwrap();
+        let mut write_session = AecWriteSession::new(guard.vacancy());
+        let result = mutate(&mut guard, &mut write_session);
+        write_session.finalize(guard.vacancy());
+        (result, write_session)
+    }
+
+    fn wake_scheduler(&self) {
+        if let Some(wake_handle) = &self.scheduler_wake {
+            wake_handle.wake();
         }
     }
 }
@@ -301,7 +304,10 @@ impl ContainerInfoProvider for AecService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::{BucketInfo, ElectionCandidate, election::ElectionBehavior};
+    use crate::consensus::{
+        BucketInfo, ElectionCandidate, election::ElectionBehavior,
+        election_schedulers::SchedulerWakeHandle,
+    };
     use rsnano_nullable_clock::Timestamp;
     use rsnano_types::{BlockPriority, SavedBlock, Vote, VoteSource};
     use rsnano_utils::sync::backpressure_channel;
@@ -310,7 +316,12 @@ mod tests {
     #[test]
     fn insert_publishes_container_facts_through_service_owned_sender() {
         let (tx, rx) = backpressure_channel::channel(1);
-        let service = AecService::new(ActiveElectionsConfig::default(), Duration::ZERO, tx);
+        let service = AecService::new(
+            ActiveElectionsConfig::default(),
+            Duration::ZERO,
+            tx,
+            SchedulerWakeHandle::new(),
+        );
 
         service
             .insert(
@@ -330,7 +341,12 @@ mod tests {
     #[test]
     fn simulate_event_uses_service_owned_publication_path() {
         let (tx, rx) = backpressure_channel::channel(1);
-        let service = AecService::new(ActiveElectionsConfig::default(), Duration::ZERO, tx);
+        let service = AecService::new(
+            ActiveElectionsConfig::default(),
+            Duration::ZERO,
+            tx,
+            SchedulerWakeHandle::new(),
+        );
 
         service.simulate_event(AecFact::Recovered);
 
@@ -340,7 +356,12 @@ mod tests {
     #[test]
     fn refill_publishes_scheduler_driven_activation_through_service_owned_sender() {
         let (tx, rx) = backpressure_channel::channel(1);
-        let service = AecService::new(ActiveElectionsConfig::default(), Duration::ZERO, tx);
+        let service = AecService::new(
+            ActiveElectionsConfig::default(),
+            Duration::ZERO,
+            tx,
+            SchedulerWakeHandle::new(),
+        );
 
         let block = SavedBlock::new_test_instance();
         let mut source =
@@ -356,7 +377,12 @@ mod tests {
     #[test]
     fn vote_processed_uses_service_owned_publication_path() {
         let (tx, rx) = backpressure_channel::channel(1);
-        let service = AecService::new(ActiveElectionsConfig::default(), Duration::ZERO, tx);
+        let service = AecService::new(
+            ActiveElectionsConfig::default(),
+            Duration::ZERO,
+            tx,
+            SchedulerWakeHandle::new(),
+        );
 
         let vote = crate::consensus::ReceivedVote::new(
             Arc::new(Vote::new_test_instance()),
