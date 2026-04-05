@@ -1,8 +1,7 @@
 use std::{
     collections::VecDeque,
     mem::size_of,
-    sync::{Arc, Condvar, Mutex},
-    thread::JoinHandle,
+    sync::{Arc, Mutex},
 };
 
 use rsnano_ledger::{AnySet, Ledger};
@@ -16,13 +15,12 @@ use rsnano_utils::{
 use crate::consensus::{AecInsertRequest, AecService, election::ElectionBehavior};
 
 pub struct ManualScheduler {
-    thread: Mutex<Option<JoinHandle<()>>>,
-    condition: Condvar,
     mutex: Mutex<ManualSchedulerImpl>,
     stats: Arc<Stats>,
     aec: Arc<AecService>,
     clock: Arc<SteadyClock>,
     ledger: Arc<Ledger>,
+    wakeup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl ManualScheduler {
@@ -33,26 +31,19 @@ impl ManualScheduler {
         ledger: Arc<Ledger>,
     ) -> Self {
         Self {
-            thread: Mutex::new(None),
-            condition: Condvar::new(),
             stats,
             aec: active_elections,
             clock,
             ledger,
             mutex: Mutex::new(ManualSchedulerImpl {
                 queue: Default::default(),
-                stopped: false,
             }),
+            wakeup: Mutex::new(None),
         }
     }
 
-    pub fn stop(&self) {
-        self.mutex.lock().unwrap().stopped = true;
-        self.notify();
-        let handle = self.thread.lock().unwrap().take();
-        if let Some(handle) = handle {
-            handle.join().unwrap();
-        }
+    pub fn set_wakeup(&self, wakeup: Arc<dyn Fn() + Send + Sync>) {
+        *self.wakeup.lock().unwrap() = Some(wakeup);
     }
 
     pub fn contains(&self, hash: &BlockHash) -> bool {
@@ -64,55 +55,44 @@ impl ManualScheduler {
             .any(|block| block.hash() == *hash)
     }
 
-    pub fn notify(&self) {
-        self.condition.notify_all();
-    }
-
     pub fn push(&self, block: SavedBlock) {
         {
             let mut guard = self.mutex.lock().unwrap();
             guard.queue.push_back(block);
         }
-        self.notify();
+        if let Some(wakeup) = self.wakeup.lock().unwrap().as_ref() {
+            wakeup();
+        }
     }
 
-    fn run(&self) {
-        let mut guard = self.mutex.lock().unwrap();
-        while !guard.stopped {
-            guard = self
-                .condition
-                .wait_while(guard, |g| !g.stopped && !g.predicate())
-                .unwrap();
+    pub fn run_one(&self) -> bool {
+        let block = {
+            let mut guard = self.mutex.lock().unwrap();
+            let Some(block) = guard.queue.pop_front() else {
+                return false;
+            };
+            block
+        };
 
-            if !guard.stopped {
-                self.stats
-                    .inc(StatType::ElectionScheduler, DetailType::Loop);
+        self.stats
+            .inc(StatType::ElectionScheduler, DetailType::Loop);
 
-                if guard.predicate() {
-                    let block = guard.queue.pop_front().unwrap();
-                    drop(guard);
+        let hash = block.hash();
+        let priority = self.ledger.any().block_priority(&block);
+        self.stats
+            .inc(StatType::ElectionScheduler, DetailType::InsertManual);
 
-                    let hash = block.hash();
-                    let priority = self.ledger.any().block_priority(&block);
-                    self.stats
-                        .inc(StatType::ElectionScheduler, DetailType::InsertManual);
+        let now = self.clock.now();
 
-                    let now = self.clock.now();
-
-                    if self
-                        .aec
-                        .insert(AecInsertRequest::new_manual(block, priority), now)
-                        .is_ok()
-                    {
-                        self.aec.transition_active(&hash);
-                    }
-                } else {
-                    drop(guard);
-                }
-                self.notify();
-                guard = self.mutex.lock().unwrap();
-            }
+        if self
+            .aec
+            .insert(AecInsertRequest::new_manual(block, priority), now)
+            .is_ok()
+        {
+            self.aec.transition_active(&hash);
         }
+
+        true
     }
 
     pub fn container_info(&self) -> ContainerInfo {
@@ -126,39 +106,6 @@ impl ManualScheduler {
     }
 }
 
-impl Drop for ManualScheduler {
-    fn drop(&mut self) {
-        // Thread must be stopped before destruction
-        debug_assert!(self.thread.lock().unwrap().is_none());
-    }
-}
-
-pub trait ManualSchedulerExt {
-    fn start(&self);
-}
-
-impl ManualSchedulerExt for Arc<ManualScheduler> {
-    fn start(&self) {
-        debug_assert!(self.thread.lock().unwrap().is_none());
-        let self_l = Arc::clone(self);
-        *self.thread.lock().unwrap() = Some(
-            std::thread::Builder::new()
-                .name("Sched Manual".to_string())
-                .spawn(Box::new(move || {
-                    self_l.run();
-                }))
-                .unwrap(),
-        )
-    }
-}
-
 struct ManualSchedulerImpl {
     queue: VecDeque<SavedBlock>,
-    stopped: bool,
-}
-
-impl ManualSchedulerImpl {
-    fn predicate(&self) -> bool {
-        !self.queue.is_empty()
-    }
 }

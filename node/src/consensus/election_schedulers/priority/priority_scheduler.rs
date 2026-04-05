@@ -1,7 +1,4 @@
-use std::{
-    sync::{Arc, Condvar, Mutex},
-    thread::JoinHandle,
-};
+use std::sync::{Arc, Mutex};
 
 use rsnano_ledger::{AnySet, ConfirmedSet};
 use rsnano_nullable_clock::SteadyClock;
@@ -21,11 +18,8 @@ use crate::consensus::{
 };
 
 pub struct PriorityScheduler {
-    stopped: Mutex<bool>,
-    condition: Condvar,
     stats: Arc<Stats>,
     buckets: Mutex<PriorityBuckets>,
-    thread: Mutex<Option<JoinHandle<()>>>,
     clock: Arc<SteadyClock>,
     aec: Arc<AecService>,
     activate_successors_listener: OutputListenerMt<SavedBlock>,
@@ -41,9 +35,6 @@ impl PriorityScheduler {
         let buckets = PriorityBuckets::new(prio_bucket_count(), config);
 
         Self {
-            thread: Mutex::new(None),
-            stopped: Mutex::new(false),
-            condition: Condvar::new(),
             buckets: Mutex::new(buckets),
             stats,
             clock,
@@ -54,19 +45,6 @@ impl PriorityScheduler {
 
     pub fn track_activate_successors(&self) -> Arc<OutputTrackerMt<SavedBlock>> {
         self.activate_successors_listener.track()
-    }
-
-    pub fn stop(&self) {
-        *self.stopped.lock().unwrap() = true;
-        self.condition.notify_all();
-        let handle = self.thread.lock().unwrap().take();
-        if let Some(handle) = handle {
-            handle.join().unwrap();
-        }
-    }
-
-    pub fn notify(&self) {
-        self.condition.notify_all();
     }
 
     pub fn contains(&self, hash: &BlockHash) -> bool {
@@ -149,7 +127,6 @@ impl PriorityScheduler {
         if insert_result.is_ok() {
             self.stats
                 .inc(StatType::ElectionScheduler, DetailType::Activated);
-            self.condition.notify_all();
         }
     }
 
@@ -161,34 +138,23 @@ impl PriorityScheduler {
         self.len() == 0
     }
 
-    fn run(&self) {
-        let mut stopped = self.stopped.lock().unwrap();
-        while !*stopped {
-            stopped = self
-                .condition
-                .wait_while(stopped, |s| !*s && !self.predicate())
-                .unwrap();
-
-            if !*stopped {
-                drop(stopped);
-                self.run_one();
-                stopped = self.stopped.lock().unwrap();
-            }
-        }
-    }
-
     fn predicate(&self) -> bool {
         let buckets = self.buckets.lock().unwrap();
         self.aec.check_vacancy(&*buckets)
     }
 
-    fn run_one(&self) {
+    pub fn run_one(&self) -> bool {
+        if !self.predicate() {
+            return false;
+        }
+
         self.stats
             .inc(StatType::ElectionScheduler, DetailType::Loop);
 
         let now = self.clock.now();
         let mut buckets = self.buckets.lock().unwrap();
         self.aec.refill(&mut *buckets, now);
+        true
     }
 
     pub fn activate_successors(&self, any: &impl AnySet, block: &SavedBlock) {
@@ -219,33 +185,6 @@ impl PriorityScheduler {
         ContainerInfo::builder()
             .node("blocks", bucket_infos.finish())
             .finish()
-    }
-}
-
-impl Drop for PriorityScheduler {
-    fn drop(&mut self) {
-        // Thread must be stopped before destruction
-        debug_assert!(self.thread.lock().unwrap().is_none());
-    }
-}
-
-pub trait PrioritySchedulerExt {
-    fn start(&self);
-}
-
-impl PrioritySchedulerExt for Arc<PriorityScheduler> {
-    fn start(&self) {
-        debug_assert!(self.thread.lock().unwrap().is_none());
-
-        let self_l = Arc::clone(self);
-        *self.thread.lock().unwrap() = Some(
-            std::thread::Builder::new()
-                .name("Sched Priority".to_string())
-                .spawn(Box::new(move || {
-                    self_l.run();
-                }))
-                .unwrap(),
-        );
     }
 }
 

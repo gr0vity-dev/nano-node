@@ -1,22 +1,21 @@
+mod activation_loop;
 mod election_schedulers_plugin;
 mod hinted_scheduler;
 mod manual_scheduler;
 mod optimistic;
 pub mod priority;
 
+use activation_loop::ActivationLoop;
 pub(crate) use election_schedulers_plugin::*;
 pub use hinted_scheduler::*;
 pub use manual_scheduler::*;
 pub use optimistic::*;
 
-use std::{
-    sync::{Arc, Mutex},
-    thread::JoinHandle,
-};
+use std::sync::{Arc, Mutex};
 
 use rsnano_ledger::{AnySet, Ledger, ProcessResult};
 use rsnano_nullable_clock::SteadyClock;
-use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
+use rsnano_output_tracker::OutputTrackerMt;
 use rsnano_types::{Account, AccountInfo, BlockHash, ConfirmationHeightInfo, SavedBlock};
 use rsnano_utils::{
     container_info::{ContainerInfo, ContainerInfoProvider},
@@ -25,18 +24,15 @@ use rsnano_utils::{
 
 use super::{AecService, VoteCache};
 use crate::{cementation::ConfirmingSet, config::NodeConfig, representatives::OnlineReps};
-use priority::{PriorityScheduler, PrioritySchedulerExt};
+use priority::PriorityScheduler;
 
 pub struct ElectionSchedulers {
     pub priority: Arc<PriorityScheduler>,
     pub optimistic: Arc<OptimisticScheduler>,
     pub hinted: Arc<HintedScheduler>,
     pub manual: Arc<ManualScheduler>,
-    notify_listener: OutputListenerMt<()>,
-    config: NodeConfig,
+    activation_loop: Arc<ActivationLoop>,
     ledger: Arc<Ledger>,
-    activate_successors_listener: OutputListenerMt<SavedBlock>,
-    optimistic_thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl ElectionSchedulers {
@@ -91,16 +87,27 @@ impl ElectionSchedulers {
             clock,
         ));
 
+        let activation_loop = Arc::new(ActivationLoop::new(
+            priority.clone(),
+            optimistic.clone(),
+            hinted.clone(),
+            manual.clone(),
+            config.enable_priority_scheduler,
+            config.enable_optimistic_scheduler,
+            config.enable_hinted_scheduler,
+        ));
+        manual.set_wakeup({
+            let activation_loop = activation_loop.clone();
+            Arc::new(move || activation_loop.notify())
+        });
+
         Self {
             priority,
             optimistic,
             hinted,
             manual,
-            notify_listener: OutputListenerMt::new(),
-            config,
+            activation_loop,
             ledger,
-            activate_successors_listener: Default::default(),
-            optimistic_thread: Mutex::new(None),
         }
     }
 
@@ -130,7 +137,7 @@ impl ElectionSchedulers {
     }
 
     pub fn track_activate_successors(&self) -> Arc<OutputTrackerMt<SavedBlock>> {
-        self.activate_successors_listener.track()
+        self.priority.track_activate_successors()
     }
 
     /// Does the block exist in any of the schedulers
@@ -149,6 +156,7 @@ impl ElectionSchedulers {
             .activate(account, account_info.block_count, conf_info.height);
         self.priority
             .activate_with_info(any, account_info, conf_info);
+        self.activation_loop.notify();
     }
 
     pub fn activate_accounts_with_fresh_blocks(&self, processed: &[ProcessResult]) {
@@ -159,13 +167,11 @@ impl ElectionSchedulers {
                 self.priority.activate(&any, &account);
             }
         }
+        self.activation_loop.notify();
     }
 
     pub fn notify(&self) {
-        self.notify_listener.emit(());
-        self.priority.notify();
-        self.hinted.notify();
-        self.optimistic.notify();
+        self.activation_loop.notify();
     }
 
     pub fn add_manual(&self, block: SavedBlock) {
@@ -176,43 +182,17 @@ impl ElectionSchedulers {
         // Activate successors of confirmed blocks
         let any = self.ledger.any();
         for block in confirmed {
-            if self.activate_successors_listener.is_tracked() {
-                self.activate_successors_listener.emit(block.clone());
-            }
             self.priority.activate_successors(&any, block);
         }
+        self.activation_loop.notify();
     }
 
     pub fn start(&self) {
-        if self.config.enable_hinted_scheduler {
-            self.hinted.start();
-        }
-        self.manual.start();
-        if self.config.enable_optimistic_scheduler {
-            let optimistic = self.optimistic.clone();
-            let handle = std::thread::Builder::new()
-                .name("Sched Opt".to_string())
-                .spawn(move || optimistic.run_loop())
-                .unwrap();
-            *self.optimistic_thread.lock().unwrap() = Some(handle);
-        }
-        if self.config.enable_priority_scheduler {
-            self.priority.start();
-        }
-    }
-
-    pub fn track_notify(&self) -> Arc<OutputTrackerMt<()>> {
-        self.notify_listener.track()
+        self.activation_loop.start();
     }
 
     pub fn stop(&self) {
-        self.hinted.stop();
-        self.manual.stop();
-        self.optimistic.stop();
-        if let Some(handle) = self.optimistic_thread.lock().unwrap().take() {
-            handle.join().unwrap();
-        }
-        self.priority.stop();
+        self.activation_loop.stop();
     }
 }
 

@@ -2,11 +2,7 @@ use std::{
     cmp::min,
     collections::{BTreeMap, HashMap, HashSet},
     mem::size_of,
-    sync::{
-        Arc, Condvar, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
-    thread::JoinHandle,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -59,21 +55,16 @@ impl Default for HintedSchedulerConfig {
 
 /// Monitors inactive vote cache and schedules elections with the highest observed vote tally.
 pub struct HintedScheduler {
-    thread: Mutex<Option<JoinHandle<()>>>,
     config: HintedSchedulerConfig,
     active_elections: Arc<AecService>,
-    condition: Condvar,
     ledger: Arc<Ledger>,
     confirming_set: Arc<ConfirmingSet>,
     stats: Arc<Stats>,
     vote_cache: Arc<Mutex<VoteCache>>,
     online_reps: Arc<Mutex<OnlineReps>>,
     clock: Arc<SteadyClock>,
-    stopped: AtomicBool,
-    stopped_mutex: Mutex<()>,
     cooldowns: Mutex<OrderedCooldowns>,
     pub max_elections: usize,
-    notification_threshold: usize,
 }
 
 impl HintedScheduler {
@@ -89,13 +80,8 @@ impl HintedScheduler {
     ) -> Self {
         let max_elections = active_elections.max_len() * config.hinted_limit_percentage / 100;
 
-        let notification_threshold =
-            max_elections * config.vacancy_threshold_percent as usize / 100;
-
         Self {
-            thread: Mutex::new(None),
             config,
-            condition: Condvar::new(),
             active_elections,
             ledger,
             stats,
@@ -103,28 +89,8 @@ impl HintedScheduler {
             confirming_set,
             online_reps,
             clock,
-            stopped: AtomicBool::new(false),
-            stopped_mutex: Mutex::new(()),
             cooldowns: Mutex::new(OrderedCooldowns::new()),
             max_elections,
-            notification_threshold,
-        }
-    }
-
-    pub fn stop(&self) {
-        self.stopped.store(true, Ordering::SeqCst);
-        self.notify();
-        let handle = self.thread.lock().unwrap().take();
-        if let Some(handle) = handle {
-            handle.join().unwrap();
-        }
-    }
-
-    /// Notify about changes in AEC vacancy
-    pub fn notify(&self) {
-        // Avoid notifying when there is very little space inside AEC
-        if self.aec_vacancy() >= self.notification_threshold as i64 {
-            self.condition.notify_all();
         }
     }
 
@@ -146,17 +112,22 @@ impl HintedScheduler {
         .into()
     }
 
+    pub fn check_interval(&self) -> Duration {
+        self.config.check_interval
+    }
+
     fn predicate(&self) -> bool {
         // Check if there is space inside AEC for a new hinted election
         self.aec_vacancy() > 0
     }
 
-    fn activate(&self, any: &impl AnySet, hash: BlockHash, check_dependents: bool) {
+    fn activate(&self, any: &impl AnySet, hash: BlockHash, check_dependents: bool) -> bool {
         const MAX_ITERATIONS: usize = 64;
         let mut visited = HashSet::new();
         let mut stack = Vec::new();
         stack.push(hash);
         let mut iterations = 0;
+        let mut inserted_any = false;
         while let Some(current_hash) = stack.pop() {
             if iterations >= MAX_ITERATIONS {
                 break;
@@ -219,15 +190,17 @@ impl HintedScheduler {
                         DetailType::InsertFailed
                     },
                 );
+                inserted_any |= inserted;
             } else {
                 self.stats.inc(StatType::Hinting, DetailType::MissingBlock);
 
                 // TODO: Block is missing, bootstrap it
             }
         }
+        inserted_any
     }
 
-    fn run_interactive(&self) {
+    fn run_interactive(&self) -> bool {
         let minimum_tally = self.tally_threshold();
         let minimum_final_tally = self.final_tally_threshold();
 
@@ -235,14 +208,11 @@ impl HintedScheduler {
         let tops = self.vote_cache.lock().unwrap().top(minimum_tally);
 
         let mut any = self.ledger.any();
+        let mut inserted_any = false;
 
         for entry in tops {
-            if self.stopped.load(Ordering::SeqCst) {
-                return;
-            }
-
             if !self.predicate() {
-                return;
+                return inserted_any;
             }
 
             if self.cooldown(entry.hash) {
@@ -257,35 +227,24 @@ impl HintedScheduler {
             if entry.final_tally < minimum_final_tally {
                 // Ensure all dependent blocks are already confirmed before activating
                 self.stats.inc(StatType::Hinting, DetailType::Activate);
-                self.activate(&any, entry.hash, /* activate dependents */ true);
+                inserted_any |=
+                    self.activate(&any, entry.hash, /* activate dependents */ true);
             } else {
                 // Blocks with a vote tally higher than quorum, can be activated and confirmed immediately
                 self.stats
                     .inc(StatType::Hinting, DetailType::ActivateImmediate);
-                self.activate(&any, entry.hash, false);
+                inserted_any |= self.activate(&any, entry.hash, false);
             }
         }
+        inserted_any
     }
 
-    fn run(&self) {
-        let mut guard = self.stopped_mutex.lock().unwrap();
-        while !self.stopped.load(Ordering::SeqCst) {
-            self.stats.inc(StatType::Hinting, DetailType::Loop);
-            guard = self
-                .condition
-                .wait_timeout_while(guard, self.config.check_interval, |_| {
-                    !self.stopped.load(Ordering::SeqCst)
-                })
-                .unwrap()
-                .0;
-            if !self.stopped.load(Ordering::SeqCst) {
-                drop(guard);
-                if self.predicate() {
-                    self.run_interactive()
-                }
-                guard = self.stopped_mutex.lock().unwrap();
-            }
+    pub fn run_one(&self) -> bool {
+        self.stats.inc(StatType::Hinting, DetailType::Loop);
+        if !self.predicate() {
+            return false;
         }
+        self.run_interactive()
     }
 
     fn tally_threshold(&self) -> Amount {
@@ -314,32 +273,6 @@ impl HintedScheduler {
         // Trim old entries
         guard.trim(now);
         false // No need to cooldown
-    }
-}
-
-impl Drop for HintedScheduler {
-    fn drop(&mut self) {
-        // Thread must be stopped before destruction
-        debug_assert!(self.thread.lock().unwrap().is_none());
-    }
-}
-
-pub trait HintedSchedulerExt {
-    fn start(&self);
-}
-
-impl HintedSchedulerExt for Arc<HintedScheduler> {
-    fn start(&self) {
-        debug_assert!(self.thread.lock().unwrap().is_none());
-        let self_l = Arc::clone(self);
-        *self.thread.lock().unwrap() = Some(
-            std::thread::Builder::new()
-                .name("Sched Hinted".to_string())
-                .spawn(Box::new(move || {
-                    self_l.run();
-                }))
-                .unwrap(),
-        );
     }
 }
 
