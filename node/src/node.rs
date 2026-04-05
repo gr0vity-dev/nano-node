@@ -74,7 +74,10 @@ use crate::{
         VoteProcessorQueueCleanup, VoteRebroadcastQueue, VoteRebroadcaster, WalletRepsChecker,
         WinnerBlockBroadcaster,
         election::ConfirmedElection,
-        election_schedulers::{ElectionSchedulers, ElectionSchedulersPlugin, SchedulerWakeSignal},
+        election_schedulers::{
+            ElectionSchedulers, ElectionSchedulersPlugin, HintedSchedulerWakeHandle,
+            SchedulerWakeSignal,
+        },
         get_bootstrap_weights, log_bootstrap_weights,
     },
     ledger_event_processor::LedgerEventProcessor,
@@ -624,6 +627,7 @@ impl Node {
         let aec_rx2 = aec_tx.clone();
         event_queues_info.add_leaf("aec", move || aec_rx2.len());
         let scheduler_wakeup = Arc::new(SchedulerWakeSignal::new());
+        let hinted_wake = HintedSchedulerWakeHandle::new(scheduler_wakeup.clone());
 
         let active_elections = Arc::new(AecService::new(
             config.active_elections.clone(),
@@ -1252,7 +1256,7 @@ impl Node {
             confirming_set: confirming_set.clone(),
             online_reps: online_reps.clone(),
             active_elections: active_elections.clone(),
-            election_schedulers: election_schedulers.clone(),
+            hinted_wake,
             rep_crawler: rep_crawler.clone(),
             clock: steady_clock.clone(),
             local_votes_remover,

@@ -10,7 +10,7 @@ pub(crate) use election_schedulers_plugin::*;
 pub use hinted_scheduler::*;
 pub use manual_scheduler::*;
 pub use optimistic::*;
-pub(crate) use activation_loop::SchedulerWakeSignal;
+pub(crate) use activation_loop::{HintedSchedulerWakeHandle, SchedulerWakeSignal};
 
 use std::sync::{Arc, Mutex};
 
@@ -159,10 +159,6 @@ impl ElectionSchedulers {
         let any = self.ledger.any();
         self.priority
             .activate_accounts_with_fresh_blocks(&any, processed);
-        self.wake_signal.wake();
-    }
-
-    pub(crate) fn wake_hinted(&self) {
         self.wake_signal.wake();
     }
 
