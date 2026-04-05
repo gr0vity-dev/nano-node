@@ -1721,8 +1721,10 @@ impl CompositeNodeEventHandler {
 mod tests {
     use super::*;
     use crate::consensus::{
-        AecFact, AecTickerPlugin, BootstrapStaleElections, StaleElectionsStats,
+        AecInsertRequest, AecTickerPlugin, BootstrapStaleElections, StaleElectionsStats,
     };
+    use rsnano_nullable_clock::Timestamp;
+    use rsnano_types::{BlockPriority, SavedBlock};
     use rsnano_utils::{stats::StatsSource, ticker::Tickable};
     use std::any::type_name;
 
@@ -1800,11 +1802,17 @@ mod tests {
     fn connect_winner_block_rebroadcaster() {
         let node = Node::new_null();
         let broadcast_tracker = node.winner_block_broadcaster.lock().unwrap().track();
-        let election = ConfirmedElection::new_test_instance();
-        let winner_hash = election.winner.hash();
+        let winner = SavedBlock::new_test_instance();
+        let winner_hash = winner.hash();
 
         node.aec
-            .simulate_event(AecFact::ElectionConfirmed(election));
+            .insert(
+                AecInsertRequest::new_priority(winner, BlockPriority::new_test_instance()),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+        node.aec
+            .force_confirm(&winner_hash, Timestamp::new_test_instance());
 
         let output = broadcast_tracker.wait_output().unwrap();
         assert_eq!(output, vec![winner_hash]);

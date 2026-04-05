@@ -214,10 +214,6 @@ impl AecService {
         self.write_session(|aec, session| aec.force_confirm(block_hash, now, session));
     }
 
-    pub fn simulate_event(&self, event: AecFact) {
-        self.publish_fact(event);
-    }
-
     pub fn publish_vote_processed(
         &self,
         vote: crate::consensus::ReceivedVote,
@@ -302,21 +298,6 @@ mod tests {
             .unwrap();
 
         assert!(matches!(rx.try_recv(), Ok(AecFact::ElectionStarted(_, _))));
-    }
-
-    #[test]
-    fn simulate_event_uses_service_owned_publication_path() {
-        let (tx, rx) = backpressure_channel::channel(1);
-        let service = AecService::new(
-            ActiveElectionsConfig::default(),
-            Duration::ZERO,
-            tx,
-            Arc::new(SchedulerWakeSignal::new()),
-        );
-
-        service.simulate_event(AecFact::Recovered);
-
-        assert!(matches!(rx.try_recv(), Ok(AecFact::Recovered)));
     }
 
     #[test]
@@ -419,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn simulate_event_does_not_wake_scheduler() {
+    fn publish_vote_processed_does_not_wake_scheduler() {
         let (tx, _rx) = backpressure_channel::channel(8);
         let wake_signal = Arc::new(SchedulerWakeSignal::new());
         let service = AecService::new(
@@ -429,7 +410,12 @@ mod tests {
             wake_signal.clone(),
         );
 
-        service.simulate_event(AecFact::Recovered);
+        let vote = crate::consensus::ReceivedVote::new(
+            Arc::new(Vote::new_test_instance()),
+            VoteSource::Live,
+            None,
+        );
+        service.publish_vote_processed(vote, Amount::raw(1), HashMap::new());
 
         assert!(!wake_signal.take_notification());
     }
