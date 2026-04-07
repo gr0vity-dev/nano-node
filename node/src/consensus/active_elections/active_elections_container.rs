@@ -34,6 +34,8 @@ use super::{
     stats::AecStats,
 };
 
+const RESERVED_ELECTIONS_PER_BUCKET: usize = 100;
+
 pub struct ActiveElectionsContainer {
     roots: RootContainer,
     observer: Option<Sender<AecFact>>,
@@ -316,11 +318,14 @@ impl ActiveElectionsContainer {
             any_inserted = false;
             for bucket_index in (0..self.roots.bucket_count()).rev() {
                 let bucket = &self.roots.bucket_infos()[bucket_index];
-                let bucket_vacancy = if self.len() >= self.max_elections {
-                    0
-                } else {
-                    self.max_elections_per_bucket as isize - bucket.election_count as isize
-                };
+                let bucket_vacancy =
+                    if self.len() < self.max_elections
+                        && bucket.election_count < RESERVED_ELECTIONS_PER_BUCKET
+                    {
+                        1
+                    } else {
+                        0
+                    };
 
                 let Some(candidate) = source.next_candidate(
                     bucket_index,
@@ -337,7 +342,9 @@ impl ActiveElectionsContainer {
                     continue;
                 }
 
-                if self.bucket_len(candidate.bucket_id) >= self.max_elections_per_bucket {
+                if self.bucket_len(candidate.bucket_id) > 0
+                    && self.bucket_len(candidate.bucket_id) >= RESERVED_ELECTIONS_PER_BUCKET
+                {
                     self.erase_lowest_prio_election(candidate.bucket_id);
                     self.stats.replaced += 1;
                 }
