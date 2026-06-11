@@ -144,4 +144,158 @@ mod tests {
         assert_eq!(config.max_system_queue, 1024 * 16, "max system queue");
         assert_eq!(config.max_peer_queue, 1024, "max peer queue");
     }
+
+    #[test]
+    fn competing_sources_are_dequeued_by_configured_service_share() {
+        let mut queue = ProcessQueue::new(ProcessQueueConfig {
+            priority_live: 1,
+            priority_bootstrap: 2,
+            priority_local: 3,
+            priority_system: 4,
+            batch_size: 10,
+            ..ProcessQueueConfig::default()
+        });
+
+        push_blocks(&mut queue, BlockSource::Live, 10);
+        push_blocks(&mut queue, BlockSource::Bootstrap, 10);
+        push_blocks(&mut queue, BlockSource::Local, 10);
+        push_blocks(&mut queue, BlockSource::Forced, 10);
+
+        let sources = pop_sources(&mut queue, 10);
+
+        assert_eq!(
+            sources,
+            vec![
+                BlockSource::Live,
+                BlockSource::Bootstrap,
+                BlockSource::Bootstrap,
+                BlockSource::Local,
+                BlockSource::Local,
+                BlockSource::Local,
+                BlockSource::Forced,
+                BlockSource::Forced,
+                BlockSource::Forced,
+                BlockSource::Forced,
+            ]
+        );
+    }
+
+    #[test]
+    fn live_peer_queue_can_fill_before_system_queue() {
+        let mut queue = ProcessQueue::new(ProcessQueueConfig {
+            max_peer_queue: 2,
+            max_system_queue: 4,
+            ..ProcessQueueConfig::default()
+        });
+
+        assert!(queue.push(block_context(BlockSource::Live)));
+        assert!(queue.push(block_context(BlockSource::Live)));
+        assert!(!queue.push(block_context(BlockSource::Live)));
+
+        assert!(queue.push(block_context(BlockSource::Bootstrap)));
+        assert!(queue.push(block_context(BlockSource::Bootstrap)));
+        assert!(queue.push(block_context(BlockSource::Bootstrap)));
+        assert!(queue.push(block_context(BlockSource::Bootstrap)));
+        assert!(!queue.push(block_context(BlockSource::Bootstrap)));
+
+        assert_eq!(queue.source_len(BlockSource::Live), 2);
+        assert_eq!(queue.source_len(BlockSource::Bootstrap), 4);
+    }
+
+    #[test]
+    fn pressure_live_dequeue_distance_under_bootstrap_and_unchecked_backlog() {
+        let mut queue = ProcessQueue::new(ProcessQueueConfig {
+            batch_size: 18,
+            ..ProcessQueueConfig::default()
+        });
+
+        push_blocks(&mut queue, BlockSource::Live, 2);
+        push_blocks(&mut queue, BlockSource::Bootstrap, 16);
+        push_blocks(&mut queue, BlockSource::Unchecked, 16);
+
+        let sources = pop_sources(&mut queue, 18);
+
+        assert_eq!(positions_of(&sources, BlockSource::Live), vec![0, 17]);
+        assert_eq!(count_source(&sources, BlockSource::Live), 2);
+        assert_eq!(count_source(&sources, BlockSource::Bootstrap), 8);
+        assert_eq!(count_source(&sources, BlockSource::Unchecked), 8);
+        assert_eq!(queue.source_len(BlockSource::Bootstrap), 8);
+        assert_eq!(queue.source_len(BlockSource::Unchecked), 8);
+    }
+
+    #[test]
+    fn pressure_forced_system_share_creates_the_longest_default_live_gap() {
+        let mut queue = ProcessQueue::new(ProcessQueueConfig {
+            batch_size: 34,
+            ..ProcessQueueConfig::default()
+        });
+
+        push_blocks(&mut queue, BlockSource::Live, 2);
+        push_blocks(&mut queue, BlockSource::Forced, 64);
+
+        let sources = pop_sources(&mut queue, 34);
+
+        assert_eq!(positions_of(&sources, BlockSource::Live), vec![0, 33]);
+        assert_eq!(count_source(&sources, BlockSource::Live), 2);
+        assert_eq!(count_source(&sources, BlockSource::Forced), 32);
+        assert_eq!(queue.source_len(BlockSource::Forced), 32);
+    }
+
+    #[test]
+    fn pressure_live_and_live_originator_get_separate_peer_fair_queue_turns() {
+        let mut queue = ProcessQueue::new(ProcessQueueConfig {
+            max_peer_queue: 2,
+            batch_size: 4,
+            ..ProcessQueueConfig::default()
+        });
+
+        push_blocks(&mut queue, BlockSource::Live, 2);
+        push_blocks(&mut queue, BlockSource::LiveOriginator, 2);
+        assert!(!queue.push(block_context(BlockSource::Live)));
+        assert!(!queue.push(block_context(BlockSource::LiveOriginator)));
+
+        let sources = pop_sources(&mut queue, 4);
+
+        assert_eq!(
+            sources,
+            vec![
+                BlockSource::Live,
+                BlockSource::LiveOriginator,
+                BlockSource::Live,
+                BlockSource::LiveOriginator,
+            ]
+        );
+    }
+
+    /* Test helpers */
+
+    fn push_blocks(queue: &mut ProcessQueue, source: BlockSource, count: usize) {
+        for _ in 0..count {
+            assert!(queue.push(block_context(source)));
+        }
+    }
+
+    fn pop_sources(queue: &mut ProcessQueue, count: usize) -> Vec<BlockSource> {
+        (0..count).map(|_| queue.next().source).collect()
+    }
+
+    fn positions_of(sources: &[BlockSource], source: BlockSource) -> Vec<usize> {
+        sources
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| (*s == source).then_some(i))
+            .collect()
+    }
+
+    fn count_source(sources: &[BlockSource], source: BlockSource) -> usize {
+        sources.iter().filter(|s| **s == source).count()
+    }
+
+    fn block_context(source: BlockSource) -> Arc<BlockContext> {
+        Arc::new(BlockContext::new(
+            Block::new_test_instance(),
+            source,
+            ChannelId::LOOPBACK,
+        ))
+    }
 }
