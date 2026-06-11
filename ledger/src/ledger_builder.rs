@@ -19,6 +19,7 @@ pub struct LedgerBuilder<'a> {
     min_rep_weight: Amount,
     ledger_constants: Option<LedgerConstants>,
     thread_count: usize,
+    batch_validation_threads: Option<usize>,
     sender: Option<Box<dyn Fn(LedgerEvent) + Send + Sync>>,
     consistency_check: bool,
 }
@@ -34,6 +35,7 @@ impl<'a> LedgerBuilder<'a> {
             min_rep_weight: Amount::ZERO,
             ledger_constants: None,
             thread_count: 0,
+            batch_validation_threads: None,
             sender: None,
             consistency_check: true,
         }
@@ -71,6 +73,11 @@ impl<'a> LedgerBuilder<'a> {
 
     pub fn init_thread_count(mut self, count: usize) -> Self {
         self.thread_count = count;
+        self
+    }
+
+    pub fn batch_validation_threads(mut self, count: usize) -> Self {
+        self.batch_validation_threads = Some(count);
         self
     }
 
@@ -115,6 +122,9 @@ impl<'a> LedgerBuilder<'a> {
             // Between 10 and 40 threads, scales well even in low power systems as long as actions are I/O bound
             self.thread_count = (11 * get_cpu_count()).clamp(10, 40);
         }
+        let batch_validation_threads = self
+            .batch_validation_threads
+            .unwrap_or_else(|| get_cpu_count().max(1));
 
         let env = create_and_update_lmdb_env(env_factory, env_options)?;
 
@@ -124,6 +134,7 @@ impl<'a> LedgerBuilder<'a> {
             rep_weights.clone(),
             stats.clone(),
             self.thread_count,
+            batch_validation_threads,
             self.consistency_check,
         )?;
 

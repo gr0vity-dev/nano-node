@@ -107,6 +107,7 @@ pub struct Ledger {
     pub rep_weights: Arc<RepWeightCache>,
     pub constants: LedgerConstants,
     pub(crate) stats: Arc<Stats>,
+    batch_validation_threads: usize,
     rollback_listener: OutputListenerMt<BlockHash>,
     store_version: u32,
     pub(crate) publish: RwLock<Option<Box<dyn Fn(LedgerEvent) + Send + Sync>>>,
@@ -258,6 +259,7 @@ impl NullLedgerBuilder {
             rep_weights_cache.into(),
             Stats::default().into(),
             1,
+            1,
             false,
         )
         .unwrap()
@@ -271,6 +273,7 @@ impl Ledger {
             LedgerConstants::unit_test(),
             Arc::new(RepWeightCache::default()),
             Arc::new(Stats::default()),
+            1,
             1,
             false,
         )
@@ -287,6 +290,7 @@ impl Ledger {
         rep_weights: Arc<RepWeightCache>,
         stats: Arc<Stats>,
         thread_count: usize,
+        batch_validation_threads: usize,
         consistency_check: bool,
     ) -> anyhow::Result<Self> {
         let mut store = LmdbStore::new(env)?;
@@ -300,6 +304,7 @@ impl Ledger {
             store,
             constants,
             stats,
+            batch_validation_threads: batch_validation_threads.max(1),
             rollback_listener: Default::default(),
             store_version: 0,
             publish: RwLock::new(None),
@@ -649,7 +654,7 @@ impl Ledger {
             }
         }
 
-        let validation_results = validate_batch(validation_inputs);
+        let validation_results = validate_batch(validation_inputs, self.batch_validation_threads);
 
         // Insert blocks
         let mut processed = Vec::with_capacity(validation_results.len());
@@ -1051,6 +1056,7 @@ impl Drop for Ledger {
 
 fn validate_batch<'a>(
     validation_inputs: Vec<BatchValidationInput<'a>>,
+    batch_validation_threads: usize,
 ) -> Vec<(
     Result<crate::block_insertion::BlockInsertInstructions, BlockError>,
     &'a Block,
@@ -1065,10 +1071,7 @@ fn validate_batch<'a>(
             .collect();
     }
 
-    let worker_count = std::thread::available_parallelism()
-        .map(usize::from)
-        .unwrap_or(1)
-        .min(validation_inputs.len());
+    let worker_count = batch_validation_threads.max(1).min(validation_inputs.len());
 
     if worker_count <= 1 {
         return validation_inputs
@@ -1255,6 +1258,72 @@ mod tests {
                 (BlockSource::LiveOriginator, true)
             ]]
         );
+    }
+
+    #[test]
+    fn process_batch_parallel_validation_preserves_order_sources_and_errors() {
+        let ledger = Ledger::new_null();
+        let mut lattice = UnsavedBlockLatticeBuilder::with_stub_work();
+        let mut blocks = Vec::new();
+        let duplicate_old_index = 17;
+        let gap_source_index = 73;
+        let total_blocks = 130;
+
+        for i in 0..total_blocks {
+            let account = PrivateKey::from(i as u64 + 1);
+            let source = if i % 2 == 0 {
+                BlockSource::Live
+            } else {
+                BlockSource::LiveOriginator
+            };
+
+            if i == gap_source_index {
+                let mut isolated_lattice = UnsavedBlockLatticeBuilder::with_stub_work();
+                let send = isolated_lattice.genesis().send(&account, 1);
+                let open = isolated_lattice.account(&account).receive(&send);
+                blocks.push((open, source));
+                continue;
+            }
+
+            let send = lattice.genesis().send(&account, 1);
+            let open = lattice.account(&account).receive(&send);
+            ledger.process_one(&send).unwrap();
+            ledger.confirm(send.hash());
+
+            if i == duplicate_old_index {
+                ledger.process_one(&open).unwrap();
+            }
+
+            blocks.push((open, source));
+        }
+
+        let expected = blocks
+            .iter()
+            .map(|(block, source)| (block.hash(), *source))
+            .collect::<Vec<_>>();
+
+        let results = ledger.process_batch(blocks.iter().map(|(block, source)| (block, *source)));
+
+        assert_eq!(results.len(), total_blocks);
+        for (i, result) in results.iter().enumerate() {
+            let (expected_hash, expected_source) = expected[i];
+            assert_eq!(result.block.hash(), expected_hash, "block order at {i}");
+            assert_eq!(result.source, expected_source, "source pairing at {i}");
+
+            if i == duplicate_old_index {
+                let Err(BlockError::Old(existing)) = &result.status else {
+                    panic!("expected old block at {i}, got {:?}", result.status);
+                };
+                assert_eq!(existing.hash(), expected_hash);
+                assert!(result.saved_block.is_none());
+            } else if i == gap_source_index {
+                assert_eq!(result.status, Err(BlockError::GapSource));
+                assert!(result.saved_block.is_none());
+            } else {
+                assert_eq!(result.status, Ok(()), "valid insert at {i}");
+                assert_eq!(result.saved_block.as_ref().unwrap().hash(), expected_hash);
+            }
+        }
     }
 
     #[test]

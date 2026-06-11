@@ -331,6 +331,7 @@ impl Node {
             .bootstrap_weights(bootstrap_weights)
             .consistency_check(!flags.skip_consistency_check)
             .stats(stats.clone())
+            .batch_validation_threads(config.signature_checker_threads as usize + 1)
             .publish_to(move |ev| {
                 ledger_tx2
                     .send(LedgerPipelineEvent::Ledger(ev))
