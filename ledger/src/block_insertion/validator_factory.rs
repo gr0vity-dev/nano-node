@@ -3,15 +3,15 @@ use rsnano_types::{Account, Block, PendingKey, SavedBlock, UnixMillisTimestamp};
 use super::BlockValidator;
 use crate::{AnySet, LedgerConstants};
 
-pub(crate) struct BlockValidatorFactory<'a> {
-    any: &'a dyn AnySet,
+pub(crate) struct BlockValidatorFactory<'a, 'b> {
+    any: &'b dyn AnySet,
     constants: &'a LedgerConstants,
     block: &'a Block,
 }
 
-impl<'a> BlockValidatorFactory<'a> {
+impl<'a, 'b> BlockValidatorFactory<'a, 'b> {
     pub(crate) fn new(
-        any: &'a dyn AnySet,
+        any: &'b dyn AnySet,
         constants: &'a LedgerConstants,
         block: &'a Block,
     ) -> Self {

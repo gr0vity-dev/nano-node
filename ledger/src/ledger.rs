@@ -42,6 +42,12 @@ use crate::{
 };
 use rsnano_output_tracker::{OutputListenerMt, OutputTrackerMt};
 
+type BatchValidationInput<'a> = (
+    crate::block_insertion::BlockValidator<'a>,
+    &'a Block,
+    BlockSource,
+);
+
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum BlockError {
     /// Signature was bad, forged or transmission error
@@ -626,7 +632,7 @@ impl Ledger {
         &self,
         batch: impl IntoIterator<Item = (&'a Block, BlockSource)>,
     ) -> Vec<ProcessResult> {
-        let mut validation_results = Vec::new();
+        let mut validation_inputs = Vec::new();
 
         // Validate blocks
         {
@@ -639,10 +645,11 @@ impl Ledger {
                 };
                 let validator =
                     BlockValidatorFactory::new(&any, &self.constants, block).create_validator();
-                let result = validator.validate();
-                validation_results.push((result, block, source));
+                validation_inputs.push((validator, block, source));
             }
         }
+
+        let validation_results = validate_batch(validation_inputs);
 
         // Insert blocks
         let mut processed = Vec::with_capacity(validation_results.len());
@@ -1040,6 +1047,54 @@ impl Drop for Ledger {
     fn drop(&mut self) {
         self.store.env.sync().expect("sync failed");
     }
+}
+
+fn validate_batch<'a>(
+    validation_inputs: Vec<BatchValidationInput<'a>>,
+) -> Vec<(
+    Result<crate::block_insertion::BlockInsertInstructions, BlockError>,
+    &'a Block,
+    BlockSource,
+)> {
+    const MIN_PARALLEL_VALIDATION_BATCH: usize = 128;
+
+    if validation_inputs.len() < MIN_PARALLEL_VALIDATION_BATCH {
+        return validation_inputs
+            .iter()
+            .map(|(validator, block, source)| (validator.validate(), *block, *source))
+            .collect();
+    }
+
+    let worker_count = std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1)
+        .min(validation_inputs.len());
+
+    if worker_count <= 1 {
+        return validation_inputs
+            .iter()
+            .map(|(validator, block, source)| (validator.validate(), *block, *source))
+            .collect();
+    }
+
+    let chunk_size = validation_inputs.len().div_ceil(worker_count);
+
+    std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(worker_count);
+        for chunk in validation_inputs.chunks(chunk_size) {
+            handles.push(scope.spawn(move || {
+                chunk
+                    .iter()
+                    .map(|(validator, block, source)| (validator.validate(), *block, *source))
+                    .collect::<Vec<_>>()
+            }));
+        }
+
+        handles
+            .into_iter()
+            .flat_map(|handle| handle.join().unwrap())
+            .collect()
+    })
 }
 
 impl ContainerInfoProvider for Ledger {
