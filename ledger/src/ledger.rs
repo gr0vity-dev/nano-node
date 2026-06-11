@@ -1119,6 +1119,22 @@ impl RollbackResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        BlockSource, LedgerBuilder, LedgerEvent, LedgerSet,
+        test_helpers::UnsavedBlockLatticeBuilder,
+    };
+    use rsnano_store_lmdb::{LmdbConfig, SyncStrategy};
+    use rsnano_types::{BlockHash, PrivateKey};
+    use std::{
+        path::PathBuf,
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicBool, AtomicU64, Ordering},
+        },
+        time::{Instant, SystemTime, UNIX_EPOCH},
+    };
+
+    static TEST_LEDGER_DIR_ID: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn builds_nulled_ledger() {
@@ -1127,5 +1143,201 @@ mod tests {
             .finish();
 
         assert_eq!(ledger.bootstrap_weights_max_blocks(), 123);
+    }
+
+    #[test]
+    fn process_batch_reports_valid_live_blocks_and_emits_processed_event() {
+        let ledger = Ledger::new_null();
+        let mut lattice = UnsavedBlockLatticeBuilder::with_stub_work();
+        let account1 = PrivateKey::from(1);
+        let account2 = PrivateKey::from(2);
+        let send1 = lattice.genesis().send(&account1, 1);
+        let open1 = lattice.account(&account1).receive(&send1);
+        let send2 = lattice.genesis().send(&account2, 2);
+        let open2 = lattice.account(&account2).receive(&send2);
+        ledger.process_one(&send1).unwrap();
+        ledger.confirm(send1.hash());
+        ledger.process_one(&send2).unwrap();
+        ledger.confirm(send2.hash());
+
+        let observed_batches = Arc::new(Mutex::new(Vec::new()));
+        let observed_batches_l = observed_batches.clone();
+        *ledger.publish.write().unwrap() = Some(Box::new(move |event| {
+            if let LedgerEvent::BlocksProcessed(results) = event {
+                observed_batches_l.lock().unwrap().push(
+                    results
+                        .iter()
+                        .map(|result| (result.source, result.status.is_ok()))
+                        .collect::<Vec<_>>(),
+                );
+            }
+        }));
+
+        let results = ledger.process_batch([
+            (&open1, BlockSource::Live),
+            (&open2, BlockSource::LiveOriginator),
+        ]);
+
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|result| result.status.is_ok()));
+        assert!(results.iter().all(|result| result.saved_block.is_some()));
+        assert_eq!(
+            results
+                .iter()
+                .map(|result| result.source)
+                .collect::<Vec<_>>(),
+            vec![BlockSource::Live, BlockSource::LiveOriginator]
+        );
+        assert!(
+            results
+                .iter()
+                .all(|result| result.priority.balance > Amount::ZERO)
+        );
+        assert_eq!(
+            *observed_batches.lock().unwrap(),
+            vec![vec![
+                (BlockSource::Live, true),
+                (BlockSource::LiveOriginator, true)
+            ]]
+        );
+    }
+
+    #[test]
+    fn real_lmdb_process_batch_reports_batch_timing_for_valid_live_blocks() {
+        let test_dir = TestLedgerDir::new();
+        let ledger = create_real_lmdb_ledger(&test_dir);
+        let mut lattice = UnsavedBlockLatticeBuilder::with_stub_work();
+        let mut opens = Vec::new();
+
+        for i in 0..64 {
+            let account = PrivateKey::from(i + 1);
+            let send = lattice.genesis().send(&account, 1);
+            let open = lattice.account(&account).receive(&send);
+            ledger.process_one(&send).unwrap();
+            ledger.confirm(send.hash());
+            opens.push(open);
+        }
+
+        let start = Instant::now();
+        let results = ledger.process_batch(opens.iter().map(|block| (block, BlockSource::Live)));
+        let elapsed = start.elapsed();
+
+        assert_eq!(results.len(), opens.len());
+        assert!(results.iter().all(|result| result.status.is_ok()));
+        assert!(results.iter().all(|result| result.saved_block.is_some()));
+        assert!(
+            results
+                .iter()
+                .all(|result| result.source == BlockSource::Live)
+        );
+        assert!(elapsed.as_nanos() > 0);
+
+        eprintln!(
+            "ledger_process_batch_lmdb blocks={} elapsed_us={} blocks_per_sec={:.2}",
+            results.len(),
+            elapsed.as_micros(),
+            results.len() as f64 / elapsed.as_secs_f64()
+        );
+    }
+
+    #[test]
+    fn real_lmdb_confirm_batch_reports_confirmation_timing_for_valid_live_blocks() {
+        let test_dir = TestLedgerDir::new();
+        let ledger = create_real_lmdb_ledger(&test_dir);
+        let mut lattice = UnsavedBlockLatticeBuilder::with_stub_work();
+        let mut open_hashes = Vec::new();
+
+        for i in 0..64 {
+            let account = PrivateKey::from(i + 1);
+            let send = lattice.genesis().send(&account, 1);
+            let open = lattice.account(&account).receive(&send);
+            ledger.process_one(&send).unwrap();
+            ledger.confirm(send.hash());
+            let saved_open = ledger.process_one(&open).unwrap();
+            open_hashes.push(saved_open.hash());
+        }
+
+        let stopped = AtomicBool::new(false);
+        let mut observer = TimingCementingObserver::default();
+        let start = Instant::now();
+        ledger.confirm_batch(open_hashes.iter(), &stopped, 1024, &mut observer);
+        let elapsed = start.elapsed();
+
+        assert!(!stopped.load(Ordering::Relaxed));
+        assert!(observer.failed.is_empty());
+        assert!(observer.already_confirmed.is_empty());
+        assert!(
+            open_hashes
+                .iter()
+                .all(|hash| ledger.confirmed().block_exists(hash))
+        );
+        assert!(elapsed.as_nanos() > 0);
+
+        eprintln!(
+            "ledger_confirm_batch_lmdb blocks={} elapsed_us={} blocks_per_sec={:.2}",
+            open_hashes.len(),
+            elapsed.as_micros(),
+            open_hashes.len() as f64 / elapsed.as_secs_f64()
+        );
+    }
+
+    fn create_real_lmdb_ledger(test_dir: &TestLedgerDir) -> Ledger {
+        LedgerBuilder::new(test_dir.ledger_path())
+            .config(LmdbConfig {
+                sync: SyncStrategy::NosyncUnsafe,
+                map_size: 128 * 1024 * 1024,
+                ..Default::default()
+            })
+            .constants(LedgerConstants::unit_test())
+            .init_thread_count(1)
+            .consistency_check(false)
+            .finish()
+            .unwrap()
+    }
+
+    #[derive(Default)]
+    struct TimingCementingObserver {
+        already_confirmed: Vec<BlockHash>,
+        failed: Vec<BlockHash>,
+    }
+
+    impl CementingObserver for TimingCementingObserver {
+        fn already_confirmed(&mut self, hash: &BlockHash) {
+            self.already_confirmed.push(*hash);
+        }
+
+        fn cementing_failed(&mut self, hash: &BlockHash) {
+            self.failed.push(*hash);
+        }
+    }
+
+    struct TestLedgerDir {
+        path: PathBuf,
+    }
+
+    impl TestLedgerDir {
+        fn new() -> Self {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let id = TEST_LEDGER_DIR_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "rsnano-ledger-pressure-{}-{unique}-{id}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self { path }
+        }
+
+        fn ledger_path(&self) -> PathBuf {
+            self.path.join("data.ldb")
+        }
+    }
+
+    impl Drop for TestLedgerDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
     }
 }
