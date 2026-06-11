@@ -442,6 +442,8 @@ impl<'a> CementingObserver for CementedNotifier<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rsnano_ledger::{LedgerSet, test_helpers::UnsavedBlockLatticeBuilder};
+    use rsnano_types::PrivateKey;
 
     #[test]
     fn add_exists() {
@@ -451,5 +453,91 @@ mod tests {
         let hash = BlockHash::from(1);
         confirming_set.add_block(hash);
         assert!(confirming_set.contains(&hash));
+    }
+
+    #[test]
+    fn pressure_run_batch_confirms_queued_block_and_clears_current_set() {
+        let ledger = Arc::new(Ledger::new_null());
+        let confirming_set = create_confirming_set(ledger.clone(), 16);
+        let block = process_unconfirmed_receive(&ledger, PrivateKey::from(1), 1);
+        let mut batch = VecDeque::new();
+        batch.push_back(CementingEntry {
+            confirmation_root: block.hash(),
+            timestamp: Instant::now(),
+        });
+
+        confirming_set
+            .thread
+            .mutex
+            .lock()
+            .unwrap()
+            .current
+            .insert(block.hash());
+
+        confirming_set.thread.run_batch(batch);
+
+        assert!(ledger.confirmed().block_exists(&block.hash()));
+        assert!(
+            confirming_set
+                .thread
+                .mutex
+                .lock()
+                .unwrap()
+                .current
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn pressure_run_batch_defers_missing_confirmation_root() {
+        let ledger = Arc::new(Ledger::new_null());
+        let confirming_set = create_confirming_set(ledger, 16);
+        let missing = BlockHash::from(999);
+        let mut batch = VecDeque::new();
+        batch.push_back(CementingEntry {
+            confirmation_root: missing,
+            timestamp: Instant::now(),
+        });
+
+        confirming_set
+            .thread
+            .mutex
+            .lock()
+            .unwrap()
+            .current
+            .insert(missing);
+
+        confirming_set.thread.run_batch(batch);
+
+        let guard = confirming_set.thread.mutex.lock().unwrap();
+        assert!(guard.current.is_empty());
+        assert!(guard.deferred.contains(&missing));
+    }
+
+    /* Test helpers */
+
+    fn create_confirming_set(ledger: Arc<Ledger>, max_blocks: usize) -> ConfirmingSet {
+        ConfirmingSet::new(
+            ConfirmingSetConfig {
+                max_blocks,
+                ..Default::default()
+            },
+            ledger,
+            Arc::new(Stats::default()),
+        )
+    }
+
+    fn process_unconfirmed_receive(
+        ledger: &Ledger,
+        account: PrivateKey,
+        amount: impl Into<rsnano_types::Amount>,
+    ) -> SavedBlock {
+        let mut lattice = UnsavedBlockLatticeBuilder::with_stub_work();
+        let send = lattice.genesis().send(&account, amount);
+        let receive = lattice.account(&account).receive(&send);
+
+        ledger.process_one(&send).unwrap();
+        ledger.confirm(send.hash());
+        ledger.process_one(&receive).unwrap()
     }
 }

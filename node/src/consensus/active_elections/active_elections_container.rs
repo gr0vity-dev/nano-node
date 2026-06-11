@@ -563,9 +563,12 @@ pub struct ApplyVoteArgs<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::ReceivedVote;
+    use crate::consensus::{
+        BucketInfo, ElectionCandidate, ReceivedVote,
+        election_schedulers::priority::prio_bucket_index,
+    };
     use rsnano_types::{BlockPriority, PrivateKey, TimePriority, Vote, VoteSource};
-    use std::sync::Arc;
+    use std::{collections::VecDeque, sync::Arc, time::Duration};
 
     #[test]
     fn empty() {
@@ -652,6 +655,130 @@ mod tests {
         )
     }
 
+    #[test]
+    fn pressure_refill_replaces_lowest_priority_election_when_aec_bucket_is_full() {
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                max_elections: 1,
+                ..Default::default()
+            },
+            Duration::from_secs(1),
+        );
+        let existing = SavedBlock::new_test_instance_with_key(1);
+        let replacement = SavedBlock::new_test_instance_with_key(2);
+        let weaker_priority = test_priority(20);
+        let stronger_priority = test_priority(10);
+
+        container
+            .insert(
+                AecInsertRequest::new_priority(existing.clone(), weaker_priority),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+
+        let mut source =
+            CandidateSource::new(vec![candidate(replacement.clone(), stronger_priority)]);
+
+        container.refill(&mut source, Timestamp::new_test_instance());
+
+        assert_eq!(container.len(), 1);
+        assert_eq!(active_winner_hashes(&container), vec![replacement.hash()]);
+        assert_eq!(container.stats.replaced, 1);
+        assert_eq!(container.stats.activate_success, 1);
+        assert!(source.is_empty());
+    }
+
+    #[test]
+    fn pressure_refill_leaves_lower_priority_candidate_queued_when_aec_bucket_is_full() {
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                max_elections: 1,
+                ..Default::default()
+            },
+            Duration::from_secs(1),
+        );
+        let existing = SavedBlock::new_test_instance_with_key(1);
+        let rejected = SavedBlock::new_test_instance_with_key(2);
+        let stronger_priority = test_priority(10);
+        let weaker_priority = test_priority(20);
+
+        container
+            .insert(
+                AecInsertRequest::new_priority(existing.clone(), stronger_priority),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+
+        let mut source = CandidateSource::new(vec![candidate(rejected.clone(), weaker_priority)]);
+
+        container.refill(&mut source, Timestamp::new_test_instance());
+
+        assert_eq!(container.len(), 1);
+        assert_eq!(active_winner_hashes(&container), vec![existing.hash()]);
+        assert_eq!(container.stats.replaced, 0);
+        assert_eq!(container.stats.activate_success, 0);
+        assert_eq!(source.len(), 1);
+    }
+
+    #[test]
+    fn pressure_refill_continues_across_buckets_when_aec_is_full() {
+        let mut container = ActiveElectionsContainer::new(
+            ActiveElectionsConfig {
+                max_elections: 2,
+                ..Default::default()
+            },
+            Duration::from_secs(1),
+        );
+        let low_bucket_existing = SavedBlock::new_test_instance_with_key(1);
+        let high_bucket_existing = SavedBlock::new_test_instance_with_key(2);
+        let low_bucket_rejected = SavedBlock::new_test_instance_with_key(3);
+        let high_bucket_replacement = SavedBlock::new_test_instance_with_key(4);
+
+        container
+            .insert(
+                AecInsertRequest::new_priority(
+                    low_bucket_existing.clone(),
+                    test_priority_with_balance(Amount::nano(1), 10),
+                ),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+        container
+            .insert(
+                AecInsertRequest::new_priority(
+                    high_bucket_existing.clone(),
+                    test_priority_with_balance(Amount::MAX, 20),
+                ),
+                Timestamp::new_test_instance(),
+            )
+            .unwrap();
+
+        let mut source = CandidateSource::new(vec![
+            candidate(
+                low_bucket_rejected.clone(),
+                test_priority_with_balance(Amount::nano(1), 20),
+            ),
+            candidate(
+                high_bucket_replacement.clone(),
+                test_priority_with_balance(Amount::MAX, 10),
+            ),
+        ]);
+
+        container.refill(&mut source, Timestamp::new_test_instance());
+
+        assert_eq!(container.len(), 2);
+        let active = active_winner_hashes(&container);
+        assert!(active.contains(&low_bucket_existing.hash()));
+        assert!(!active.contains(&low_bucket_rejected.hash()));
+        assert!(!active.contains(&high_bucket_existing.hash()));
+        assert!(active.contains(&high_bucket_replacement.hash()));
+        assert_eq!(container.stats.replaced, 1);
+        assert_eq!(container.stats.activate_success, 1);
+        assert_eq!(source.len(), 1);
+    }
+
+    /* Test helpers */
+
     fn test_final_vote(rep_key: &PrivateKey, block_hash: BlockHash) -> ReceivedVote {
         let vote = Arc::new(Vote::new_final(rep_key, vec![block_hash]));
         ReceivedVote::new(vote, VoteSource::Live, None)
@@ -674,5 +801,72 @@ mod tests {
             .collect();
         let expected: Vec<_> = expected.iter().map(|i| i.hash()).collect();
         assert_eq!(result, expected);
+    }
+
+    fn active_winner_hashes(container: &ActiveElectionsContainer) -> Vec<BlockHash> {
+        container
+            .iter_round_robin()
+            .map(|i| i.winner().hash())
+            .collect()
+    }
+
+    fn candidate(block: SavedBlock, priority: BlockPriority) -> ElectionCandidate {
+        ElectionCandidate {
+            bucket_id: prio_bucket_index(priority.balance),
+            block,
+            priority,
+        }
+    }
+
+    fn test_priority(time: u64) -> BlockPriority {
+        test_priority_with_balance(Amount::nano(1), time)
+    }
+
+    fn test_priority_with_balance(balance: Amount, time: u64) -> BlockPriority {
+        BlockPriority::new(balance, TimePriority::new(time))
+    }
+
+    struct CandidateSource {
+        candidates: VecDeque<ElectionCandidate>,
+    }
+
+    impl CandidateSource {
+        fn new(candidates: Vec<ElectionCandidate>) -> Self {
+            Self {
+                candidates: candidates.into(),
+            }
+        }
+
+        fn len(&self) -> usize {
+            self.candidates.len()
+        }
+
+        fn is_empty(&self) -> bool {
+            self.candidates.is_empty()
+        }
+    }
+
+    impl ElectionCandidateSource for CandidateSource {
+        fn should_schedule(&self, buckets: &[BucketInfo]) -> bool {
+            self.candidates.iter().any(|candidate| {
+                buckets.get(candidate.bucket_id).is_some_and(|bucket| {
+                    bucket.vacancy() > 0 || candidate.priority.time > bucket.lowest_priority.time
+                })
+            })
+        }
+
+        fn next_candidate(
+            &mut self,
+            bucket_id: usize,
+            vacancy: isize,
+            lowest_priority: TimePriority,
+        ) -> Option<ElectionCandidate> {
+            let position = self.candidates.iter().position(|candidate| {
+                candidate.bucket_id == bucket_id
+                    && (vacancy > 0 || candidate.priority.time > lowest_priority)
+            })?;
+
+            self.candidates.remove(position)
+        }
     }
 }
