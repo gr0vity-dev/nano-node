@@ -134,6 +134,7 @@ enum class type
 	election_scheduler,
 	election_bucket,
 	optimistic_scheduler,
+	optimistic_election,
 	handshake,
 	rep_crawler,
 	rep_crawler_ec,
@@ -661,6 +662,24 @@ enum class detail
 	started_hinted,
 	started_optimistic,
 
+	// frontier-backed optimistic elections
+	frontier_scheduler_enabled,
+	frontier_scheduler_disabled,
+	frontier_scheduler_disabled_after_bootstrap,
+	frontier_peer_seen,
+	frontier_local_head_matched,
+	frontier_block_present,
+	frontier_verified,
+	frontier_started,
+	frontier_already_active,
+	frontier_already_confirmed,
+	frontier_stale_missing,
+	frontier_retry,
+	frontier_backlog_full,
+	frontier_backlog_insert,
+	frontier_backlog_remove,
+	frontier_dropped,
+
 	// rep_crawler
 	channel_dead,
 	query_target_failed,
@@ -800,6 +819,14 @@ enum class sample
 	rep_response_time,
 	vote_generator_final_hashes,
 	vote_generator_hashes,
+	frontier_candidate_age,
+	frontier_retry_count,
+	frontier_optimistic_election_duration,
+	frontier_cemented_depth,
+	frontier_accounts_touched,
+	frontier_same_account_blocks,
+	frontier_other_account_blocks,
+	frontier_target_height_gap,
 
 	_last // Must be the last enum
 };

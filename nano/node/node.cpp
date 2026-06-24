@@ -254,8 +254,7 @@ nano::node::node (std::filesystem::path const & application_path_a, nano::node_c
 		auto transaction = ledger.tx_begin_read ();
 		for (auto const & info : batch)
 		{
-			scheduler.optimistic.activate (info.account, info.account_info, info.conf_info);
-			scheduler.priority.activate (transaction, info.account, info.account_info, info.conf_info);
+			scheduler.activate_backlog (transaction, info.account, info.account_info, info.conf_info);
 		}
 	});
 

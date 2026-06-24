@@ -450,8 +450,8 @@ TEST (bootstrap, frontier_scan_cannot_prioritize)
 	auto & node1 = *system.add_node (config, flags);
 	ASSERT_ALWAYS_EQ (100ms, node1.ledger.block_count (), blocks.size () + 1);
 
-	// Frontier scan should not detect the accounts
-	ASSERT_ALWAYS (1s, std::none_of (opens2.begin (), opens2.end (), [&node1] (auto const & block) {
+	// Frontier scan should keep missing remote frontiers as bootstrap priority work.
+	ASSERT_TIMELY (1s, std::any_of (opens2.begin (), opens2.end (), [&node1] (auto const & block) {
 		return node1.bootstrap.prioritized (block->account ());
 	}));
 }

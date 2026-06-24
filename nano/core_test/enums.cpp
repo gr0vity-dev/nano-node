@@ -29,6 +29,28 @@ TEST (enums, stat_detail)
 	ASSERT_EQ (to_string (nano::stat::detail::_last), "_last");
 }
 
+TEST (enums, frontier_optimistic_stat_names)
+{
+	ASSERT_EQ (to_string (nano::stat::type::optimistic_election), "optimistic_election");
+	ASSERT_EQ (to_string (nano::stat::detail::frontier_scheduler_enabled), "frontier_scheduler_enabled");
+	ASSERT_EQ (to_string (nano::stat::detail::frontier_scheduler_disabled_after_bootstrap), "frontier_scheduler_disabled_after_bootstrap");
+	ASSERT_EQ (to_string (nano::stat::detail::frontier_peer_seen), "frontier_peer_seen");
+	ASSERT_EQ (to_string (nano::stat::detail::frontier_local_head_matched), "frontier_local_head_matched");
+	ASSERT_EQ (to_string (nano::stat::detail::frontier_block_present), "frontier_block_present");
+	ASSERT_EQ (to_string (nano::stat::detail::frontier_verified), "frontier_verified");
+	ASSERT_EQ (to_string (nano::stat::detail::frontier_started), "frontier_started");
+	ASSERT_EQ (to_string (nano::stat::detail::frontier_already_active), "frontier_already_active");
+	ASSERT_EQ (to_string (nano::stat::detail::frontier_already_confirmed), "frontier_already_confirmed");
+	ASSERT_EQ (to_string (nano::stat::detail::frontier_stale_missing), "frontier_stale_missing");
+	ASSERT_EQ (to_string (nano::stat::detail::frontier_retry), "frontier_retry");
+	ASSERT_EQ (to_string (nano::stat::detail::frontier_backlog_full), "frontier_backlog_full");
+	ASSERT_EQ (to_string (nano::stat::detail::frontier_backlog_insert), "frontier_backlog_insert");
+	ASSERT_EQ (to_string (nano::stat::detail::frontier_backlog_remove), "frontier_backlog_remove");
+	ASSERT_EQ (to_string (nano::stat::detail::frontier_dropped), "frontier_dropped");
+	ASSERT_EQ (to_string (nano::stat::sample::frontier_candidate_age), "frontier_candidate_age");
+	ASSERT_EQ (to_string (nano::stat::sample::frontier_retry_count), "frontier_retry_count");
+}
+
 TEST (enums, stat_dir)
 {
 	ASSERT_FALSE (to_string (static_cast<nano::stat::dir> (0)).empty ());

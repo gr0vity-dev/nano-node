@@ -29,39 +29,6 @@ nano::scheduler::priority::priority (nano::node_config & node_config, nano::node
 	{
 		buckets[index] = std::make_unique<scheduler::bucket> (index, config, active, stats, logger);
 	}
-
-	if (!config.enable)
-	{
-		return;
-	}
-
-	// Activate accounts with fresh blocks
-	ledger_notifications.blocks_processed.add ([this] (auto const & batch) {
-		auto transaction = ledger.tx_begin_read ();
-		for (auto const & [result, context] : batch)
-		{
-			if (result == nano::block_status::progress)
-			{
-				release_assert (context.block != nullptr);
-				activate (transaction, context.block->account ());
-			}
-		}
-	});
-
-	// Activate successors of cemented blocks
-	cementing_set.batch_cemented.add ([this] (auto const & batch) {
-		if (node.flags.disable_activate_successors)
-		{
-			return;
-		}
-
-		auto transaction = ledger.tx_begin_read ();
-		for (auto const & context : batch)
-		{
-			release_assert (context.block != nullptr);
-			activate_successors (transaction, *context.block);
-		}
-	});
 }
 
 nano::scheduler::priority::~priority ()
@@ -85,6 +52,36 @@ void nano::scheduler::priority::start ()
 	{
 		return;
 	}
+
+	// Activate accounts with fresh blocks. The subscription belongs to start()
+	// so bootstrap phase policy can keep priority scheduling fully inactive.
+	ledger_notifications.blocks_processed.add ([this] (auto const & batch) {
+		auto transaction = ledger.tx_begin_read ();
+		for (auto const & [result, context] : batch)
+		{
+			if (result == nano::block_status::progress)
+			{
+				release_assert (context.block != nullptr);
+				activate (transaction, context.block->account ());
+			}
+		}
+	});
+
+	// Activate successors of cemented blocks only while priority scheduling has
+	// been started by the scheduler component phase owner.
+	cementing_set.batch_cemented.add ([this] (auto const & batch) {
+		if (node.flags.disable_activate_successors)
+		{
+			return;
+		}
+
+		auto transaction = ledger.tx_begin_read ();
+		for (auto const & context : batch)
+		{
+			release_assert (context.block != nullptr);
+			activate_successors (transaction, *context.block);
+		}
+	});
 
 	thread = std::thread{ [this] () {
 		nano::thread_role::set (nano::thread_role::name::scheduler_priority);

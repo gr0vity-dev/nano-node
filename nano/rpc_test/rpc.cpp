@@ -5963,6 +5963,70 @@ TEST (rpc, stats_samples)
 	}
 }
 
+TEST (rpc, stats_frontier_optimistic)
+{
+	nano::test::system system;
+	auto node = add_ipc_enabled_node (system);
+	auto const rpc_ctx = add_rpc (system, node);
+
+	node->stats.add (nano::stat::type::optimistic_election, nano::stat::detail::frontier_verified, nano::stat::dir::in, 3);
+	node->stats.add (nano::stat::type::optimistic_election, nano::stat::detail::frontier_started, nano::stat::dir::in, 2);
+	node->stats.add (nano::stat::type::optimistic_election, nano::stat::detail::frontier_retry, nano::stat::dir::in, 1);
+	node->stats.sample (nano::stat::sample::frontier_candidate_age, 25, { 0, 1000 });
+	node->stats.sample (nano::stat::sample::frontier_retry_count, 2, { 0, 1024 });
+	node->stats.sample (nano::stat::sample::frontier_optimistic_election_duration, 50, { 0, 1000 });
+	node->stats.sample (nano::stat::sample::frontier_cemented_depth, 3, { 0, 1024 });
+	node->stats.sample (nano::stat::sample::frontier_accounts_touched, 1, { 0, 1024 });
+	node->stats.sample (nano::stat::sample::frontier_same_account_blocks, 2, { 0, 1024 });
+	node->stats.sample (nano::stat::sample::frontier_other_account_blocks, 0, { 0, 1024 });
+	node->stats.sample (nano::stat::sample::frontier_target_height_gap, 0, { 0, 1024 });
+
+	boost::property_tree::ptree counter_request;
+	counter_request.put ("action", "stats");
+	counter_request.put ("type", "counters");
+	auto counter_response (wait_response (system, rpc_ctx, counter_request));
+
+	auto find_counter = [&counter_response] (std::string const & detail) -> std::string {
+		for (auto & entry : counter_response.get_child ("entries"))
+		{
+			if (entry.second.get<std::string> ("type") == "optimistic_election" && entry.second.get<std::string> ("detail") == detail)
+			{
+				return entry.second.get<std::string> ("value");
+			}
+		}
+		return {};
+	};
+
+	ASSERT_EQ (find_counter ("frontier_verified"), "3");
+	ASSERT_EQ (find_counter ("frontier_started"), "2");
+	ASSERT_EQ (find_counter ("frontier_retry"), "1");
+
+	boost::property_tree::ptree sample_request;
+	sample_request.put ("action", "stats");
+	sample_request.put ("type", "samples");
+	auto sample_response (wait_response (system, rpc_ctx, sample_request));
+
+	auto has_sample = [&sample_response] (std::string const & sample) {
+		for (auto & entry : sample_response.get_child ("entries"))
+		{
+			if (entry.second.get<std::string> ("sample") == sample)
+			{
+				return true;
+			}
+		}
+		return false;
+	};
+
+	ASSERT_TRUE (has_sample ("frontier_candidate_age"));
+	ASSERT_TRUE (has_sample ("frontier_retry_count"));
+	ASSERT_TRUE (has_sample ("frontier_optimistic_election_duration"));
+	ASSERT_TRUE (has_sample ("frontier_cemented_depth"));
+	ASSERT_TRUE (has_sample ("frontier_accounts_touched"));
+	ASSERT_TRUE (has_sample ("frontier_same_account_blocks"));
+	ASSERT_TRUE (has_sample ("frontier_other_account_blocks"));
+	ASSERT_TRUE (has_sample ("frontier_target_height_gap"));
+}
+
 TEST (rpc, block_confirmed)
 {
 	nano::test::system system;
