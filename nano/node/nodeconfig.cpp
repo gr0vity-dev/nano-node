@@ -26,6 +26,7 @@
 #include <nano/node/peer_history.hpp>
 #include <nano/node/repcrawler.hpp>
 #include <nano/node/scheduler/hinted.hpp>
+#include <nano/node/scheduler/frontier_optimistic.hpp>
 #include <nano/node/scheduler/optimistic.hpp>
 #include <nano/node/scheduler/priority.hpp>
 #include <nano/node/transport/tcp_config.hpp>
@@ -60,6 +61,7 @@ nano::node_config nano::apply_flag_overrides (nano::node_config config, nano::no
 		config.priority_scheduler->enable = false;
 		config.hinted_scheduler->enable = false;
 		config.optimistic_scheduler->enable = false;
+		config.frontier_optimistic->enable = false;
 		config.active_elections->enable = false;
 	}
 	if (flags.disable_bounded_backlog)
@@ -72,6 +74,8 @@ nano::node_config nano::apply_flag_overrides (nano::node_config config, nano::no
 nano::node_config::node_config (nano::network_params const & network_params) :
 	network_params{ network_params },
 	external_address{ boost::asio::ip::address_v6{}.to_string () },
+	optimistic_scheduler{},
+	frontier_optimistic{},
 	hinted_scheduler{ network_params.network },
 	websocket_config{ network_params.network },
 	ipc_config{ network_params.network },
@@ -239,6 +243,10 @@ nano::error nano::node_config::serialize_toml (nano::tomlconfig & toml) const
 	optimistic_scheduler->serialize (optimistic_l);
 	toml.put_child ("optimistic_scheduler", optimistic_l);
 
+	nano::tomlconfig frontier_optimistic_l;
+	frontier_optimistic->serialize (frontier_optimistic_l);
+	toml.put_child ("frontier_optimistic", frontier_optimistic_l);
+
 	nano::tomlconfig hinted_l;
 	hinted_scheduler->serialize (hinted_l);
 	toml.put_child ("hinted_scheduler", hinted_l);
@@ -388,6 +396,12 @@ nano::error nano::node_config::deserialize_toml (nano::tomlconfig & toml)
 		{
 			auto config_l = toml.get_required_child ("optimistic_scheduler");
 			optimistic_scheduler->deserialize (config_l);
+		}
+
+		if (toml.has_key ("frontier_optimistic"))
+		{
+			auto config_l = toml.get_required_child ("frontier_optimistic");
+			frontier_optimistic->deserialize (config_l);
 		}
 
 		if (toml.has_key ("hinted_scheduler"))

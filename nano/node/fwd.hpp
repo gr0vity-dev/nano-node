@@ -102,6 +102,8 @@ namespace nano::scheduler
 class component;
 class hinted;
 class hinted_config;
+class frontier_optimistic;
+class frontier_optimistic_config;
 class manual;
 class optimistic;
 class optimistic_config;

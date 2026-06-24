@@ -163,6 +163,7 @@ private:
 public: // Dependencies
 	nano::bootstrap_config const & config;
 	nano::network_constants const & network_constants;
+	nano::node & node;
 	nano::ledger & ledger;
 	nano::ledger_notifications & ledger_notifications;
 	nano::block_processor & block_processor;

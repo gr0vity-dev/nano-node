@@ -176,6 +176,8 @@ add_library(
   scheduler/bucket.hpp
   scheduler/component.hpp
   scheduler/component.cpp
+  scheduler/frontier_optimistic.hpp
+  scheduler/frontier_optimistic.cpp
   scheduler/hinted.hpp
   scheduler/hinted.cpp
   scheduler/manual.hpp

@@ -42,6 +42,7 @@ nano_rpc
 # IDEs
 .idea
 .vscode
+.agents/
 *.plist
 
 # Visual Studio
@@ -67,6 +68,7 @@ resources.qrc.depends
 nano/ipc_flatbuffers_lib/generated/flatbuffers/nanoapi_generated.h
 
 # CMake artifacts
+build/
 _CPack_Packages
 CPack*
 cmake_install.cmake

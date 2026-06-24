@@ -94,6 +94,7 @@ public:
 
 public: // Subsystem configs
 	nano::indirect<nano::scheduler::optimistic_config> optimistic_scheduler;
+	nano::indirect<nano::scheduler::frontier_optimistic_config> frontier_optimistic;
 	nano::indirect<nano::scheduler::hinted_config> hinted_scheduler;
 	nano::indirect<nano::scheduler::priority_config> priority_scheduler;
 	nano::indirect<nano::websocket::config> websocket_config;

@@ -36,6 +36,7 @@ bootstrap_context::bootstrap_context (nano::node_config const & node_config_a, n
 nano::ledger_notifications & ledger_notifications_a, nano::block_processor & block_processor_a, nano::network & network_a, nano::stats & stat_a, nano::logger & logger_a) :
 	config{ *node_config_a.bootstrap },
 	network_constants{ node_config_a.network_params.network },
+	node{ node_a },
 	ledger{ ledger_a },
 	ledger_notifications{ ledger_notifications_a },
 	block_processor{ block_processor_a },

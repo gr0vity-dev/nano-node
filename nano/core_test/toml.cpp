@@ -23,6 +23,7 @@
 #include <nano/node/peer_history.hpp>
 #include <nano/node/repcrawler.hpp>
 #include <nano/node/scheduler/hinted.hpp>
+#include <nano/node/scheduler/frontier_optimistic.hpp>
 #include <nano/node/scheduler/optimistic.hpp>
 #include <nano/node/scheduler/priority.hpp>
 #include <nano/node/transport/tcp_config.hpp>
@@ -1154,6 +1155,39 @@ TEST (toml_config, log_config_no_required)
 	confg.deserialize_toml (toml);
 
 	ASSERT_FALSE (toml.get_error ()) << toml.get_error ().get_message ();
+}
+
+TEST (toml_config, frontier_optimistic_node_config)
+{
+	nano::node_config config{ nano::dev::network_params };
+	ASSERT_FALSE (config.frontier_optimistic->enable);
+	ASSERT_EQ (config.frontier_optimistic->max_backlog, 65536);
+	ASSERT_EQ (config.frontier_optimistic->retry_interval, 250ms);
+
+	std::stringstream ss;
+	ss << R"toml(
+	[node.frontier_optimistic]
+	enable = true
+	max_backlog = 42
+	retry_interval = 125
+	)toml";
+
+	nano::tomlconfig toml;
+	toml.read (ss);
+	auto node_toml = toml.get_required_child ("node");
+	config.deserialize_toml (node_toml);
+
+	ASSERT_FALSE (toml.get_error ()) << toml.get_error ().get_message ();
+	ASSERT_TRUE (config.frontier_optimistic->enable);
+	ASSERT_EQ (config.frontier_optimistic->max_backlog, 42);
+	ASSERT_EQ (config.frontier_optimistic->retry_interval, 125ms);
+
+	nano::tomlconfig serialized;
+	config.serialize_toml (serialized);
+	auto frontier_config = serialized.get_required_child ("frontier_optimistic");
+	ASSERT_TRUE (frontier_config.get<bool> ("enable"));
+	ASSERT_EQ (frontier_config.get<std::size_t> ("max_backlog"), 42);
+	ASSERT_EQ (frontier_config.get<int> ("retry_interval"), 125);
 }
 
 TEST (toml_config, merge_config_files)

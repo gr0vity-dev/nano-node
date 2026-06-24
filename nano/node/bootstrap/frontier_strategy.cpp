@@ -7,7 +7,10 @@
 #include <nano/node/bootstrap/queries.hpp>
 #include <nano/node/bootstrap/verify.hpp>
 #include <nano/node/network.hpp>
+#include <nano/node/node.hpp>
 #include <nano/node/nodeconfig.hpp>
+#include <nano/node/scheduler/component.hpp>
+#include <nano/node/scheduler/frontier_optimistic.hpp>
 #include <nano/secure/common.hpp>
 #include <nano/secure/ledger.hpp>
 #include <nano/secure/ledger_set_any.hpp>
@@ -135,7 +138,7 @@ bool frontier_strategy::process (nano::messages::asc_pull_ack::frontiers_payload
 			}
 			else
 			{
-				ctx.stats.add (nano::stat::type::bootstrap, nano::stat::detail::frontiers_dropped, response.frontiers.size ());
+				process_frontiers (response.frontiers);
 			}
 		}
 		break;
@@ -191,15 +194,18 @@ void frontier_strategy::process_frontiers (std::deque<std::pair<nano::account, n
 	frontier_classification result;
 	{
 		auto transaction = ctx.ledger.tx_begin_read ();
-		result = classify_frontiers (transaction, ctx.ledger, frontiers);
+		result = classify_frontiers (transaction, ctx.ledger, ctx.node, frontiers);
 	}
 
 	ctx.stats.add (nano::stat::type::bootstrap_frontiers, nano::stat::detail::processed, frontiers.size ());
 	ctx.stats.add (nano::stat::type::bootstrap_frontiers, nano::stat::detail::prioritized, result.prioritize.size ());
 	ctx.stats.add (nano::stat::type::bootstrap_frontiers, nano::stat::detail::outdated, result.outdated);
 	ctx.stats.add (nano::stat::type::bootstrap_frontiers, nano::stat::detail::pending, result.pending);
+	ctx.stats.add (nano::stat::type::optimistic_election, nano::stat::detail::frontier_peer_seen, frontiers.size ());
+	ctx.stats.add (nano::stat::type::optimistic_election, nano::stat::detail::frontier_local_head_matched, result.local_head_matched);
+	ctx.stats.add (nano::stat::type::optimistic_election, nano::stat::detail::frontier_block_present, result.block_present);
 
-	ctx.logger.debug (nano::log::type::bootstrap, "Processed {} frontiers of which outdated: {}, pending: {}", frontiers.size (), result.outdated, result.pending);
+	ctx.logger.debug (nano::log::type::bootstrap, "Processed {} frontiers of which outdated: {}, pending: {}, candidates: {}", frontiers.size (), result.outdated, result.pending, result.candidates.size ());
 
 	nano::unique_lock<nano::mutex> lock{ ctx.mutex };
 
@@ -215,13 +221,18 @@ void frontier_strategy::process_frontiers (std::deque<std::pair<nano::account, n
 	{
 		ctx.condition.notify_all ();
 	}
+
+	for (auto const & [account, hash] : result.candidates)
+	{
+		ctx.node.scheduler.frontier_optimistic.activate (account, hash);
+	}
 }
 
 /*
  *
  */
 
-frontier_classification classify_frontiers (nano::secure::transaction const & transaction, nano::ledger & ledger, std::deque<std::pair<nano::account, nano::block_hash>> const & frontiers)
+frontier_classification classify_frontiers (nano::secure::transaction const & transaction, nano::ledger & ledger, nano::node & node, std::deque<std::pair<nano::account, nano::block_hash>> const & frontiers)
 {
 	// Accounts must be in ascending order
 	debug_assert (std::adjacent_find (frontiers.begin (), frontiers.end (), [] (auto const & lhs, auto const & rhs) {
@@ -241,7 +252,7 @@ frontier_classification classify_frontiers (nano::secure::transaction const & tr
 	auto pending_crawler = ledger.store.pending.crawl (transaction, start);
 
 	auto block_exists = [&ledger, &transaction] (nano::block_hash const & hash) {
-		return ledger.any.block_exists_or_pruned (transaction, hash);
+		return ledger.any.block_exists (transaction, hash);
 	};
 
 	auto should_prioritize = [&] (nano::account const & account, nano::block_hash const & frontier) {
@@ -250,7 +261,20 @@ frontier_classification classify_frontiers (nano::secure::transaction const & tr
 
 		if (account_crawler && account_crawler->first == account)
 		{
-			if (account_crawler->second.head != frontier && !block_exists (frontier))
+			if (account_crawler->second.head == frontier)
+			{
+				++result.local_head_matched;
+				if (block_exists (frontier))
+				{
+					++result.block_present;
+					if (!node.block_confirmed_or_being_confirmed (transaction, frontier))
+					{
+						result.candidates.emplace_back (account, frontier);
+					}
+				}
+				return false;
+			}
+			if (!block_exists (frontier))
 			{
 				++result.outdated;
 				return true;
