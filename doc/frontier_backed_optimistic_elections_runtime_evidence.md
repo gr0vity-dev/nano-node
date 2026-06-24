@@ -440,4 +440,74 @@ frontier_target_height_gap	2000
 
 Bounded-label proof remains satisfied: the live Prometheus frontier counter labels are `__name__`, `detail`, `dir`, `instance`, `job`, and `type`; the sample-count labels are `__name__`, `instance`, `job`, and `sample`. No account, block hash, root, representative, or endpoint labels appear in the frontier series.
 
-Unproven live-runtime item: this short live nanolab run did not reach `ledger.bootstrap_height_reached()` because the live network bootstrap weight threshold is far above the observed run height. Therefore the live document still cannot honestly show `frontier_scheduler_disabled_after_bootstrap` increasing, no new frontier starts after the threshold, or normal scheduler restoration after the threshold. The focused production-path tests cover the disabled-after-bootstrap terminal behavior and scheduler phase mode, but the live threshold transition remains unobserved in this environment.
+The first live run did not reach the production live-network bootstrap threshold because the hardcoded live threshold is `207107949` blocks. The follow-up below uses the same nanolab live node, ledger, config, RPC, Prometheus, and Grafana stack with a controlled low-threshold harness binary so `ledger.bootstrap_height_reached()` flips during the run.
+
+## Low-Threshold Nanolab B5 Runtime Evidence - 2026-06-24 22:54 CEST
+
+Harness boundary:
+
+```text
+Source feature code: unchanged from this checkout.
+Runtime container: ns_genesis from the existing nanomock nanolab stack.
+Harness patch: copied /usr/bin/nano_node from ns_genesis and replaced the single little-endian uint64 occurrence of live max_blocks 207107949 with 1800000.
+Patch proof: the original binary contained the 207107949 threshold once; the patched binary changed only that harness threshold constant.
+Reason: accepted low-threshold nanolab proof for the bootstrap-height transition while preserving the production frontier activation path.
+```
+
+Before the transition, the restarted low-threshold nanolab node was below the harness threshold and the frontier scheduler was the active bootstrap scheduler:
+
+```text
+RPC version: Nano DEV_BUILD, network live, RocksDB 10.4.2, built Jun 24 2026
+RPC block_count: count=1755405 unchecked=0 cemented=647895
+Harness threshold: 1800000
+RPC counters:
+optimistic_election frontier_scheduler_enabled in 1
+```
+
+After the node crossed the harness threshold, RPC counters showed frontier-backed activation shutting off and classifying new verified candidates as disabled-after-bootstrap:
+
+```text
+RPC block_count: count=1810345 unchecked=26630 cemented=647895
+RPC counters:
+optimistic_election frontier_scheduler_disabled_after_bootstrap in 4433
+optimistic_election frontier_verified in 6517
+optimistic_election frontier_started in 978
+optimistic_election frontier_dropped in 0 (absent from counters)
+```
+
+The scheduler object state from RPC `stats` type `objects` showed normal schedulers restored after the threshold:
+
+```json
+{
+  "frontier_bootstrap_mode": { "count": "0", "size": "0" },
+  "frontier_scheduler_started": { "count": "0", "size": "0" },
+  "normal_schedulers_started": { "count": "1", "size": "0" }
+}
+```
+
+No new frontier-backed starts occurred after the threshold. A delayed second read showed `frontier_started` unchanged while disabled-after-bootstrap continued to rise:
+
+```text
+RPC block_count: count=1815429 unchecked=27854 cemented=647895
+RPC counters:
+optimistic_election frontier_scheduler_disabled_after_bootstrap in 6167
+optimistic_election frontier_verified in 8251
+optimistic_election frontier_started in 978
+optimistic_election frontier_dropped in 0 (absent from counters)
+```
+
+Prometheus observed the same after-threshold state through the existing exporter:
+
+```promql
+nano_stats_counters{type="optimistic_election",detail=~"frontier_scheduler_disabled_after_bootstrap|frontier_started|frontier_dropped"}
+```
+
+Result:
+
+```text
+frontier_started 978
+frontier_scheduler_disabled_after_bootstrap 6503
+frontier_dropped absent, therefore zero
+```
+
+B5 result: satisfied by low-threshold nanolab runtime proof. The node crossed `ledger.bootstrap_height_reached()`, frontier-backed activation turned off and reported `frontier_scheduler_disabled_after_bootstrap`, `frontier_started` did not increase after the threshold, and normal scheduler state reported enabled.
