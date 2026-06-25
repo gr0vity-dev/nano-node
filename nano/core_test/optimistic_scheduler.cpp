@@ -220,13 +220,12 @@ TEST (optimistic_scheduler, frontier_activation_reports_already_active_and_alrea
 	}
 }
 
-TEST (optimistic_scheduler, frontier_activation_reports_disabled_and_backlog_full_without_drops_in_normal_path)
+TEST (optimistic_scheduler, frontier_activation_retries_capacity_without_dropping_candidates)
 {
 	nano::test::system system;
 
 	auto config = frontier_optimistic_test_config ();
 	config.active_elections->optimistic_limit_percentage = 0;
-	config.frontier_optimistic->max_backlog = 1;
 	auto & node = *system.add_node (config);
 	node.ledger.bootstrap_weights.max_blocks = node.ledger.block_count () + 1000;
 
@@ -236,12 +235,13 @@ TEST (optimistic_scheduler, frontier_activation_reports_disabled_and_backlog_ful
 	ASSERT_EQ (node.stats.count (nano::stat::type::optimistic_election, nano::stat::detail::frontier_retry), 0);
 
 	node.scheduler.frontier_optimistic.activate (chains[1].first, chains[1].second.back ()->hash ());
-	ASSERT_EQ (node.stats.count (nano::stat::type::optimistic_election, nano::stat::detail::frontier_backlog_full), 1);
-	ASSERT_EQ (node.stats.count (nano::stat::type::optimistic_election, nano::stat::detail::frontier_dropped), 1);
+	ASSERT_EQ (node.stats.count (nano::stat::type::optimistic_election, nano::stat::detail::frontier_backlog_insert), 2);
+	ASSERT_EQ (node.stats.count (nano::stat::type::optimistic_election, nano::stat::detail::frontier_backlog_full), 0);
+	ASSERT_EQ (node.stats.count (nano::stat::type::optimistic_election, nano::stat::detail::frontier_dropped), 0);
 
 	node.ledger.bootstrap_weights.max_blocks = 0;
 	node.scheduler.frontier_optimistic.disable_after_bootstrap ();
-	ASSERT_EQ (node.stats.count (nano::stat::type::optimistic_election, nano::stat::detail::frontier_scheduler_disabled_after_bootstrap), 1);
+	ASSERT_EQ (node.stats.count (nano::stat::type::optimistic_election, nano::stat::detail::frontier_scheduler_disabled_after_bootstrap), 2);
 }
 
 /*

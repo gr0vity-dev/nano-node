@@ -101,17 +101,6 @@ void nano::scheduler::frontier_optimistic::activate (nano::account const & accou
 		return;
 	}
 
-	if (entries.size () >= config.max_backlog)
-	{
-		trim_terminal ();
-	}
-	if (entries.size () >= config.max_backlog)
-	{
-		stats.inc (nano::stat::type::optimistic_election, nano::stat::detail::frontier_backlog_full);
-		stats.inc (nano::stat::type::optimistic_election, nano::stat::detail::frontier_dropped);
-		return;
-	}
-
 	entries.emplace (hash, entry{ account, hash, now, {}, 0, terminal_result::none });
 	stats.inc (nano::stat::type::optimistic_election, nano::stat::detail::frontier_backlog_insert);
 	condition.notify_all ();
@@ -297,22 +286,6 @@ void nano::scheduler::frontier_optimistic::sample_terminal_diagnostics (entry co
 	stats.sample (nano::stat::sample::frontier_target_height_gap, target_height_gap, { 0, 1024 * 1024 });
 }
 
-void nano::scheduler::frontier_optimistic::trim_terminal ()
-{
-	auto oldest = entries.end ();
-	for (auto it = entries.begin (); it != entries.end (); ++it)
-	{
-		if (it->second.terminal != terminal_result::none && (oldest == entries.end () || it->second.first_seen < oldest->second.first_seen))
-		{
-			oldest = it;
-		}
-	}
-	if (oldest != entries.end ())
-	{
-		entries.erase (oldest);
-	}
-}
-
 nano::stat::detail nano::scheduler::frontier_optimistic::detail_for (terminal_result result)
 {
 	switch (result)
@@ -327,8 +300,6 @@ nano::stat::detail nano::scheduler::frontier_optimistic::detail_for (terminal_re
 			return nano::stat::detail::frontier_stale_missing;
 		case terminal_result::disabled_after_bootstrap:
 			return nano::stat::detail::frontier_scheduler_disabled_after_bootstrap;
-		case terminal_result::backlog_full:
-			return nano::stat::detail::frontier_backlog_full;
 		case terminal_result::none:
 			break;
 	}
@@ -347,7 +318,6 @@ nano::container_info nano::scheduler::frontier_optimistic::container_info () con
 nano::error nano::scheduler::frontier_optimistic_config::deserialize (nano::tomlconfig & toml)
 {
 	toml.get ("enable", enable);
-	toml.get ("max_backlog", max_backlog);
 	toml.get_duration ("retry_interval", retry_interval);
 	return toml.get_error ();
 }
@@ -355,7 +325,6 @@ nano::error nano::scheduler::frontier_optimistic_config::deserialize (nano::toml
 nano::error nano::scheduler::frontier_optimistic_config::serialize (nano::tomlconfig & toml) const
 {
 	toml.put ("enable", enable, "Enable or disable frontier-backed optimistic elections\ntype:bool");
-	toml.put ("max_backlog", max_backlog, "Maximum number of frontier-backed optimistic candidates stored in memory\ntype:uint64");
 	toml.put ("retry_interval", retry_interval.count (), "How often frontier-backed optimistic candidates are retried while active election capacity is unavailable\ntype:milliseconds");
 	return toml.get_error ();
 }

@@ -6,11 +6,7 @@ Base commit: `84017e243a861ecd1dd78a20ded138af20c4e56e`
 Docker image: `pwo-nano-frontier:codex-20260624`
 Docker image id: `sha256:8e8e90541063ebb140d3505f5d6f8035a6f73539b99dc962ee8cba8208865a34`
 
-## Bootstrap Phase Config
-
-The nanolab override is recorded at:
-
-`nanolab_frontier_optimistic_experiment.override.yml`
+## Bootstrap Phase Behavior
 
 Frontier-backed optimistic scheduling is enabled by default. While the ledger
 is below the seeded bootstrap confirmation height (`bootstrap_weights.max_blocks`),
@@ -18,8 +14,11 @@ the node starts only the frontier-backed optimistic scheduler and keeps the
 normal priority, hinted, and local-gap optimistic schedulers stopped. At or
 above that height, frontier-backed activation stops and normal schedulers start.
 
-The override below records the original runtime evidence settings and may still
-be used to tune backlog and retry values:
+The normal schedulers are still configurable, but their startup is phase-gated
+by the seeded confirmation height. Frontier-backed candidates are not capped by
+a scheduler-local max size; every verified candidate remains queued until it
+starts, is already active/confirmed, becomes stale/missing, or the bootstrap
+height transition disables the frontier path.
 
 ```toml
 [node.priority_scheduler]
@@ -32,7 +31,6 @@ enable = false
 enable = false
 
 [node.frontier_optimistic]
-max_backlog = 65536
 retry_interval = 250
 
 [node.active_elections]

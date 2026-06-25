@@ -23,7 +23,6 @@ public:
 
 public:
 	bool enable{ true };
-	std::size_t max_backlog{ 65536 };
 	std::chrono::milliseconds retry_interval{ std::chrono::milliseconds{ 250 } };
 };
 
@@ -49,8 +48,7 @@ private:
 		already_active,
 		already_confirmed,
 		stale_missing,
-		disabled_after_bootstrap,
-		backlog_full
+		disabled_after_bootstrap
 	};
 
 	struct entry
@@ -70,7 +68,6 @@ private:
 	void set_terminal (entry &, terminal_result);
 	void set_terminal_locked (entry &, terminal_result);
 	void sample_terminal_diagnostics (entry const &);
-	void trim_terminal ();
 	static nano::stat::detail detail_for (terminal_result);
 
 private:
