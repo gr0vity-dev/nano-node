@@ -89,7 +89,7 @@ bool start_frontier_scheduler_if_needed (nano::node & node)
 }
 }
 
-TEST (optimistic_scheduler, default_below_bootstrap_starts_normal_schedulers)
+TEST (optimistic_scheduler, default_below_bootstrap_starts_frontier_only)
 {
 	nano::network_params live_params{ nano::network_type::nano_live_network };
 	nano::work_pool work{ live_params.network, 1 };
@@ -100,30 +100,28 @@ TEST (optimistic_scheduler, default_below_bootstrap_starts_normal_schedulers)
 	ASSERT_FALSE (node->ledger.bootstrap_height_reached ());
 
 	auto info = node->scheduler.container_info ();
-	ASSERT_EQ (scheduler_state (info, "frontier_bootstrap_mode"), 0);
-	ASSERT_EQ (scheduler_state (info, "frontier_scheduler_started"), 0);
-	ASSERT_EQ (scheduler_state (info, "normal_schedulers_started"), 1);
-	ASSERT_EQ (node->stats.count (nano::stat::type::optimistic_election, nano::stat::detail::frontier_scheduler_enabled), 0);
+	ASSERT_EQ (scheduler_state (info, "frontier_bootstrap_mode"), 1);
+	ASSERT_EQ (scheduler_state (info, "frontier_scheduler_started"), 1);
+	ASSERT_EQ (scheduler_state (info, "normal_schedulers_started"), 0);
+	ASSERT_EQ (node->stats.count (nano::stat::type::optimistic_election, nano::stat::detail::frontier_scheduler_enabled), 1);
 
 	node->stop ();
 	work.stop ();
 }
 
-TEST (optimistic_scheduler, frontier_experiment_below_bootstrap_starts_frontier_only)
+TEST (optimistic_scheduler, bootstrap_height_reached_starts_normal_schedulers)
 {
-	nano::network_params live_params{ nano::network_type::nano_live_network };
-	nano::work_pool work{ live_params.network, 1 };
-	nano::node_config config{ live_params };
-	config.frontier_optimistic->enable = true;
+	nano::node_config config;
+	nano::work_pool work{ config.network_params.network, 1 };
 
 	auto node = start_live_below_bootstrap_node (work, config);
-	ASSERT_FALSE (node->ledger.bootstrap_height_reached ());
+	ASSERT_TRUE (node->ledger.bootstrap_height_reached ());
 
 	auto info = node->scheduler.container_info ();
-	ASSERT_EQ (scheduler_state (info, "frontier_bootstrap_mode"), 1);
-	ASSERT_EQ (scheduler_state (info, "frontier_scheduler_started"), 1);
-	ASSERT_EQ (scheduler_state (info, "normal_schedulers_started"), 0);
-	ASSERT_EQ (node->stats.count (nano::stat::type::optimistic_election, nano::stat::detail::frontier_scheduler_enabled), 1);
+	ASSERT_EQ (scheduler_state (info, "frontier_bootstrap_mode"), 0);
+	ASSERT_EQ (scheduler_state (info, "frontier_scheduler_started"), 0);
+	ASSERT_EQ (scheduler_state (info, "normal_schedulers_started"), 1);
+	ASSERT_EQ (node->stats.count (nano::stat::type::optimistic_election, nano::stat::detail::frontier_scheduler_enabled), 0);
 
 	node->stop ();
 	work.stop ();

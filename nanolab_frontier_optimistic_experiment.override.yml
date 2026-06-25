@@ -7,7 +7,6 @@ node_config_overrides:
     optimistic_scheduler:
       enable: false
     frontier_optimistic:
-      enable: true
       max_backlog: 65536
       retry_interval: 250
     active_elections:

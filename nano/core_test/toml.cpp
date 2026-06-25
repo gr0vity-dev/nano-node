@@ -1160,14 +1160,14 @@ TEST (toml_config, log_config_no_required)
 TEST (toml_config, frontier_optimistic_node_config)
 {
 	nano::node_config config{ nano::dev::network_params };
-	ASSERT_FALSE (config.frontier_optimistic->enable);
+	ASSERT_TRUE (config.frontier_optimistic->enable);
 	ASSERT_EQ (config.frontier_optimistic->max_backlog, 65536);
 	ASSERT_EQ (config.frontier_optimistic->retry_interval, 250ms);
 
 	std::stringstream ss;
 	ss << R"toml(
 	[node.frontier_optimistic]
-	enable = true
+	enable = false
 	max_backlog = 42
 	retry_interval = 125
 	)toml";
@@ -1178,7 +1178,7 @@ TEST (toml_config, frontier_optimistic_node_config)
 	config.deserialize_toml (node_toml);
 
 	ASSERT_FALSE (toml.get_error ()) << toml.get_error ().get_message ();
-	ASSERT_TRUE (config.frontier_optimistic->enable);
+	ASSERT_FALSE (config.frontier_optimistic->enable);
 	ASSERT_EQ (config.frontier_optimistic->max_backlog, 42);
 	ASSERT_EQ (config.frontier_optimistic->retry_interval, 125ms);
 
@@ -1190,7 +1190,7 @@ TEST (toml_config, frontier_optimistic_node_config)
 	auto frontier_config = reparsed.get_required_child ("frontier_optimistic");
 	nano::scheduler::frontier_optimistic_config roundtrip;
 	roundtrip.deserialize (frontier_config);
-	ASSERT_TRUE (roundtrip.enable);
+	ASSERT_FALSE (roundtrip.enable);
 	ASSERT_EQ (roundtrip.max_backlog, 42);
 	ASSERT_EQ (roundtrip.retry_interval, 125ms);
 }

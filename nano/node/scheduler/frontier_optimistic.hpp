@@ -22,7 +22,7 @@ public:
 	nano::error serialize (nano::tomlconfig & toml) const;
 
 public:
-	bool enable{ false };
+	bool enable{ true };
 	std::size_t max_backlog{ 65536 };
 	std::chrono::milliseconds retry_interval{ std::chrono::milliseconds{ 250 } };
 };
