@@ -62,6 +62,11 @@ nano::vote_rebroadcaster::vote_rebroadcaster (nano::vote_rebroadcaster_config co
 	};
 
 	vote_router.vote_processed.add ([this] (std::shared_ptr<nano::vote> const & vote, nano::vote_source source, std::unordered_map<nano::block_hash, nano::vote_code> const & results) {
+		if (bootstrap_phase_active ())
+		{
+			return;
+		}
+
 		// We also want to allow late votes to be rebroadcasted to help with reaching quorum for other nodes
 		bool should_rebroadcast = std::any_of (results.begin (), results.end (), [&] (auto const & result) {
 			auto const code = result.second;
@@ -129,7 +134,7 @@ bool nano::vote_rebroadcaster::push (std::shared_ptr<nano::vote> const & vote, n
 		std::lock_guard guard{ mutex };
 
 		// Do not rebroadcast local representative votes
-		if (!reps.exists (vote->account) && !queue_hashes.contains (vote->signature))
+		if (!bootstrap_phase_active () && !reps.exists (vote->account) && !queue_hashes.contains (vote->signature))
 		{
 			added = queue.push (vote, tier);
 			if (added)
@@ -203,6 +208,12 @@ void nano::vote_rebroadcaster::run ()
 			continue; // Nothing to process
 		}
 
+		if (bootstrap_phase_active ())
+		{
+			discard_queue ();
+			continue;
+		}
+
 		// Wait for spare capacity if our network traffic is too high
 		if (!check_capacity ())
 		{
@@ -274,6 +285,21 @@ bool nano::vote_rebroadcaster::check_capacity () const
 	else
 	{
 		return network.check_capacity_fanout (nano::transport::traffic_type::vote_rebroadcast);
+	}
+}
+
+bool nano::vote_rebroadcaster::bootstrap_phase_active () const
+{
+	return !ledger.bootstrap_height_reached ();
+}
+
+void nano::vote_rebroadcaster::discard_queue ()
+{
+	debug_assert (!mutex.try_lock ());
+
+	while (!queue.empty ())
+	{
+		next ();
 	}
 }
 

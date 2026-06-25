@@ -12,6 +12,7 @@
 #include <nano/node/vote_rebroadcaster.hpp>
 #include <nano/node/vote_router.hpp>
 #include <nano/node/wallet.hpp>
+#include <nano/secure/ledger.hpp>
 #include <nano/test_common/chains.hpp>
 #include <nano/test_common/system.hpp>
 #include <nano/test_common/testutil.hpp>
@@ -332,6 +333,36 @@ TEST (vote_rebroadcaster, basic_rebroadcast)
 	// Verify processing and rebroadcast stats
 	ASSERT_TIMELY (5s, node.stats.count (nano::stat::type::vote_rebroadcaster, nano::stat::detail::process) > 0);
 	ASSERT_TIMELY (5s, node.stats.count (nano::stat::type::vote_rebroadcaster, nano::stat::detail::rebroadcast) > 0);
+}
+
+// Verifies that vote rebroadcasting is suppressed before the bootstrap confirmation height is reached
+TEST (vote_rebroadcaster, disabled_before_bootstrap_height_reached)
+{
+	nano::test::system system;
+
+	nano::node_config config = system.default_config ();
+	config.backlog_scan->enable = false;
+	config.hinted_scheduler->enable = false;
+	config.optimistic_scheduler->enable = false;
+
+	auto & node = *system.add_node (config);
+	auto & peer_node = *system.add_node (config);
+
+	auto block = nano::test::setup_chain (system, node, 1, nano::dev::genesis_key, false).front ();
+	ASSERT_TRUE (nano::test::start_election (system, node, block->hash ()));
+	ASSERT_NE (nano::rep_tier::none, node.rep_tiers.tier (nano::dev::genesis_key.pub));
+
+	node.ledger.bootstrap_weights.max_blocks = node.ledger.block_count () + 1000;
+	ASSERT_FALSE (node.ledger.bootstrap_height_reached ());
+
+	auto vote = nano::test::make_vote (nano::dev::genesis_key, { block->hash () });
+
+	node.stats.clear ();
+	node.process_active (vote);
+
+	ASSERT_TIMELY (5s, node.stats.count (nano::stat::type::vote_processor, nano::stat::detail::process) > 0);
+	ASSERT_ALWAYS_EQ (250ms, 0, node.stats.count (nano::stat::type::vote_rebroadcaster, nano::stat::detail::queued));
+	ASSERT_ALWAYS_EQ (250ms, 0, node.stats.count (nano::stat::type::vote_rebroadcaster, nano::stat::detail::rebroadcast));
 }
 
 // Verifies that votes from local wallet representatives are not rebroadcasted

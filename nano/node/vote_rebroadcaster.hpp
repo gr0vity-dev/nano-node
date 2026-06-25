@@ -160,6 +160,8 @@ private:
 	std::pair<std::shared_ptr<nano::vote>, nano::rep_tier> next ();
 	size_t broadcast (std::shared_ptr<nano::vote> const &);
 	bool check_capacity () const;
+	bool bootstrap_phase_active () const;
+	void discard_queue ();
 
 private:
 	// Queue of recently processed votes to potentially rebroadcast
