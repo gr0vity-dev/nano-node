@@ -32,6 +32,7 @@ class qualified_root;
 class account;
 
 class block;
+class state_signature_verification;
 class block_details;
 class block_visitor;
 class container_info;

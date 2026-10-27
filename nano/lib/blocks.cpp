@@ -1941,3 +1941,35 @@ void nano::receive_block::operator() (nano::object_stream & obs) const
 	obs.write ("signature", signature);
 	obs.write ("work", work);
 }
+
+nano::state_signature_verification::state_signature_verification (nano::state_block const & block, bool valid_a) :
+	hashables{ block.hashables },
+	hash{ block.hash () },
+	signature{ block.signature },
+	valid{ valid_a }
+{
+}
+
+nano::state_signature_verification nano::state_signature_verification::verify (nano::state_block const & block)
+{
+	// Refresh our value copy: a cached hash alone cannot certify mutable hashables.
+	nano::state_block snapshot{ block };
+	snapshot.refresh ();
+	auto const valid = !nano::validate_message (snapshot.hashables.account, snapshot.hash (), snapshot.signature);
+	return state_signature_verification{ snapshot, valid };
+}
+
+std::optional<bool> nano::state_signature_verification::result_for (nano::state_block const & block) const
+{
+	if (hashables.account == block.hashables.account
+	&& hashables.previous == block.hashables.previous
+	&& hashables.representative == block.hashables.representative
+	&& hashables.balance == block.hashables.balance
+	&& hashables.link == block.hashables.link
+	&& signature == block.signature
+	&& hash == block.hash ())
+	{
+		return valid;
+	}
+	return std::nullopt;
+}

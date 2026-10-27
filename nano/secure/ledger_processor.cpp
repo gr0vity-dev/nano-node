@@ -16,9 +16,10 @@
 #include <nano/store/ledger/topology.hpp>
 #include <nano/store/ledger_store.hpp>
 
-nano::ledger_processor::ledger_processor (nano::secure::write_transaction const & transaction_a, nano::ledger & ledger_a) :
+nano::ledger_processor::ledger_processor (nano::secure::write_transaction const & transaction_a, nano::ledger & ledger_a, nano::state_signature_verification const * signature_verification_a) :
 	transaction (transaction_a),
-	ledger (ledger_a)
+	ledger (ledger_a),
+	signature_verification{ signature_verification_a }
 {
 }
 
@@ -317,10 +318,12 @@ void nano::ledger_processor::state_block_impl (nano::state_block & block_a)
 	result = existing ? nano::block_status::old : nano::block_status::progress; // Have we seen this block before? (Unambiguous)
 	if (result == nano::block_status::progress)
 	{
-		result = validate_message (block_a.hashables.account, hash, block_a.signature) ? nano::block_status::bad_signature : nano::block_status::progress; // Is this block signed correctly (Unambiguous)
+		auto const verified = !ledger.is_epoch_link (block_a.hashables.link) && signature_verification != nullptr ? signature_verification->result_for (block_a) : std::nullopt;
+		auto const signature_valid = verified ? *verified : !validate_message (block_a.hashables.account, hash, block_a.signature);
+		result = signature_valid ? nano::block_status::progress : nano::block_status::bad_signature; // Is this block signed correctly (Unambiguous)
 		if (result == nano::block_status::progress)
 		{
-			debug_assert (!validate_message (block_a.hashables.account, hash, block_a.signature));
+			debug_assert (signature_valid);
 			result = block_a.hashables.account.is_zero () ? nano::block_status::opened_burn_account : nano::block_status::progress; // Is this for the burn account? (Unambiguous)
 			if (result == nano::block_status::progress)
 			{

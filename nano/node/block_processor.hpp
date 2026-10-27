@@ -120,7 +120,7 @@ private:
 	void run ();
 
 	/// Processes a single block into the ledger and handles the result (e.g. stores gapped blocks as unchecked)
-	nano::block_status process_one (secure::write_transaction const &, nano::block_context const &, bool forced = false);
+	nano::block_status process_one (secure::write_transaction const &, nano::block_context const &, bool forced, nano::state_signature_verification const *);
 	/// Processes the next batch of blocks under a single write transaction and queues result notifications
 	void process_batch (nano::unique_lock<nano::mutex> &);
 	/// Pops up to max_count blocks from the queue

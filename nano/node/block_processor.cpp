@@ -18,6 +18,7 @@
 #include <nano/secure/ledger_set_any.hpp>
 
 #include <utility>
+#include <vector>
 
 /*
  * block_processor
@@ -438,6 +439,25 @@ void nano::block_processor::process_batch (nano::unique_lock<nano::mutex> & lock
 
 	lock.unlock ();
 
+	// Keep eligibility reads and individual signature work outside the writer permit.
+	// Proofs are scoped to this already selected, ordered and bounded batch.
+	std::vector<std::optional<nano::state_signature_verification>> signatures (batch.size ());
+	{
+		auto read = ledger.tx_begin_read ();
+		for (size_t i = 0; i < batch.size (); ++i)
+		{
+			auto const & ctx = batch[i];
+			if (ctx.source != nano::block_source::forced && ctx.block->type () == nano::block_type::state)
+			{
+				auto const & block = static_cast<nano::state_block const &> (*ctx.block);
+				if (!ledger.is_epoch_link (block.hashables.link) && !ledger.any.block_exists_or_pruned (read, block.hash ()))
+				{
+					signatures[i] = nano::state_signature_verification::verify (block);
+				}
+			}
+		}
+	} // Release the read transaction before requesting the FIFO writer.
+
 	auto transaction = ledger.tx_begin_write (nano::store::writer::block_processor);
 
 	nano::timer<std::chrono::milliseconds> timer;
@@ -449,8 +469,9 @@ void nano::block_processor::process_batch (nano::unique_lock<nano::mutex> & lock
 
 	std::deque<std::pair<nano::block_status, nano::block_context>> processed;
 
-	for (auto & ctx : batch)
+	for (size_t i = 0; i < batch.size (); ++i)
 	{
+		auto & ctx = batch[i];
 		auto const hash = ctx.block->hash ();
 		bool const force = ctx.source == nano::block_source::forced;
 
@@ -464,7 +485,7 @@ void nano::block_processor::process_batch (nano::unique_lock<nano::mutex> & lock
 
 		number_of_blocks_processed++;
 
-		auto result = process_one (transaction, ctx, force);
+		auto result = process_one (transaction, ctx, force, signatures[i] ? &*signatures[i] : nullptr);
 		processed.emplace_back (result, std::move (ctx));
 	}
 
@@ -485,11 +506,11 @@ void nano::block_processor::process_batch (nano::unique_lock<nano::mutex> & lock
 	});
 }
 
-nano::block_status nano::block_processor::process_one (secure::write_transaction const & transaction_a, nano::block_context const & context, bool const forced_a)
+nano::block_status nano::block_processor::process_one (secure::write_transaction const & transaction_a, nano::block_context const & context, bool const forced_a, nano::state_signature_verification const * signature_verification)
 {
 	auto block = context.block;
 	auto const hash = block->hash ();
-	nano::block_status result = ledger.process (transaction_a, block);
+	nano::block_status result = ledger.process (transaction_a, block, signature_verification);
 
 	stats.inc (nano::stat::type::block_processor_result, to_stat_detail (result));
 	stats.inc (nano::stat::type::block_processor_source, to_stat_detail (context.source));

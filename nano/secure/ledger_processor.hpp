@@ -10,7 +10,7 @@ namespace nano
 class ledger_processor final : public nano::mutable_block_visitor
 {
 public:
-	ledger_processor (nano::secure::write_transaction const &, nano::ledger &);
+	ledger_processor (nano::secure::write_transaction const &, nano::ledger &, nano::state_signature_verification const *);
 
 	void send_block (nano::send_block &) override;
 	void receive_block (nano::receive_block &) override;
@@ -26,6 +26,8 @@ public:
 	nano::block_status result{ nano::block_status::invalid };
 
 private:
+	nano::state_signature_verification const * signature_verification;
+
 	bool validate_epoch_block (nano::state_block const & block);
 
 	// Returns 1 + max(deps' topo_height) or 0 (unindexed sentinel) when the index is disabled or any dependency is itself unindexed

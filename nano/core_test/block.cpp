@@ -947,3 +947,82 @@ TEST (block, representative_field)
 	ASSERT_FALSE (receive.representative_field ().has_value ());
 	ASSERT_EQ (key.pub, change.representative_field ().value ());
 }
+
+// Value-contract gates use real crypto and raw block inputs, without a node or store.
+TEST (block, state_signature_verification_fields)
+{
+	nano::raw_key key{ 1 };
+	auto const account = nano::pub_key (key);
+	nano::state_block original{ account, 2, 3, 4, 5, key, account, 0 };
+	auto const proof = nano::state_signature_verification::verify (original);
+	ASSERT_EQ (proof.result_for (original), std::optional<bool>{ true });
+	for (unsigned field = 0; field < 6; ++field)
+	{
+		SCOPED_TRACE (field);
+		nano::state_block changed{ original };
+		// Populate the public cache before changing raw signed data. Field binding
+		// must reject this input without trusting its now-stale cached hash.
+		changed.hash ();
+		switch (field)
+		{
+			case 0:
+				changed.hashables.account.bytes[0] ^= 1;
+				break;
+			case 1:
+				changed.hashables.previous.bytes[0] ^= 1;
+				break;
+			case 2:
+				changed.hashables.representative.bytes[0] ^= 1;
+				break;
+			case 3:
+				changed.hashables.balance.bytes[0] ^= 1;
+				break;
+			case 4:
+				changed.hashables.link.bytes[0] ^= 1;
+				break;
+			case 5:
+				changed.signature.bytes[0] ^= 1;
+				break;
+		}
+		ASSERT_FALSE (proof.result_for (changed).has_value ());
+		changed.refresh ();
+		ASSERT_FALSE (proof.result_for (changed).has_value ());
+		auto const changed_proof = nano::state_signature_verification::verify (changed);
+		ASSERT_EQ (changed_proof.result_for (changed), std::optional<bool>{ false });
+	}
+	// Work is not signed; its validation remains the ledger's responsibility.
+	original.block_work_set (1);
+	ASSERT_EQ (proof.result_for (original), std::optional<bool>{ true });
+}
+
+TEST (block, state_signature_verification_refresh)
+{
+	nano::raw_key key{ 1 };
+	auto const account = nano::pub_key (key);
+	nano::state_block input{ account, 2, 3, 4, 5, key, account, 0 };
+	input.hash ();
+	input.hashables.balance.bytes[0] ^= 1;
+	// Verification must refresh its own snapshot, not certify the old cached hash.
+	auto const proof = nano::state_signature_verification::verify (input);
+	input.refresh ();
+	ASSERT_EQ (proof.result_for (input), std::optional<bool>{ false });
+}
+
+TEST (block, state_signature_verification_cached_hash)
+{
+	nano::raw_key key{ 1 };
+	auto const account = nano::pub_key (key);
+	nano::state_block input{ account, 2, 3, 4, 5, key, account, 0 };
+	input.hash ();
+	input.hashables.balance.bytes[0] ^= 1;
+	auto const proof = nano::state_signature_verification::verify (input);
+	// Signed fields now match the proof, but the caller's cached hash does not.
+	// Debug enforces block immutability; Release must reject proof reuse itself.
+#ifndef NDEBUG
+	ASSERT_DEATH (proof.result_for (input), "cached_hash == generate_hash");
+#else
+	ASSERT_FALSE (proof.result_for (input).has_value ());
+#endif
+	input.refresh ();
+	ASSERT_EQ (proof.result_for (input), std::optional<bool>{ false });
+}

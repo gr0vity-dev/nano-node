@@ -407,6 +407,22 @@ protected:
 	void generate_hash (blake2b_state &) const override;
 };
 
+/** Individual verification result bound to the exact signed state-block data. */
+class state_signature_verification final
+{
+public:
+	static state_signature_verification verify (nano::state_block const &);
+	std::optional<bool> result_for (nano::state_block const &) const;
+
+private:
+	state_signature_verification (nano::state_block const &, bool valid);
+
+	nano::state_hashables hashables;
+	nano::block_hash hash;
+	nano::signature signature;
+	bool valid;
+};
+
 class block_visitor
 {
 public:

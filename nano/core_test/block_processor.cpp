@@ -9,6 +9,7 @@
 #include <nano/node/nodeconfig.hpp>
 #include <nano/secure/common.hpp>
 #include <nano/secure/ledger.hpp>
+#include <nano/secure/ledger_set_any.hpp>
 #include <nano/test_common/chains.hpp>
 #include <nano/test_common/system.hpp>
 #include <nano/test_common/testutil.hpp>
@@ -20,6 +21,7 @@
 #include <atomic>
 #include <mutex>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 using namespace std::chrono_literals;
@@ -509,4 +511,136 @@ TEST (block_processor, backlog_throttling)
 
 	// Ensure no more than 10 blocks are processed in 5 seconds
 	ASSERT_NEVER (5s, node.ledger.block_count () > 21 + 10);
+}
+
+// Fast production-path development gates; full core/RPC/CLI acceptance is separate.
+TEST (block_processor, signature_writer_state_batch)
+{
+	nano::test::system system;
+	auto & node = *system.add_node ();
+	nano::block_builder builder;
+	nano::keypair destination, wrong_signer;
+	auto previous = nano::dev::genesis->hash ();
+	auto balance = nano::dev::constants.genesis_amount;
+	std::deque<std::shared_ptr<nano::block>> blocks;
+	for (unsigned i = 0; i < 3; ++i)
+	{
+		auto block = builder.state ().account (nano::dev::genesis_key.pub).previous (previous).representative (nano::dev::genesis_key.pub).balance (--balance).link (destination.pub).sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub).work (*system.work.generate (previous)).build ();
+		previous = block->hash ();
+		blocks.push_back (block);
+	}
+	auto bad_key = builder.state ().account (nano::dev::genesis_key.pub).previous (previous).representative (nano::dev::genesis_key.pub).balance (balance - 1).link (destination.pub).sign (wrong_signer.prv, wrong_signer.pub).work (*system.work.generate (previous)).build ();
+	auto bad_hash = builder.state ().account (nano::dev::genesis_key.pub).previous (previous).representative (nano::dev::genesis_key.pub).balance (balance - 2).link (destination.pub).sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub).work (*system.work.generate (previous)).build ();
+	bad_hash->signature_set (blocks.back ()->block_signature ()); // Raw malformed signed input.
+	blocks.push_back (bad_key);
+	blocks.push_back (bad_hash);
+	auto batch_duplicate = builder.state ().account (nano::dev::genesis_key.pub).previous (nano::dev::genesis->hash ()).representative (nano::dev::genesis_key.pub).balance (nano::dev::constants.genesis_amount - 1).link (destination.pub).sign (wrong_signer.prv, wrong_signer.pub).work (*system.work.generate (nano::dev::genesis->hash ())).build ();
+	blocks.push_back (batch_duplicate); // Negative preverification cannot override writer-owned old status.
+	ASSERT_EQ (node.block_processor.add_many (blocks, nano::block_source::local).added, 6);
+	ASSERT_TIMELY (2s, node.block_or_pruned_exists (previous));
+	ASSERT_TIMELY (2s, node.stats.count (nano::stat::type::block_processor_result, nano::stat::detail::bad_signature) == 2);
+	ASSERT_TIMELY (2s, node.stats.count (nano::stat::type::block_processor_result, nano::stat::detail::old) == 1);
+	ASSERT_EQ (node.balance (nano::dev::genesis_key.pub), balance);
+	ASSERT_EQ (node.ledger.block_count (), 4);
+	ASSERT_FALSE (node.block_or_pruned_exists (bad_key->hash ()));
+	ASSERT_FALSE (node.block_or_pruned_exists (bad_hash->hash ()));
+	// Stored duplicates remain old even with a changed signature.
+	auto old = builder.state ().account (nano::dev::genesis_key.pub).previous (nano::dev::genesis->hash ()).representative (nano::dev::genesis_key.pub).balance (nano::dev::constants.genesis_amount - 1).link (destination.pub).sign (wrong_signer.prv, wrong_signer.pub).work (*system.work.generate (nano::dev::genesis->hash ())).build ();
+	ASSERT_EQ (node.block_processor.add_blocking (old, nano::block_source::local), nano::block_status::old);
+	ASSERT_EQ (node.balance (nano::dev::genesis_key.pub), balance);
+	system.stop ();
+}
+
+TEST (block_processor, signature_writer_proof_binding)
+{
+	static_assert (!std::is_default_constructible_v<nano::state_signature_verification>);
+	static_assert (!std::is_constructible_v<nano::state_signature_verification, nano::state_block const &, bool>);
+	nano::test::system system;
+	auto & node = *system.add_node ();
+	nano::block_builder builder;
+	nano::keypair destination, wrong_key;
+	auto const previous = nano::dev::genesis->hash ();
+	auto const balance = nano::dev::constants.genesis_amount;
+	auto valid = builder.state ().account (nano::dev::genesis_key.pub).previous (previous).representative (nano::dev::genesis_key.pub).balance (balance - 1).link (destination.pub).sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub).work (*system.work.generate (previous)).build ();
+	// The ledger's own optional-proof contract: proof comes from its real upstream
+	// cryptographic producer, never an assembled boolean/hash/cache entry.
+	auto proof = nano::state_signature_verification::verify (*valid);
+	for (unsigned change = 0; change < 4; ++change)
+	{
+		auto input = builder.state ().account (change == 2 ? wrong_key.pub : nano::dev::genesis_key.pub).previous (previous).representative (nano::dev::genesis_key.pub).balance (balance - (change == 1 ? 2 : 1)).link (destination.pub).sign (wrong_key.prv, wrong_key.pub).work (*system.work.generate (previous)).build ();
+		if (change == 1 || change == 2)
+		{
+			input->signature_set (valid->signature);
+		}
+		{
+			auto transaction = node.ledger.tx_begin_write ();
+			ASSERT_EQ (node.ledger.process (transaction, input, change == 3 ? nullptr : &proof), nano::block_status::bad_signature);
+		}
+		ASSERT_FALSE (node.block_or_pruned_exists (input->hash ()));
+		ASSERT_EQ (node.balance (nano::dev::genesis_key.pub), balance);
+		ASSERT_EQ (node.ledger.block_count (), 1);
+	}
+	{
+		auto transaction = node.ledger.tx_begin_write ();
+		ASSERT_EQ (node.ledger.process (transaction, valid, &proof), nano::block_status::progress);
+	}
+	ASSERT_TRUE (node.block_or_pruned_exists (valid->hash ()));
+	ASSERT_EQ (node.balance (nano::dev::genesis_key.pub), balance - 1);
+	system.stop ();
+}
+
+TEST (block_processor, signature_writer_excluded_paths)
+{
+	nano::test::system system;
+	auto & node = *system.add_node ();
+	nano::block_builder builder;
+	nano::keypair destination, other;
+	auto const balance = nano::dev::constants.genesis_amount;
+	auto const genesis = nano::dev::genesis->hash ();
+	auto legacy = builder.send ().previous (genesis).destination (destination.pub).balance (balance - 1).sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub).work (*system.work.generate (genesis)).build ();
+	ASSERT_EQ (node.block_processor.add_blocking (legacy, nano::block_source::local), nano::block_status::progress);
+	auto ordinary = builder.state ().account (nano::dev::genesis_key.pub).previous (legacy->hash ()).representative (nano::dev::genesis_key.pub).balance (balance - 2).link (destination.pub).sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub).work (*system.work.generate (legacy->hash ())).build ();
+	ASSERT_EQ (node.block_processor.add_blocking (ordinary, nano::block_source::local), nano::block_status::progress);
+	auto forced = builder.state ().account (nano::dev::genesis_key.pub).previous (legacy->hash ()).representative (nano::dev::genesis_key.pub).balance (balance - 3).link (other.pub).sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub).work (*system.work.generate (legacy->hash ())).build ();
+	node.block_processor.force (forced);
+	ASSERT_TIMELY (2s, node.block_or_pruned_exists (forced->hash ()) && !node.block_or_pruned_exists (ordinary->hash ()));
+	ASSERT_EQ (node.balance (nano::dev::genesis_key.pub), balance - 3);
+	auto epoch_open = builder.state ().account (destination.pub).previous (0).representative (0).balance (0).link (node.ledger.epoch_link (nano::epoch::epoch_1)).sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub).work (*system.work.generate (destination.pub)).build ();
+	ASSERT_EQ (node.block_processor.add_blocking (epoch_open, nano::block_source::local), nano::block_status::progress);
+	ASSERT_TRUE (node.block_or_pruned_exists (epoch_open->hash ()));
+	auto read = node.ledger.tx_begin_read ();
+	auto info = node.ledger.any.account_get (read, destination.pub);
+	ASSERT_TRUE (info);
+	ASSERT_EQ (info->epoch (), nano::epoch::epoch_1);
+	system.stop ();
+}
+
+TEST (block_processor, signature_writer_pruned_duplicate)
+{
+	nano::test::system system;
+	auto config = system.default_config ();
+	config.enable_voting = false; // Required by the production pruning mode.
+	nano::node_flags flags;
+	flags.enable_pruning = true;
+	flags.disable_topo_index = true; // Production pruning/index compatibility contract.
+	auto & node = *system.add_node (config, flags);
+	nano::block_builder builder;
+	nano::keypair destination, wrong_key;
+	auto const genesis = nano::dev::genesis->hash ();
+	auto send = builder.state ().account (nano::dev::genesis_key.pub).previous (genesis).representative (nano::dev::genesis_key.pub).balance (nano::dev::constants.genesis_amount - 1).link (destination.pub).sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub).work (*system.work.generate (genesis)).build ();
+	ASSERT_EQ (node.block_processor.add_blocking (send, nano::block_source::local), nano::block_status::progress);
+	auto successor = builder.state ().account (nano::dev::genesis_key.pub).previous (send->hash ()).representative (nano::dev::genesis_key.pub).balance (nano::dev::constants.genesis_amount - 2).link (destination.pub).sign (nano::dev::genesis_key.prv, nano::dev::genesis_key.pub).work (*system.work.generate (send->hash ())).build ();
+	ASSERT_EQ (node.block_processor.add_blocking (successor, nano::block_source::local), nano::block_status::progress);
+	{
+		auto write = node.ledger.tx_begin_write ();
+		node.ledger.cement (write, send->hash ());
+		ASSERT_EQ (node.ledger.pruning_action (write, send->hash (), 128), 1);
+	}
+	ASSERT_TRUE (node.block_or_pruned_exists (send->hash ()));
+	ASSERT_EQ (node.block (send->hash ()), nullptr);
+	auto duplicate = builder.state ().account (nano::dev::genesis_key.pub).previous (genesis).representative (nano::dev::genesis_key.pub).balance (nano::dev::constants.genesis_amount - 1).link (destination.pub).sign (wrong_key.prv, wrong_key.pub).work (*system.work.generate (genesis)).build ();
+	ASSERT_EQ (node.block_processor.add_blocking (duplicate, nano::block_source::local), nano::block_status::old);
+	ASSERT_EQ (node.ledger.pruned_count (), 1);
+	ASSERT_EQ (node.balance (nano::dev::genesis_key.pub), nano::dev::constants.genesis_amount - 2);
+	system.stop ();
 }
